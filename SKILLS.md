@@ -51,12 +51,12 @@ data class SkillDefinition(
 
 ## Current catalogue (this repository)
 
-| Skill ID | Category | Executes | Risk | Status |
-|---|---|---|---|---|
-| `personal.reminder` | Personal | On-device (Android `domain`) | LOW | **Implemented** — create/list/complete a reminder, unit-tested |
-| `web.search` | Web | Backend | MEDIUM | **Implemented** — mocked search provider, real pipeline |
-| `docs.summarize` | Documents | Backend | LOW | **Implemented** — mocked summarizer, real pipeline |
-| `developer.analyze_repo` | Developer | Backend | LOW (read-only) | **Implemented** — mocked repo analysis, real pipeline |
+| Skill ID | Category | Executes | Risk | Usage cost | Status |
+|---|---|---|---|---|---|
+| `personal.reminder` | Personal | On-device (Android `domain`) | LOW | Free | **Implemented** — create/list/complete a reminder, unit-tested |
+| `web.search` | Web | Backend | LOW (search, per the rubric above) | 2 credits (real infra cost) | **Implemented** — mocked search provider, real pipeline |
+| `docs.summarize` | Documents | Backend | LOW | 1 credit | **Implemented** — mocked summarizer, real pipeline |
+| `developer.analyze_repo` | Developer | Backend | LOW (read-only) | 3 credits | **Implemented** — mocked repo analysis, real pipeline |
 | Phone (`phone.*`) | Phone | — | — | Foundation only: category + agent contract registered, no handler yet |
 | Business (`business.*`) | Business | — | — | Foundation only |
 | Research (`research.*`) | Research | — | — | Foundation only |
