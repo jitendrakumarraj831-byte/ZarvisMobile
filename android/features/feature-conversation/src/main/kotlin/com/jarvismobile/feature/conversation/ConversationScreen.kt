@@ -3,10 +3,10 @@ package com.jarvismobile.feature.conversation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -18,6 +18,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jarvismobile.core.ui.components.AiOrb
@@ -30,17 +31,32 @@ import com.jarvismobile.core.ui.theme.JarvisSpacing
  * The full voice/text conversation surface — MASTER_SPEC.md §11, §23. Reached from Home's
  * orb/composer/quick-categories; every [VoiceState] is rendered distinctly via [AiOrb] and
  * a status line so the user always knows what JARVIS is doing.
+ *
+ * @param initialText a pre-composed utterance to submit immediately on arrival (from Home's
+ * text composer or a quick-category example).
+ * @param autoListen when true and [initialText] is absent, starts listening immediately on
+ * arrival (from tapping Home's orb/mic — the user's tap already expressed voice intent, so
+ * landing here shouldn't require a second tap).
+ * @param prefillText when [initialText]/[autoListen] are absent, populates the composer with
+ * this text for the user to review/edit before sending (from a Home quick-category example —
+ * a suggestion is not the same as the user having composed and sent it).
  */
 @Composable
 fun ConversationScreen(
     initialText: String?,
+    autoListen: Boolean = false,
+    prefillText: String? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
 
-    LaunchedEffect(initialText) {
-        initialText?.let { viewModel.submitInitialText(it) }
+    LaunchedEffect(initialText, autoListen, prefillText) {
+        when {
+            initialText != null -> viewModel.submitInitialText(initialText)
+            autoListen -> viewModel.startListening()
+            prefillText != null -> viewModel.prefillComposer(prefillText)
+        }
     }
 
     LaunchedEffect(uiState.turns.size) {
@@ -48,14 +64,25 @@ fun ConversationScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().weight(1f),
-            state = listState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(JarvisSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(JarvisSpacing.md),
-        ) {
-            items(uiState.turns) { turn ->
-                TurnBubble(turn)
+        Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+            if (uiState.turns.isEmpty()) {
+                Text(
+                    text = "Say or type what you'd like JARVIS to do.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center).padding(JarvisSpacing.lg),
+                )
+            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(JarvisSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(JarvisSpacing.md),
+            ) {
+                items(uiState.turns) { turn ->
+                    TurnBubble(turn)
+                }
             }
         }
 
@@ -69,9 +96,7 @@ fun ConversationScreen(
                 AiOrb(
                     state = uiState.voiceState,
                     size = 72.dp,
-                    onClick = {
-                        if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening()
-                    },
+                    onClick = { onOrbClick(uiState.voiceState, viewModel) },
                 )
             }
             JarvisComposer(
@@ -82,6 +107,19 @@ fun ConversationScreen(
                 enabled = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.LISTENING || uiState.voiceState == VoiceState.ERROR,
             )
         }
+    }
+}
+
+/**
+ * MASTER_SPEC.md §11: tapping the orb during LISTENING cancels the capture; tapping it during
+ * UNDERSTANDING/PLANNING/EXECUTING/SPEAKING interrupts the in-flight turn cleanly (real
+ * coroutine cancellation in the ViewModel, not a force-kill); otherwise it starts listening.
+ */
+private fun onOrbClick(state: VoiceState, viewModel: ConversationViewModel) {
+    when (state) {
+        VoiceState.LISTENING -> viewModel.cancelListening()
+        VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING, VoiceState.SPEAKING -> viewModel.interruptTurn()
+        VoiceState.IDLE, VoiceState.ERROR -> viewModel.startListening()
     }
 }
 

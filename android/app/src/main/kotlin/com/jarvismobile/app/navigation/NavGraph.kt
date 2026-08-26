@@ -21,14 +21,22 @@ object Routes {
     const val HOME = "home"
     const val CONVERSATION = "conversation"
     const val CONVERSATION_ARG_INITIAL_TEXT = "initialText"
+    const val CONVERSATION_ARG_AUTO_LISTEN = "autoListen"
+    const val CONVERSATION_ARG_PREFILL_TEXT = "prefillText"
     const val TASKS = "tasks"
     const val DEVELOPER = "developer"
     const val SUBSCRIPTION = "subscription"
     const val SETTINGS = "settings"
 }
 
+/**
+ * @param onSessionCleared called when the user clears their local session from Settings —
+ * wired by the caller to the app-level startup gate's retry/bootstrap, so a cleared session
+ * actually gets a fresh account instead of leaving the app authenticated against tokens that
+ * no longer exist (see `app/AppStartupViewModel.kt`).
+ */
 @Composable
-fun JarvisNavGraph(startAtOnboarding: Boolean) {
+fun JarvisNavGraph(startAtOnboarding: Boolean, onSessionCleared: () -> Unit) {
     val navController = rememberNavController()
 
     NavHost(
@@ -47,9 +55,14 @@ fun JarvisNavGraph(startAtOnboarding: Boolean) {
 
         composable(Routes.HOME) {
             HomeScreen(
-                onNavigateToConversation = { initialText ->
-                    val encoded = Uri.encode(initialText ?: "")
-                    navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded")
+                onStartVoice = {
+                    navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_AUTO_LISTEN}=true")
+                },
+                onSubmitText = { text ->
+                    navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=${Uri.encode(text)}")
+                },
+                onPrefillText = { text ->
+                    navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_PREFILL_TEXT}=${Uri.encode(text)}")
                 },
                 onNavigateToTasks = { navController.navigate(Routes.TASKS) },
                 onNavigateToSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
@@ -59,31 +72,37 @@ fun JarvisNavGraph(startAtOnboarding: Boolean) {
         }
 
         composable(
-            route = "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}={${Routes.CONVERSATION_ARG_INITIAL_TEXT}}",
+            route = "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}={${Routes.CONVERSATION_ARG_INITIAL_TEXT}}" +
+                "&${Routes.CONVERSATION_ARG_AUTO_LISTEN}={${Routes.CONVERSATION_ARG_AUTO_LISTEN}}" +
+                "&${Routes.CONVERSATION_ARG_PREFILL_TEXT}={${Routes.CONVERSATION_ARG_PREFILL_TEXT}}",
             arguments = listOf(
                 navArgument(Routes.CONVERSATION_ARG_INITIAL_TEXT) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(Routes.CONVERSATION_ARG_AUTO_LISTEN) {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+                navArgument(Routes.CONVERSATION_ARG_PREFILL_TEXT) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStackEntry ->
-            val raw = backStackEntry.arguments?.getString(Routes.CONVERSATION_ARG_INITIAL_TEXT)
-            ConversationScreen(initialText = raw?.takeIf { it.isNotBlank() })
+            val initialText = backStackEntry.arguments?.getString(Routes.CONVERSATION_ARG_INITIAL_TEXT)?.takeIf { it.isNotBlank() }
+            val autoListen = backStackEntry.arguments?.getBoolean(Routes.CONVERSATION_ARG_AUTO_LISTEN) ?: false
+            val prefillText = backStackEntry.arguments?.getString(Routes.CONVERSATION_ARG_PREFILL_TEXT)?.takeIf { it.isNotBlank() }
+            ConversationScreen(initialText = initialText, autoListen = autoListen, prefillText = prefillText)
         }
 
         composable(Routes.TASKS) { TasksScreen() }
         composable(Routes.DEVELOPER) { DeveloperScreen() }
         composable(Routes.SUBSCRIPTION) { SubscriptionScreen() }
         composable(Routes.SETTINGS) {
-            SettingsScreen(
-                onSessionCleared = {
-                    // Full account switching is planned (MASTER_SPEC.md §29) — clearing the
-                    // local session today just returns to Home, where the next app start
-                    // bootstraps a fresh trial account.
-                    navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } }
-                },
-            )
+            SettingsScreen(onSessionCleared = onSessionCleared)
         }
     }
 }
