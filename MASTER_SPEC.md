@@ -635,8 +635,13 @@ Permission(id, accountId, type, granted, grantedAt)
   skill's handler; the AI provider only receives what's needed for the current turn plus
   explicitly-approved memory.
 - User-facing privacy controls mirror §17 (view/delete/export/clear/delete-account).
-- Analytics (§30) are aggregate/event-based (feature used, task succeeded/failed, latency)
-  — never raw conversation content or document content.
+- **Observability stays privacy-respecting by construction.** Error reporting, task-status
+  tracking, AI-request tracing, tool-execution status, and performance monitoring all key
+  off structured identifiers (`taskId`, `skillId`, `toolId`, status, latency, error class)
+  — never raw conversation or document content. `ToolExecution` records (§24) apply the
+  same redaction facade as logging (§15) before persistence, so tracing data and audit
+  logs can't become a side channel for sensitive content. Usage analytics (feature used,
+  task succeeded/failed, latency) are aggregate/event-based only.
 - A `PRIVACY.md` (repo root) documents this in user-facing language; this section is the
   binding technical policy behind it.
 
