@@ -50,6 +50,48 @@ credentials — the server runs fully functional against mocks with no `.env` at
 which is the default for local development and CI (see
 [AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md) and [SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md)).
 
+## Deployment (and why the Vercel URL 404s)
+
+This repository has **no web frontend** — the product is an Android app (`android/`) plus
+a backend API server (`backend/`); see [MASTER_SPEC.md §1](./MASTER_SPEC.md#1-product-vision).
+A web dashboard is not part of the current specification (the only "dashboard" mentioned
+anywhere in `MASTER_SPEC.md` is a possible *future* internal observability/tracing tool
+under §30 Future Roadmap — not a user-facing product surface, and not scheduled).
+
+If a Vercel project is attached to this GitHub repo, every push triggers a zero-config
+build. Vercel finds no root `package.json`, no static site, and no recognized framework
+(`backend/`'s `package.json` is one directory down and is a plain Node/Express API server,
+not a Vercel-deployable frontend or serverless-function layout) — so it produces an empty
+build output, and every URL on that deployment 404s. **This is expected**, not a bug: there
+is nothing here for Vercel to serve.
+
+`vercel.json` at the repo root sets `"ignoreCommand": "exit 0"`, which tells Vercel to skip
+the build step on every push — a real, minimal configuration fix for the underlying issue
+(a zero-config build attempting to deploy a repo with no deployable web output on every
+push), not a workaround. It stops *future* pushes from producing new empty/404 deployments.
+It does **not** retroactively remove an already-existing 404 deployment/URL — Vercel does
+not revert a project's production alias when a later build is skipped. To fully clear an
+existing 404 page (or stop Vercel from being attached to this repo at all), disconnect or
+delete the Vercel project from the Vercel dashboard (Project → Settings → Git →
+Disconnect, or delete the project) — this repository has no Vercel API access to do that
+programmatically.
+
+If a real web dashboard is added to the product later, update
+[MASTER_SPEC.md §1](./MASTER_SPEC.md#1-product-vision) and §22 (UI/UX System) **first**
+with its scope, then remove `vercel.json`'s `ignoreCommand` and add the frontend's own
+build configuration — never add frontend files solely to make a deployment target stop
+404ing.
+
+The backend itself is not currently suited for Vercel's serverless model even if a route
+were added: its `Store` (see [MASTER_SPEC.md §31](./MASTER_SPEC.md#31-technical-decisions))
+is an in-memory adapter, and serverless functions are stateless and cold-start per
+invocation/instance — every request could see a different, empty store, silently breaking
+auth, entitlements, and tasks. Deploying the backend for real means running it as a
+long-lived Node process (`npm run build && npm start`, per §DEVELOPMENT's Backend section
+above) on a host suited to that (a container, a VM, a platform's "web service"/long-running
+process tier) — and, per the Postgres migration path already documented in §31, backing it
+with real persistent storage before it serves real traffic.
+
 ## Repository conventions
 
 - `MASTER_SPEC.md` is updated **before** any change that alters an architectural decision

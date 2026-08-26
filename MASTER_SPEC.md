@@ -750,3 +750,8 @@ LOW-risk skills.
   not yet schedule an `AlarmManager` trigger or post a notification at the due time — see
   `RoomReminderScheduler`'s doc comment. This is the first concrete gap to close in Phase 4
   (§28).
+- **No web frontend, and none is currently specified.** This product is Android + backend
+  only (§1, §22). An auto-attached Vercel Git integration on the GitHub repo will 404 on
+  every URL because it has no frontend to build — this is expected, not a defect; see
+  `DEVELOPMENT.md` "Deployment (and why the Vercel URL 404s)" for the full diagnosis and
+  the minimal `vercel.json` fix that stops it from producing new broken deployments.
