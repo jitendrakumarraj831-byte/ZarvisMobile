@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Minimal platform theme for the window before Compose takes over — all real theming
+      (colors, typography, dark/light) lives in core-ui's JarvisTheme (Compose), applied in
+      MainActivity. See MASTER_SPEC.md §22.
+    -->
+    <style name="Theme.Jarvis" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
+    </style>
+</resources>

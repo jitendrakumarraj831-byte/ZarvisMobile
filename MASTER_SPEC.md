@@ -612,6 +612,9 @@ Permission(id, accountId, type, granted, grantedAt)
 - `GET  /api/v1/entitlements/me` — resolved plan/usage snapshot
 - `POST /api/v1/billing/webhook` — Play Billing verification callback
 - `POST /api/v1/developer/*` — repo analyze/plan/apply, PR status
+- `POST /api/v1/usage/charge` — records a completed, verified on-device skill execution
+  against the server-authoritative credit ledger, cost looked up server-side by skill id
+  (never client-supplied) — see ARCHITECTURE.md "Backend/Android parity note"
 - Versioned from day one (`/api/v1`), all authenticated routes require the access token,
   all mutating routes are idempotency-key aware for safe client retries.
 
@@ -737,3 +740,13 @@ LOW-risk skills.
 - **Regulatory/compliance** (payment handling, data residency, consumer protection for AI
   agents acting on a user's behalf) is out of scope for this pass and must be revisited
   before any HIGH-risk financial/account-changing skill ships.
+- **No login screen yet.** `SessionRepository` (Android) bootstraps a device-scoped backend
+  account automatically on first launch instead of showing a signup/login UI, so the app is
+  usable immediately (§4.1's "account creation (or guest)" journey resolves to guest for
+  now). Linking that account to a real email/password or OAuth identity — so a trial or
+  purchase follows the user across devices — is planned, not implemented.
+- **`personal.reminder` does not yet trigger an OS-level alert.** The skill validates,
+  persists (Room), and lists/completes reminders through the full Tool pipeline, but does
+  not yet schedule an `AlarmManager` trigger or post a notification at the due time — see
+  `RoomReminderScheduler`'s doc comment. This is the first concrete gap to close in Phase 4
+  (§28).
