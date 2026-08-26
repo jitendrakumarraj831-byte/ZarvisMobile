@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Talking to the JARVIS backend — see MASTER_SPEC.md §9. Not a runtime permission. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Voice input (MASTER_SPEC.md §11). Requested progressively, only when the user first taps the mic (§16). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Required by the personal.reminder skill on Android 13+ (SKILLS.md). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      Only permissions an already-shipped skill actually needs are declared here — see
+      MASTER_SPEC.md §16 "progressive permission requests." Additional permissions
+      (CONTACTS, CALL_PHONE, CAMERA, CALENDAR, LOCATION) are added when the Phone/Business/
+      Research skills that need them ship (see SKILLS.md "Current catalogue").
+    -->
+
+    <application
+        android:name=".JarvisApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Jarvis">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Jarvis">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

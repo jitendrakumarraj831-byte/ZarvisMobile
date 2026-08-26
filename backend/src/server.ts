@@ -7,6 +7,7 @@ import { entitlementsRouter } from "./api/routes/entitlements.js";
 import { orchestratorRouter } from "./api/routes/orchestrator.js";
 import { skillsRouter } from "./api/routes/skills.js";
 import { tasksRouter } from "./api/routes/tasks.js";
+import { usageRouter } from "./api/routes/usage.js";
 import { logger } from "./security/redact.js";
 
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
@@ -21,6 +22,7 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/orchestrator", orchestratorRouter(container.orchestrator));
   app.use("/api/v1/entitlements", entitlementsRouter(container.entitlementPort));
   app.use("/api/v1/tasks", tasksRouter(container.taskService));
+  app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
   app.use("/api/v1/developer", developerRouter(container.pipeline));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier));
 

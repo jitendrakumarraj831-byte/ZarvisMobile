@@ -612,6 +612,9 @@ Permission(id, accountId, type, granted, grantedAt)
 - `GET  /api/v1/entitlements/me` — resolved plan/usage snapshot
 - `POST /api/v1/billing/webhook` — Play Billing verification callback
 - `POST /api/v1/developer/*` — repo analyze/plan/apply, PR status
+- `POST /api/v1/usage/charge` — records a completed, verified on-device skill execution
+  against the server-authoritative credit ledger, cost looked up server-side by skill id
+  (never client-supplied) — see ARCHITECTURE.md "Backend/Android parity note"
 - Versioned from day one (`/api/v1`), all authenticated routes require the access token,
   all mutating routes are idempotency-key aware for safe client retries.
 

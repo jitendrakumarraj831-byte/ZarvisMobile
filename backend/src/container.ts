@@ -29,7 +29,7 @@ export function buildContainer(store: Store = new InMemoryStore()) {
   const taskService = new TaskService(store);
   const billingVerifier = new MockPlayBillingVerifier();
 
-  return { store, registry, pipeline, orchestrator, authService, entitlementPort, taskService, billingVerifier };
+  return { store, registry, pipeline, orchestrator, authService, entitlementPort, usagePort, taskService, billingVerifier };
 }
 
 export type Container = ReturnType<typeof buildContainer>;

@@ -104,6 +104,24 @@ describe("API integration", () => {
     expect(res.status).toBe(409);
   });
 
+  it("usage charge route rejects a skillId that isn't on-device (backend skills are charged automatically)", async () => {
+    const token = await signupAndGetToken();
+    const res = await request(app)
+      .post("/api/v1/usage/charge")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ skillId: "web.search" });
+    expect(res.status).toBe(400);
+  });
+
+  it("usage charge route 404s for an unknown skill id", async () => {
+    const token = await signupAndGetToken();
+    const res = await request(app)
+      .post("/api/v1/usage/charge")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ skillId: "does.not_exist" });
+    expect(res.status).toBe(404);
+  });
+
   it("verifies a mock billing webhook", async () => {
     const res = await request(app)
       .post("/api/v1/billing/webhook")
