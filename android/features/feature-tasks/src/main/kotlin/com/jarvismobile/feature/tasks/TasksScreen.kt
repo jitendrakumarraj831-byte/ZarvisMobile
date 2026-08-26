@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -18,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jarvismobile.core.ui.components.JarvisCard
+import com.jarvismobile.core.ui.components.JarvisGhostButton
 import com.jarvismobile.core.ui.theme.JarvisSpacing
 import com.jarvismobile.data.remote.dto.TaskDto
 
@@ -29,7 +31,11 @@ fun TasksScreen(viewModel: TasksViewModel = hiltViewModel()) {
     Column(modifier = Modifier.fillMaxSize().padding(JarvisSpacing.md)) {
         Text(text = "Tasks", style = MaterialTheme.typography.headlineMedium)
 
-        if (uiState.tasks.isEmpty() && !uiState.isLoading) {
+        if (uiState.isLoading && uiState.tasks.isEmpty()) {
+            CircularProgressIndicator(modifier = Modifier.padding(top = JarvisSpacing.md))
+        }
+
+        if (uiState.tasks.isEmpty() && !uiState.isLoading && uiState.error == null) {
             Text(
                 text = "No tasks yet. Ask JARVIS to do something multi-step, like \"audit my website.\"",
                 style = MaterialTheme.typography.bodyMedium,
@@ -38,7 +44,12 @@ fun TasksScreen(viewModel: TasksViewModel = hiltViewModel()) {
             )
         }
 
-        uiState.error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+        uiState.error?.let { error ->
+            Column(verticalArrangement = Arrangement.spacedBy(JarvisSpacing.xs)) {
+                Text(text = error, color = MaterialTheme.colorScheme.error)
+                JarvisGhostButton(text = "Retry", onClick = viewModel::refresh)
+            }
+        }
 
         LazyColumn(
             contentPadding = PaddingValues(vertical = JarvisSpacing.md),

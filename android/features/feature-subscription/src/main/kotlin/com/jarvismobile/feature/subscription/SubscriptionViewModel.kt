@@ -27,7 +27,12 @@ class SubscriptionViewModel @Inject constructor(
     val uiState: StateFlow<SubscriptionUiState> = _uiState.asStateFlow()
 
     init {
+        refresh()
+    }
+
+    fun refresh() {
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 _uiState.value = SubscriptionUiState(entitlement = api.getEntitlements(), isLoading = false)
             } catch (t: Throwable) {

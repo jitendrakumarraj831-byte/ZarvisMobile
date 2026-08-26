@@ -3,6 +3,7 @@ package com.jarvismobile.feature.home
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.jarvismobile.core.ui.components.AiOrb
 import com.jarvismobile.core.ui.components.JarvisCard
 import com.jarvismobile.core.ui.components.JarvisComposer
+import com.jarvismobile.core.ui.components.JarvisGhostButton
 import com.jarvismobile.core.ui.components.RiskBadge
 import com.jarvismobile.core.ui.components.RiskBadgeLevel
 import com.jarvismobile.core.ui.components.VoiceState
@@ -54,7 +56,9 @@ private val QUICK_CATEGORIES = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onNavigateToConversation: (initialText: String?) -> Unit,
+    onStartVoice: () -> Unit,
+    onSubmitText: (String) -> Unit,
+    onPrefillText: (String) -> Unit,
     onNavigateToTasks: () -> Unit,
     onNavigateToSubscription: () -> Unit,
     onNavigateToDeveloper: () -> Unit,
@@ -68,7 +72,7 @@ fun HomeScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(JarvisSpacing.lg),
+            contentPadding = PaddingValues(JarvisSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(JarvisSpacing.lg),
         ) {
             item {
@@ -93,7 +97,7 @@ fun HomeScreen(
 
             item {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    AiOrb(state = VoiceState.IDLE, onClick = { onNavigateToConversation(null) })
+                    AiOrb(state = VoiceState.IDLE, onClick = onStartVoice)
                 }
             }
 
@@ -103,18 +107,18 @@ fun HomeScreen(
                     onValueChange = { composerText = it },
                     onSubmit = {
                         if (composerText.isNotBlank()) {
-                            onNavigateToConversation(composerText)
+                            onSubmitText(composerText)
                             composerText = ""
                         }
                     },
-                    onMicClick = { onNavigateToConversation(null) },
+                    onMicClick = onStartVoice,
                 )
             }
 
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(JarvisSpacing.sm)) {
                     QUICK_CATEGORIES.forEach { (label, _) ->
-                        SuggestionChip(onClick = { onNavigateToConversation(exampleFor(label)) }, label = { Text(label) })
+                        SuggestionChip(onClick = { onPrefillText(exampleFor(label)) }, label = { Text(label) })
                     }
                 }
             }
@@ -152,20 +156,36 @@ fun HomeScreen(
                 }
             }
 
+            val activeTask = uiState.tasks.firstOrNull { it.status == "RUNNING" }
+            if (activeTask != null) {
+                item {
+                    JarvisCard(modifier = Modifier.fillMaxWidth()) {
+                        Text(text = "Active Task", style = MaterialTheme.typography.titleMedium)
+                        Text(text = activeTask.goal, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = "In progress",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
             item {
                 JarvisCard(modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(text = "Recent Tasks", style = MaterialTheme.typography.titleMedium)
                         TextButton(onClick = onNavigateToTasks) { Text("See all") }
                     }
-                    if (uiState.tasks.isEmpty() && !uiState.isLoading) {
+                    val recent = uiState.tasks.filterNot { it.id == activeTask?.id }
+                    if (recent.isEmpty() && !uiState.isLoading) {
                         Text(
                             text = "No tasks yet — ask JARVIS to do something to get started.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    uiState.tasks.take(3).forEach { task ->
+                    recent.take(3).forEach { task ->
                         Text(text = "${task.goal} · ${task.status}", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
@@ -179,7 +199,10 @@ fun HomeScreen(
 
             uiState.error?.let { error ->
                 item {
-                    Text(text = error, color = MaterialTheme.colorScheme.error)
+                    Column(verticalArrangement = Arrangement.spacedBy(JarvisSpacing.xs)) {
+                        Text(text = error, color = MaterialTheme.colorScheme.error)
+                        JarvisGhostButton(text = "Retry", onClick = viewModel::refresh)
+                    }
                 }
             }
         }
@@ -229,4 +252,3 @@ private fun exampleFor(category: String): String = when (category) {
     "Developer" -> "Check my GitHub project for errors"
     else -> category
 }
-

@@ -55,7 +55,15 @@ private fun JarvisRoot(
     when (val current = state) {
         is AppStartupState.Loading -> StartupLoading()
         is AppStartupState.Failed -> StartupError(message = current.message, onRetry = startupViewModel::retry)
-        is AppStartupState.Ready -> JarvisNavGraph(startAtOnboarding = !current.onboardingComplete)
+        is AppStartupState.Ready -> JarvisNavGraph(
+            startAtOnboarding = !current.onboardingComplete,
+            // "Clear local session" in Settings must re-run the same bootstrap that runs on
+            // first launch — otherwise the app is left holding no valid session and every API
+            // call from Home/Tasks/Subscription/Developer would fail unauthenticated with no
+            // way back short of force-quitting. Reusing retry() here (rather than only
+            // navigating back to Home) is what actually fixes that.
+            onSessionCleared = startupViewModel::retry,
+        )
     }
 
     // Rendered on top of whatever screen is active — see MASTER_SPEC.md §7/§21: a

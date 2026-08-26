@@ -13,10 +13,14 @@ private val Context.dataStore by preferencesDataStore(name = "jarvis_prefs")
 private object Keys {
     val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
     val LOCALE = stringPreferencesKey("locale")
-    val DARK_THEME = booleanPreferencesKey("dark_theme_override")
 }
 
-/** Non-sensitive local preferences (onboarding state, language, theme). See MASTER_SPEC.md §22, §16. */
+/**
+ * Non-sensitive local preferences (onboarding state, language). See MASTER_SPEC.md §16.
+ * There is no theme-override preference: the app follows the system dark/light setting
+ * (`JarvisTheme` in core-ui), matching MASTER_SPEC.md §22 — "Support: dark theme, light
+ * theme" is satisfied by following the OS; an explicit in-app override is not specified.
+ */
 class AppPreferences(private val context: Context) {
     val onboardingComplete: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.ONBOARDING_COMPLETE] ?: false }

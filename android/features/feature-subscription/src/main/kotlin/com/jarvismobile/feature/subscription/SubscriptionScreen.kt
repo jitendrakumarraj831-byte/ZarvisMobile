@@ -14,8 +14,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jarvismobile.core.ui.components.JarvisCard
+import com.jarvismobile.core.ui.components.JarvisGhostButton
 import com.jarvismobile.core.ui.components.JarvisSecondaryButton
 import com.jarvismobile.core.ui.theme.JarvisSpacing
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.Locale
 
 private data class PlanInfo(val name: String, val tagline: String)
 
@@ -37,13 +43,18 @@ fun SubscriptionScreen(viewModel: SubscriptionViewModel = hiltViewModel()) {
         Text(text = "Subscription", style = MaterialTheme.typography.headlineMedium)
 
         if (uiState.isLoading) CircularProgressIndicator()
-        uiState.error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+        uiState.error?.let { error ->
+            Column(verticalArrangement = Arrangement.spacedBy(JarvisSpacing.xs)) {
+                Text(text = error, color = MaterialTheme.colorScheme.error)
+                JarvisGhostButton(text = "Retry", onClick = viewModel::refresh)
+            }
+        }
 
         uiState.entitlement?.let { entitlement ->
             JarvisCard(modifier = Modifier.fillMaxWidth()) {
                 Text(text = "Current plan: ${entitlement.plan}", style = MaterialTheme.typography.titleMedium)
                 Text(text = "${entitlement.creditBalance} credits remaining")
-                entitlement.trialExpiresAt?.let { Text(text = "Trial ends: $it") }
+                entitlement.trialExpiresAt?.let { Text(text = "Trial ends: ${formatDate(it)}") }
             }
         }
 
@@ -67,4 +78,12 @@ fun SubscriptionScreen(viewModel: SubscriptionViewModel = hiltViewModel()) {
             JarvisSecondaryButton(text = "Upgrade (coming soon)", onClick = {}, enabled = false)
         }
     }
+}
+
+/** Renders a raw ISO-8601 backend timestamp (e.g. "2026-09-09T14:29:38.431Z") as a readable date. */
+private fun formatDate(iso: String): String = try {
+    val formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault()).withZone(ZoneId.systemDefault())
+    formatter.format(Instant.parse(iso))
+} catch (e: DateTimeParseException) {
+    iso
 }
