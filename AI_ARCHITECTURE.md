@@ -31,9 +31,12 @@ export interface AIResponse {
 
 `ProviderFactory.get(modelConfig)` resolves the concrete adapter. This repository ships a
 `MockAIProvider` (deterministic, intent-keyword-based responses) as the default for local
-development and CI, so the product runs and is demoable with zero external credentials.
-Wiring a real provider (Anthropic, OpenAI, Google, or a local model) means implementing
-`AIProvider` once and registering it in `ProviderFactory` — no caller changes.
+development and CI, so the product runs and is demoable with zero external credentials. It
+also ships a real `AnthropicAIProvider` (`backend/src/ai/anthropicProvider.ts`, Claude
+Messages API via `@anthropic-ai/sdk`) — `providerFactory.ts` selects it automatically the
+moment `ANTHROPIC_API_KEY` is set in the environment, with no other code change. Wiring a
+further provider (OpenAI, Google, or a local model) means implementing `AIProvider` once and
+registering it in `ProviderFactory` — no caller changes.
 
 ## Why the backend, never the device
 

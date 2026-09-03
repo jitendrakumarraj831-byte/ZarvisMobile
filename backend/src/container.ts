@@ -24,7 +24,7 @@ export function buildContainer(store: Store = new InMemoryStore()) {
 
   const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationPort);
   const provider = getProvider(defaultModelConfig);
-  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider);
+  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider, defaultModelConfig);
   const authService = new AuthService(store);
   const taskService = new TaskService(store);
   const billingVerifier = new MockPlayBillingVerifier();

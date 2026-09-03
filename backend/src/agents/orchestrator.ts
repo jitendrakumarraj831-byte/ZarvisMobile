@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
-import type { AIProvider } from "../ai/provider.js";
+import type { AIProvider, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { ToolPipeline } from "../tooling/toolPipeline.js";
@@ -30,6 +30,7 @@ export class Orchestrator {
     private readonly entitlementPort: EntitlementPort,
     private readonly pipeline: ToolPipeline,
     private readonly provider: AIProvider,
+    private readonly modelConfig: ModelConfiguration,
   ) {}
 
   async runTurn(request: TurnRequest): Promise<TurnResult> {
@@ -50,7 +51,7 @@ export class Orchestrator {
         description: skill.description,
         inputSchema: skill.inputSchema,
       })),
-      modelConfig: { provider: "mock", model: "mock-v1" },
+      modelConfig: this.modelConfig,
     });
 
     if (aiResponse.toolCalls.length === 0) {
