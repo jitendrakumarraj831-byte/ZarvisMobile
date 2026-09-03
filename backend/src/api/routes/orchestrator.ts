@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Orchestrator } from "../../agents/orchestrator.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { logger } from "../../security/redact.js";
 
 /**
  * POST /api/v1/orchestrator/turn — one conversation turn. See AI_ARCHITECTURE.md and
@@ -16,13 +17,18 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
       res.status(400).json({ error: "utterance is required" });
       return;
     }
-    const result = await orchestrator.runTurn({
-      accountId: req.auth!.accountId,
-      utterance,
-      confirmed: typeof confirmed === "boolean" ? confirmed : undefined,
-      locale: typeof locale === "string" ? locale : undefined,
-    });
-    res.json(result);
+    try {
+      const result = await orchestrator.runTurn({
+        accountId: req.auth!.accountId,
+        utterance,
+        confirmed: typeof confirmed === "boolean" ? confirmed : undefined,
+        locale: typeof locale === "string" ? locale : undefined,
+      });
+      res.json(result);
+    } catch (err) {
+      logger.error("Orchestrator turn failed", { error: err instanceof Error ? err.message : String(err) });
+      res.status(502).json({ error: "The AI provider is unavailable right now — please try again." });
+    }
   });
 
   return router;

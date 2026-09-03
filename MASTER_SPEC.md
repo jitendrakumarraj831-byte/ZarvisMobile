@@ -683,8 +683,9 @@ Included in this repository's first implementation pass:
   (LOW risk, on-device), `web.search` (MEDIUM cost, backend-executed, mocked provider),
   `docs.summarize` (backend-executed), `developer.analyze_repo` (read-only, backend).
 - Backend service (`backend/`) with auth stub, skill catalogue endpoint, orchestrator turn
-  endpoint (mocked AI provider by default, real adapter interface ready), entitlement
-  resolution, usage ledger, in-memory/SQLite store.
+  endpoint (mocked AI provider by default; a real `AnthropicAIProvider` adapter is
+  implemented and activates automatically when `ANTHROPIC_API_KEY` is set — see
+  AI_ARCHITECTURE.md), entitlement resolution, usage ledger, in-memory/SQLite store.
 - Subscription/entitlement/trial data model wired end-to-end with mock billing (Play
   Billing integration point documented, not live — requires a Play Console app listing
   this repo does not have).
@@ -693,9 +694,11 @@ Included in this repository's first implementation pass:
 - "What can you do?" screen driven by the live Skill Registry.
 
 Explicitly **not** in this pass (documented as planned, not faked): live AI provider
-credentials, live Play Billing, Phone Agent's actual call/contacts intents beyond an
-"open app" skill, full Web Agent scraping pipeline, instrumented/emulator test runs
-(no Android SDK in this build environment — see §32).
+*credentials* (the `AnthropicAIProvider` adapter itself is implemented and unit-tested —
+see AI_ARCHITECTURE.md — but no API key is configured in this environment, so it has not
+made a real network call here), live Play Billing, Phone Agent's actual call/contacts
+intents beyond an "open app" skill, full Web Agent scraping pipeline, instrumented/emulator
+test runs (no Android SDK in this build environment — see §32).
 
 ## 30. Future Roadmap
 
@@ -728,9 +731,12 @@ LOW-risk skills.
   Node/TypeScript `backend` **are** built/tested in this session as real, verifiable
   correctness signals. This is called out explicitly in the final report rather than
   claiming an unverified Android build succeeded.
-- **No live AI provider or billing credentials.** Both are architected behind interfaces
-  with mock/local adapters so the product runs and is demoable without secrets; wiring
-  real credentials is a config-only change (§10, §19), not a redesign.
+- **No live AI provider or billing credentials configured in this environment.** Both are
+  architected behind interfaces with mock/local adapters by default so the product runs and
+  is demoable without secrets. The AI side now also has a real adapter
+  (`AnthropicAIProvider`, §10/AI_ARCHITECTURE.md) — setting `ANTHROPIC_API_KEY` activates it
+  with no further code change; it has not been exercised against the live Anthropic API in
+  this session because no key is present here. Billing remains mock-only (§19).
 - **Voice quality depends on Android OS engines at MVP** — acceptable for Hindi/English
   coverage on modern devices, but quality will vary by device/OEM until a cloud engine is
   wired in behind the existing interface.
