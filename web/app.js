@@ -60,6 +60,12 @@
     speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
   };
 
+  // Declared here (not near setupSpeechRecognition() below) because init() runs
+  // synchronously up to its first `await` and calls setupSpeechRecognition() immediately —
+  // a `let` declared later in this same scope would still be in its temporal dead zone at
+  // that point, throwing "Cannot access 'recognition' before initialization".
+  let recognition = null;
+
   init().catch((err) => {
     console.error(err);
     addBubble("system", `${COPY[state.lang].bootError}\n\n${err instanceof Error ? err.message : String(err)}`);
@@ -166,13 +172,13 @@
     try {
       const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
       const body = await res.json();
-      el.providerBadge.textContent = body.provider === "google" ? "AI: Gemini" : "AI: Mock";
-      el.providerBadge.title =
-        body.provider === "google"
-          ? "Live Google Gemini calls (GEMINI_API_KEY is set)"
-          : "Deterministic MockAIProvider — set GEMINI_API_KEY on the backend for live Gemini";
+      const live = body.provider === "google";
+      el.providerBadge.innerHTML = `<span class="status-dot ${live ? "live" : "mock"}" aria-hidden="true"></span>${live ? "Gemini" : "Mock"}`;
+      el.providerBadge.title = live
+        ? "Live Google Gemini calls (GEMINI_API_KEY is set)"
+        : "Deterministic MockAIProvider — set GEMINI_API_KEY on the backend for live Gemini";
     } catch {
-      el.providerBadge.textContent = "AI: —";
+      el.providerBadge.innerHTML = `<span class="status-dot" aria-hidden="true"></span>Offline`;
     }
   }
 
@@ -255,8 +261,6 @@
   // ---- Voice in (STT) and out (TTS) — MASTER_SPEC.md §11 Voice Architecture, browser-native
   // Web Speech API standing in for Android's SpeechRecognizer/TextToSpeech behind the same
   // state machine, since no cloud STT/TTS credential is wired in this pass. ---------------
-
-  let recognition = null;
 
   function setupSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;

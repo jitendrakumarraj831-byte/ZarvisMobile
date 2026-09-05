@@ -6,9 +6,17 @@
   <title>ZARVIS MOBILE</title>
   <meta name="description" content="ZARVIS MOBILE — a universal AI digital agent, in your browser." />
   <link rel="icon" href="data:," />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <div class="bg-glow" aria-hidden="true"></div>
+
   <div class="app">
     <header class="topbar">
       <div class="brand">
@@ -17,14 +25,21 @@
       </div>
       <div class="topbar-actions">
         <button id="lang-toggle" class="chip-btn" type="button" title="Switch language / भाषा बदलें">EN</button>
-        <button id="voice-out-toggle" class="chip-btn" type="button" title="Toggle spoken replies" aria-pressed="true">🔊</button>
-        <span id="provider-badge" class="chip-btn chip-static" title="Active AI provider"></span>
+        <button id="voice-out-toggle" class="chip-btn icon-btn" type="button" title="Toggle spoken replies" aria-pressed="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+        </button>
+        <span id="provider-badge" class="chip-btn chip-static" title="Active AI provider">
+          <span class="status-dot" aria-hidden="true"></span>
+        </span>
       </div>
     </header>
 
     <main class="stage">
       <section class="hero" id="hero">
-        <div class="orb" id="orb" data-state="IDLE" role="img" aria-label="ZARVIS orb, idle"></div>
+        <div class="orb-wrap">
+          <div class="orb-ring" aria-hidden="true"></div>
+          <div class="orb" id="orb" data-state="IDLE" role="img" aria-label="ZARVIS orb, idle"></div>
+        </div>
         <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
         <p class="hero-status" id="hero-status">IDLE</p>
       </section>
@@ -36,10 +51,13 @@
 
     <footer class="composer">
       <button id="mic-btn" class="mic-btn" type="button" title="Speak">
-        <span aria-hidden="true">🎙</span>
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
       </button>
       <input id="text-input" class="text-input" type="text" placeholder="Type your task…" autocomplete="off" />
-      <button id="send-btn" class="send-btn" type="button" title="Send">Send</button>
+      <button id="send-btn" class="send-btn" type="button" title="Send">
+        <span class="send-label">Send</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+      </button>
     </footer>
   </div>
 
