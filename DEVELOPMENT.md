@@ -104,9 +104,15 @@ foreground, and every second of "armed" audio is sent to the browser's speech-re
 service exactly like a manual mic tap would be — stated honestly rather than oversold. The
 armed/muted choice itself is intentionally never persisted across a reload — it always
 re-arms fresh rather than remembering a muted state indefinitely, so it can't end up
-silently listening in a way the person in front of the screen forgot was ever turned on;
-the visible cyan ring + a system message on every arm is the transparency trade-off for
-that convenience (MASTER_SPEC.md §15's "never secretly monitor the device").
+silently listening in a way the person in front of the screen forgot was ever turned on.
+
+Deliberately quiet by design (explicit product feedback: it should listen for "Zarvis" in
+the background without announcing itself, the same way a phone's real wake word doesn't
+pop up a notification every time it starts listening) — arming or muting shows no bubble
+or toast. The transparency trade-off is the subtle cyan ring around the orb whenever armed
+(so it stays inspectable, not literally secret — MASTER_SPEC.md §15) plus the fact that
+the very first visible/audible reaction only happens once "Zarvis" is actually heard
+(`acknowledgeWakeWord()`/`submitUtterance()` in `app.js`), not before.
 
 Not testable end-to-end in this environment — the sandbox this was built in has no
 microphone hardware at all (Chrome's Web Speech API failed immediately with an

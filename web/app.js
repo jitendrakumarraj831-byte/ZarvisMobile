@@ -440,18 +440,19 @@
     });
   }
 
+  // Deliberately quiet: no "mode ON" banner every time this arms (on load, or on an orb
+  // tap) — per explicit product feedback, it should just listen for "Zarvis" in the
+  // background without announcing itself, the same way a phone's real wake word doesn't
+  // pop up a notification every time it starts listening. The only visible cues are the
+  // subtle cyan ring (so it's still discoverable/inspectable, not literally secret — see
+  // §15) and the LISTENING orb animation; the first *audible/visible reply* only happens
+  // once "Zarvis" is actually heard (acknowledgeWakeWord() / submitUtterance()).
   function toggleAutoListen() {
     if (!recognition) return;
     state.autoListen = !state.autoListen;
     el.orb.setAttribute("aria-pressed", String(state.autoListen));
     el.orbWrap.classList.toggle("auto-listen", state.autoListen);
     if (state.autoListen) {
-      addBubble(
-        "system",
-        state.lang === "hi"
-          ? `Hands-free mode ON — "ज़ार्विस" bol kar apna command boliye.`
-          : `Hands-free mode ON — say "Zarvis" followed by your command.`,
-      );
       startListening();
     } else {
       stopListening();

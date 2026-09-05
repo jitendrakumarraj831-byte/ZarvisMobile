@@ -466,10 +466,12 @@ just wants to try the agent from a link.
   a software approximation of a wake word (continuous `SpeechRecognition` with
   auto-restart), not a true low-power OS wake-word detector — it only works while the tab
   is foregrounded. The muted/armed choice is never persisted across a reload — it always
-  re-arms fresh rather than remembering a muted state indefinitely, so a visible cyan ring
-  plus an on-screen message every time it arms is the transparency trade-off for that
-  convenience (§15 "never secretly monitor the device"). See DEVELOPMENT.md "Hands-free
-  'wake word' mode".
+  re-arms fresh rather than remembering a muted state indefinitely. Deliberately quiet by
+  design: arming/muting shows no bubble or toast (explicit product feedback — it should
+  listen in the background without announcing itself); the subtle cyan ring around the orb
+  is the transparency trade-off (§15 "never secretly monitor the device"), and the first
+  visible/audible reaction happens only once "Zarvis" is actually heard. See
+  DEVELOPMENT.md "Hands-free 'wake word' mode".
 - **Personalization:** the client sends an optional `userName` with every orchestrator
   turn (`localStorage["zarvis.userName"]`, no settings UI yet — see §32) so replies can
   address the user by name; a display label only, never an identity/auth claim.
