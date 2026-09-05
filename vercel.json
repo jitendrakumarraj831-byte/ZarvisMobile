@@ -8,6 +8,9 @@
     { "src": "^/$", "dest": "/web/index.html" },
     { "src": "^/app\\.js$", "dest": "/web/app.js" },
     { "src": "^/styles\\.css$", "dest": "/web/styles.css" },
+    { "src": "^/manifest\\.webmanifest$", "dest": "/web/manifest.webmanifest" },
+    { "src": "^/sw\\.js$", "dest": "/web/sw.js" },
+    { "src": "^/icons/(.*)$", "dest": "/web/icons/$1" },
     { "src": "^/(api/.*|health)$", "dest": "/api/index.ts" },
     { "src": "^/(.*)$", "dest": "/web/index.html" }
   ]

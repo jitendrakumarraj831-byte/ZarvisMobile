@@ -25,14 +25,22 @@
 
 html, body {
   height: 100%;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
+  /* `position: fixed` locks the page itself from ever scrolling — on mobile browsers a
+     plain `100vh` app can end up taller than the actually-visible viewport (the address
+     bar collapsing/expanding changes it), which pushes the composer below the fold and
+     forces a page-level scroll just to reach "Send". Only `.stage` below scrolls; the
+     shell (topbar/orb/composer) stays pinned to the real visible viewport. */
+  position: fixed;
+  inset: 0;
   background: var(--zarvis-space-black);
   color: var(--zarvis-text-primary);
   font-family: var(--font-body);
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* Ambient background glow — subtle, never decorative-only per MASTER_SPEC §22 motion rule,
@@ -53,7 +61,8 @@ body {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100vh; /* fallback for browsers without dvh support */
+  height: 100dvh; /* the real visible viewport height on mobile, address bar and all */
   max-width: 720px;
   margin: 0 auto;
 }
@@ -114,6 +123,19 @@ body {
 .chip-static:hover { transform: none; border-color: var(--zarvis-border-soft); }
 .chip-btn[aria-pressed="false"] { opacity: 0.4; }
 
+.install-btn {
+  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-indigo));
+  color: #06070c;
+  border: none;
+  font-weight: 600;
+}
+.install-btn:hover { box-shadow: 0 4px 16px -6px #4ee1d670; }
+/* `.chip-btn`'s own `display` would otherwise beat the browser's default `[hidden]` rule
+   (same specificity, and .chip-btn comes later in the cascade) — this wins on specificity
+   instead of relying on source order, so the button reliably disappears again once
+   installed or dismissed. */
+.install-btn[hidden] { display: none; }
+
 .status-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--zarvis-text-secondary);
@@ -125,6 +147,9 @@ body {
 
 .stage {
   flex: 1;
+  min-height: 0; /* without this, a flex child won't shrink below its content size, so it
+                    overflows .app instead of scrolling internally — the actual cause of
+                    needing to scroll the whole page to reach the composer */
   overflow-y: auto;
   padding: 8px 20px 8px;
   display: flex;

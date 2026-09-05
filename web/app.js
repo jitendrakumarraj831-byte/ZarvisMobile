@@ -49,10 +49,12 @@
     categories: document.getElementById("categories"),
     input: document.getElementById("text-input"),
     sendBtn: document.getElementById("send-btn"),
+    sendLabel: document.querySelector("#send-btn .send-label"),
     micBtn: document.getElementById("mic-btn"),
     langToggle: document.getElementById("lang-toggle"),
     voiceOutToggle: document.getElementById("voice-out-toggle"),
     providerBadge: document.getElementById("provider-badge"),
+    installBtn: document.getElementById("install-btn"),
   };
 
   const state = {
@@ -76,6 +78,7 @@
     applyLanguage();
     el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
     setupSpeechRecognition();
+    setupInstallPrompt();
 
     el.sendBtn.addEventListener("click", () => submitUtterance(el.input.value));
     el.input.addEventListener("keydown", (e) => {
@@ -109,7 +112,9 @@
     el.langToggle.textContent = state.lang.toUpperCase();
     el.heroTitle.textContent = copy.hero;
     el.input.placeholder = copy.placeholder;
-    el.sendBtn.textContent = copy.send;
+    // Set only the label span's text, not the whole button — sendBtn also contains an SVG
+    // icon that el.sendBtn.textContent = ... would silently wipe out.
+    el.sendLabel.textContent = copy.send;
     el.micBtn.title = copy.mic;
   }
 
@@ -258,6 +263,57 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // ---- Install as an app (PWA) -----------------------------------------------------------
+  // Chrome/Edge/Android fire `beforeinstallprompt` only once the page passes installability
+  // checks (manifest.webmanifest + a registered service worker, see sw.js) — capture that
+  // event so the Install button can trigger the browser's own native install prompt on tap,
+  // rather than showing a button that does nothing on browsers that don't support it (never
+  // fake success). iOS Safari never fires this event at all; there the button instead
+  // explains the manual "Share -> Add to Home Screen" step, since no programmatic install
+  // API exists there.
+
+  let deferredInstallPrompt = null;
+
+  function setupInstallPrompt() {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch((err) => console.error("Service worker registration failed:", err));
+    }
+
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    if (isStandalone) return; // already installed/running as an app — nothing to offer.
+
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      deferredInstallPrompt = event;
+      el.installBtn.hidden = false;
+    });
+
+    window.addEventListener("appinstalled", () => {
+      deferredInstallPrompt = null;
+      el.installBtn.hidden = true;
+    });
+
+    if (isIos) {
+      // No beforeinstallprompt on iOS — show the button unconditionally with instructions.
+      el.installBtn.hidden = false;
+    }
+
+    el.installBtn.addEventListener("click", async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        el.installBtn.hidden = true;
+        return;
+      }
+      if (isIos) {
+        addBubble("system", "iPhone/iPad par install karne ke liye: Share button (⬆) dabao, phir \"Add to Home Screen\" chuno.");
+      }
+    });
+  }
+
   // ---- Voice in (STT) and out (TTS) — MASTER_SPEC.md §11 Voice Architecture, browser-native
   // Web Speech API standing in for Android's SpeechRecognizer/TextToSpeech behind the same
   // state machine, since no cloud STT/TTS credential is wired in this pass. ---------------
@@ -294,11 +350,34 @@
     });
   }
 
+  // The browser's voice list loads asynchronously (often empty until `voiceschanged`
+  // fires, especially on Android Chrome) — cache it once available rather than calling
+  // getVoices() fresh inside speak(), which can return [] on the very first reply and
+  // silently fall back to whatever default voice the engine picks (usually English,
+  // reading Hindi text with English phonetics — the "not real Hindi" sound).
+  let cachedVoices = [];
+  if (window.speechSynthesis) {
+    cachedVoices = window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = () => {
+      cachedVoices = window.speechSynthesis.getVoices();
+    };
+  }
+
+  function pickVoice(langPrefix) {
+    const candidates = cachedVoices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
+    // A local/on-device voice (e.g. Android's built-in "Google हिन्दी") sounds more
+    // natural and has lower latency than a remote network voice of the same language.
+    return candidates.find((v) => v.localService) || candidates[0];
+  }
+
   function speak(text) {
     if (!state.speak || !text || !window.speechSynthesis) return;
     setOrbState("SPEAKING");
     const utterance = new SpeechSynthesisUtterance(text);
+    const langPrefix = state.lang === "hi" ? "hi" : "en";
     utterance.lang = state.lang === "hi" ? "hi-IN" : "en-US";
+    const voice = pickVoice(langPrefix);
+    if (voice) utterance.voice = voice;
     utterance.onend = () => setOrbState("IDLE");
     window.speechSynthesis.speak(utterance);
   }
