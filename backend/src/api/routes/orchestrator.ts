@@ -15,7 +15,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
     "/turn",
     requireAuth,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
-      const { utterance, confirmed, locale, userName } = req.body ?? {};
+      const { utterance, confirmed, locale, userName, isFirstTurn } = req.body ?? {};
       if (typeof utterance !== "string" || utterance.trim().length === 0) {
         res.status(400).json({ error: "utterance is required" });
         return;
@@ -29,6 +29,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         // doc comment. Capped short so it can't be used to smuggle a large prompt injection
         // into the system prompt under the guise of a "name".
         userName: typeof userName === "string" && userName.trim() ? userName.trim().slice(0, 60) : undefined,
+        isFirstTurn: isFirstTurn === true,
       });
       res.json(result);
     }),

@@ -74,11 +74,16 @@
   const state = {
     lang: localStorage.getItem(STORAGE_KEYS.lang) || "hi",
     speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
-    // Hands-free "wake word" mode is intentionally session-only (never persisted) — an
-    // armed microphone silently reactivating on a fresh page load, before the user does
-    // anything, would look like exactly the kind of secret listening MASTER_SPEC.md §15
-    // rules out; requiring one explicit tap per visit keeps it honest.
+    // Hands-free "wake word" mode arms itself automatically on load (see init()) but this
+    // flag is intentionally session-only (never persisted to localStorage) — the mute/armed
+    // choice always resets fresh on the next reload rather than remembering a muted state
+    // indefinitely, so it can't end up silently listening in a way nobody remembers
+    // enabling (MASTER_SPEC.md §15, "never secretly monitor the device").
     autoListen: false,
+    // True only for the very first turn of a session — lets the system prompt ask Gemini
+    // for a warmer, more "attractive" welcome-style reply once, without every later message
+    // paying that same introductory tax.
+    firstTurn: true,
   };
 
   // Common mishearings of "Zarvis" from real speech recognizers (most STT models have
@@ -261,10 +266,19 @@
     await delay(250);
     setOrbState("EXECUTING");
 
+    const isFirstTurn = state.firstTurn;
+    state.firstTurn = false; // set before the request, not after — a failed first turn
+    // shouldn't get a second "warm welcome" pass on retry.
+
     try {
       const res = await apiFetch("/orchestrator/turn", {
         method: "POST",
-        body: JSON.stringify({ utterance, locale: state.lang, userName: localStorage.getItem(STORAGE_KEYS.userName) }),
+        body: JSON.stringify({
+          utterance,
+          locale: state.lang,
+          userName: localStorage.getItem(STORAGE_KEYS.userName),
+          isFirstTurn,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -379,9 +393,12 @@
       const transcript = event.results[0][0].transcript;
       if (state.autoListen) {
         const command = extractCommandAfterWakeWord(transcript);
-        if (command) submitUtterance(command);
-        // No wake word, or the wake word with nothing said after it: stay silently armed —
-        // the "end" handler below re-starts listening automatically.
+        if (command === undefined) return; // no wake word at all — ignore background speech
+        if (command === "") {
+          acknowledgeWakeWord(); // just "Zarvis" alone — confirm we heard it, keep listening
+          return;
+        }
+        submitUtterance(command);
         return;
       }
       submitUtterance(transcript);
@@ -465,14 +482,31 @@
   }
 
   /** Returns the text after the wake word, or `null` if no wake word was heard at all. */
+  /**
+   * Returns the command text after the wake word, `""` if the wake word was said alone
+   * (nothing after it), or `undefined` if no wake word was heard at all — three genuinely
+   * different outcomes the caller needs to tell apart (submit / acknowledge / ignore),
+   * unlike a single `null` for both "nothing to do" cases.
+   */
   function extractCommandAfterWakeWord(transcript) {
     const lower = transcript.toLowerCase();
     for (const word of WAKE_WORDS) {
       const idx = lower.indexOf(word);
       if (idx === -1) continue;
-      return transcript.slice(idx + word.length).replace(/^[\s,.:!।-]+/, "").trim() || null;
+      return transcript.slice(idx + word.length).replace(/^[\s,.:!।-]+/, "").trim();
     }
-    return null;
+    return undefined;
+  }
+
+  /** A short, attractive acknowledgment when the user says just "Zarvis" with no command
+   * yet — mirrors how a real voice assistant confirms it heard the wake word, rather than
+   * silently doing nothing. Restarts listening itself once done speaking, same as a normal
+   * turn (see submitUtterance). */
+  async function acknowledgeWakeWord() {
+    const reply = state.lang === "hi" ? "जी बोलिए, मैं सुन रहा हूँ! 👋" : "Yes? I'm listening!";
+    addBubble("assistant", reply);
+    await speak(reply);
+    if (state.autoListen) startListening();
   }
 
   // The browser's voice list loads asynchronously (often empty until `voiceschanged`

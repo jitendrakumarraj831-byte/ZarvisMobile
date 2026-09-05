@@ -146,6 +146,17 @@ failure is not swallowed. No `dotenv` dependency is needed (Node 22+, see `packa
 5. The final message (plus a structured summary of what was done) is returned to the
    client for display/TTS.
 
+**Where the current `Orchestrator.runTurn` actually is versus step 4 above, stated
+honestly:** it does not yet send tool results back to the provider for a wrap-up pass — it
+runs one `generate()` call, executes any resulting tool calls once, and builds the
+returned message by prepending whatever text the model already included in that same
+response (if any) to the tool pipeline's own outcome explanation (`explainOutcome()`).
+That text-preservation step is what lets a first-turn welcome greeting (§ below) survive
+even when the model also invokes a skill in the same turn — before it was added, any text
+the model attached to a tool-calling response was silently discarded. The fuller loop step
+4 describes (tool results fed back for a real follow-up natural-language reply) is not
+implemented; closing that gap is future work, not a currently-working multi-turn loop.
+
 ## Streaming
 
 `streamGenerate` yields incremental `AIResponseChunk`s so the UI can render partial text

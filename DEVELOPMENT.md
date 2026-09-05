@@ -124,6 +124,21 @@ MASTER_SPEC.md §32 "No login screen yet"; edit `localStorage` directly for now)
 display label only, never an identity/auth claim — the account itself is authenticated by
 the bearer token regardless of what this field says.
 
+### First-reply warmth
+
+The turn request also carries `isFirstTurn` (`web/app.js` tracks it client-side, true only
+once per page load), asking Gemini for one short, warm, energetic welcome-style opening
+line before the very first reply of a session — every later turn stays direct and concise.
+Live-verified this actually reaches the user even when the model also invokes a skill in
+that same first turn: `Orchestrator.runTurn` used to build the returned `message` purely
+from the tool-pipeline outcome, discarding any conversational text the model attached to a
+tool-calling response — silently swallowing that greeting exactly when it mattered most
+(a first request like "find me a phone" that immediately triggers `web.search`). Fixed by
+prepending `aiResponse.message.content` when present; the system prompt also had to say
+explicitly that a tool call must still carry that greeting as accompanying text, since
+Gemini's default behavior for a clear, actionable first request was a tool call with no
+text at all.
+
 ## Deploying to Vercel (public URL, e.g. zarvismobile.com)
 
 This is how the web client (§12a) becomes reachable at a real URL in any browser, not just
