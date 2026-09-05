@@ -62,7 +62,7 @@
 
   init().catch((err) => {
     console.error(err);
-    addBubble("system", COPY[state.lang].bootError);
+    addBubble("system", `${COPY[state.lang].bootError}\n\n${err instanceof Error ? err.message : String(err)}`);
     setOrbState("ERROR");
   });
 
@@ -119,7 +119,10 @@
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) throw new Error(`Guest signup failed: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Guest signup failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
+    }
     const tokens = await res.json();
     localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
     localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);

@@ -23,7 +23,21 @@ const webRoot = [join(__dirname, "../../web"), join(__dirname, "../web")].find((
 export function buildServer(container: Container): Express {
   const app = express();
   app.use(corsMiddleware);
-  app.use(express.json());
+  // Vercel's Node.js runtime (api/index.ts) can pre-parse a JSON request body onto `req.body`
+  // and drain the underlying stream before Express ever sees the request — a well-known
+  // Express-on-Vercel gotcha. If that already happened, `express.json()` would try to read
+  // an already-empty stream and silently overwrite the real body with `{}`, so every route
+  // relying on `req.body` (auth signup/login, orchestrator turn, ...) would see missing
+  // fields. Keep whatever Vercel already parsed instead of re-parsing in that case; a normal
+  // long-running server (no Vercel wrapper) never populates `req.body` this early, so
+  // `express.json()` still runs exactly as before there.
+  app.use((req, res, next) => {
+    if (req.body && typeof req.body === "object" && Object.keys(req.body as object).length > 0) {
+      next();
+      return;
+    }
+    express.json()(req, res, next);
+  });
 
   // `provider` names which AIProvider is active (e.g. "mock" or "google") — never a secret,
   // it just lets the web client honestly show what's actually answering (Product Principle
