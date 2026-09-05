@@ -136,6 +136,14 @@ body {
    installed or dismissed. */
 .install-btn[hidden] { display: none; }
 
+.voice-select {
+  max-width: 84px;
+  color-scheme: dark;
+  padding: 7px 8px;
+  font-size: 11px;
+}
+.voice-select[hidden] { display: none; }
+
 .status-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--zarvis-text-secondary);

@@ -18,6 +18,7 @@
     refreshToken: "zarvis.refreshToken",
     lang: "zarvis.lang",
     speak: "zarvis.speak",
+    voiceURI: "zarvis.voiceURI",
   };
 
   const API_BASE = resolveApiBase();
@@ -53,6 +54,7 @@
     micBtn: document.getElementById("mic-btn"),
     langToggle: document.getElementById("lang-toggle"),
     voiceOutToggle: document.getElementById("voice-out-toggle"),
+    voiceSelect: document.getElementById("voice-select"),
     providerBadge: document.getElementById("provider-badge"),
     installBtn: document.getElementById("install-btn"),
   };
@@ -62,11 +64,12 @@
     speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
   };
 
-  // Declared here (not near setupSpeechRecognition() below) because init() runs
-  // synchronously up to its first `await` and calls setupSpeechRecognition() immediately —
-  // a `let` declared later in this same scope would still be in its temporal dead zone at
-  // that point, throwing "Cannot access 'recognition' before initialization".
+  // Declared here (not near their setup functions below) because init() runs synchronously
+  // up to its first `await` and calls those setup functions immediately — a `let` declared
+  // later in this same scope would still be in its temporal dead zone at that point,
+  // throwing "Cannot access '...' before initialization".
   let recognition = null;
+  let cachedVoices = [];
 
   init().catch((err) => {
     console.error(err);
@@ -75,6 +78,7 @@
   });
 
   async function init() {
+    setupSpeechSynthesis();
     applyLanguage();
     el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
     setupSpeechRecognition();
@@ -116,6 +120,7 @@
     // icon that el.sendBtn.textContent = ... would silently wipe out.
     el.sendLabel.textContent = copy.send;
     el.micBtn.title = copy.mic;
+    populateVoiceSelect(); // available voices differ between "en" and "hi"
   }
 
   // ---- Session (guest account bootstrap + refresh) -------------------------------------
@@ -355,19 +360,64 @@
   // getVoices() fresh inside speak(), which can return [] on the very first reply and
   // silently fall back to whatever default voice the engine picks (usually English,
   // reading Hindi text with English phonetics — the "not real Hindi" sound).
-  let cachedVoices = [];
-  if (window.speechSynthesis) {
-    cachedVoices = window.speechSynthesis.getVoices();
-    window.speechSynthesis.onvoiceschanged = () => {
+  //
+  // Real caveat, stated honestly rather than oversold: the Web Speech API only ever plays
+  // back whichever text-to-speech voices the OS/browser ships — on Android that's Google's
+  // on-device "Google Text-to-Speech" engine. Its network-served voices are noticeably
+  // better than its offline ones, but none of them are the dedicated neural voice model
+  // behind the ChatGPT/Gemini apps' voice mode — that is a different, separate product
+  // (e.g. Google Cloud Text-to-Speech's Neural2/Studio voices, or a Gemini "native audio"
+  // model) requiring its own API credential and a real backend call, not a browser API.
+  // See DEVELOPMENT.md "Voice quality" for that upgrade path.
+
+  function setupSpeechSynthesis() {
+    if (!window.speechSynthesis) return;
+    const loadVoices = () => {
       cachedVoices = window.speechSynthesis.getVoices();
+      populateVoiceSelect();
     };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    el.voiceSelect.addEventListener("change", () => {
+      localStorage.setItem(STORAGE_KEYS.voiceURI, el.voiceSelect.value);
+    });
+  }
+
+  function voicesForCurrentLang() {
+    const langPrefix = state.lang === "hi" ? "hi" : "en";
+    return cachedVoices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
+  }
+
+  function populateVoiceSelect() {
+    const candidates = voicesForCurrentLang();
+    el.voiceSelect.innerHTML = "";
+    if (candidates.length <= 1) {
+      el.voiceSelect.hidden = true;
+      return;
+    }
+    for (const voice of candidates) {
+      const option = document.createElement("option");
+      option.value = voice.voiceURI;
+      option.textContent = `${voice.name}${voice.localService ? "" : " ☁"}`;
+      el.voiceSelect.appendChild(option);
+    }
+    const saved = localStorage.getItem(STORAGE_KEYS.voiceURI);
+    const defaultVoice = saved && candidates.some((v) => v.voiceURI === saved) ? saved : pickVoice(state.lang === "hi" ? "hi" : "en").voiceURI;
+    el.voiceSelect.value = defaultVoice;
+    el.voiceSelect.hidden = false;
   }
 
   function pickVoice(langPrefix) {
+    const saved = localStorage.getItem(STORAGE_KEYS.voiceURI);
+    if (saved) {
+      const found = cachedVoices.find((v) => v.voiceURI === saved && v.lang.toLowerCase().startsWith(langPrefix));
+      if (found) return found;
+    }
     const candidates = cachedVoices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
-    // A local/on-device voice (e.g. Android's built-in "Google हिन्दी") sounds more
-    // natural and has lower latency than a remote network voice of the same language.
-    return candidates.find((v) => v.localService) || candidates[0];
+    // Prefer a network voice: on Android's Google TTS engine these are the higher-quality
+    // ones, while the offline/local voice is usually the more robotic-sounding fallback.
+    return candidates.find((v) => !v.localService) || candidates[0];
   }
 
   function speak(text) {

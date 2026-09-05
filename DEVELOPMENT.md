@@ -69,6 +69,35 @@ first load (mirrors the Android app's device-scoped account, §32), and works wi
 `MockAIProvider` or a configured `GEMINI_API_KEY` with no client-side change. To point the
 client at a different backend host, open it with `?api=https://your-backend/api/v1`.
 
+### Voice quality
+
+`web/app.js` speaks replies using the browser's built-in Web Speech API
+(`speechSynthesis`) — on Android that plays back whichever voice Google's on-device
+"Google Text-to-Speech" engine ships, picking its best available network voice for the
+current language and letting the user override it from the voice picker that appears in
+the topbar once more than one is available (persisted in `localStorage`). **This is
+honestly not the same voice model behind the ChatGPT or Gemini apps' voice mode** — those
+call a dedicated neural TTS model server-side, not a browser API, so no combination of
+browser settings reaches that exact quality.
+
+Getting genuinely closer requires a real backend TTS call, e.g.:
+
+- **Google Cloud Text-to-Speech** (Neural2/Studio/Chirp voices) — excellent Hindi
+  coverage, and pairs naturally with the Gemini integration already here, but it is a
+  **separate Google Cloud product** from the Generative Language API key already
+  configured (`GEMINI_API_KEY`): it needs its own Cloud project with the Text-to-Speech
+  API enabled and its own credential (a modest free tier exists, but it is not the same
+  key).
+- **Gemini's own native-audio-output models** (the same technology behind the Gemini
+  app's voice mode) — closer to "real Gemini voice" by construction, but a materially
+  different integration than the plain text `generateContent` call `geminiProvider.ts`
+  makes today (a streaming, audio-capable session rather than one-shot text).
+
+Neither is wired into this repository yet — both are additive behind the same
+`AIProvider`-style separation this codebase already uses for AI text generation (§10), not
+a redesign, but both need a new credential/decision before implementing, so they are not
+assumed here.
+
 ## Deploying to Vercel (public URL, e.g. zarvismobile.com)
 
 This is how the web client (§12a) becomes reachable at a real URL in any browser, not just
