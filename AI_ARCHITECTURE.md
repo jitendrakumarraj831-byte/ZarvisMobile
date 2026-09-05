@@ -35,9 +35,39 @@ development and CI, so the product runs and is demoable with zero external crede
 Wiring a real provider (Anthropic, OpenAI, Google, or a local model) means implementing
 `AIProvider` once and registering it in `ProviderFactory` — no caller changes.
 
+## Gemini adapter (the first real provider wired here)
+
+`backend/src/ai/geminiProvider.ts` implements `AIProvider` (`id: "google"`) against the
+public Generative Language REST API (`generateContent` / `streamGenerateContent`) using the
+platform `fetch` — no vendor SDK dependency, keeping the adapter a thin, auditable
+translation layer:
+
+- **Messages** → Gemini `contents` (`user`/`model` roles only). A `tool`-role message (a
+  skill result fed back to the model) is passed through as a labelled `user` turn rather
+  than Gemini's richer `functionResponse` part — a deliberate simplification matching
+  `ConversationMessage`'s flat shape; extending that type with a structured tool-result
+  variant is the natural next step if a future provider needs it.
+- **Tools** → Gemini `functionDeclarations`, converting the minimal `JsonSchema`
+  (`requiredFields` + `properties: Record<string,string>`) into Gemini's typed parameter
+  schema (lowercase `"string"/"number"/...` → uppercase `"STRING"/"NUMBER"/...`).
+- **Tool-call responses** → a `functionCall` part maps to a `ToolCallRequest`, which then
+  runs through the same Tool pipeline (§7 of MASTER_SPEC.md) as every other provider's tool
+  calls — Gemini's output is never trusted as authorization any more than the mock's is.
+- **Streaming** → real SSE parsing of `streamGenerateContent?alt=sse`, yielding text deltas
+  as they arrive (not the word-splitting simulation `MockAIProvider` uses).
+- **Selection:** `providerFactory.ts`'s `defaultModelConfig` resolves to
+  `{ provider: "google", model: env.geminiModel }` automatically whenever `GEMINI_API_KEY`
+  is set (`config/env.ts`, `.env.example`), and to the mock otherwise — this is the
+  "config-only change" MASTER_SPEC.md §10 describes for wiring a real provider.
+- **Tests:** `backend/test/ai/geminiProvider.test.ts` mocks `fetch` to verify the request
+  shape sent to Gemini and the response mapping back, including the non-2xx error path
+  (never silently swallowed — Product Principle #4, "Never fake success").
+
 ## Why the backend, never the device
 
-- Provider API keys are never bundled in the APK (see [SECURITY.md](./SECURITY.md)).
+- Provider API keys are never bundled in the APK **or the web client's static assets**
+  (`web/` ships no key; `GEMINI_API_KEY` lives only in the backend's environment — see
+  [SECURITY.md](./SECURITY.md)).
 - A developer's personal Claude subscription (e.g. Claude Pro, or a Claude Code session
   like the one that built this repository) is a **development environment**, not a runtime
   API credential — the shipped app never assumes such a subscription exists on the user's

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.core.ui"
+    namespace = "com.zarvismobile.core.ui"
     compileSdk = 34
 
     defaultConfig {

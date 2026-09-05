@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.skills"
+    namespace = "com.zarvismobile.skills"
     compileSdk = 34
 
     defaultConfig {

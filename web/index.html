@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZARVIS MOBILE</title>
+  <meta name="description" content="ZARVIS MOBILE — a universal AI digital agent, in your browser." />
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">ZARVIS <b>MOBILE</b></span>
+      </div>
+      <div class="topbar-actions">
+        <button id="lang-toggle" class="chip-btn" type="button" title="Switch language / भाषा बदलें">EN</button>
+        <button id="voice-out-toggle" class="chip-btn" type="button" title="Toggle spoken replies" aria-pressed="true">🔊</button>
+        <span id="provider-badge" class="chip-btn chip-static" title="Active AI provider"></span>
+      </div>
+    </header>
+
+    <main class="stage">
+      <section class="hero" id="hero">
+        <div class="orb" id="orb" data-state="IDLE" role="img" aria-label="ZARVIS orb, idle"></div>
+        <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
+        <p class="hero-status" id="hero-status">IDLE</p>
+      </section>
+
+      <section class="conversation" id="conversation" aria-live="polite"></section>
+
+      <section class="categories" id="categories" aria-label="Skill categories"></section>
+    </main>
+
+    <footer class="composer">
+      <button id="mic-btn" class="mic-btn" type="button" title="Speak">
+        <span aria-hidden="true">🎙</span>
+      </button>
+      <input id="text-input" class="text-input" type="text" placeholder="Type your task…" autocomplete="off" />
+      <button id="send-btn" class="send-btn" type="button" title="Send">Send</button>
+    </footer>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.data.repository"
+    namespace = "com.zarvismobile.data.repository"
     compileSdk = 34
 
     defaultConfig {

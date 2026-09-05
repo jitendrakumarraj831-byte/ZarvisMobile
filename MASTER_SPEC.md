@@ -1,8 +1,12 @@
-# JARVIS MOBILE — MASTER SPECIFICATION
+# ZARVIS MOBILE — MASTER SPECIFICATION
 
 **Status:** Living document — source of truth for product and technical decisions.
-**Version:** 0.1.0 (Phase 0 — Foundation)
-**Last updated:** 2026-08-26
+**Version:** 0.2.0 (Phase 0–3 — Foundation + Web Client + first live AI provider)
+**Last updated:** 2026-09-05
+**Production domain:** [zarvismobile.com](https://zarvismobile.com) — the registered domain
+for this product; the backend's `PUBLIC_APP_URL`/`CORS_ORIGINS` default to it (see
+`backend/.env.example`) and both the browser web client (§12a) and, once published, the
+Android app's backend base URL target it.
 
 > Every major implementation decision must be consistent with this document. If a better
 > technical approach is discovered later, this file is updated **first**, then the codebase
@@ -24,6 +28,7 @@
 10. [AI Architecture](#10-ai-architecture)
 11. [Voice Architecture](#11-voice-architecture)
 12. [Web Agent Architecture](#12-web-agent-architecture)
+    - [12a. Web Client Architecture](#12a-web-client-architecture)
 13. [Developer Agent Architecture](#13-developer-agent-architecture)
 14. [GitHub Architecture](#14-github-architecture)
 15. [Security Architecture](#15-security-architecture)
@@ -49,7 +54,7 @@
 
 ## 1. Product Vision
 
-JARVIS MOBILE is a **Universal AI Digital Agent** for Android. It is not a chatbot, not a
+ZARVIS MOBILE is a **Universal AI Digital Agent** for Android. It is not a chatbot, not a
 voice assistant shell, not a phone-automation macro tool, and not a coding assistant alone.
 
 Core promise:
@@ -114,7 +119,7 @@ Install → Welcome → capability tour → language selection → minimal permi
 account creation (or guest) → free trial activated → Home screen.
 
 ### 4.2 Voice task (happy path)
-Home → tap orb / "Hey Jarvis" → LISTENING → STT transcript shown live → UNDERSTANDING
+Home → tap orb / "Hey Zarvis" → LISTENING → STT transcript shown live → UNDERSTANDING
 (intent + entity extraction) → PLANNING (orchestrator selects agent/skill) → risk & permission
 check → (confirmation if MEDIUM/HIGH risk) → EXECUTING (tool calls, progress shown) →
 VERIFYING → SPEAKING/showing result → task saved to history.
@@ -313,7 +318,7 @@ backend/
   provider calls, Web Agent execution, Developer Agent execution (repo analysis, codegen,
   PR creation), GitHub integration, long-running task execution, push notifications.
 - **API boundary:** the Android app never calls AI providers, GitHub, or arbitrary web
-  endpoints directly for anything requiring a secret — it calls the JARVIS backend, which
+  endpoints directly for anything requiring a secret — it calls the ZARVIS backend, which
   proxies with server-held credentials. Direct-from-device calls are limited to
   no-secret, user-authorized flows (e.g., OS-level intents).
 - **Persistence:** relational DB (PostgreSQL in production; the reference backend in this
@@ -351,11 +356,20 @@ interface AIResponse {
 - `ProviderFactory` selects a provider/model per request (cost, capability, region,
   fallback chain). Swapping or adding a provider means adding one adapter, not touching
   callers.
+- **Google Gemini is this repository's first wired, real provider** (`backend/src/ai/
+  geminiProvider.ts`, registered as `id: "google"`). Setting `GEMINI_API_KEY`
+  (`backend/.env.example`) is the entire integration step: `providerFactory.ts` resolves the
+  turn-loop's `defaultModelConfig` to Gemini automatically whenever that key is present, and
+  falls back to `MockAIProvider` when it isn't — no caller of `getProvider`/`Orchestrator`
+  changes either way. This is the "config-only change, not a redesign" §32 previously called
+  out as pending.
 - **Important constraint:** a developer's Claude subscription (e.g., Claude Pro, or this
   Claude Code session) is a *development environment*, not a runtime API credential. The
   shipped product calls AI providers via **server-held API keys** billed to the product's
   own account, requested through the backend `ai/` module — never bundled in the APK,
-  never assumed to exist because the developer happens to have a Claude subscription.
+  never assumed to exist because the developer happens to have a Claude subscription. The
+  same rule applies to `GEMINI_API_KEY`: it is a backend environment variable, never bundled
+  in the APK or the web client's static assets (§15).
 - Tool-calling loop: Orchestrator builds `ToolDefinition[]` from the currently-enabled
   Skill Registry (filtered by user entitlement/permissions) → sends to the provider → model
   returns `ToolCall`s → each goes through the Tool Architecture pipeline (§7) → results are
@@ -394,6 +408,50 @@ IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SPEAKING →
   explanation — it does not simulate a human to evade detection.
 - Structured extraction results carry source URLs for user verification (no un-sourced
   claims presented as fact when they originate from a fetched page).
+
+## 12a. Web Client Architecture
+
+Distinct from the **Web Agent** (§12, a server-side skill that researches the open web on
+the user's behalf): this is the **browser client** — a second, thin frontend for the same
+product, served from the product's own domain, [zarvismobile.com](https://zarvismobile.com),
+alongside the Android app rather than instead of it. It exists so "run ZARVIS in a browser"
+requires no install, matching Product Principle #1 (outcome over interface) for a user who
+just wants to try the agent from a link.
+
+- **No separate backend.** The web client calls the exact same versioned API (§25) the
+  Android app calls — `GET /api/v1/skills`, `POST /api/v1/orchestrator/turn`, `POST
+  /api/v1/auth/*` — so a skill added once (§6) is immediately usable from both clients with
+  zero web-specific server code.
+- **Serving:** `backend/src/server.ts` serves the static client (`web/` at the repo root)
+  from the same Express app and origin as the API, so the one production domain
+  (zarvismobile.com) serves both the app shell and `/api/v1/*` — no CORS hop for the default
+  deployment. `CORS_ORIGINS`/`PUBLIC_APP_URL` (`backend/.env.example`) exist for the case
+  where the client is instead deployed to a separate static host (e.g. a CDN) pointed at the
+  same backend.
+- **No framework/build step.** Plain HTML/CSS/JS (`web/index.html`, `styles.css`, `app.js`)
+  deliberately mirrors the zero-credential, zero-setup spirit of `MockAIProvider` (§10):
+  the product is demoable by opening a URL, no `npm install`/bundler required for the client
+  itself (the backend it talks to still needs `npm install` per DEVELOPMENT.md).
+- **Session:** mirrors the Android app's guest bootstrap (§32) — on first load the client
+  calls `POST /api/v1/auth/signup` with a generated, unguessable device-scoped email so a
+  first-time visitor starts talking to ZARVIS immediately, no signup form. Tokens are kept in
+  `localStorage`, scoped to the browser/device like the Android app's Keystore-backed token
+  storage is scoped to the device (§15) — this is a convenience cache, not a durable identity;
+  linking a real account across devices is the same open item tracked in §32.
+- **Voice (§11):** uses the browser-native Web Speech API (`SpeechRecognition` for STT,
+  `speechSynthesis` for TTS) behind the same IDLE→LISTENING→UNDERSTANDING→EXECUTING→SPEAKING
+  state machine the orb renders on Android, rather than Android's `SpeechRecognizer`/
+  `TextToSpeech` — a different concrete engine behind the same product-level state machine,
+  consistent with §11's "abstracted behind an interface so a provider can be swapped."
+  Voice input degrades to text-only when the browser doesn't support it (Safari/older
+  browsers) — never a dead end (Product Principle #4).
+- **Bilingual (§3.6):** a lightweight English/Hindi copy toggle, extended the same way the
+  Android app's locale system is meant to grow — this is not a replacement for real i18n
+  infrastructure, just enough to prove the product's bilingual promise from a browser too.
+- **What it does not do:** it does not duplicate the Tool pipeline (§7) or entitlement
+  resolution (§19) — those live only in the backend, exactly as ARCHITECTURE.md's
+  "Backend/Android parity note" already requires for any client. The web client is a UI over
+  the same authoritative backend, not a second implementation of product logic.
 
 ## 13. Developer Agent Architecture
 
@@ -559,7 +617,7 @@ generic chatbot UI.
 
 ### Home Screen (concept)
 ```
-   JARVIS MOBILE
+   ZARVIS MOBILE
    "आप क्या करवाना चाहते हैं?"
 
         [ AI ORB ]
@@ -691,11 +749,17 @@ Included in this repository's first implementation pass:
 - Security/permission foundation: Tool pipeline, permission bridge, secure storage helper,
   logging redaction facade.
 - "What can you do?" screen driven by the live Skill Registry.
+- A **browser web client** (§12a) at the product's own domain, zarvismobile.com, serving
+  the same conversation/skill-catalogue experience over the same API the Android app uses —
+  no separate backend, no build step.
+- A **live AI provider adapter** (Google Gemini, §10) wired behind the existing
+  provider-agnostic contract, selected automatically when `GEMINI_API_KEY` is configured.
 
-Explicitly **not** in this pass (documented as planned, not faked): live AI provider
-credentials, live Play Billing, Phone Agent's actual call/contacts intents beyond an
-"open app" skill, full Web Agent scraping pipeline, instrumented/emulator test runs
-(no Android SDK in this build environment — see §32).
+Explicitly **not** in this pass (documented as planned, not faked): a *deployed, credentialed*
+production environment (this repository ships the Gemini adapter and domain wiring, not a
+live server with a key already loaded — see §32), live Play Billing, Phone Agent's actual
+call/contacts intents beyond an "open app" skill, full Web Agent scraping pipeline,
+instrumented/emulator test runs (no Android SDK in this build environment — see §32).
 
 ## 30. Future Roadmap
 
@@ -728,9 +792,21 @@ LOW-risk skills.
   Node/TypeScript `backend` **are** built/tested in this session as real, verifiable
   correctness signals. This is called out explicitly in the final report rather than
   claiming an unverified Android build succeeded.
-- **No live AI provider or billing credentials.** Both are architected behind interfaces
-  with mock/local adapters so the product runs and is demoable without secrets; wiring
-  real credentials is a config-only change (§10, §19), not a redesign.
+- **No live AI provider credential is committed to this repository, and no live billing
+  credential exists at all.** The Gemini adapter (§10) is real code, unit-tested against a
+  mocked `fetch` (`backend/test/ai/geminiProvider.test.ts`) — but no session here has an
+  actual `GEMINI_API_KEY`, so the *code path* is verified while the *live call* is not. Both
+  AI and billing are architected behind interfaces with mock/local adapters so the product
+  runs and is demoable without secrets; wiring a real Gemini key is now a one-line
+  `.env` change (§10), and billing remains a config-only change pending a Play Console
+  listing (§19).
+- **The web client (§12a) is unverified in a real browser in this session.** It was built
+  and its backend contract exercised end-to-end via `curl` against the running server
+  (guest signup → skill catalogue → orchestrator turn, all returned real, correct
+  responses) — but no browser (and therefore no Web Speech API STT/TTS path, no visual
+  layout check) was available to click through it here. Open `web/index.html` served by a
+  running backend (`npm run dev` in `backend/`, then visit `http://localhost:3000/`) to
+  verify visually before relying on it.
 - **Voice quality depends on Android OS engines at MVP** — acceptable for Hindi/English
   coverage on modern devices, but quality will vary by device/OEM until a cloud engine is
   wired in behind the existing interface.

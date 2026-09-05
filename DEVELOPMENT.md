@@ -49,6 +49,25 @@ Copy `backend/.env.example` to `backend/.env` to configure real provider/GitHub/
 credentials — the server runs fully functional against mocks with no `.env` at all,
 which is the default for local development and CI (see
 [AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md) and [SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md)).
+Set `GEMINI_API_KEY` there to switch the orchestrator's default provider from
+`MockAIProvider` to live Google Gemini calls — get a key from
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+
+## Web client (browser)
+
+`web/` (repo root) is a plain HTML/CSS/JS client — no build step, no separate dependency
+install — served automatically by the backend from the same origin. See
+[MASTER_SPEC.md §12a](./MASTER_SPEC.md#12a-web-client-architecture).
+
+```bash
+cd backend && npm run dev
+# then open http://localhost:3000 in a browser
+```
+
+It calls the same `/api/v1/*` routes the Android app calls, bootstraps a guest account on
+first load (mirrors the Android app's device-scoped account, §32), and works with either
+`MockAIProvider` or a configured `GEMINI_API_KEY` with no client-side change. To point the
+client at a different backend host, open it with `?api=https://your-backend/api/v1`.
 
 ## Repository conventions
 

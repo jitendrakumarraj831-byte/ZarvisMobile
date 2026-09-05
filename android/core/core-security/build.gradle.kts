@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.core.security"
+    namespace = "com.zarvismobile.core.security"
     compileSdk = 34
 
     defaultConfig {

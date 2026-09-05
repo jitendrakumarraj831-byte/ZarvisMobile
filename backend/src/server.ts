@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import type { Container } from "./container.js";
 import { authRouter } from "./api/routes/auth.js";
@@ -8,14 +11,24 @@ import { orchestratorRouter } from "./api/routes/orchestrator.js";
 import { skillsRouter } from "./api/routes/skills.js";
 import { tasksRouter } from "./api/routes/tasks.js";
 import { usageRouter } from "./api/routes/usage.js";
+import { defaultModelConfig } from "./ai/providerFactory.js";
+import { corsMiddleware } from "./security/cors.js";
 import { logger } from "./security/redact.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+/** ../../web from dist/server.js (or ../web from src/server.ts) — see MASTER_SPEC.md §12a. */
+const webRoot = [join(__dirname, "../../web"), join(__dirname, "../web")].find((candidate) => existsSync(candidate));
 
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
   const app = express();
+  app.use(corsMiddleware);
   app.use(express.json());
 
-  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  // `provider` names which AIProvider is active (e.g. "mock" or "google") — never a secret,
+  // it just lets the web client honestly show what's actually answering (Product Principle
+  // #4, "Never fake success") instead of assuming Gemini is wired when it isn't.
+  app.get("/health", (_req, res) => res.json({ status: "ok", provider: defaultModelConfig.provider }));
 
   app.use("/api/v1/auth", authRouter(container.authService));
   app.use("/api/v1/skills", skillsRouter(container.registry, container.entitlementPort));
@@ -25,6 +38,14 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
   app.use("/api/v1/developer", developerRouter(container.pipeline));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier));
+
+  // Serves the browser web client (see MASTER_SPEC.md §12a "Web Client Architecture") from
+  // the same origin/domain as the API — no separate static host needed for
+  // https://zarvismobile.com to run the full product in a browser.
+  if (webRoot) {
+    app.use(express.static(webRoot));
+    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(join(webRoot, "index.html")));
+  }
 
   app.use((req, res) => {
     res.status(404).json({ error: `No route for ${req.method} ${req.path}` });

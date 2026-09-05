@@ -1,0 +1,298 @@
+/**
+ * ZARVIS MOBILE web client — a thin browser client over the same backend API the Android
+ * app calls (MASTER_SPEC.md §25 "API Boundaries"). No framework/build step: this is
+ * deliberately plain HTML/CSS/JS so the whole product can be demoed by opening a URL,
+ * mirroring the zero-credential/zero-setup spirit of the backend's MockAIProvider default
+ * (AI_ARCHITECTURE.md). See MASTER_SPEC.md §12a "Web Client Architecture".
+ *
+ * Session model mirrors the Android app's guest bootstrap (MASTER_SPEC.md §32, "No login
+ * screen yet"): on first load this creates a device-scoped backend account automatically
+ * (POST /api/v1/auth/signup with a generated, unguessable email) rather than showing a
+ * signup form, so a first-time visitor can start talking to ZARVIS immediately.
+ */
+(() => {
+  "use strict";
+
+  const STORAGE_KEYS = {
+    accessToken: "zarvis.accessToken",
+    refreshToken: "zarvis.refreshToken",
+    lang: "zarvis.lang",
+    speak: "zarvis.speak",
+  };
+
+  const API_BASE = resolveApiBase();
+
+  const COPY = {
+    en: {
+      hero: "What would you like me to do?",
+      placeholder: "Type your task…",
+      send: "Send",
+      mic: "Speak",
+      thinking: "Thinking…",
+      bootError: "Couldn't reach the ZARVIS backend. Is it running?",
+    },
+    hi: {
+      hero: "आप क्या करवाना चाहते हैं?",
+      placeholder: "अपना काम लिखें…",
+      send: "भेजें",
+      mic: "बोलें",
+      thinking: "सोच रहा हूँ…",
+      bootError: "ZARVIS बैकएंड तक नहीं पहुँच पाया। क्या यह चल रहा है?",
+    },
+  };
+
+  const el = {
+    orb: document.getElementById("orb"),
+    heroTitle: document.getElementById("hero-title"),
+    heroStatus: document.getElementById("hero-status"),
+    conversation: document.getElementById("conversation"),
+    categories: document.getElementById("categories"),
+    input: document.getElementById("text-input"),
+    sendBtn: document.getElementById("send-btn"),
+    micBtn: document.getElementById("mic-btn"),
+    langToggle: document.getElementById("lang-toggle"),
+    voiceOutToggle: document.getElementById("voice-out-toggle"),
+    providerBadge: document.getElementById("provider-badge"),
+  };
+
+  const state = {
+    lang: localStorage.getItem(STORAGE_KEYS.lang) || "hi",
+    speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
+  };
+
+  init().catch((err) => {
+    console.error(err);
+    addBubble("system", COPY[state.lang].bootError);
+    setOrbState("ERROR");
+  });
+
+  async function init() {
+    applyLanguage();
+    el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
+    setupSpeechRecognition();
+
+    el.sendBtn.addEventListener("click", () => submitUtterance(el.input.value));
+    el.input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submitUtterance(el.input.value);
+    });
+    el.langToggle.addEventListener("click", () => {
+      state.lang = state.lang === "en" ? "hi" : "en";
+      localStorage.setItem(STORAGE_KEYS.lang, state.lang);
+      applyLanguage();
+    });
+    el.voiceOutToggle.addEventListener("click", () => {
+      state.speak = !state.speak;
+      localStorage.setItem(STORAGE_KEYS.speak, state.speak ? "on" : "off");
+      el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
+    });
+
+    await ensureSession();
+    await Promise.all([loadHealth(), loadSkills()]);
+    setOrbState("IDLE");
+  }
+
+  function resolveApiBase() {
+    const params = new URLSearchParams(location.search);
+    const override = params.get("api");
+    if (override) return override.replace(/\/$/, "");
+    return `${location.origin}/api/v1`;
+  }
+
+  function applyLanguage() {
+    const copy = COPY[state.lang];
+    el.langToggle.textContent = state.lang.toUpperCase();
+    el.heroTitle.textContent = copy.hero;
+    el.input.placeholder = copy.placeholder;
+    el.sendBtn.textContent = copy.send;
+    el.micBtn.title = copy.mic;
+  }
+
+  // ---- Session (guest account bootstrap + refresh) -------------------------------------
+
+  async function ensureSession() {
+    if (localStorage.getItem(STORAGE_KEYS.accessToken)) return;
+    const deviceId = crypto.randomUUID();
+    const email = `guest-${deviceId}@device.zarvismobile.com`;
+    const password = crypto.randomUUID() + crypto.randomUUID();
+    const res = await fetch(`${API_BASE}/auth/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) throw new Error(`Guest signup failed: ${res.status}`);
+    const tokens = await res.json();
+    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
+    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+  }
+
+  async function apiFetch(path, options = {}, retried = false) {
+    const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+        ...(options.headers || {}),
+      },
+    });
+    if (res.status === 401 && !retried) {
+      const refreshed = await tryRefresh();
+      if (refreshed) return apiFetch(path, options, true);
+    }
+    return res;
+  }
+
+  async function tryRefresh() {
+    const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
+    if (!refreshToken) return false;
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return false;
+    const tokens = await res.json();
+    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
+    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+    return true;
+  }
+
+  // ---- Health / skill catalogue ---------------------------------------------------------
+
+  async function loadHealth() {
+    try {
+      const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
+      const body = await res.json();
+      el.providerBadge.textContent = body.provider === "google" ? "AI: Gemini" : "AI: Mock";
+      el.providerBadge.title =
+        body.provider === "google"
+          ? "Live Google Gemini calls (GEMINI_API_KEY is set)"
+          : "Deterministic MockAIProvider — set GEMINI_API_KEY on the backend for live Gemini";
+    } catch {
+      el.providerBadge.textContent = "AI: —";
+    }
+  }
+
+  async function loadSkills() {
+    const res = await apiFetch("/skills");
+    if (!res.ok) return;
+    const { skills } = await res.json();
+    el.categories.innerHTML = "";
+    for (const skill of skills) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "category-chip" + (skill.upgradeRequired ? " locked" : "");
+      chip.textContent = skill.name;
+      chip.title = skill.description;
+      chip.addEventListener("click", () => {
+        el.input.value = exampleFor(skill.description);
+        el.input.focus();
+      });
+      el.categories.appendChild(chip);
+    }
+  }
+
+  function exampleFor(description) {
+    const match = description.match(/"([^"]+)"/);
+    return match ? match[1] : description;
+  }
+
+  // ---- Conversation turn -----------------------------------------------------------------
+
+  async function submitUtterance(rawText) {
+    const utterance = rawText.trim();
+    if (!utterance) return;
+    el.input.value = "";
+    addBubble("user", utterance);
+
+    setOrbState("UNDERSTANDING");
+    await delay(250);
+    setOrbState("EXECUTING");
+
+    try {
+      const res = await apiFetch("/orchestrator/turn", {
+        method: "POST",
+        body: JSON.stringify({ utterance, locale: state.lang }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        addBubble("assistant", body.error || `Request failed (${res.status}).`);
+        setOrbState("ERROR");
+        return;
+      }
+      const result = await res.json();
+      addBubble("assistant", result.message || "…");
+      speak(result.message);
+    } catch (err) {
+      console.error(err);
+      addBubble("system", COPY[state.lang].bootError);
+      setOrbState("ERROR");
+      return;
+    }
+    setOrbState("IDLE");
+  }
+
+  function addBubble(role, text) {
+    const bubble = document.createElement("div");
+    bubble.className = `bubble ${role}`;
+    bubble.textContent = text;
+    el.conversation.appendChild(bubble);
+    el.conversation.scrollTop = el.conversation.scrollHeight;
+  }
+
+  function setOrbState(newState) {
+    el.orb.dataset.state = newState;
+    el.heroStatus.textContent = newState;
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // ---- Voice in (STT) and out (TTS) — MASTER_SPEC.md §11 Voice Architecture, browser-native
+  // Web Speech API standing in for Android's SpeechRecognizer/TextToSpeech behind the same
+  // state machine, since no cloud STT/TTS credential is wired in this pass. ---------------
+
+  let recognition = null;
+
+  function setupSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      el.micBtn.disabled = true;
+      el.micBtn.title = "Voice input isn't supported in this browser — use text instead.";
+      return;
+    }
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.addEventListener("result", (event) => {
+      const transcript = event.results[0][0].transcript;
+      submitUtterance(transcript);
+    });
+    recognition.addEventListener("end", () => {
+      el.micBtn.setAttribute("aria-pressed", "false");
+      if (el.orb.dataset.state === "LISTENING") setOrbState("IDLE");
+    });
+    recognition.addEventListener("error", () => {
+      el.micBtn.setAttribute("aria-pressed", "false");
+      setOrbState("IDLE");
+    });
+
+    el.micBtn.addEventListener("click", () => {
+      recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
+      el.micBtn.setAttribute("aria-pressed", "true");
+      setOrbState("LISTENING");
+      recognition.start();
+    });
+  }
+
+  function speak(text) {
+    if (!state.speak || !text || !window.speechSynthesis) return;
+    setOrbState("SPEAKING");
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = state.lang === "hi" ? "hi-IN" : "en-US";
+    utterance.onend = () => setOrbState("IDLE");
+    window.speechSynthesis.speak(utterance);
+  }
+})();

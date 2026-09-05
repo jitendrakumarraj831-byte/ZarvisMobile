@@ -1,8 +1,8 @@
 {
-  "name": "jarvis-mobile-backend",
+  "name": "zarvis-mobile-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "JARVIS MOBILE backend — auth, orchestration, skills, entitlements. See ../MASTER_SPEC.md §9.",
+  "description": "ZARVIS MOBILE backend — auth, orchestration, skills, entitlements. See ../MASTER_SPEC.md §9.",
   "type": "module",
   "engines": {
     "node": ">=20"

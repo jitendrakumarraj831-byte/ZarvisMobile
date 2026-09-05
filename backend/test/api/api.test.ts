@@ -21,7 +21,7 @@ describe("API integration", () => {
   it("responds healthy", async () => {
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: "ok" });
+    expect(res.body).toEqual({ status: "ok", provider: "mock" });
   });
 
   it("rejects unauthenticated access to protected routes", async () => {
@@ -125,7 +125,7 @@ describe("API integration", () => {
   it("verifies a mock billing webhook", async () => {
     const res = await request(app)
       .post("/api/v1/billing/webhook")
-      .send({ purchaseToken: "abc123token", productId: "jarvis_pro_monthly" });
+      .send({ purchaseToken: "abc123token", productId: "zarvis_pro_monthly" });
     expect(res.status).toBe(200);
     expect(res.body.acknowledged).toBe(true);
   });

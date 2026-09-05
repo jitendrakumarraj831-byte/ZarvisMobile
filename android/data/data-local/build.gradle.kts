@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.data.local"
+    namespace = "com.zarvismobile.data.local"
     compileSdk = 34
 
     defaultConfig {

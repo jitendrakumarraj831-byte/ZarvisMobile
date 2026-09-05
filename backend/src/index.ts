@@ -7,5 +7,5 @@ const container = buildContainer();
 const app = buildServer(container);
 
 app.listen(env.port, () => {
-  logger.info(`JARVIS MOBILE backend listening on port ${env.port}`);
+  logger.info(`ZARVIS MOBILE backend listening on port ${env.port}`);
 });

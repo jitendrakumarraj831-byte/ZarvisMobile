@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.feature.tasks"
+    namespace = "com.zarvismobile.feature.tasks"
     compileSdk = 34
 
     defaultConfig {

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.data.remote"
+    namespace = "com.zarvismobile.data.remote"
     compileSdk = 34
 
     defaultConfig {

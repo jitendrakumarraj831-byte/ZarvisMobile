@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.app"
+    namespace = "com.zarvismobile.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.jarvismobile.app"
+        applicationId = "com.zarvismobile.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
