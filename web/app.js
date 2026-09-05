@@ -127,6 +127,14 @@
     await ensureSession();
     await Promise.all([loadHealth(), loadSkills()]);
     setOrbState("IDLE");
+
+    // Hands-free mode arms itself automatically on load — no tap needed, per explicit
+    // request. The orb remains a manual mute/unmute toggle for whenever it isn't wanted.
+    // The browser still owns the actual permission gate: on a first-ever visit this
+    // triggers its native "allow microphone" prompt (SpeechRecognition doesn't require a
+    // preceding click the way getUserMedia's autoplay-style policies do); once granted, it
+    // stays silent on every later visit.
+    toggleAutoListen();
   }
 
   function resolveApiBase() {

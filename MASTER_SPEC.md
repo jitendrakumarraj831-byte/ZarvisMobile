@@ -459,14 +459,17 @@ just wants to try the agent from a link.
   browsers) — never a dead end (Product Principle #4). Voice output tries Gemini's native
   audio voice first (`POST /api/v1/tts/synthesize`) before falling back to
   `speechSynthesis` — see above and AI_ARCHITECTURE.md "Native audio voice".
-- **Hands-free wake word (web only, differs from §11's Android orb-tap behavior):**
-  tapping the orb here arms continuous "always listening" mode instead of cancelling the
-  current turn — say "Zarvis" (or a common mishearing like "Jarvis") followed by a command.
-  This is a software approximation of a wake word (continuous `SpeechRecognition` with
+- **Hands-free wake word (web only, differs from §11's Android orb-tap behavior):** arms
+  itself automatically on page load (explicit product request — no tap needed); tapping
+  the orb here mutes/unmutes it instead of cancelling the current turn like Android's orb
+  does. Say "Zarvis" (or a common mishearing like "Jarvis") followed by a command. This is
+  a software approximation of a wake word (continuous `SpeechRecognition` with
   auto-restart), not a true low-power OS wake-word detector — it only works while the tab
-  is foregrounded, and is never persisted across a reload (an armed mic silently
-  reactivating unprompted would look like exactly the secret listening §15 rules out). See
-  DEVELOPMENT.md "Hands-free 'wake word' mode".
+  is foregrounded. The muted/armed choice is never persisted across a reload — it always
+  re-arms fresh rather than remembering a muted state indefinitely, so a visible cyan ring
+  plus an on-screen message every time it arms is the transparency trade-off for that
+  convenience (§15 "never secretly monitor the device"). See DEVELOPMENT.md "Hands-free
+  'wake word' mode".
 - **Personalization:** the client sends an optional `userName` with every orchestrator
   turn (`localStorage["zarvis.userName"]`, no settings UI yet — see §32) so replies can
   address the user by name; a display label only, never an identity/auth claim.
