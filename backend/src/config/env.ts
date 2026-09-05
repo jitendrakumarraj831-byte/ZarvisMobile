@@ -5,7 +5,7 @@ export const env = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
-  geminiModel: process.env.GEMINI_MODEL || "gemini-2.0-flash",
+  geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
   githubAppId: process.env.GITHUB_APP_ID,
   githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
   playBillingServiceAccountJson: process.env.PLAY_BILLING_SERVICE_ACCOUNT_JSON,

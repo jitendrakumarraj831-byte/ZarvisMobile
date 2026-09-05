@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { SkillRegistry } from "../../tooling/skillRegistry.js";
 import type { UsagePort } from "../../tooling/ports.js";
+import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 
 /**
@@ -15,24 +16,28 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddle
 export function usageRouter(registry: SkillRegistry, usagePort: UsagePort): Router {
   const router = Router();
 
-  router.post("/charge", requireAuth, async (req: AuthenticatedRequest, res) => {
-    const { skillId } = req.body ?? {};
-    if (typeof skillId !== "string") {
-      res.status(400).json({ error: "skillId is required" });
-      return;
-    }
-    const skill = registry.find(skillId);
-    if (!skill) {
-      res.status(404).json({ error: `Unknown skill '${skillId}'` });
-      return;
-    }
-    if (!skill.executesOnDevice) {
-      res.status(400).json({ error: `'${skillId}' is backend-executed and is charged automatically, not via this route` });
-      return;
-    }
-    const balance = await usagePort.charge(req.auth!.accountId, skill.usageCost, skillId);
-    res.json({ balance });
-  });
+  router.post(
+    "/charge",
+    requireAuth,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      const { skillId } = req.body ?? {};
+      if (typeof skillId !== "string") {
+        res.status(400).json({ error: "skillId is required" });
+        return;
+      }
+      const skill = registry.find(skillId);
+      if (!skill) {
+        res.status(404).json({ error: `Unknown skill '${skillId}'` });
+        return;
+      }
+      if (!skill.executesOnDevice) {
+        res.status(400).json({ error: `'${skillId}' is backend-executed and is charged automatically, not via this route` });
+        return;
+      }
+      const balance = await usagePort.charge(req.auth!.accountId, skill.usageCost, skillId);
+      res.json({ balance });
+    }),
+  );
 
   return router;
 }

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Orchestrator } from "../../agents/orchestrator.js";
+import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 
 /**
@@ -10,20 +11,24 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddle
 export function orchestratorRouter(orchestrator: Orchestrator): Router {
   const router = Router();
 
-  router.post("/turn", requireAuth, async (req: AuthenticatedRequest, res) => {
-    const { utterance, confirmed, locale } = req.body ?? {};
-    if (typeof utterance !== "string" || utterance.trim().length === 0) {
-      res.status(400).json({ error: "utterance is required" });
-      return;
-    }
-    const result = await orchestrator.runTurn({
-      accountId: req.auth!.accountId,
-      utterance,
-      confirmed: typeof confirmed === "boolean" ? confirmed : undefined,
-      locale: typeof locale === "string" ? locale : undefined,
-    });
-    res.json(result);
-  });
+  router.post(
+    "/turn",
+    requireAuth,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      const { utterance, confirmed, locale } = req.body ?? {};
+      if (typeof utterance !== "string" || utterance.trim().length === 0) {
+        res.status(400).json({ error: "utterance is required" });
+        return;
+      }
+      const result = await orchestrator.runTurn({
+        accountId: req.auth!.accountId,
+        utterance,
+        confirmed: typeof confirmed === "boolean" ? confirmed : undefined,
+        locale: typeof locale === "string" ? locale : undefined,
+      });
+      res.json(result);
+    }),
+  );
 
   return router;
 }

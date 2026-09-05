@@ -62,6 +62,35 @@ translation layer:
 - **Tests:** `backend/test/ai/geminiProvider.test.ts` mocks `fetch` to verify the request
   shape sent to Gemini and the response mapping back, including the non-2xx error path
   (never silently swallowed — Product Principle #4, "Never fake success").
+- **Live-verified once, with a real key configured locally (never committed):**
+  `GET /health` reported `provider: "google"`, and real turns correctly answered a direct
+  question and picked the right skill (`web.search` / `docs.summarize`) via genuine
+  Gemini function-calling rather than the mock's keyword heuristic. That same live call
+  also caught two real bugs, both since fixed: `gemini-2.0-flash` (the adapter's original
+  default) has been retired by Google — the default is now `gemini-3.6-flash`
+  (`config/env.ts`, `.env.example`) — and the resulting API error crashed the whole backend
+  process (see "Route safety" below), not just the one request.
+
+## Route safety: don't let one provider failure crash every user's request
+
+Express 4 does not catch a promise rejected inside an `async` route handler — it becomes an
+unhandled rejection and kills the whole Node process. This was found live (see above): a
+Gemini error inside the `/orchestrator/turn` handler took the entire backend down. Every
+route handler that lacked its own `try`/`catch` is now wrapped in a shared `asyncHandler`
+(`backend/src/api/asyncHandler.ts`), which forwards the rejection to `server.ts`'s error
+middleware instead — that middleware logs it and returns an honest `500` (Product
+Principle #4) without crashing. Any new route calling into a provider, GitHub, or another
+fallible external dependency should use `asyncHandler` (or its own `try`/`catch`) for the
+same reason.
+
+## Loading credentials locally
+
+`backend/src/bootstrapEnv.ts` (imported first in `src/index.ts`) calls Node's built-in
+`process.loadEnvFile()` to load `backend/.env` before any other module (notably
+`config/env.ts`) reads `process.env`. Missing the file is expected and ignored — the
+zero-credential MockAIProvider default still works with no `.env` at all — any other
+failure is not swallowed. No `dotenv` dependency is needed (Node 22+, see `package.json`
+`engines`).
 
 ## Why the backend, never the device
 

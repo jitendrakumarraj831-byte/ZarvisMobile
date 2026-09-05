@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import type { ToolPipeline } from "../../tooling/toolPipeline.js";
+import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 
 /**
@@ -13,18 +14,22 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddle
 export function developerRouter(pipeline: ToolPipeline): Router {
   const router = Router();
 
-  router.post("/analyze", requireAuth, async (req: AuthenticatedRequest, res) => {
-    const { repoUrl } = req.body ?? {};
-    if (typeof repoUrl !== "string" || repoUrl.trim().length === 0) {
-      res.status(400).json({ error: "repoUrl is required" });
-      return;
-    }
-    const outcome = await pipeline.execute(
-      { id: randomUUID(), skillId: "developer.analyze_repo", input: { values: { repoUrl } } },
-      { accountId: req.auth!.accountId },
-    );
-    res.json(outcome);
-  });
+  router.post(
+    "/analyze",
+    requireAuth,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      const { repoUrl } = req.body ?? {};
+      if (typeof repoUrl !== "string" || repoUrl.trim().length === 0) {
+        res.status(400).json({ error: "repoUrl is required" });
+        return;
+      }
+      const outcome = await pipeline.execute(
+        { id: randomUUID(), skillId: "developer.analyze_repo", input: { values: { repoUrl } } },
+        { accountId: req.auth!.accountId },
+      );
+      res.json(outcome);
+    }),
+  );
 
   return router;
 }

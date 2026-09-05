@@ -1,3 +1,4 @@
+import "./bootstrapEnv.js";
 import { buildContainer } from "./container.js";
 import { env } from "./config/env.js";
 import { buildServer } from "./server.js";

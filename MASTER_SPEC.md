@@ -792,14 +792,30 @@ LOW-risk skills.
   Node/TypeScript `backend` **are** built/tested in this session as real, verifiable
   correctness signals. This is called out explicitly in the final report rather than
   claiming an unverified Android build succeeded.
-- **No live AI provider credential is committed to this repository, and no live billing
-  credential exists at all.** The Gemini adapter (§10) is real code, unit-tested against a
-  mocked `fetch` (`backend/test/ai/geminiProvider.test.ts`) — but no session here has an
-  actual `GEMINI_API_KEY`, so the *code path* is verified while the *live call* is not. Both
-  AI and billing are architected behind interfaces with mock/local adapters so the product
-  runs and is demoable without secrets; wiring a real Gemini key is now a one-line
-  `.env` change (§10), and billing remains a config-only change pending a Play Console
-  listing (§19).
+- **The Gemini adapter has been live-verified, but no key is committed to this repository.**
+  A real `GEMINI_API_KEY` was configured locally (never committed — `.env` is git-ignored)
+  and exercised end-to-end against the real Generative Language API: `GET /health` reported
+  `provider: "google"`, and live turns correctly answered a direct question, selected
+  `web.search` for a shopping query, and selected `docs.summarize` for a summarization
+  query — genuine model-driven tool selection, not the keyword-matching mock. The
+  downstream skill results themselves are still `MockSearchProvider`/`NaiveSummarizer`
+  output (honestly labeled as such in the response) since no live search/summarization API
+  is wired — only the *AI provider* step of the pipeline is real. **No live billing
+  credential exists at all** — that remains a config-only change pending a Play Console
+  listing (§19). Note also: the live call surfaced that `gemini-2.0-flash` (this adapter's
+  original default) has been retired by Google in favor of `gemini-3.6-flash` — the default
+  in `config/env.ts`/`.env.example` was corrected accordingly; a deployment should still
+  confirm the current recommended model at integration time rather than trusting any
+  hardcoded default indefinitely.
+- **A live-triggered bug was found and fixed in the same session:** the same Gemini error
+  (before the model-name fix) crashed the *entire* backend process, because Express 4 does
+  not catch a rejected promise thrown inside an `async` route handler — it becomes an
+  unhandled rejection that kills the whole Node process, not just the one request. Every
+  route handler that lacked its own `try`/`catch` (`orchestrator`, `developer`,
+  `entitlements`, `skills`, `billing`, `usage`, most of `tasks`) is now wrapped in a shared
+  `asyncHandler` (`backend/src/api/asyncHandler.ts`) that forwards the rejection to
+  Express's error middleware instead, which logs it and returns an honest 500 — one failed
+  AI/GitHub/billing call can no longer take down every other in-flight user's request.
 - **The web client (§12a) is unverified in a real browser in this session.** It was built
   and its backend contract exercised end-to-end via `curl` against the running server
   (guest signup → skill catalogue → orchestrator turn, all returned real, correct

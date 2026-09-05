@@ -5,7 +5,7 @@
   "description": "ZARVIS MOBILE backend — auth, orchestration, skills, entitlements. See ../MASTER_SPEC.md §9.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
