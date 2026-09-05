@@ -50,6 +50,9 @@ backend/                  # Node.js + TypeScript backend (Express)
 web/                      # Browser web client (plain HTML/CSS/JS, no build step) — the
                           # same product, running at zarvismobile.com with no install.
                           # See MASTER_SPEC.md §12a.
+
+api/index.ts, vercel.json # Vercel serverless deployment of the same backend + web client
+                          # as one project — see DEVELOPMENT.md "Deploying to Vercel".
 ```
 
 ## Status

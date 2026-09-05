@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.ts", "use": "@vercel/node" },
+    { "src": "web/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "^/$", "dest": "/web/index.html" },
+    { "src": "^/app\\.js$", "dest": "/web/app.js" },
+    { "src": "^/styles\\.css$", "dest": "/web/styles.css" },
+    { "src": "^/(api/.*|health)$", "dest": "/api/index.ts" },
+    { "src": "^/(.*)$", "dest": "/web/index.html" }
+  ]
+}

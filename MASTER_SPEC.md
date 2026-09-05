@@ -428,6 +428,12 @@ just wants to try the agent from a link.
   deployment. `CORS_ORIGINS`/`PUBLIC_APP_URL` (`backend/.env.example`) exist for the case
   where the client is instead deployed to a separate static host (e.g. a CDN) pointed at the
   same backend.
+- **Deployment target: Vercel.** `vercel.json` + `api/index.ts` (both repo root) wrap the
+  same `buildContainer()`/`buildServer()` composition root as a Vercel serverless function,
+  with `web/` served as static files by the same project — see DEVELOPMENT.md "Deploying to
+  Vercel" for the exact setup steps and the honestly-documented limitation this implies
+  (the in-memory `Store` doesn't persist reliably across cold serverless instances; a real
+  database is the pre-launch fix, not a redesign).
 - **No framework/build step.** Plain HTML/CSS/JS (`web/index.html`, `styles.css`, `app.js`)
   deliberately mirrors the zero-credential, zero-setup spirit of `MockAIProvider` (§10):
   the product is demoable by opening a URL, no `npm install`/bundler required for the client

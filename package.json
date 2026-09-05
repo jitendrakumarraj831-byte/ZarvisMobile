@@ -1,0 +1,11 @@
+{
+  "name": "zarvis-mobile-vercel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Root package.json for Vercel: lets api/index.ts (the serverless entrypoint wrapping backend/) resolve its runtime dependencies. See DEVELOPMENT.md 'Deploying to Vercel'. The real source of truth for these versions is backend/package.json — keep both in sync when bumping.",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
