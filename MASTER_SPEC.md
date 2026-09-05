@@ -388,7 +388,13 @@ IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SPEAKING →
   behind a `SpeechToTextEngine` interface so a cloud STT provider can be swapped in later
   without UI changes.
 - **TTS:** Android `TextToSpeech` engine for MVP, Hindi + English voices; same
-  provider-abstraction pattern (`TextToSpeechEngine`) for future higher-quality voices.
+  provider-abstraction pattern (`TextToSpeechEngine`) for future higher-quality voices. The
+  web client (§12a) already has a higher-quality option live: `POST
+  /api/v1/tts/synthesize` calls Gemini's native audio voice server-side (§10,
+  AI_ARCHITECTURE.md "Native audio voice") — the same underlying voice technology behind
+  the Gemini app's voice mode — falling back to the browser's built-in engine if that call
+  fails. Wiring the Android `TextToSpeechEngine` to the same backend endpoint instead of
+  the on-device engine is a natural follow-up, not implemented here yet.
 - Every state is rendered distinctly in the UI (orb animation + status text) so the user
   always knows what the system is doing.
 - Full interruption support: tapping the orb or speaking again while SPEAKING/EXECUTING
@@ -450,7 +456,20 @@ just wants to try the agent from a link.
   `TextToSpeech` — a different concrete engine behind the same product-level state machine,
   consistent with §11's "abstracted behind an interface so a provider can be swapped."
   Voice input degrades to text-only when the browser doesn't support it (Safari/older
-  browsers) — never a dead end (Product Principle #4).
+  browsers) — never a dead end (Product Principle #4). Voice output tries Gemini's native
+  audio voice first (`POST /api/v1/tts/synthesize`) before falling back to
+  `speechSynthesis` — see above and AI_ARCHITECTURE.md "Native audio voice".
+- **Hands-free wake word (web only, differs from §11's Android orb-tap behavior):**
+  tapping the orb here arms continuous "always listening" mode instead of cancelling the
+  current turn — say "Zarvis" (or a common mishearing like "Jarvis") followed by a command.
+  This is a software approximation of a wake word (continuous `SpeechRecognition` with
+  auto-restart), not a true low-power OS wake-word detector — it only works while the tab
+  is foregrounded, and is never persisted across a reload (an armed mic silently
+  reactivating unprompted would look like exactly the secret listening §15 rules out). See
+  DEVELOPMENT.md "Hands-free 'wake word' mode".
+- **Personalization:** the client sends an optional `userName` with every orchestrator
+  turn (`localStorage["zarvis.userName"]`, no settings UI yet — see §32) so replies can
+  address the user by name; a display label only, never an identity/auth claim.
 - **Bilingual (§3.6):** a lightweight English/Hindi copy toggle, extended the same way the
   Android app's locale system is meant to grow — this is not a replacement for real i18n
   infrastructure, just enough to prove the product's bilingual promise from a browser too.
@@ -679,6 +698,9 @@ Permission(id, accountId, type, granted, grantedAt)
 - `POST /api/v1/usage/charge` — records a completed, verified on-device skill execution
   against the server-authoritative credit ledger, cost looked up server-side by skill id
   (never client-supplied) — see ARCHITECTURE.md "Backend/Android parity note"
+- `POST /api/v1/tts/synthesize` — Gemini native audio voice for a piece of text, returns
+  `audio/wav` (§11, AI_ARCHITECTURE.md "Native audio voice"); not yet metered through the
+  usage ledger above (§21) — a known gap before this could scale beyond a single account
 - Versioned from day one (`/api/v1`), all authenticated routes require the access token,
   all mutating routes are idempotency-key aware for safe client retries.
 

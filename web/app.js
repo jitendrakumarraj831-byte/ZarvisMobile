@@ -19,9 +19,20 @@
     lang: "zarvis.lang",
     speak: "zarvis.speak",
     voiceURI: "zarvis.voiceURI",
+    userName: "zarvis.userName",
   };
 
   const API_BASE = resolveApiBase();
+
+  // Sent with every orchestrator turn so replies can address the user by name (see
+  // backend/src/agents/orchestrator.ts's TurnRequest.userName) — just a display label the
+  // model uses, never an identity/auth claim; the account itself is authenticated by the
+  // bearer token regardless of what this says. Defaults to the product owner's own name
+  // for this single-account deployment; editable later by writing localStorage directly
+  // (no settings screen yet — see MASTER_SPEC.md §32 "No login screen yet").
+  if (!localStorage.getItem(STORAGE_KEYS.userName)) {
+    localStorage.setItem(STORAGE_KEYS.userName, "Jitendra Kumar");
+  }
 
   const COPY = {
     en: {
@@ -44,6 +55,7 @@
 
   const el = {
     orb: document.getElementById("orb"),
+    orbWrap: document.querySelector(".orb-wrap"),
     heroTitle: document.getElementById("hero-title"),
     heroStatus: document.getElementById("hero-status"),
     conversation: document.getElementById("conversation"),
@@ -62,7 +74,20 @@
   const state = {
     lang: localStorage.getItem(STORAGE_KEYS.lang) || "hi",
     speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
+    // Hands-free "wake word" mode is intentionally session-only (never persisted) — an
+    // armed microphone silently reactivating on a fresh page load, before the user does
+    // anything, would look like exactly the kind of secret listening MASTER_SPEC.md §15
+    // rules out; requiring one explicit tap per visit keeps it honest.
+    autoListen: false,
   };
+
+  // Common mishearings of "Zarvis" from real speech recognizers (most STT models have
+  // never seen this word and fall back to the much more common "Jarvis") — matched
+  // case-insensitively against the transcript. This is a software approximation of a wake
+  // word, not a true low-power OS wake-word detector: it only works while this tab is open
+  // and in the foreground, and every second of "armed" audio is sent to the browser's
+  // speech-recognition service exactly like a manual mic tap would be.
+  const WAKE_WORDS = ["zarvis", "ज़ार्विस", "जार्विस", "जारविस", "jarvis", "sarvis"];
 
   // Declared here (not near their setup functions below) because init() runs synchronously
   // up to its first `await` and calls those setup functions immediately — a `let` declared
@@ -231,7 +256,7 @@
     try {
       const res = await apiFetch("/orchestrator/turn", {
         method: "POST",
-        body: JSON.stringify({ utterance, locale: state.lang }),
+        body: JSON.stringify({ utterance, locale: state.lang, userName: localStorage.getItem(STORAGE_KEYS.userName) }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -241,7 +266,14 @@
       }
       const result = await res.json();
       addBubble("assistant", result.message || "…");
-      speak(result.message);
+      // Awaited so the orb actually stays SPEAKING for the duration of playback — without
+      // this, the fire-and-forget call returns almost immediately (it only runs
+      // synchronously up to its first internal await) and the setOrbState("IDLE") below
+      // would fire right after, overwriting SPEAKING a fraction of a second in. That
+      // matters beyond cosmetics: auto-listen mode (see startListening()) uses the orb
+      // state to know when ZARVIS has actually finished talking before re-arming the mic —
+      // starting to listen while still speaking would pick up its own voice.
+      await speak(result.message);
     } catch (err) {
       console.error(err);
       addBubble("system", COPY[state.lang].bootError);
@@ -249,6 +281,7 @@
       return;
     }
     setOrbState("IDLE");
+    if (state.autoListen) startListening();
   }
 
   function addBubble(role, text) {
@@ -336,23 +369,102 @@
 
     recognition.addEventListener("result", (event) => {
       const transcript = event.results[0][0].transcript;
+      if (state.autoListen) {
+        const command = extractCommandAfterWakeWord(transcript);
+        if (command) submitUtterance(command);
+        // No wake word, or the wake word with nothing said after it: stay silently armed —
+        // the "end" handler below re-starts listening automatically.
+        return;
+      }
       submitUtterance(transcript);
     });
+
     recognition.addEventListener("end", () => {
+      if (state.autoListen) {
+        // A turn already in flight restarts listening itself once it's actually done
+        // speaking (see submitUtterance/speak) — restarting here too would race it and
+        // risk the mic picking up ZARVIS's own reply.
+        const busy = ["UNDERSTANDING", "EXECUTING", "SPEAKING"].includes(el.orb.dataset.state);
+        if (!busy) setTimeout(startListening, 300);
+        return;
+      }
       el.micBtn.setAttribute("aria-pressed", "false");
       if (el.orb.dataset.state === "LISTENING") setOrbState("IDLE");
     });
-    recognition.addEventListener("error", () => {
+
+    recognition.addEventListener("error", (event) => {
+      // "no-speech" (silence) and "aborted" (we called .stop(), or a restart raced an old
+      // session) are routine while always-on — don't drop out of hands-free mode for those.
+      if (state.autoListen && (event.error === "no-speech" || event.error === "aborted")) return;
+      if (state.autoListen) toggleAutoListen();
       el.micBtn.setAttribute("aria-pressed", "false");
       setOrbState("IDLE");
     });
 
     el.micBtn.addEventListener("click", () => {
-      recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
-      el.micBtn.setAttribute("aria-pressed", "true");
-      setOrbState("LISTENING");
-      recognition.start();
+      if (state.autoListen) return; // the mic is already armed by hands-free mode
+      startListening();
     });
+
+    el.orb.addEventListener("click", toggleAutoListen);
+    el.orb.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleAutoListen();
+      }
+    });
+  }
+
+  function toggleAutoListen() {
+    if (!recognition) return;
+    state.autoListen = !state.autoListen;
+    el.orb.setAttribute("aria-pressed", String(state.autoListen));
+    el.orbWrap.classList.toggle("auto-listen", state.autoListen);
+    if (state.autoListen) {
+      addBubble(
+        "system",
+        state.lang === "hi"
+          ? `Hands-free mode ON — "ज़ार्विस" bol kar apna command boliye.`
+          : `Hands-free mode ON — say "Zarvis" followed by your command.`,
+      );
+      startListening();
+    } else {
+      stopListening();
+      setOrbState("IDLE");
+    }
+  }
+
+  function startListening() {
+    if (!recognition) return;
+    recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
+    el.micBtn.setAttribute("aria-pressed", "true");
+    setOrbState("LISTENING");
+    try {
+      recognition.start();
+    } catch {
+      // Already running — recognition.start() throws InvalidStateError in that case.
+    }
+  }
+
+  function stopListening() {
+    if (!recognition) return;
+    try {
+      recognition.stop();
+    } catch {
+      // Not running — nothing to stop.
+    }
+    el.micBtn.setAttribute("aria-pressed", "false");
+  }
+
+  /** Returns the text after the wake word, or `null` if no wake word was heard at all. */
+  function extractCommandAfterWakeWord(transcript) {
+    const lower = transcript.toLowerCase();
+    for (const word of WAKE_WORDS) {
+      const idx = lower.indexOf(word);
+      if (idx === -1) continue;
+      return transcript.slice(idx + word.length).replace(/^[\s,.:!।-]+/, "").trim() || null;
+    }
+    return null;
   }
 
   // The browser's voice list loads asynchronously (often empty until `voiceschanged`
@@ -420,15 +532,53 @@
     return candidates.find((v) => !v.localService) || candidates[0];
   }
 
-  function speak(text) {
-    if (!state.speak || !text || !window.speechSynthesis) return;
+  // Tries Gemini's native audio voice first (POST /api/v1/tts/synthesize — the same voice
+  // technology behind the Gemini app's voice mode, see AI_ARCHITECTURE.md "Native audio
+  // voice"), falling back to the browser's built-in speechSynthesis if that backend call
+  // fails for any reason (not configured, offline, rate-limited, ...) — never a silent dead
+  // end, per Product Principle #4.
+  async function speak(text) {
+    if (!state.speak || !text) return;
     setOrbState("SPEAKING");
+    let playedLive = false;
+    try {
+      playedLive = await speakWithGemini(text);
+    } catch (err) {
+      console.warn("Gemini voice unavailable, falling back to the browser's voice:", err);
+    }
+    if (!playedLive) speakWithBrowser(text);
+  }
+
+  async function speakWithGemini(text) {
+    const res = await apiFetch("/tts/synthesize", { method: "POST", body: JSON.stringify({ text }) });
+    if (!res.ok) return false;
+    const url = URL.createObjectURL(await res.blob());
+    const audio = new Audio(url);
+    try {
+      await new Promise((resolve, reject) => {
+        audio.addEventListener("ended", resolve, { once: true });
+        audio.addEventListener("error", () => reject(new Error("Audio playback failed")), { once: true });
+        audio.play().catch(reject);
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    setOrbState("IDLE");
+    return true;
+  }
+
+  function speakWithBrowser(text) {
+    if (!window.speechSynthesis) {
+      setOrbState("IDLE");
+      return;
+    }
     const utterance = new SpeechSynthesisUtterance(text);
     const langPrefix = state.lang === "hi" ? "hi" : "en";
     utterance.lang = state.lang === "hi" ? "hi-IN" : "en-US";
     const voice = pickVoice(langPrefix);
     if (voice) utterance.voice = voice;
     utterance.onend = () => setOrbState("IDLE");
+    utterance.onerror = () => setOrbState("IDLE");
     window.speechSynthesis.speak(utterance);
   }
 })();

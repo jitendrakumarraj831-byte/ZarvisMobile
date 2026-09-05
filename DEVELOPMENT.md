@@ -71,32 +71,49 @@ client at a different backend host, open it with `?api=https://your-backend/api/
 
 ### Voice quality
 
-`web/app.js` speaks replies using the browser's built-in Web Speech API
-(`speechSynthesis`) — on Android that plays back whichever voice Google's on-device
-"Google Text-to-Speech" engine ships, picking its best available network voice for the
-current language and letting the user override it from the voice picker that appears in
-the topbar once more than one is available (persisted in `localStorage`). **This is
-honestly not the same voice model behind the ChatGPT or Gemini apps' voice mode** — those
-call a dedicated neural TTS model server-side, not a browser API, so no combination of
-browser settings reaches that exact quality.
+`web/app.js`'s `speak()` calls `POST /api/v1/tts/synthesize` first — Gemini's own
+native-audio-output voice (`backend/src/ai/geminiTts.ts`), the same underlying voice
+technology behind the Gemini app's voice mode, using the same `GEMINI_API_KEY` already
+configured (no separate credential). If that call fails for any reason (not configured,
+offline, rate-limited), it falls back to the browser's built-in `speechSynthesis` —
+picking its best available network voice for the current language, with a manual voice
+picker in the topbar once more than one is available (persisted in `localStorage`) — so
+voice output never silently goes dead, per Product Principle #4.
 
-Getting genuinely closer requires a real backend TTS call, e.g.:
+`GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE` (`.env.example`) configure the model and one of
+Gemini's fixed prebuilt voice names (e.g. `Kore`, `Puck`, `Charon`, `Aoede`, `Fenrir`).
+Live-verified in this repository: a real signed WAV response, confirmed to be real speech
+(not silence) by inspecting its PCM sample RMS/peak amplitude, not just a non-error status
+code.
 
-- **Google Cloud Text-to-Speech** (Neural2/Studio/Chirp voices) — excellent Hindi
-  coverage, and pairs naturally with the Gemini integration already here, but it is a
-  **separate Google Cloud product** from the Generative Language API key already
-  configured (`GEMINI_API_KEY`): it needs its own Cloud project with the Text-to-Speech
-  API enabled and its own credential (a modest free tier exists, but it is not the same
-  key).
-- **Gemini's own native-audio-output models** (the same technology behind the Gemini
-  app's voice mode) — closer to "real Gemini voice" by construction, but a materially
-  different integration than the plain text `generateContent` call `geminiProvider.ts`
-  makes today (a streaming, audio-capable session rather than one-shot text).
+**Note this is a different, separate integration from Google Cloud Text-to-Speech**
+(Neural2/Studio/Chirp voices) — that remains a documented-but-unimplemented option if
+Gemini's prebuilt voices aren't sufficient later; it needs its own Cloud project and
+credential, unlike the native-audio route actually wired in here.
 
-Neither is wired into this repository yet — both are additive behind the same
-`AIProvider`-style separation this codebase already uses for AI text generation (§10), not
-a redesign, but both need a new credential/decision before implementing, so they are not
-assumed here.
+### Hands-free "wake word" mode
+
+Tapping the orb (not the mic button) arms continuous listening: say "Zarvis" (or a close
+mishearing like "Jarvis" — most speech recognizers have never seen the actual word and
+fall back to the much more common one) followed by a command, e.g. *"Zarvis, find the best
+phone under 20000"*. This is a software approximation of a wake word built on the Web
+Speech API's `continuous`/auto-restart pattern (`setupSpeechRecognition()` in `app.js`),
+**not** a true low-power OS wake-word detector: it only works while the tab is open and in
+the foreground, and every second of "armed" audio is sent to the browser's
+speech-recognition service exactly like a manual mic tap would be — stated honestly rather
+than oversold. It is intentionally never persisted across a page reload (an armed
+microphone silently reactivating before the user does anything would look like exactly the
+kind of secret listening MASTER_SPEC.md §15 rules out).
+
+### Personalizing replies with a name
+
+`POST /api/v1/orchestrator/turn` accepts an optional `userName`, folded into the system
+prompt (`orchestrator.ts`) so Gemini can address the user by name naturally. `web/app.js`
+sends whatever is in `localStorage["zarvis.userName"]` with every turn, defaulting it to
+the product owner's name on first load (no settings screen exists yet to change it — see
+MASTER_SPEC.md §32 "No login screen yet"; edit `localStorage` directly for now). This is a
+display label only, never an identity/auth claim — the account itself is authenticated by
+the bearer token regardless of what this field says.
 
 ## Deploying to Vercel (public URL, e.g. zarvismobile.com)
 

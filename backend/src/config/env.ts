@@ -6,6 +6,13 @@ export const env = {
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
   geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
+  /** Gemini's native-audio-output model — the same underlying voice technology behind the
+   * Gemini app's voice mode, called via a plain generateContent request (see
+   * ai/geminiTts.ts and AI_ARCHITECTURE.md "Native audio voice"), not the separate Google
+   * Cloud Text-to-Speech product. Uses the same GEMINI_API_KEY, no extra credential. */
+  geminiTtsModel: process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts",
+  /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
+  geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
   githubAppId: process.env.GITHUB_APP_ID,
   githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
   playBillingServiceAccountJson: process.env.PLAY_BILLING_SERVICE_ACCOUNT_JSON,

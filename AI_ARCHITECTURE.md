@@ -71,6 +71,32 @@ translation layer:
   (`config/env.ts`, `.env.example`) — and the resulting API error crashed the whole backend
   process (see "Route safety" below), not just the one request.
 
+## Native audio voice (Gemini TTS)
+
+`backend/src/ai/geminiTts.ts` (`GeminiTtsProvider`) is a second, separate Gemini
+capability from the text `AIProvider` above: it calls a Gemini model with
+`generationConfig.responseModalities: ["AUDIO"]` and a `speechConfig.voiceConfig`
+(`GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE`, `.env.example`) to get back real synthesized
+speech — the same underlying voice technology behind the Gemini app's voice mode — using
+the same `GEMINI_API_KEY`, not the separate Google Cloud Text-to-Speech product.
+
+- Gemini returns raw base64-encoded PCM audio; browsers can't play raw PCM directly, so
+  `pcmToWav()` wraps it in a standard 44-byte WAV header (Node has no built-in WAV
+  encoder). The real sample rate is parsed from the response's `mimeType` (e.g.
+  `audio/L16;rate=24000`) rather than assumed, falling back to 24kHz only if that's absent.
+- Exposed as `POST /api/v1/tts/synthesize` (`api/routes/tts.ts`, authenticated, wrapped in
+  `asyncHandler`), returning `audio/wav` directly. Text is capped at 2000 characters — the
+  only cost guard in this pass; this call is not yet metered through the usage/credit
+  ledger (§21), a known gap to close before this could scale beyond a single account.
+- **Live-verified**, not just unit-tested: a real call with a configured key returned a
+  genuine WAV file, confirmed to actually be speech (not silence) by checking its PCM
+  sample RMS/peak amplitude with Python's `audioop`, not just a 200 status code.
+- `web/app.js`'s `speak()` tries this endpoint first and falls back to the browser's
+  built-in `speechSynthesis` if it fails for any reason (not configured, offline,
+  rate-limited) — see DEVELOPMENT.md "Voice quality" for the full picture, including what
+  this still isn't (Gemini's fuller real-time "native audio dialog"/Live API, a
+  WebSocket-based bidirectional session materially different from this one-shot REST call).
+
 ## Route safety: don't let one provider failure crash every user's request
 
 Express 4 does not catch a promise rejected inside an `async` route handler — it becomes an

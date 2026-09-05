@@ -190,6 +190,14 @@ body {
   box-shadow: 0 0 46px 4px #6c6bff59, inset 0 0 24px #ffffff33;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
   position: relative;
+  cursor: pointer;
+}
+.orb:focus-visible { outline: 2px solid var(--zarvis-accent-cyan); outline-offset: 6px; }
+/* Hands-free ("say Zarvis") mode armed — a persistent cyan ring distinct from the default
+   idle indigo one, so it's visible even while the orb itself isn't actively LISTENING. */
+.orb-wrap.auto-listen .orb-ring {
+  border-color: var(--zarvis-accent-cyan);
+  animation: ring-pulse 1.6s ease-in-out infinite;
 }
 .orb::after {
   content: "";

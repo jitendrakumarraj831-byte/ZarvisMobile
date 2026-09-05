@@ -11,6 +11,10 @@ export interface TurnRequest {
   utterance: string;
   confirmed?: boolean;
   locale?: string;
+  /** Client-supplied display name (see api/routes/orchestrator.ts) — used only to let the
+   * model address the user naturally; never an identity/auth claim (the account is already
+   * authenticated via the bearer token, see authMiddleware.ts). */
+  userName?: string;
 }
 
 export interface TurnResult {
@@ -44,7 +48,11 @@ export class Orchestrator {
     const aiResponse = await this.provider.generate({
       systemPrompt:
         "You are ZARVIS, a universal AI digital agent. Select at most one tool that " +
-        "accomplishes the user's request, or reply directly if no tool applies.",
+        "accomplishes the user's request, or reply directly if no tool applies." +
+        (request.userName
+          ? ` The user's name is ${request.userName} — address them by name when it feels ` +
+            "natural (e.g. an opening greeting), not in every single reply."
+          : ""),
       messages: [{ role: "user", content: request.utterance }],
       tools: availableSkills.map((skill) => ({
         name: skill.id,

@@ -10,6 +10,7 @@ import { entitlementsRouter } from "./api/routes/entitlements.js";
 import { orchestratorRouter } from "./api/routes/orchestrator.js";
 import { skillsRouter } from "./api/routes/skills.js";
 import { tasksRouter } from "./api/routes/tasks.js";
+import { ttsRouter } from "./api/routes/tts.js";
 import { usageRouter } from "./api/routes/usage.js";
 import { defaultModelConfig } from "./ai/providerFactory.js";
 import { corsMiddleware } from "./security/cors.js";
@@ -52,6 +53,7 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
   app.use("/api/v1/developer", developerRouter(container.pipeline));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier));
+  app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
 
   // Serves the browser web client (see MASTER_SPEC.md §12a "Web Client Architecture") from
   // the same origin/domain as the API — no separate static host needed for
