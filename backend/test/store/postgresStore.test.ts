@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { PostgresStore } from "../../src/store/postgresStore.js";
 
 /**
@@ -7,15 +7,24 @@ import { PostgresStore } from "../../src/store/postgresStore.js";
  * database is available in the default test environment; InMemoryStore already covers this
  * same Store contract in test/auth/authService.test.ts and test/api/api.test.ts.
  */
-describe.skipIf(!process.env.TEST_DATABASE_URL)("PostgresStore", () => {
-  const store = new PostgresStore(process.env.TEST_DATABASE_URL ?? "");
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+
+describe.skipIf(!TEST_DATABASE_URL)("PostgresStore", () => {
+  // `describe.skipIf` still runs this factory to discover the `it`s below even when
+  // skipped — only the tests themselves are skipped — so constructing a PostgresStore
+  // (and, since it parses the connection string as a URL, a real one) must wait for
+  // `beforeAll`, which vitest does *not* run for a skipped suite.
+  let store: PostgresStore;
+  beforeAll(() => {
+    store = new PostgresStore(TEST_DATABASE_URL!);
+  });
 
   it("persists a user/account/trial across separate calls, like a fresh serverless invocation would see", async () => {
     const email = `test-${Date.now()}@example.com`;
     const user = await store.createUser(email, "hashed");
     const account = await store.createAccountForUser(user.id);
 
-    const reread = new PostgresStore(process.env.TEST_DATABASE_URL ?? "");
+    const reread = new PostgresStore(TEST_DATABASE_URL!);
     expect(await reread.findUserById(user.id)).toMatchObject({ id: user.id, email });
     expect(await reread.getAccount(account.id)).toMatchObject({ id: account.id, userId: user.id });
     expect(await reread.getCreditBalance(account.id)).toBe(50);

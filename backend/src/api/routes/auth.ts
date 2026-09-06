@@ -1,5 +1,6 @@
 import { Router, type Response } from "express";
 import { AuthError, type AuthService } from "../../auth/authService.js";
+import { logger } from "../../security/redact.js";
 
 export function authRouter(authService: AuthService): Router {
   const router = Router();
@@ -54,5 +55,11 @@ function handleAuthError(err: unknown, res: Response): void {
     res.status(401).json({ error: err.message });
     return;
   }
+  // An AuthError is an expected rejection (bad password, unknown user) and is safe to hand
+  // straight to the client above; anything else here is unexpected (e.g. the database was
+  // unreachable) and was previously swallowed into a bare 500 with no server-side trace at
+  // all — logged now so a real failure shows up in the deployment's logs instead of just
+  // "Internal error" with nothing to go on.
+  logger.error("Unhandled auth error", { error: err instanceof Error ? err.message : String(err) });
   res.status(500).json({ error: "Internal error" });
 }

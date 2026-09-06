@@ -67,7 +67,7 @@ export class PostgresStore implements Store {
     // Serverless functions run many concurrent short-lived invocations against one Postgres
     // instance, so each keeps at most a couple of connections open (use a pooled/pgbouncer
     // connection string from your provider, e.g. Vercel Postgres/Neon's "Pooled connection").
-    this.pool = new Pool({ connectionString, max: 5 });
+    this.pool = new Pool({ connectionString, max: 5, ssl: sslConfigFor(connectionString) });
   }
 
   private ensureSchema(): Promise<void> {
@@ -301,4 +301,19 @@ function toTask(row: TaskRow): Task {
 
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505";
+}
+
+/**
+ * Hosted Postgres (Vercel Postgres/Neon, Supabase, Heroku, ...) requires TLS but node-pg's
+ * default strict certificate verification rejects their certs in most Node runtimes,
+ * failing every query with "self-signed certificate in certificate chain" — the standard
+ * fix, per every one of those providers' own node-postgres docs, is to keep the channel
+ * encrypted but skip chain verification. A local/test database (this repo's own
+ * test/store/postgresStore.test.ts included) has no TLS listener at all, so forcing `ssl`
+ * on it would break the connection instead of fixing anything — only remote hosts get it.
+ */
+function sslConfigFor(connectionString: string): false | { rejectUnauthorized: false } {
+  const hostname = new URL(connectionString).hostname;
+  const isLocal = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return isLocal ? false : { rejectUnauthorized: false };
 }
