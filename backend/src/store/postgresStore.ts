@@ -67,7 +67,8 @@ export class PostgresStore implements Store {
     // Serverless functions run many concurrent short-lived invocations against one Postgres
     // instance, so each keeps at most a couple of connections open (use a pooled/pgbouncer
     // connection string from your provider, e.g. Vercel Postgres/Neon's "Pooled connection").
-    this.pool = new Pool({ connectionString, max: 5, ssl: sslConfigFor(connectionString) });
+    const { connectionString: sanitized, ssl } = poolConfigFor(connectionString);
+    this.pool = new Pool({ connectionString: sanitized, max: 5, ssl });
   }
 
   private ensureSchema(): Promise<void> {
@@ -308,12 +309,32 @@ function isUniqueViolation(err: unknown): boolean {
  * default strict certificate verification rejects their certs in most Node runtimes,
  * failing every query with "self-signed certificate in certificate chain" — the standard
  * fix, per every one of those providers' own node-postgres docs, is to keep the channel
- * encrypted but skip chain verification. A local/test database (this repo's own
- * test/store/postgresStore.test.ts included) has no TLS listener at all, so forcing `ssl`
- * on it would break the connection instead of fixing anything — only remote hosts get it.
+ * encrypted but skip chain verification via an explicit `ssl: { rejectUnauthorized: false }`.
+ *
+ * That alone isn't enough, though: these providers' connection strings already carry
+ * `?sslmode=require`, and `pg`/`pg-connection-string` parses that itself — as of a recent
+ * pg-connection-string version, 'require' (like 'prefer' and 'verify-ca') is aliased to
+ * 'verify-full', which does full certificate-chain verification and *overrides* whatever
+ * `ssl` object is passed alongside `connectionString`, silently reintroducing the exact
+ * failure the explicit `ssl` option was meant to avoid (verified directly against a real
+ * `pg.Client`: passing both yields `ssl: {}`, i.e. strict verification, not our override).
+ * Stripping `sslmode` from the string before handing it to `Pool` is what lets our own
+ * `ssl` config actually take effect.
+ *
+ * The override applies even for `ssl: false`: a local test run against this repo's own
+ * Postgres 16 install (which, like most distro packages, enables TLS out of the box with a
+ * self-signed cert) reproduced the identical failure with a `?sslmode=require` connection
+ * string and an explicit `ssl: false` — the string's `sslmode` still won and forced
+ * verify-full against that self-signed cert. So `sslmode` is stripped unconditionally, for
+ * both branches, and our own explicit `ssl` decision (false for local, `{ rejectUnauthorized:
+ * false }` for a real remote host) is what actually takes effect either way.
  */
-function sslConfigFor(connectionString: string): false | { rejectUnauthorized: false } {
-  const hostname = new URL(connectionString).hostname;
-  const isLocal = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-  return isLocal ? false : { rejectUnauthorized: false };
+function poolConfigFor(connectionString: string): {
+  connectionString: string;
+  ssl: false | { rejectUnauthorized: false };
+} {
+  const url = new URL(connectionString);
+  const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
+  url.searchParams.delete("sslmode");
+  return { connectionString: url.toString(), ssl: isLocal ? false : { rejectUnauthorized: false } };
 }
