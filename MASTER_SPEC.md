@@ -178,16 +178,15 @@ live Skill Registry, not a hardcoded screen) → user can tap a category to try 
   removable without cross-wiring.
 - MVP ships the Orchestrator plus **Personal, Web (research-only), Document, and Developer**
   agents fully wired with a real reference skill each (§29). **Phone**, **Business**,
-  **Creative**, and **Automation** have since gained their first real skills the same way —
-  register a skill, touch nothing in the Orchestrator: Phone's `phone.open_app`/
-  `phone.find_contact`/`phone.call` (Android on-device, Phase 4 of §28), Business's
-  `business.social_post`/`business.customer_reply`/`business.draft_invoice`, Creative's
-  `creative.write_message`/`creative.write_poem`/`creative.brainstorm`, and Automation's
-  `automation.create_workflow`/`automation.list_workflows`/`automation.cancel_workflow`
-  (all backend, SKILLS.md). **Research** is still registered as a **foundation interface**
-  only (agent contract + category entry in the Skill Registry, no handler yet) — proving
-  the architecture accepts it without orchestrator changes, while its first working skill
-  ships in a later phase (§28) rather than being simulated here.
+  **Creative**, **Automation**, and **Research** have since gained their first real skills
+  the same way — register a skill, touch nothing in the Orchestrator: Phone's
+  `phone.open_app`/`phone.find_contact`/`phone.call` (Android on-device, Phase 4 of §28),
+  Business's `business.social_post`/`business.customer_reply`/`business.draft_invoice`,
+  Creative's `creative.write_message`/`creative.write_poem`/`creative.brainstorm`,
+  Automation's `automation.create_workflow`/`automation.list_workflows`/
+  `automation.cancel_workflow`, and Research's `research.compare`/`research.report`/
+  `research.outline` (all backend, SKILLS.md). Every `SkillCategory` this section originally
+  named now has at least one real, working skill — none remain foundation-interface-only.
 
 ## 6. Skill Architecture
 
@@ -984,3 +983,20 @@ LOW-risk skills.
   goal text — fixed with field-specific heuristics, covered by two more regression tests,
   and re-confirmed live end to end (create → cancel → list correctly shows `CANCELLED`).
   `npm run build && npm test` — 85 tests, 0 failures.
+- **Research Agent's first three skills (`research.compare`/`research.report`/
+  `research.outline`) are deliberately distinct from same-sounding existing skills**, not
+  thin restatements of them: `research.compare` reasons over general knowledge rather than
+  fetching live results (`web.search`'s job), and `research.report` writes a structured
+  overview from a topic alone rather than condensing text the user already supplied
+  (`docs.summarize`'s job). Because general-knowledge output like this is never sourced or
+  current, each skill's own system prompt requires the model to say so explicitly in its
+  reply, not just in a doc comment — the same "no un-sourced claims presented as fact"
+  constraint §12 already states for the Web Agent, carried into these skills' actual
+  output rather than left as an unenforced aspiration. All three share Business/Creative's
+  `ContentGenerator` and are single-`prompt`-field, so — like Creative, unlike Business and
+  Automation — this category hit none of the `MockAIProvider.fillInput()` bugs found
+  earlier; a live smoke test also confirmed a plain search request still correctly routes to
+  `web.search`, not `research.compare`, despite both mentioning comparison. This was also
+  the last of the five categories this section (§5) and SKILLS.md's catalogue table listed
+  as foundation-interface-only — every `SkillCategory` MASTER_SPEC.md §1 names now has at
+  least one real, working skill. `npm run build && npm test` — 91 tests, 0 failures.

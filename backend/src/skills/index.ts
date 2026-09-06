@@ -16,14 +16,17 @@ import { CREATIVE_WRITE_MESSAGE_SYSTEM_PROMPT, createCreativeWriteMessageSkill }
 import { CREATIVE_WRITE_POEM_SYSTEM_PROMPT, createCreativeWritePoemSkill } from "./creativeWritePoem.js";
 import { createDeveloperAnalyzeRepoSkill } from "./developerAnalyzeRepo.js";
 import { createDocsSummarizeSkill, NaiveSummarizer } from "./docsSummarize.js";
+import { RESEARCH_COMPARE_SYSTEM_PROMPT, createResearchCompareSkill } from "./researchCompare.js";
+import { RESEARCH_OUTLINE_SYSTEM_PROMPT, createResearchOutlineSkill } from "./researchOutline.js";
+import { RESEARCH_REPORT_SYSTEM_PROMPT, createResearchReportSkill } from "./researchReport.js";
 import { createWebSearchSkill, MockSearchProvider } from "./webSearch.js";
 
 /**
  * Real generation via the configured provider (Gemini once `GEMINI_API_KEY` is set) when
  * available, an honestly-labeled deterministic mock otherwise — see
  * `ai/contentGenerator.ts` for why this doesn't reuse `MockAIProvider`. Shared by every
- * generation-based skill regardless of category (Business, Creative, ...), each with its
- * own [label]/[systemPrompt].
+ * generation-based skill regardless of category (Business, Creative, Research, ...), each
+ * with its own [label]/[systemPrompt].
  */
 function contentGenerator(label: string, systemPrompt: string): ContentGenerator {
   if (!env.geminiApiKey) return new MockContentGenerator(label);
@@ -32,10 +35,9 @@ function contentGenerator(label: string, systemPrompt: string): ContentGenerator
 }
 
 /**
- * Registers every backend-executed skill. See SKILLS.md "Current catalogue" — Research is
- * intentionally not registered here yet (foundation-only in this pass, MASTER_SPEC.md §29);
- * adding one is exactly this pattern: write the SkillDefinition, register it here, never
- * touch the Orchestrator.
+ * Registers every backend-executed skill. See SKILLS.md "Current catalogue" for the full
+ * status of each. Adding one is always this same pattern: write the SkillDefinition,
+ * register it here, never touch the Orchestrator.
  */
 export function buildSkillRegistry(store: Store): SkillRegistry {
   const registry = new SkillRegistry();
@@ -57,5 +59,8 @@ export function buildSkillRegistry(store: Store): SkillRegistry {
   registry.register(createAutomationCreateWorkflowSkill(taskService));
   registry.register(createAutomationListWorkflowsSkill(taskService));
   registry.register(createAutomationCancelWorkflowSkill(taskService));
+  registry.register(createResearchCompareSkill(contentGenerator("comparison", RESEARCH_COMPARE_SYSTEM_PROMPT)));
+  registry.register(createResearchReportSkill(contentGenerator("research report", RESEARCH_REPORT_SYSTEM_PROMPT)));
+  registry.register(createResearchOutlineSkill(contentGenerator("research outline", RESEARCH_OUTLINE_SYSTEM_PROMPT)));
   return registry;
 }

@@ -69,7 +69,9 @@ data class SkillDefinition(
 | `automation.create_workflow` | Automation | Backend | LOW | 1 credit | **Implemented** — creates a real, trackable multi-step `Task` via the Task Engine (§18); does not execute the steps (see below) |
 | `automation.list_workflows` | Automation | Backend | LOW | Free | **Implemented** — natural-language path to the account's own tasks |
 | `automation.cancel_workflow` | Automation | Backend | LOW | Free | **Implemented** — fuzzy goal-text match scoped to the calling account only, real pipeline |
-| Research (`research.*`) | Research | — | — | Foundation only: category + agent contract registered, no handler yet |
+| `research.compare` | Research | Backend | LOW | 1 credit | **Implemented** — distinct from `web.search`: reasons over general knowledge, not a live fetch; honestly caveats it isn't sourced/current |
+| `research.report` | Research | Backend | LOW | 1 credit | **Implemented** — distinct from `docs.summarize`: writes a structured overview on a topic rather than condensing text the user already has |
+| `research.outline` | Research | Backend | LOW | 1 credit | **Implemented** — a planning artifact (sub-questions worth investigating), not an attempt to answer them |
 
 **Phone Agent, stated honestly:** the three skills above are the first real Phone Agent
 skills (MASTER_SPEC.md §28 Phase 4) — their domain-layer logic (`PhoneOpenAppSkillFactory`,
@@ -124,11 +126,23 @@ any stored goal text at all. Fixed with field-specific heuristics, covered by tw
 regression tests, and re-confirmed live (create → cancel → list correctly shows
 `CANCELLED`). `npm run build && npm test` — 85 tests, 0 failures.
 
-"Foundation only" means the `SkillCategory` and the corresponding `Agent` interface exist
-and are wired into the Orchestrator's routing table, proving the architecture accepts the
-category — but no working skill handler ships in this pass (see
-[MASTER_SPEC.md §29](./MASTER_SPEC.md#29-mvp-scope) and
-[§28 phases 4–9](./MASTER_SPEC.md#28-development-phases) for when each ships).
+**Research Agent, stated honestly:** its three skills are deliberately distinct from
+categories that could sound similar — `research.compare` from `web.search` (which fetches
+live results; this reasons over general knowledge only), and `research.report` from
+`docs.summarize` (which condenses text the user already has; this writes a structured
+overview from a topic alone). Both, and `research.outline`, share the same
+`ContentGenerator` Business/Creative already established, all single-`prompt`-field like
+Creative's, so this category hit none of the `MockAIProvider.fillInput()` bugs the
+multi-field skills did — confirmed live, including that a plain search request still
+correctly routes to `web.search` and not `research.compare` despite both mentioning
+comparison. Because a comparison/report/outline generated from general knowledge alone
+(no live search) is never sourced or current, every one of these three skills' own system
+prompts requires the model to say so explicitly in its reply — not just a doc-comment
+disclaimer, an instruction the generated output itself must carry, consistent with §12's
+"no un-sourced claims presented as fact." `npm run build && npm test` — 91 tests, 0
+failures. This was also the last of the five previously-empty categories (Phone, Business,
+Creative, Automation, Research) — every `SkillCategory` MASTER_SPEC.md §1 names now has at
+least one real, working skill.
 
 ## "What can you do?"
 
