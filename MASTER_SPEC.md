@@ -2,7 +2,7 @@
 
 **Status:** Living document — source of truth for product and technical decisions.
 **Version:** 0.2.0 (Phase 0–3 — Foundation + Web Client + first live AI provider)
-**Last updated:** 2026-09-05
+**Last updated:** 2026-09-06
 **Production domain:** [zarvismobile.com](https://zarvismobile.com) — the registered domain
 for this product; the backend's `PUBLIC_APP_URL`/`CORS_ORIGINS` default to it (see
 `backend/.env.example`) and both the browser web client (§12a) and, once published, the
@@ -825,10 +825,19 @@ LOW-risk skills.
 
 - **No Android SDK in this build environment.** The Gradle/Android project is written to
   compile under a standard Android Studio/SDK setup, but this session cannot run a full
-  Android Gradle build or instrumented tests here. The pure-Kotlin `domain` module and the
-  Node/TypeScript `backend` **are** built/tested in this session as real, verifiable
-  correctness signals. This is called out explicitly in the final report rather than
-  claiming an unverified Android build succeeded.
+  Android Gradle build or instrumented tests here — confirmed directly: `./gradlew
+  :app:assembleDebug` fails immediately because the Android Gradle Plugin itself can't be
+  resolved (`Plugin [id: 'com.android.application', version: '8.5.2'] was not found`,
+  the plugin repository requiring Google's Android SDK component repo). The `app`, `core`,
+  `data`, `agents`, `skills`, and `features` modules therefore remain build-unverified here
+  — open `android/` in Android Studio to build/run them. The pure-Kotlin `domain` module
+  needs none of that and **is** built/tested in this session as a real, verifiable
+  correctness signal: `./gradlew :domain:build` succeeds, running 22 tests across 4 test
+  classes (`ToolPipelineTest`, `EntitlementResolverTest`, `KeywordSkillMatcherTest`,
+  `ReminderSkillFactoryTest`) with 0 failures. The Node/TypeScript `backend` is likewise
+  built/tested for real (`npm run build && npm test`, 48 tests, 0 failures, including
+  against a real local Postgres instance for `PostgresStore`). This split is called out
+  explicitly rather than claiming an unverified Android app build succeeded.
 - **The Gemini adapter has been live-verified, but no key is committed to this repository.**
   A real `GEMINI_API_KEY` was configured locally (never committed — `.env` is git-ignored)
   and exercised end-to-end against the real Generative Language API: `GET /health` reported
@@ -853,13 +862,16 @@ LOW-risk skills.
   `asyncHandler` (`backend/src/api/asyncHandler.ts`) that forwards the rejection to
   Express's error middleware instead, which logs it and returns an honest 500 — one failed
   AI/GitHub/billing call can no longer take down every other in-flight user's request.
-- **The web client (§12a) is unverified in a real browser in this session.** It was built
-  and its backend contract exercised end-to-end via `curl` against the running server
-  (guest signup → skill catalogue → orchestrator turn, all returned real, correct
-  responses) — but no browser (and therefore no Web Speech API STT/TTS path, no visual
-  layout check) was available to click through it here. Open `web/index.html` served by a
-  running backend (`npm run dev` in `backend/`, then visit `http://localhost:3000/`) to
-  verify visually before relying on it.
+- **The web client (§12a) has since been verified in a real browser**, in a later session
+  that had one available (Playwright + a pre-installed Chromium): a full chat turn against
+  the running server, the Status & Workflows drawer rendering live entitlements/task data,
+  zero horizontal overflow from 390px to 1280px wide, and the auth self-heal path (§25/§32
+  "No login screen yet") recovering from corrupted/orphaned localStorage tokens without
+  getting stuck. Real device/OS speech recognition and TTS quality are still unverified —
+  that sandbox had no microphone hardware at all (`SpeechRecognition` failed immediately
+  with an `audio-capture` error), so only the wake-word arm/acknowledge/recover logic was
+  exercised with a mocked `SpeechRecognition`, not real recognition accuracy. Test voice
+  input/output on a real device before relying on it.
 - **Voice quality depends on Android OS engines at MVP** — acceptable for Hindi/English
   coverage on modern devices, but quality will vary by device/OEM until a cloud engine is
   wired in behind the existing interface.
