@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { RiskLevel, Task, TaskStatus } from "../domain/types.js";
+import type { RiskLevel, Task, TaskStatus, TaskStep } from "../domain/types.js";
 import type { Store } from "../store/store.js";
 
 export class TaskError extends Error {}
@@ -22,13 +22,30 @@ const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
 export class TaskService {
   constructor(private readonly store: Store) {}
 
-  async create(accountId: string, goal: string, riskLevel: RiskLevel = "LOW"): Promise<Task> {
+  /**
+   * `stepDescriptions` lets a caller (e.g. `automation.create_workflow`, SKILLS.md) seed a
+   * task with a known step breakdown up front — every step starts PENDING; nothing here
+   * executes them (see this class's own doc comment above: step execution is still out of
+   * scope for this reference implementation, an honestly-disclosed gap, not new to this).
+   */
+  async create(
+    accountId: string,
+    goal: string,
+    riskLevel: RiskLevel = "LOW",
+    stepDescriptions: string[] = [],
+  ): Promise<Task> {
+    const steps: TaskStep[] = stepDescriptions.map((description) => ({
+      id: randomUUID(),
+      description,
+      status: "PENDING",
+      retryCount: 0,
+    }));
     const task: Task = {
       id: randomUUID(),
       accountId,
       goal,
       status: "PENDING",
-      steps: [],
+      steps,
       riskLevel,
       createdAt: new Date(),
     };

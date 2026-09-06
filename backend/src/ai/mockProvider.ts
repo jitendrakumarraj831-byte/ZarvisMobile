@@ -65,11 +65,13 @@ function selectTool(utterance: string, tools: ToolDefinition[]): ToolDefinition 
 /**
  * Named heuristics for the small reference skill set — see SKILLS.md "Current catalogue".
  * The `default` branch (whole utterance verbatim) is only correct when a skill has exactly
- * one required field; a skill with two or more (first hit: `business.draft_invoice`'s
- * `client` + `items`) would otherwise get the *same* full utterance crammed into every
- * field. `client`/`items` below split on the first digit — every currently-registered
- * multi-field skill's line-items shape always starts with a quantity — rather than adding a
- * second identical default that would just re-hide the same bug for the next such skill.
+ * one required field; a skill with two or more crams the *same* full utterance into every
+ * field otherwise — caught live, twice, for `business.draft_invoice`'s `client`+`items` and
+ * again for `automation.create_workflow`'s `goal`+`steps` (`automation.cancel_workflow`'s
+ * `goalMatch` needs its own case for a different reason: it's a single field, but the
+ * default's whole-utterance value includes the "cancel/stop" trigger words themselves,
+ * which then fails to match the stored goal text at all). Add a new named case for any
+ * future skill in the same shape rather than reaching for `default` again.
  */
 function fillInput(tool: ToolDefinition, utterance: string): Record<string, unknown> {
   const values: Record<string, unknown> = {};
@@ -95,6 +97,26 @@ function fillInput(tool: ToolDefinition, utterance: string): Record<string, unkn
       case "items": {
         const digitIndex = utterance.search(/\d/);
         values[field] = digitIndex >= 0 ? utterance.slice(digitIndex) : utterance;
+        break;
+      }
+      case "goal":
+      case "steps": {
+        // "create a workflow: check email, then draft replies, then send a summary" -> both
+        // fields get the text after the trigger phrase — `goal` and `steps` end up
+        // identical here, which is fine: automation.create_workflow's own goal is
+        // realistically just a label for the same step list in this coarse phrasing.
+        const stripped = utterance.replace(/^.*?\b(?:workflow|automate|automation)\b\s*:?\s*/i, "");
+        values[field] = stripped.trim() || utterance;
+        break;
+      }
+      case "goalMatch": {
+        // "cancel my check email workflow" -> "check email" — strip the cancel/stop trigger
+        // and a trailing "workflow"/"task" so the match lines up with how `goal`/`steps`
+        // above already stripped the *creating* utterance's own trigger phrase.
+        const stripped = utterance
+          .replace(/^\s*(?:please\s+)?(?:cancel|stop)\s+(?:my\s+)?/i, "")
+          .replace(/\s+(?:workflow|task)\s*$/i, "");
+        values[field] = stripped.trim() || utterance;
         break;
       }
       default:

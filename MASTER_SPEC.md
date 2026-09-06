@@ -177,17 +177,17 @@ live Skill Registry, not a hardcoded screen) → user can tap a category to try 
   `ToolRegistry` — never directly with each other's internals. This keeps agents addable/
   removable without cross-wiring.
 - MVP ships the Orchestrator plus **Personal, Web (research-only), Document, and Developer**
-  agents fully wired with a real reference skill each (§29). **Phone**, **Business**, and
-  **Creative** have since gained their first real skills the same way — register a skill,
-  touch nothing in the Orchestrator: Phone's `phone.open_app`/`phone.find_contact`/
-  `phone.call` (Android on-device, Phase 4 of §28), Business's `business.social_post`/
-  `business.customer_reply`/`business.draft_invoice`, and Creative's
-  `creative.write_message`/`creative.write_poem`/`creative.brainstorm` (all backend,
-  SKILLS.md). **Research and Automation** are still registered as **foundation interfaces**
+  agents fully wired with a real reference skill each (§29). **Phone**, **Business**,
+  **Creative**, and **Automation** have since gained their first real skills the same way —
+  register a skill, touch nothing in the Orchestrator: Phone's `phone.open_app`/
+  `phone.find_contact`/`phone.call` (Android on-device, Phase 4 of §28), Business's
+  `business.social_post`/`business.customer_reply`/`business.draft_invoice`, Creative's
+  `creative.write_message`/`creative.write_poem`/`creative.brainstorm`, and Automation's
+  `automation.create_workflow`/`automation.list_workflows`/`automation.cancel_workflow`
+  (all backend, SKILLS.md). **Research** is still registered as a **foundation interface**
   only (agent contract + category entry in the Skill Registry, no handler yet) — proving
-  the architecture accepts them without
-  orchestrator changes, while their first working skill ships in Phases 5–9 (§28) rather
-  than being simulated here.
+  the architecture accepts it without orchestrator changes, while its first working skill
+  ships in a later phase (§28) rather than being simulated here.
 
 ## 6. Skill Architecture
 
@@ -964,3 +964,23 @@ LOW-risk skills.
   confirmed all three route correctly with no cross-contamination between each other or
   Business's own generation skills. Backend TypeScript, fully verified the same way:
   `npm run build && npm test` — 67 tests, 0 failures.
+- **Automation Agent's first three skills are CRUD over the already-implemented Task Engine
+  (§18) — `TaskService` — not generation, so they need no `GEMINI_API_KEY` at all.**
+  `automation.create_workflow` creates and tracks a real, multi-step `Task` (visible and
+  controllable — pause/resume/cancel/retry — in both clients' existing task views) but does
+  **not** execute the steps; claiming it did would be exactly the "fake success" Product
+  Principle #4 forbids — step execution stays future work, unchanged from what
+  `TaskService`'s own doc comment already disclosed. `automation.cancel_workflow` never
+  accepts a raw task id from the user, only a goal-text match searched within the *calling
+  account's own* tasks, so it can't be pointed at another account's workflow regardless of
+  `TaskService.cancel`'s own authorization posture (dedicated test coverage for this).
+  `buildSkillRegistry()` needed a new dependency it didn't have before (`Store`, to
+  construct a `TaskService`) — its signature changed from `()` to `(store: Store)`, and its
+  one caller (`container.ts`) updated accordingly. `TaskService` itself had zero test
+  coverage before this (`test/tasks/taskService.test.ts` is new). A live end-to-end smoke
+  test caught the same `MockAIProvider.fillInput()` bug class a *third* time: `goal`/`steps`
+  (create) and `goalMatch` (cancel) all fell through to the whole-utterance default, so a
+  cancel request's own trigger words ("cancel my ... workflow") never matched any stored
+  goal text — fixed with field-specific heuristics, covered by two more regression tests,
+  and re-confirmed live end to end (create → cancel → list correctly shows `CANCELLED`).
+  `npm run build && npm test` — 85 tests, 0 failures.

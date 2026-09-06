@@ -28,7 +28,7 @@ function defaultStore(): Store {
  * this way.
  */
 export function buildContainer(store: Store = defaultStore()) {
-  const registry = buildSkillRegistry();
+  const registry = buildSkillRegistry(store);
   const entitlementPort = new StoreEntitlementPort(store);
   const usagePort = new StoreUsagePort(store);
   const permissionPort = new StorePermissionPort(store);
