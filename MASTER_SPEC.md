@@ -177,13 +177,15 @@ live Skill Registry, not a hardcoded screen) → user can tap a category to try 
   `ToolRegistry` — never directly with each other's internals. This keeps agents addable/
   removable without cross-wiring.
 - MVP ships the Orchestrator plus **Personal, Web (research-only), Document, and Developer**
-  agents fully wired with a real reference skill each (§29). **Phone** and **Business** have
-  since gained their first real skills the same way — register a skill, touch nothing in the
-  Orchestrator: Phone's `phone.open_app`/`phone.find_contact`/`phone.call` (Android
-  on-device, Phase 4 of §28) and Business's `business.social_post`/`business.customer_reply`/
-  `business.draft_invoice` (backend, SKILLS.md). **Research, Creative, and Automation** are
-  still registered as **foundation interfaces** only (agent contract + category entry in the
-  Skill Registry, no handler yet) — proving the architecture accepts them without
+  agents fully wired with a real reference skill each (§29). **Phone**, **Business**, and
+  **Creative** have since gained their first real skills the same way — register a skill,
+  touch nothing in the Orchestrator: Phone's `phone.open_app`/`phone.find_contact`/
+  `phone.call` (Android on-device, Phase 4 of §28), Business's `business.social_post`/
+  `business.customer_reply`/`business.draft_invoice`, and Creative's
+  `creative.write_message`/`creative.write_poem`/`creative.brainstorm` (all backend,
+  SKILLS.md). **Research and Automation** are still registered as **foundation interfaces**
+  only (agent contract + category entry in the Skill Registry, no handler yet) — proving
+  the architecture accepts them without
   orchestrator changes, while their first working skill ships in Phases 5–9 (§28) rather
   than being simulated here.
 
@@ -952,3 +954,13 @@ LOW-risk skills.
   field-specific heuristics and now covered by `test/ai/mockProvider.test.ts`, which never
   existed before this either. `./gradlew`-style confidence for the backend: `npm run build &&
   npm test` — 61 tests, 0 failures.
+- **Creative Agent's first three skills** (`creative.write_message` — MASTER_SPEC.md §1's
+  own birthday-message example — `creative.write_poem`, `creative.brainstorm`) reuse the
+  same `ContentGenerator` Business's generation skills established, relocated from
+  `skills/business/` to `ai/contentGenerator.ts` once a second category needed it (a
+  business-specific location for a category-agnostic utility would have been the wrong
+  smell to leave in place). Each skill has a single `prompt` field and its own system
+  prompt — no new `MockAIProvider.fillInput()` case was needed, and a live smoke test
+  confirmed all three route correctly with no cross-contamination between each other or
+  Business's own generation skills. Backend TypeScript, fully verified the same way:
+  `npm run build && npm test` — 67 tests, 0 failures.

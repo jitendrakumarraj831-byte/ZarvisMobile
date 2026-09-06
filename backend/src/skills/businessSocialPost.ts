@@ -1,5 +1,5 @@
 import type { SkillDefinition } from "../domain/types.js";
-import type { ContentGenerator } from "./business/contentGenerator.js";
+import type { ContentGenerator } from "../ai/contentGenerator.js";
 
 const SYSTEM_PROMPT =
   "You write short, engaging social media posts for small businesses. Given a business " +

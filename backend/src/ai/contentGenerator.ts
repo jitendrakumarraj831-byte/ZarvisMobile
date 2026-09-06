@@ -1,4 +1,4 @@
-import type { AIProvider, ModelConfiguration } from "../../ai/provider.js";
+import type { AIProvider, ModelConfiguration } from "./provider.js";
 
 export interface ContentGenerator {
   generate(prompt: string): Promise<string>;
@@ -12,10 +12,11 @@ export interface ContentGenerator {
  * Deliberately does NOT reuse `MockAIProvider` for the zero-credential case the way the
  * Orchestrator does: that provider is shaped for *tool selection* (it returns a
  * "not sure which skill can help" message whenever no tool matches, which is exactly what
- * happens when it's asked to just generate text) — [MockContentGenerator] below is this
- * skill category's own honestly-labeled placeholder instead, the same pattern
+ * happens when it's asked to just generate text) — [MockContentGenerator] below is each
+ * generation-based skill's own honestly-labeled placeholder instead, the same pattern
  * `docsSummarize.ts`'s `NaiveSummarizer` and `webSearch.ts`'s `MockSearchProvider` already
- * use for their own zero-credential defaults.
+ * use for their own zero-credential defaults. Shared across skill categories (Business,
+ * Creative, ...) rather than living under one of them — see SKILLS.md.
  */
 export class AIContentGenerator implements ContentGenerator {
   constructor(

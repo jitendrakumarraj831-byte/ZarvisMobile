@@ -63,8 +63,10 @@ data class SkillDefinition(
 | `business.social_post` | Business | Backend | LOW | 1 credit | **Implemented** — real Gemini generation once `GEMINI_API_KEY` is set, honestly-labeled mock otherwise |
 | `business.customer_reply` | Business | Backend | LOW | 1 credit | **Implemented** — same generator as `business.social_post` |
 | `business.draft_invoice` | Business | Backend | LOW | 1 credit | **Implemented** — deterministic line-item parser (no AI needed for arithmetic), real pipeline |
+| `creative.write_message` | Creative | Backend | LOW | 1 credit | **Implemented** — the exact MASTER_SPEC.md §1 birthday-message example, real pipeline |
+| `creative.write_poem` | Creative | Backend | LOW | 1 credit | **Implemented** — same generator, distinct system prompt |
+| `creative.brainstorm` | Creative | Backend | LOW | 1 credit | **Implemented** — same generator, distinct system prompt |
 | Research (`research.*`) | Research | — | — | Foundation only: category + agent contract registered, no handler yet |
-| Creative (`creative.*`) | Creative | — | — | Foundation only |
 | Automation (`automation.*`) | Automation | — | — | Foundation only |
 
 **Phone Agent, stated honestly:** the three skills above are the first real Phone Agent
@@ -79,21 +81,25 @@ need) are written and reviewed against this codebase's existing patterns but —
 rest of the Android app beyond `domain` — not compiler-verified in this environment; see
 MASTER_SPEC.md §32.
 
-**Business Agent, stated honestly:** unlike Phone (Android, unverifiable here), these three
-are backend TypeScript and fully compiler- and test-verified in this environment —
-`npm run build && npm test` (backend), 61 tests, 0 failures. `business.social_post`/
-`business.customer_reply` share a `ContentGenerator` (`backend/src/skills/business/
-contentGenerator.ts`): real one-shot Gemini generation when `GEMINI_API_KEY` is configured,
-an honestly-labeled deterministic mock otherwise — deliberately not `MockAIProvider` (the
-Orchestrator's tool-*selection* mock, which returns "not sure which skill can help" for a
-plain generation request with no tools). A live end-to-end smoke test against a running
-server caught a real bug in `MockAIProvider.fillInput()` itself: its one generic
-"fill every required field with the whole utterance" fallback was correct only by
-coincidence for every skill before `business.draft_invoice` (each had at most one field, or
-`repoUrl`'s own regex case) — a skill with two distinct fields (`client` + `items`) got the
-*same* full utterance crammed into both. Fixed with field-specific heuristics
-(`test/ai/mockProvider.test.ts` now covers this) — the same class of bug, and the same fix
-shape, as `OnDeviceInputBuilder` above.
+**Business and Creative Agents, stated honestly:** unlike Phone (Android, unverifiable
+here), these six are backend TypeScript and fully compiler- and test-verified in this
+environment — `npm run build && npm test` (backend), 67 tests, 0 failures. All six
+generation-based skills (everything except `business.draft_invoice`, which needs no AI)
+share one `ContentGenerator` (`backend/src/ai/contentGenerator.ts`, moved out of a
+`business/`-specific location once Creative needed it too): real one-shot Gemini generation
+when `GEMINI_API_KEY` is configured, an honestly-labeled deterministic mock otherwise —
+deliberately not `MockAIProvider` (the Orchestrator's tool-*selection* mock, which returns
+"not sure which skill can help" for a plain generation request with no tools). A live
+end-to-end smoke test against a running server caught a real bug in
+`MockAIProvider.fillInput()` itself: its one generic "fill every required field with the
+whole utterance" fallback was correct only by coincidence for every skill before
+`business.draft_invoice` (each had at most one field, or `repoUrl`'s own regex case) — a
+skill with two distinct fields (`client` + `items`) got the *same* full utterance crammed
+into both. Fixed with field-specific heuristics (`test/ai/mockProvider.test.ts` now covers
+this) — the same class of bug, and the same fix shape, as `OnDeviceInputBuilder` above. The
+three Creative skills (all single-`prompt`-field, like `business.social_post`) hit no such
+bug and were confirmed live, each correctly routed by the mock's keyword matching with no
+cross-contamination between them or with Business's own generation skills.
 
 "Foundation only" means the `SkillCategory` and the corresponding `Agent` interface exist
 and are wired into the Orchestrator's routing table, proving the architecture accepts the

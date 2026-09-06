@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AIProvider, AIRequest, AIResponse, AIResponseChunk } from "../../src/ai/provider.js";
-import { AIContentGenerator, MockContentGenerator } from "../../src/skills/business/contentGenerator.js";
+import { AIContentGenerator, MockContentGenerator } from "../../src/ai/contentGenerator.js";
 import { createBusinessCustomerReplySkill } from "../../src/skills/businessCustomerReply.js";
 import { createBusinessDraftInvoiceSkill, parseInvoiceLineItems } from "../../src/skills/businessDraftInvoice.js";
 import { createBusinessSocialPostSkill } from "../../src/skills/businessSocialPost.js";

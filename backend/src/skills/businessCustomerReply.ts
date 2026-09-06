@@ -1,5 +1,5 @@
 import type { SkillDefinition } from "../domain/types.js";
-import type { ContentGenerator } from "./business/contentGenerator.js";
+import type { ContentGenerator } from "../ai/contentGenerator.js";
 
 const SYSTEM_PROMPT =
   "You draft polite, professional replies to customer messages for a small business owner. " +
