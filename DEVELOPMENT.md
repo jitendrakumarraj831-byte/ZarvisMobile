@@ -162,31 +162,37 @@ needs a real Vercel account this environment doesn't have.
 1. Import this GitHub repository into Vercel (New Project → this repo). Leave the Root
    Directory as the repo root (not `backend/`) — `vercel.json` and `api/index.ts` are at
    the top level on purpose so one project serves both the API and `web/`.
-2. Project Settings → Environment Variables → add `GEMINI_API_KEY` (from
+2. Project Settings → Storage → add a Postgres database (e.g. Vercel Postgres/Neon) and
+   connect it to this project — Vercel sets `POSTGRES_URL` automatically. This is required,
+   not optional: without it the backend falls back to the in-memory `Store` (see "Known
+   limitation" below), which breaks refresh tokens and every authenticated endpoint soon
+   after signup/login on a serverless deployment.
+3. Project Settings → Environment Variables → add `GEMINI_API_KEY` (from
    [aistudio.google.com/apikey](https://aistudio.google.com/apikey)) so the deployed
    backend uses live Gemini instead of the mock — same variable as `backend/.env.example`,
    just set through Vercel's dashboard instead of a local file. `PUBLIC_APP_URL` and
    `CORS_ORIGINS` (see `.env.example`) already default to `zarvismobile.com`; only override
    them if deploying under a different domain.
-3. Project Settings → Domains → add `zarvismobile.com` (and `www.zarvismobile.com`), then
+4. Project Settings → Domains → add `zarvismobile.com` (and `www.zarvismobile.com`), then
    update the domain's DNS at the registrar (GoDaddy) to the records Vercel's dashboard
    shows for it (typically an `A` record to Vercel's IP for the apex domain and a `CNAME`
    to `cname.vercel-dns.com` for `www`) — Vercel's domain settings page shows the exact
    values to use once the domain is added there.
-4. Deploy (Vercel redeploys automatically on every push to `main` once the project is
+5. Deploy (Vercel redeploys automatically on every push to `main` once the project is
    imported).
 
 Or from the CLI, once logged in (`npx vercel login`) and with a project token:
 `npx vercel --prod --token=<token>`.
 
-**Known limitation, honestly, not hidden:** `backend/src/store/inMemoryStore.ts` keeps
-accounts/tasks/usage in a plain in-process `Map`. A serverless deployment can route
-requests to a fresh, cold instance at any time, which does not share that in-memory state
-with the instance that handled an earlier request — fine for trying the product solo
-within one warm session, not a guarantee for real multi-user production data. Swapping in
-a real database behind the same `Store` interface (Postgres is already the documented
-target, [MASTER_SPEC.md §9](./MASTER_SPEC.md#9-backend-architecture)) is the fix before a
-real launch, not a redesign.
+**Formerly a known limitation, now fixed:** `backend/src/store/inMemoryStore.ts` keeps
+accounts/tasks/usage in a plain in-process `Map`, which does not survive a serverless
+deployment routing a request to a fresh, cold instance — this previously broke refresh
+tokens and every authenticated endpoint (`/api/v1/auth/refresh`, `/api/v1/skills`,
+`/api/v1/orchestrator`, `/api/v1/tts/*`, ...) soon after signup/login in production.
+`backend/src/store/postgresStore.ts` implements the same `Store` interface against a real
+Postgres database and is selected automatically whenever `POSTGRES_URL`/`DATABASE_URL` is
+set (see step 2 above) — `container.ts` falls back to the in-memory store only when neither
+is configured, which should never be the case for a deployed environment.
 
 ## Repository conventions
 

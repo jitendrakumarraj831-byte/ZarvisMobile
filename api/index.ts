@@ -11,12 +11,12 @@
  * `.env` file, and `process.loadEnvFile()` finding nothing there is a no-op (see
  * backend/src/bootstrapEnv.ts).
  *
- * Known limitation (documented, not hidden — Product Principle #4 "Never fake success"):
- * `backend/src/store/inMemoryStore.ts` holds accounts/tasks/usage in a plain in-process
- * Map. Every serverless invocation may land on a different, cold instance, so this store
- * does not reliably persist across requests in production the way a normal long-running
- * server does — fine for a solo demo within one warm instance, not for real multi-user
- * production. See DEVELOPMENT.md for the swap-in-a-real-database path before a real launch.
+ * `buildContainer()` picks `backend/src/store/postgresStore.ts` over the in-memory store
+ * whenever `POSTGRES_URL`/`DATABASE_URL` is set (see `backend/src/container.ts`) — required
+ * for a serverless deployment, since the in-memory store's plain in-process `Map`s do not
+ * survive a request landing on a different, cold instance (this broke refresh tokens and
+ * every authenticated endpoint in production before the Postgres store existed). See
+ * DEVELOPMENT.md "Deploying to Vercel" for setup.
  */
 import "../backend/src/bootstrapEnv.js";
 import { buildContainer } from "../backend/src/container.js";

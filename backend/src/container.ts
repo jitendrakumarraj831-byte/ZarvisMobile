@@ -12,7 +12,6 @@ import { PostgresStore } from "./store/postgresStore.js";
 import type { Store } from "./store/store.js";
 import { TaskService } from "./tasks/taskService.js";
 import { ToolPipeline } from "./tooling/toolPipeline.js";
-import { env } from "./config/env.js";
 
 /**
  * Default store: Postgres when DATABASE_URL/POSTGRES_URL is configured, otherwise the
