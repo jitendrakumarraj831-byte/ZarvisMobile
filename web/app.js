@@ -59,6 +59,17 @@
     },
   };
 
+  // Best-effort tactile feedback on Android (Chrome/WebView expose `navigator.vibrate`;
+  // desktop browsers and iOS Safari don't — silently a no-op there, never worth surfacing
+  // an error for).
+  function haptic(ms = 10) {
+    try {
+      if (navigator.vibrate) navigator.vibrate(ms);
+    } catch {
+      /* unsupported — ignore */
+    }
+  }
+
   const el = {
     orb: document.getElementById("orb"),
     orbWrap: document.querySelector(".orb-wrap"),
@@ -135,7 +146,10 @@
     setupInstallPrompt();
     setupDrawer();
 
-    el.sendBtn.addEventListener("click", () => submitUtterance(el.input.value));
+    el.sendBtn.addEventListener("click", () => {
+      haptic();
+      submitUtterance(el.input.value);
+    });
     el.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submitUtterance(el.input.value);
     });
@@ -304,6 +318,7 @@
       chip.textContent = categoryLabel(category);
       chip.title = categorySkills.map((s) => s.description).join("\n");
       chip.addEventListener("click", () => {
+        haptic();
         el.input.value = exampleFor(categorySkills[0].description);
         el.input.focus();
       });
@@ -713,13 +728,18 @@
 
     el.micBtn.addEventListener("click", () => {
       if (state.autoListen) return; // the mic is already armed by hands-free mode
+      haptic();
       startListening();
     });
 
-    el.orb.addEventListener("click", toggleAutoListen);
+    el.orb.addEventListener("click", () => {
+      haptic();
+      toggleAutoListen();
+    });
     el.orb.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
+        haptic();
         toggleAutoListen();
       }
     });

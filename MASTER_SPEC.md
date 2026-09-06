@@ -491,6 +491,16 @@ just wants to try the agent from a link.
   resolution (§19) — those live only in the backend, exactly as ARCHITECTURE.md's
   "Backend/Android parity note" already requires for any client. The web client is a UI over
   the same authoritative backend, not a second implementation of product logic.
+- **Responsive shell (§22):** the `.app` container caps at 480px (mimicking a clean mobile
+  viewport, `max-w-md`-style) and renders full-bleed edge-to-edge below a `640px` breakpoint
+  — real phones and narrow WebViews — while above it becomes a centered, bordered "device
+  frame" against the ambient background glow, so the same markup reads correctly on a wide
+  desktop browser without a second layout. `viewport-fit=cover` + `env(safe-area-inset-top/
+  bottom)` pad the topbar/composer under Android's edge-to-edge status bar and gesture nav;
+  `interactive-widget=resizes-content` keeps the composer above the on-screen keyboard rather
+  than being covered by it. `navigator.vibrate()` fires a short haptic pulse on the core taps
+  (send, mic, orb, category chip) — a no-op where unsupported (desktop, iOS Safari), never a
+  hard requirement.
 
 ## 13. Developer Agent Architecture
 

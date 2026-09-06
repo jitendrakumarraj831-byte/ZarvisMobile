@@ -47,6 +47,19 @@ body {
   color: var(--zarvis-text-primary);
   font-family: var(--font-body);
   overflow: hidden;
+  overflow-x: hidden;
+}
+
+/* Above phone width the shell reads as a floating device frame — a `max-w-md`-style
+   centered container — instead of stretching a mobile layout edge-to-edge across a
+   desktop browser window; below it (real phones, and narrow WebViews) .app already
+   fills the viewport exactly as before, so nothing changes there. */
+@media (min-width: 640px) {
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 /* Ambient background glow — subtle, never decorative-only per MASTER_SPEC §22 motion rule,
@@ -69,15 +82,30 @@ body {
   flex-direction: column;
   height: 100vh; /* fallback for browsers without dvh support */
   height: 100dvh; /* the real visible viewport height on mobile, address bar and all */
-  max-width: 720px;
+  width: 100%;
+  max-width: 480px; /* mimics a clean mobile viewport ("max-w-md") even on wide desktop browsers */
   margin: 0 auto;
+  overflow-x: hidden;
+}
+
+@media (min-width: 640px) {
+  .app {
+    height: min(100dvh, 900px);
+    margin: 24px auto;
+    border-radius: 32px;
+    border: 1px solid var(--zarvis-border-soft);
+    box-shadow: 0 40px 120px -30px #000000cc, 0 0 60px -12px #00f0ff26;
+    overflow: hidden;
+  }
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  /* pt-safe: pads under Android's edge-to-edge status bar/cutouts; a no-op fallback of 0px
+     when env() isn't supported or there's no inset (desktop browsers, non-notched phones). */
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 20px 16px;
   border-bottom: 1px solid var(--zarvis-border-soft);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
