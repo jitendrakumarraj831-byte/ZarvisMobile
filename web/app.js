@@ -583,7 +583,7 @@
         return;
       }
       const result = await res.json();
-      addBubble("assistant", result.message || "…");
+      const node = renderAssistantResult(result);
       // Awaited so the orb actually stays SPEAKING for the duration of playback — without
       // this, the fire-and-forget call returns almost immediately (it only runs
       // synchronously up to its first internal await) and the setOrbState("IDLE") below
@@ -591,7 +591,7 @@
       // matters beyond cosmetics: auto-listen mode (see startListening()) uses the orb
       // state to know when ZARVIS has actually finished talking before re-arming the mic —
       // starting to listen while still speaking would pick up its own voice.
-      await speak(result.message);
+      await speak(result.message, node);
     } catch (err) {
       console.error(err);
       addBubble("system", COPY[state.lang].bootError);
@@ -608,6 +608,111 @@
     bubble.textContent = text;
     el.conversation.appendChild(bubble);
     el.conversation.scrollTop = el.conversation.scrollHeight;
+    return bubble;
+  }
+
+  // ---- Dynamic result widgets ------------------------------------------------------------
+  // A skill's category (the `category` prefix of its dotted id, e.g. "research.report" ->
+  // "research") decides the shape of the card its result renders as, instead of every skill
+  // producing an identical text bubble. Categories not listed here (web, personal, ...) fall
+  // through to the plain bubble — deliberately conservative, since a made-up shape for a
+  // category no one asked to distinguish would just be decoration.
+  const CATEGORY_WIDGET_KIND = {
+    developer: "code",
+    automation: "pill",
+    research: "panel",
+    business: "panel",
+    creative: "panel",
+    docs: "panel",
+  };
+
+  function widgetKindFor(skillId) {
+    return CATEGORY_WIDGET_KIND[skillId.split(".")[0]] || null;
+  }
+
+  // Renders one turn's reply: a shaped widget when a backend skill actually ran and its
+  // category has a distinct shape, a plain bubble otherwise (direct AI chat, or a category
+  // with no special-cased widget). Returns the created DOM node so the caller can attach a
+  // live waveform to it while the reply is being spoken.
+  function renderAssistantResult(result) {
+    const call = result.toolCalls && result.toolCalls[0];
+    const kind = call && widgetKindFor(call.skillId);
+    if (!call || !kind) return addBubble("assistant", result.message || "…");
+    return addResultWidget(kind, call.skillId, call.outcome, result.message || "…");
+  }
+
+  function addResultWidget(kind, skillId, outcome, message) {
+    const status = outcome.kind === "success" ? "success" : "error";
+
+    const widget = document.createElement("div");
+    widget.className = "result-widget";
+    widget.dataset.kind = kind;
+    widget.dataset.status = status;
+
+    const header = document.createElement("div");
+    header.className = "widget-header";
+    const title = document.createElement("span");
+    title.className = "widget-title";
+    title.innerHTML = `<span class="widget-status-dot"></span>${categoryLabel(skillId.split(".")[0])}`;
+    header.appendChild(title);
+
+    if (kind === "code") {
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "widget-copy-btn";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", async () => {
+        haptic();
+        try {
+          await navigator.clipboard.writeText(message);
+          copyBtn.textContent = "Copied";
+          copyBtn.classList.add("copied");
+          setTimeout(() => {
+            copyBtn.textContent = "Copy";
+            copyBtn.classList.remove("copied");
+          }, 1500);
+        } catch {
+          /* Clipboard API unavailable (permissions/http) — the text is still fully visible
+             and selectable in the card, so there's nothing to fall back to here. */
+        }
+      });
+      header.appendChild(copyBtn);
+    }
+    widget.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "widget-body";
+    body.textContent = message;
+    widget.appendChild(body);
+
+    el.conversation.appendChild(widget);
+    el.conversation.scrollTop = el.conversation.scrollHeight;
+    return widget;
+  }
+
+  // A waveform + stop control attached to whichever message node is actively being spoken
+  // right now — real playback state, not a decoration, so it exists only between speak()
+  // actually starting audio and that audio actually ending.
+  function attachWaveform(node) {
+    if (!node || node.querySelector(".waveform-row")) return;
+    const row = document.createElement("div");
+    row.className = "waveform-row";
+    row.innerHTML =
+      '<div class="waveform" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>' +
+      '<button type="button" class="waveform-stop" title="Stop speaking">' +
+      '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>' +
+      "</button>";
+    row.querySelector(".waveform-stop").addEventListener("click", () => {
+      haptic();
+      stopSpeaking();
+    });
+    node.appendChild(row);
+    el.conversation.scrollTop = el.conversation.scrollHeight;
+  }
+
+  function detachWaveform(node) {
+    const row = node && node.querySelector(".waveform-row");
+    if (row) row.remove();
   }
 
   function setOrbState(newState) {
@@ -902,48 +1007,80 @@
   // voice"), falling back to the browser's built-in speechSynthesis if that backend call
   // fails for any reason (not configured, offline, rate-limited, ...) — never a silent dead
   // end, per Product Principle #4.
-  async function speak(text) {
+  async function speak(text, node) {
     if (!state.speak || !text) return;
     setOrbState("SPEAKING");
+    if (node) attachWaveform(node);
     let playedLive = false;
     try {
       playedLive = await speakWithGemini(text);
     } catch (err) {
       console.warn("Gemini voice unavailable, falling back to the browser's voice:", err);
     }
-    if (!playedLive) speakWithBrowser(text);
+    if (!playedLive) await speakWithBrowser(text);
+    if (node) detachWaveform(node);
   }
+
+  // Tracks whatever is currently producing audio so the waveform's stop control can
+  // actually interrupt it — a plain Audio element for the Gemini path, the
+  // SpeechSynthesisUtterance for the browser fallback (only one of the two is ever active
+  // at a time, matching speak()'s own try-Gemini-then-fall-back sequencing above).
+  let activeAudio = null;
 
   async function speakWithGemini(text) {
     const res = await apiFetch("/tts/synthesize", { method: "POST", body: JSON.stringify({ text }) });
     if (!res.ok) return false;
     const url = URL.createObjectURL(await res.blob());
     const audio = new Audio(url);
+    activeAudio = audio;
     try {
       await new Promise((resolve, reject) => {
         audio.addEventListener("ended", resolve, { once: true });
+        // Fires when stopSpeaking() calls audio.pause() for a manual stop, so the awaited
+        // promise settles instead of hanging until the tab is closed.
+        audio.addEventListener("pause", resolve, { once: true });
         audio.addEventListener("error", () => reject(new Error("Audio playback failed")), { once: true });
         audio.play().catch(reject);
       });
     } finally {
       URL.revokeObjectURL(url);
+      activeAudio = null;
     }
     setOrbState("IDLE");
     return true;
   }
 
+  // Interrupts whichever voice is currently speaking (tapped from the waveform's stop
+  // control) — mirrors the mic/orb's existing "never leave the user stuck mid-interaction"
+  // behavior for playback specifically.
+  function stopSpeaking() {
+    if (activeAudio) activeAudio.pause();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setOrbState("IDLE");
+  }
+
+  // Returns a Promise that settles once playback actually finishes (naturally, on error, or
+  // via stopSpeaking()'s cancel()) — previously fire-and-forget, which silently broke the
+  // "await speak() so the orb/waveform reflect the real playback duration" contract for
+  // this fallback path specifically (the Gemini path above already awaited correctly).
   function speakWithBrowser(text) {
     if (!window.speechSynthesis) {
       setOrbState("IDLE");
-      return;
+      return Promise.resolve();
     }
-    const utterance = new SpeechSynthesisUtterance(text);
-    const langPrefix = state.lang === "hi" ? "hi" : "en";
-    utterance.lang = state.lang === "hi" ? "hi-IN" : "en-US";
-    const voice = pickVoice(langPrefix);
-    if (voice) utterance.voice = voice;
-    utterance.onend = () => setOrbState("IDLE");
-    utterance.onerror = () => setOrbState("IDLE");
-    window.speechSynthesis.speak(utterance);
+    return new Promise((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      const langPrefix = state.lang === "hi" ? "hi" : "en";
+      utterance.lang = state.lang === "hi" ? "hi-IN" : "en-US";
+      const voice = pickVoice(langPrefix);
+      if (voice) utterance.voice = voice;
+      const finish = () => {
+        setOrbState("IDLE");
+        resolve();
+      };
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      window.speechSynthesis.speak(utterance);
+    });
   }
 })();

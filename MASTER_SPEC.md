@@ -501,6 +501,21 @@ just wants to try the agent from a link.
   than being covered by it. `navigator.vibrate()` fires a short haptic pulse on the core taps
   (send, mic, orb, category chip) — a no-op where unsupported (desktop, iOS Safari), never a
   hard requirement.
+- **Adaptive result widgets:** a turn's reply renders as a shape-matched card instead of one
+  generic bubble whenever a backend skill actually ran — wide prose panels for report-style
+  content (`research.*`/`business.*`/`creative.*`/`docs.*`), a compact pill for automation's
+  short confirmations, and a monospace card with a copy button for `developer.*`. The card's
+  border glow reports the real `ToolExecutionOutcome` (emerald for `success`, amber for
+  anything else) — there is no separate "in progress" widget, since a turn is a single
+  request/response round-trip and a fabricated pending state would be exactly the "fake
+  progress" Product Principle #4 forbids. Skills outside those four categories (`web`,
+  `personal`, ...) still render as the plain bubble, deliberately — an invented shape for a
+  category no one asked to distinguish is decoration, not signal. A live waveform + stop
+  control attaches to whichever message is actually being spoken by `speak()` right now (real
+  Gemini audio or the browser `speechSynthesis` fallback) and is removed the moment playback
+  ends — fixed a latent bug where the `speechSynthesis` fallback path didn't return a promise
+  at all, so `await speak()` previously resolved instantly instead of for the real speech
+  duration.
 
 ## 13. Developer Agent Architecture
 

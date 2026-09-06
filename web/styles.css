@@ -333,6 +333,148 @@ body {
   max-width: 92%;
 }
 
+/* ---- Dynamic result widgets — a skill execution renders as a shape/purpose-matched card
+   instead of one generic chat bubble: wide prose panels for report-style content
+   (research/business/creative/docs), a compact pill for quick automation confirmations, and
+   a monospace card for the Developer Agent. The border glow reports the real outcome
+   (success/failure) rather than a decorative color, per Product Principle #4 — there is no
+   fake "in progress" widget state; a widget only ever renders once the backend has actually
+   finished. ---- */
+.result-widget {
+  align-self: stretch;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--zarvis-border-soft);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: var(--zarvis-surface-elevated);
+  animation: widget-in 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+@keyframes widget-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.result-widget[data-status="success"] {
+  border-color: #22e6b055;
+  box-shadow: 0 0 0 1px #22e6b022, 0 0 26px -6px #22e6b070;
+}
+.result-widget[data-status="error"] {
+  border-color: #ffc46b55;
+  box-shadow: 0 0 0 1px #ffc46b22, 0 0 26px -6px #ffc46b70;
+}
+
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--zarvis-border-soft);
+}
+.widget-title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--zarvis-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.widget-status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px 1px currentColor;
+  flex-shrink: 0;
+}
+.result-widget[data-status="success"] .widget-status-dot { color: var(--zarvis-success); }
+.result-widget[data-status="error"] .widget-status-dot { color: var(--zarvis-warning); }
+
+/* Panel — wide, prose-first: research/report/business/creative/document content. */
+.result-widget[data-kind="panel"] .widget-body {
+  padding: 15px 18px 18px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--zarvis-text-primary);
+}
+
+/* Pill — compact, quick-action confirmation card (automation workflows). */
+.result-widget[data-kind="pill"] {
+  align-self: flex-start;
+  max-width: 82%;
+  border-radius: var(--radius-lg);
+}
+.result-widget[data-kind="pill"] .widget-header { border-bottom: none; padding: 10px 15px 4px; }
+.result-widget[data-kind="pill"] .widget-body {
+  padding: 0 15px 12px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* Code — Developer Agent, monospace terminal card. */
+.result-widget[data-kind="code"] { background: #02040ac9; }
+.result-widget[data-kind="code"] .widget-body {
+  padding: 14px 16px 16px;
+  font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: #b7f5e0;
+}
+.widget-copy-btn {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px;
+  font-family: var(--font-body);
+  background: transparent;
+  border: 1px solid var(--zarvis-border-soft);
+  color: var(--zarvis-text-secondary);
+  border-radius: 999px;
+  padding: 4px 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.widget-copy-btn:hover { color: var(--zarvis-accent-cyan); border-color: #00f0ff55; }
+.widget-copy-btn.copied { color: var(--zarvis-success); border-color: #22e6b055; }
+
+/* ---- Live playback waveform — attached to whichever assistant message is actually being
+   spoken right now (real Gemini audio or the browser's speechSynthesis), removed the moment
+   playback ends; never a static decoration. ---- */
+.waveform-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 15px 12px;
+}
+.waveform { display: flex; align-items: center; gap: 2px; height: 16px; }
+.waveform span {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--zarvis-accent-cyan);
+  animation: waveform-bounce 0.9s ease-in-out infinite;
+}
+.waveform span:nth-child(2) { animation-delay: 0.1s; }
+.waveform span:nth-child(3) { animation-delay: 0.2s; }
+.waveform span:nth-child(4) { animation-delay: 0.3s; }
+.waveform span:nth-child(5) { animation-delay: 0.4s; }
+@keyframes waveform-bounce {
+  0%, 100% { height: 4px; opacity: 0.5; }
+  50% { height: 16px; opacity: 1; }
+}
+.waveform-stop {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--zarvis-border-soft);
+  background: transparent;
+  color: var(--zarvis-accent-cyan);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+.waveform-stop:hover { border-color: #00f0ff88; }
+
 .categories {
   display: flex;
   flex-wrap: wrap;
