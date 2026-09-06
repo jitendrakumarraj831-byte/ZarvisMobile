@@ -177,11 +177,13 @@ live Skill Registry, not a hardcoded screen) → user can tap a category to try 
   `ToolRegistry` — never directly with each other's internals. This keeps agents addable/
   removable without cross-wiring.
 - MVP ships the Orchestrator plus **Personal, Web (research-only), Document, and Developer**
-  agents fully wired with a real reference skill each (§29). **Phone, Business, Research,
-  Creative, and Automation** are registered as **foundation interfaces** (agent contract +
-  category entry in the Skill Registry, no handler yet) — proving the architecture accepts
-  them without orchestrator changes, while their first working skill ships in Phases 4–9
-  (§28) rather than being simulated here.
+  agents fully wired with a real reference skill each (§29). **Phone** has since gained its
+  first three real skills (`phone.open_app`, `phone.find_contact`, `phone.call` — SKILLS.md,
+  Phase 4 of §28) added the same way: register a skill, touch nothing in the Orchestrator.
+  **Business, Research, Creative, and Automation** are still registered as **foundation
+  interfaces** only (agent contract + category entry in the Skill Registry, no handler yet)
+  — proving the architecture accepts them without orchestrator changes, while their first
+  working skill ships in Phases 5–9 (§28) rather than being simulated here.
 
 ## 6. Skill Architecture
 
@@ -912,3 +914,22 @@ LOW-risk skills.
   (need the Android Gradle Plugin, confirmed unavailable in this environment above), unlike
   `domain`'s pure-Kotlin build. Build in Android Studio to get a real compile signal before
   relying on this.
+- **Phone Agent's first three skills shipped with a mix of verification levels — split
+  deliberately along the pure-Kotlin `domain` boundary (ARCHITECTURE.md) so the highest-risk
+  part is the part that's actually proven.** `phone.open_app`/`phone.find_contact`/
+  `phone.call`'s skill definitions and handlers, and `OnDeviceInputBuilder` (which maps a
+  keyword-matched skill + raw utterance to that skill's own input shape — see the entry
+  above this one for the bug this fixes for `personal.reminder` too, retroactively), are
+  real and unit-tested: `./gradlew :domain:build` now runs 40 tests across domain,
+  0 failures. Their Android platform bindings
+  (`AndroidAppLauncherPort`/`AndroidContactLookupPort`/`AndroidPhoneCallPort` in
+  `core-tooling`, using `PackageManager`/`ContactsContract`/`Intent.ACTION_CALL`) are written
+  and carefully reviewed but not compiler-verified, the same limitation as the rest of the
+  Android app beyond `domain`. `phone.call` places a real call (not `ACTION_DIAL`'s
+  "pre-fill the dialer") — its MEDIUM risk classification means the Tool pipeline always
+  blocks on explicit user confirmation first (§7), the same guardrail that already applies
+  to every other MEDIUM/HIGH-risk skill. No OS-level permission *request* flow was added —
+  the Tool pipeline checks whether `CONTACTS`/`PHONE_CALL` are already granted and explains
+  the denial honestly if not (§16), the same behavior `personal.reminder`'s `NOTIFICATIONS`
+  permission already had; a proactive rationale-then-request UI remains a follow-up, not
+  regressed by this change.

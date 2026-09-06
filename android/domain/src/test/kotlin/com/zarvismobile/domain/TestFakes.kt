@@ -10,6 +10,11 @@ import com.zarvismobile.domain.port.ConfirmationPort
 import com.zarvismobile.domain.port.EntitlementPort
 import com.zarvismobile.domain.port.PermissionPort
 import com.zarvismobile.domain.port.UsagePort
+import com.zarvismobile.domain.skill.AppLaunchResult
+import com.zarvismobile.domain.skill.AppLauncherPort
+import com.zarvismobile.domain.skill.ContactLookupPort
+import com.zarvismobile.domain.skill.PhoneCallPort
+import com.zarvismobile.domain.skill.PhoneContact
 import com.zarvismobile.domain.skill.ReminderSchedulerPort
 import java.time.Instant
 
@@ -61,5 +66,29 @@ class InMemoryReminderScheduler : ReminderSchedulerPort {
         val existing = reminders[id] ?: return false
         reminders[id] = existing.copy(completed = true)
         return true
+    }
+}
+
+class FakeContactLookupPort(private val contacts: List<PhoneContact> = emptyList()) : ContactLookupPort {
+    override suspend fun findByName(name: String): PhoneContact? =
+        contacts.firstOrNull { it.displayName.contains(name, ignoreCase = true) }
+}
+
+class FakeAppLauncherPort(private val installedApps: Set<String> = emptySet()) : AppLauncherPort {
+    val launched = mutableListOf<String>()
+
+    override suspend fun openApp(appName: String): AppLaunchResult {
+        val match = installedApps.firstOrNull { it.contains(appName, ignoreCase = true) } ?: return AppLaunchResult.NotFound
+        launched += match
+        return AppLaunchResult.Opened(match)
+    }
+}
+
+class FakePhoneCallPort(private val succeeds: Boolean = true) : PhoneCallPort {
+    val calledNumbers = mutableListOf<String>()
+
+    override suspend fun call(phoneNumber: String): Boolean {
+        calledNumbers += phoneNumber
+        return succeeds
     }
 }

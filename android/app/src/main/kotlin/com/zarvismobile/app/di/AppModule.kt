@@ -92,8 +92,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideOnDeviceSkillRegistry(reminderDao: ReminderDao): SkillRegistry =
-        OnDeviceSkillRegistryFactory.create(reminderDao)
+    fun provideOnDeviceSkillRegistry(reminderDao: ReminderDao, @ApplicationContext context: Context): SkillRegistry =
+        OnDeviceSkillRegistryFactory.create(reminderDao, context)
 
     @Provides
     @Singleton

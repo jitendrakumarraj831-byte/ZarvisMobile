@@ -57,11 +57,25 @@ data class SkillDefinition(
 | `web.search` | Web | Backend | LOW (search, per the rubric above) | 2 credits (real infra cost) | **Implemented** — mocked search provider, real pipeline |
 | `docs.summarize` | Documents | Backend | LOW | 1 credit | **Implemented** — mocked summarizer, real pipeline |
 | `developer.analyze_repo` | Developer | Backend | LOW (read-only) | 3 credits | **Implemented** — mocked repo analysis, real pipeline |
-| Phone (`phone.*`) | Phone | — | — | Foundation only: category + agent contract registered, no handler yet |
-| Business (`business.*`) | Business | — | — | Foundation only |
+| `phone.open_app` | Phone | On-device (Android `domain`) | LOW | Free | **Implemented** — resolves an installed app by name and launches it, unit-tested |
+| `phone.find_contact` | Phone | On-device (Android `domain`) | MEDIUM (rounded up — personal data about a third party) | Free | **Implemented** — `ContactsContract` lookup by name, unit-tested against a fake port |
+| `phone.call` | Phone | On-device (Android `domain`) | MEDIUM | Free | **Implemented** — resolves a contact name or accepts a raw number, places a real call via `Intent.ACTION_CALL`, unit-tested against a fake port |
+| Business (`business.*`) | Business | — | — | Foundation only: category + agent contract registered, no handler yet |
 | Research (`research.*`) | Research | — | — | Foundation only |
 | Creative (`creative.*`) | Creative | — | — | Foundation only |
 | Automation (`automation.*`) | Automation | — | — | Foundation only |
+
+**Phone Agent, stated honestly:** the three skills above are the first real Phone Agent
+skills (MASTER_SPEC.md §28 Phase 4) — their domain-layer logic (`PhoneOpenAppSkillFactory`,
+`PhoneFindContactSkillFactory`, `PhoneCallSkillFactory`, and `OnDeviceInputBuilder`, which
+maps a matched skill + raw utterance to that skill's own input shape rather than one
+hardcoded shape for every on-device match) is unit-tested and build-verified
+(`./gradlew :domain:build`). Their real Android platform implementations
+(`AndroidAppLauncherPort`/`AndroidContactLookupPort`/`AndroidPhoneCallPort` in
+`core-tooling`, plus the `AndroidManifest.xml` permissions/`<queries>` declaration they
+need) are written and reviewed against this codebase's existing patterns but — like the
+rest of the Android app beyond `domain` — not compiler-verified in this environment; see
+MASTER_SPEC.md §32.
 
 "Foundation only" means the `SkillCategory` and the corresponding `Agent` interface exist
 and are wired into the Orchestrator's routing table, proving the architecture accepts the

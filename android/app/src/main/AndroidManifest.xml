@@ -10,12 +10,29 @@
     <!-- Required by the personal.reminder skill on Android 13+ (SKILLS.md). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Required by phone.find_contact/phone.call (MASTER_SPEC.md §28 Phase 4, SKILLS.md). -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
     <!--
       Only permissions an already-shipped skill actually needs are declared here — see
       MASTER_SPEC.md §16 "progressive permission requests." Additional permissions
-      (CONTACTS, CALL_PHONE, CAMERA, CALENDAR, LOCATION) are added when the Phone/Business/
-      Research skills that need them ship (see SKILLS.md "Current catalogue").
+      (CAMERA, CALENDAR, LOCATION) are added when the Business/Research skills that need
+      them ship (see SKILLS.md "Current catalogue").
     -->
+
+    <!--
+      phone.open_app needs to see other apps' launcher entry points to resolve a spoken app
+      name — this <queries> declaration grants that narrow visibility without the sensitive
+      QUERY_ALL_PACKAGES permission (discouraged by Play Store policy and unnecessary here,
+      since only launchable apps are ever relevant to this skill).
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".ZarvisApplication"

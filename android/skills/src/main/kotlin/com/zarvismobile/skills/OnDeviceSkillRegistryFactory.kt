@@ -1,8 +1,15 @@
 package com.zarvismobile.skills
 
+import android.content.Context
+import com.zarvismobile.core.tooling.AndroidAppLauncherPort
+import com.zarvismobile.core.tooling.AndroidContactLookupPort
+import com.zarvismobile.core.tooling.AndroidPhoneCallPort
 import com.zarvismobile.data.local.reminder.ReminderDao
 import com.zarvismobile.data.local.reminder.RoomReminderScheduler
 import com.zarvismobile.domain.port.SystemClockPort
+import com.zarvismobile.domain.skill.PhoneCallSkillFactory
+import com.zarvismobile.domain.skill.PhoneFindContactSkillFactory
+import com.zarvismobile.domain.skill.PhoneOpenAppSkillFactory
 import com.zarvismobile.domain.skill.ReminderSkillFactory
 import com.zarvismobile.domain.tooling.SkillRegistry
 
@@ -17,7 +24,7 @@ import com.zarvismobile.domain.tooling.SkillRegistry
  * Orchestrator (SKILLS.md "Authoring a new skill").
  */
 object OnDeviceSkillRegistryFactory {
-    fun create(reminderDao: ReminderDao): SkillRegistry {
+    fun create(reminderDao: ReminderDao, context: Context): SkillRegistry {
         val registry = SkillRegistry()
         registry.register(
             ReminderSkillFactory.create(
@@ -25,6 +32,12 @@ object OnDeviceSkillRegistryFactory {
                 clock = SystemClockPort,
             ),
         )
+
+        val contacts = AndroidContactLookupPort(context)
+        registry.register(PhoneOpenAppSkillFactory.create(AndroidAppLauncherPort(context)))
+        registry.register(PhoneFindContactSkillFactory.create(contacts))
+        registry.register(PhoneCallSkillFactory.create(contacts, AndroidPhoneCallPort(context)))
+
         return registry
     }
 }

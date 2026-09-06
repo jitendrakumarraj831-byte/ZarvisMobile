@@ -3,10 +3,10 @@ package com.zarvismobile.agents
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.OrchestratorTurnRequest
 import com.zarvismobile.domain.entity.SkillExecutionContext
-import com.zarvismobile.domain.entity.SkillInput
 import com.zarvismobile.domain.entity.ToolCall
 import com.zarvismobile.domain.entity.ToolExecutionOutcome
 import com.zarvismobile.domain.orchestrator.KeywordSkillMatcher
+import com.zarvismobile.domain.orchestrator.OnDeviceInputBuilder
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 
@@ -34,7 +34,11 @@ class AndroidOrchestrator(
     suspend fun handleTurn(utterance: String, accountId: String, locale: String = "en"): TurnOutcome {
         val onDeviceSkill = onDeviceMatcher.match(utterance)
         if (onDeviceSkill != null) {
-            val input = SkillInput(values = mapOf("action" to "create", "title" to utterance))
+            // Per-skill input shape (domain module, unit-tested) — previously hardcoded to
+            // personal.reminder's {action, title} shape here regardless of which skill
+            // matched, which broke silently the moment a second on-device skill (a
+            // different inputSchema) was registered alongside it. See OnDeviceInputBuilder.
+            val input = OnDeviceInputBuilder.build(onDeviceSkill, utterance)
             val outcome = onDevicePipeline.execute(
                 ToolCall(skillId = onDeviceSkill.id, input = input),
                 SkillExecutionContext(accountId = accountId, locale = locale),
