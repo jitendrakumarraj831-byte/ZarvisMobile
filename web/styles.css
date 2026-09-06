@@ -157,19 +157,6 @@ body {
 .chip-static:hover { transform: none; border-color: var(--zarvis-border-soft); }
 .chip-btn[aria-pressed="false"] { opacity: 0.4; }
 
-/* Small unread/active indicator dot on an icon button (e.g. active-task count) — a corner
-   badge rather than a number, so it stays legible at 32px without needing to truncate. */
-.chip-badge {
-  position: absolute;
-  top: 3px; right: 3px;
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--zarvis-accent-cyan);
-  box-shadow: 0 0 6px 1px var(--glow-cyan-soft);
-  border: 1.5px solid var(--zarvis-space-black);
-}
-.chip-badge[hidden] { display: none; }
-
 .install-btn {
   background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
   color: #041016;
@@ -200,6 +187,16 @@ body {
 .status-dot.live { background: var(--zarvis-success); color: var(--zarvis-success); }
 .status-dot.mock { background: var(--zarvis-warning); color: var(--zarvis-warning); }
 
+/* Holds the 4 top-level views (Workspace/Capabilities/Plans/Metrics, see .stage below) —
+   only one is ever un-hidden at a time (app.js's setActiveView), so this just needs to give
+   whichever one is visible the full remaining height between the topbar and the composer. */
+.views {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .stage {
   flex: 1;
   min-height: 0; /* without this, a flex child won't shrink below its content size, so it
@@ -211,6 +208,25 @@ body {
   flex-direction: column;
   gap: 20px;
   scroll-behavior: smooth;
+}
+/* `.stage` sets its own `display: flex` above, which (author CSS always outranks the
+   browser's UA stylesheet, regardless of specificity) would otherwise beat the `[hidden]`
+   attribute's own `display: none` and leave every hidden view visibly stacked underneath the
+   active one — the same class of bug already called out above for `.install-btn[hidden]`. */
+.stage[hidden] { display: none; }
+
+.view-header { padding: 18px 0 2px; flex-shrink: 0; }
+.view-header h2 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+}
+.view-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--zarvis-text-secondary);
+  line-height: 1.5;
 }
 
 .hero { text-align: center; padding: 26px 0 6px; flex-shrink: 0; }
@@ -504,10 +520,13 @@ body {
 /* ---- AI Command Bar — the Jarvis core input, one seamless glass pill instead of three
    separate bordered controls (mic/input/send used to each draw their own box). ---- */
 .composer {
-  padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  /* No safe-area padding here — the bottom-nav below it now owns the real bottom edge and
+     the inset that comes with it (see .bottom-nav). */
+  padding: 10px 16px 8px;
   flex-shrink: 0;
   background: linear-gradient(to top, var(--zarvis-space-black) 55%, transparent);
 }
+.composer[hidden] { display: none; }
 
 .command-bar {
   display: flex;
@@ -588,87 +607,6 @@ body {
   50% { box-shadow: 0 0 0 3px #00f0ff14, 0 0 26px 4px var(--glow-cyan); }
 }
 .glow-active { animation: glow-pulse-border 2.4s ease-in-out infinite; }
-
-/* ---- Status & Tasks drawer — a bottom sheet that keeps the live-status/execution-log
-   surface out of the main conversation viewport (per the "minimalist, uncluttered" brief)
-   while staying one tap away via the topbar's tasks-toggle chip. ---- */
-.drawer-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  background: #030712a3;
-  backdrop-filter: blur(2px);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s ease;
-}
-.drawer-overlay.open { opacity: 1; pointer-events: auto; }
-
-.drawer {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  z-index: 21;
-  margin: 0 auto;
-  max-width: 720px;
-  max-height: min(78dvh, 640px);
-  display: flex;
-  flex-direction: column;
-  background: var(--zarvis-surface-strong);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--zarvis-border-soft);
-  border-bottom: none;
-  border-radius: 26px 26px 0 0;
-  box-shadow: 0 -12px 50px -18px #000000e0;
-  transform: translateY(100%);
-  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.drawer.open { transform: translateY(0); }
-
-.drawer-handle {
-  width: 36px; height: 4px;
-  border-radius: 4px;
-  background: var(--zarvis-border-soft);
-  margin: 10px auto 2px;
-  flex-shrink: 0;
-}
-
-.drawer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 20px 14px;
-  border-bottom: 1px solid var(--zarvis-border-soft);
-  flex-shrink: 0;
-}
-.drawer-header h2 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.drawer-close {
-  width: 30px; height: 30px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%;
-  border: 1px solid var(--zarvis-border-soft);
-  background: var(--zarvis-surface-elevated);
-  color: var(--zarvis-text-secondary);
-  font-size: 17px;
-  line-height: 1;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.drawer-close:hover { color: var(--zarvis-text-primary); border-color: #00f0ff55; }
-
-.drawer-body {
-  overflow-y: auto;
-  padding: 16px 20px calc(20px + env(safe-area-inset-bottom, 0px));
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-}
 
 .section-label {
   margin: 0 0 10px;
@@ -844,3 +782,284 @@ body {
 
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: #ffffff1f; border-radius: 8px; }
+
+/* ---- Bottom nav — the floating glass tab bar across the 4 top-level views (Workspace /
+   Capabilities / Plans & Quotas / System Metrics), mirroring the Android app's
+   GlassBottomBar so both clients read as the same product (MASTER_SPEC.md §22/§23). Always
+   visible; the composer above it is the only piece that hides itself outside Workspace. ---- */
+.bottom-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  gap: 4px;
+  margin: 0 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 6px;
+  border-radius: 999px;
+  background: var(--zarvis-surface-strong);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--zarvis-border-soft);
+  box-shadow: 0 10px 34px -16px #000000cc;
+  flex-shrink: 0;
+}
+.nav-item {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 4px 8px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--zarvis-text-secondary);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+.nav-item svg { transition: filter 0.2s ease; }
+.nav-item.active {
+  color: var(--zarvis-accent-cyan);
+}
+.nav-item.active svg { filter: drop-shadow(0 0 6px var(--glow-cyan-soft)); }
+.nav-badge {
+  position: absolute;
+  top: 4px; right: 22%;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--zarvis-accent-cyan);
+  box-shadow: 0 0 6px 1px var(--glow-cyan-soft);
+  border: 1.5px solid var(--zarvis-surface-strong);
+}
+.nav-badge[hidden] { display: none; }
+
+/* ---- LOW/MEDIUM/HIGH risk indicator — the same three-tier signal used everywhere a skill's
+   risk is surfaced on Android (RiskBadge), just as a plain colored pill here. ---- */
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.risk-badge[data-level="LOW"] { color: var(--zarvis-success); background: #22e6b022; }
+.risk-badge[data-level="MEDIUM"] { color: var(--zarvis-warning); background: #ffc46b22; }
+.risk-badge[data-level="HIGH"] { color: var(--zarvis-error); background: #ff5c7222; }
+
+/* ---- Capabilities Hub — every skill in the live catalogue, grouped by category, as a
+   showcase card with a direct "Run Agent" trigger (MASTER_SPEC.md §22 "Feature Showcase Hub
+   by Category") instead of the Workspace screen's compact one-chip-per-category rail. ---- */
+.capabilities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-bottom: 8px;
+}
+.capability-group-label {
+  margin: 0 0 -8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--zarvis-accent-cyan);
+}
+.capability-card {
+  background: var(--zarvis-surface-elevated);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.capability-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.capability-card-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.capability-card-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--zarvis-text-secondary);
+}
+.capability-run-btn {
+  align-self: stretch;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  color: #041016;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.capability-run-btn:hover { box-shadow: 0 0 18px 2px var(--glow-cyan-soft); }
+.capability-run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---- Plans & Quotas — Free vs Pro comparison. Never shows a fabricated price: Play/Web
+   billing isn't wired up yet (MASTER_SPEC.md §32), so real pricing is marked "coming soon"
+   instead of invented, matching the Android Plans screen exactly. ---- */
+.billing-toggle {
+  align-self: center;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--zarvis-surface-elevated);
+  border: 1px solid var(--zarvis-border-soft);
+}
+.billing-option {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--zarvis-text-secondary);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.billing-option.active {
+  background: #00f0ff2e;
+  color: var(--zarvis-accent-cyan);
+}
+
+.plan-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.plan-card {
+  background: var(--zarvis-surface-elevated);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-card.highlighted {
+  border: 1.5px solid var(--zarvis-accent-cyan);
+  box-shadow: 0 0 0 1px #00f0ff22, 0 0 30px -8px #00f0ff70;
+}
+.plan-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.plan-card-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+}
+.plan-card.highlighted .plan-card-name { color: var(--zarvis-accent-cyan); }
+.plan-card-tag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--zarvis-text-secondary);
+}
+.plan-card.highlighted .plan-card-tag { color: var(--zarvis-accent-cyan); }
+.plan-card-tagline {
+  margin: 0;
+  font-size: 13px;
+  color: var(--zarvis-text-secondary);
+}
+.plan-card-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--zarvis-text-secondary);
+}
+.plan-card-features {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-card-features li {
+  font-size: 13px;
+  color: var(--zarvis-text-primary);
+  display: flex;
+  gap: 8px;
+}
+.plan-card-features li::before {
+  content: "✓";
+  color: var(--zarvis-success);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ---- System Metrics — real, client-measured per-turn latency (recordLatency() times the
+   existing /orchestrator/turn call already made from submitUtterance(); this is on-device
+   instrumentation, not a new backend endpoint) plus the task log reusing the same
+   render*Task* functions as before. Never a fabricated number. ---- */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.stat-row .stat-tile-value { font-size: 15px; }
+.latency-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.latency-empty {
+  padding: 18px 16px;
+  text-align: center;
+  color: var(--zarvis-text-secondary);
+  font-size: 13px;
+  background: var(--zarvis-surface-elevated);
+  border: 1px dashed var(--zarvis-border-soft);
+  border-radius: var(--radius);
+}
+.latency-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--zarvis-surface-elevated);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: var(--radius);
+}
+.latency-row-label {
+  font-size: 12.5px;
+  color: var(--zarvis-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.latency-row-ms {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.latency-row[data-success="true"] .latency-row-ms { color: var(--zarvis-success); }
+.latency-row[data-success="false"] .latency-row-ms { color: var(--zarvis-error); }

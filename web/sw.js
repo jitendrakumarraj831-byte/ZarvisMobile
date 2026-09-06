@@ -11,7 +11,7 @@
  * MASTER_SPEC.md Product Principle #4 forbids; a real network failure there should surface
  * as the honest error app.js already shows, not a stale cache hit.
  */
-const CACHE_NAME = "zarvis-shell-v1";
+const CACHE_NAME = "zarvis-shell-v2";
 const SHELL_FILES = ["/", "/index.html", "/app.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

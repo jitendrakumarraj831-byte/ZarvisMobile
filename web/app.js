@@ -86,19 +86,32 @@
     voiceSelect: document.getElementById("voice-select"),
     providerBadge: document.getElementById("provider-badge"),
     installBtn: document.getElementById("install-btn"),
-    tasksToggle: document.getElementById("tasks-toggle"),
-    tasksBadge: document.getElementById("tasks-badge"),
-    drawerOverlay: document.getElementById("drawer-overlay"),
-    drawer: document.getElementById("tasks-drawer"),
-    drawerClose: document.getElementById("drawer-close"),
-    statusGrid: document.getElementById("status-grid"),
+    composer: document.getElementById("composer"),
+    navItems: Array.from(document.querySelectorAll(".nav-item")),
+    metricsBadge: document.getElementById("metrics-badge"),
+    viewWorkspace: document.getElementById("view-workspace"),
+    viewCapabilities: document.getElementById("view-capabilities"),
+    viewPlans: document.getElementById("view-plans"),
+    viewMetrics: document.getElementById("view-metrics"),
+    capabilitiesList: document.getElementById("capabilities-list"),
+    plansCurrent: document.getElementById("plans-current"),
+    billingToggle: document.getElementById("billing-toggle"),
+    planCards: document.getElementById("plan-cards"),
+    metricsHealthGrid: document.getElementById("metrics-health-grid"),
+    latencyStats: document.getElementById("latency-stats"),
+    latencyLog: document.getElementById("latency-log"),
     taskList: document.getElementById("task-list"),
   };
 
   const state = {
     lang: localStorage.getItem(STORAGE_KEYS.lang) || "hi",
     speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
-    drawerOpen: false,
+    // Which of the 4 bottom-nav views is currently showing — see setActiveView().
+    activeView: "workspace",
+    // The live skill catalogue, fetched once and reused by both the Workspace category
+    // chips and the full Capabilities Hub cards, instead of fetching /skills twice.
+    skills: [],
+    billing: "monthly",
     // Hands-free "wake word" mode arms itself automatically on load (see init()) but this
     // flag is intentionally session-only (never persisted to localStorage) — the mute/armed
     // choice always resets fresh on the next reload rather than remembering a muted state
@@ -130,7 +143,10 @@
   // throwing "Cannot access '...' before initialization".
   let recognition = null;
   let cachedVoices = [];
-  let taskPollTimer = null;
+  // Real, client-measured latency of every orchestrator turn this session (recordLatency(),
+  // called from submitUtterance() around the actual /orchestrator/turn fetch) — feeds the
+  // System Metrics tab. In-memory only, capped, never persisted or fabricated.
+  let latencyEntries = [];
 
   init().catch((err) => {
     console.error(err);
@@ -144,7 +160,8 @@
     el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
     setupSpeechRecognition();
     setupInstallPrompt();
-    setupDrawer();
+    setupBottomNav();
+    setupPlans();
 
     el.sendBtn.addEventListener("click", () => {
       haptic();
@@ -303,14 +320,22 @@
     const res = await apiFetch("/skills");
     if (!res.ok) return;
     const { skills } = await res.json();
-    el.categories.innerHTML = "";
+    state.skills = skills;
+    renderCategoryChips(skills);
+  }
 
+  function groupByCategory(skills) {
     const byCategory = new Map();
     for (const skill of skills) {
       if (!byCategory.has(skill.category)) byCategory.set(skill.category, []);
       byCategory.get(skill.category).push(skill);
     }
+    return byCategory;
+  }
 
+  function renderCategoryChips(skills) {
+    el.categories.innerHTML = "";
+    const byCategory = groupByCategory(skills);
     for (const [category, categorySkills] of byCategory) {
       const chip = document.createElement("button");
       chip.type = "button";
@@ -331,84 +356,300 @@
     return match ? match[1] : description;
   }
 
-  // ---- Status & Tasks drawer -------------------------------------------------------------
-  // Keeps live status/execution-log detail out of the main conversation viewport (per the
-  // "minimalist, uncluttered" UI brief) behind a single topbar toggle instead. Backed by
-  // GET /api/v1/entitlements/me and GET/POST /api/v1/tasks — both already existed on the
-  // backend but were never surfaced by this client.
+  // ---- Capabilities Hub -------------------------------------------------------------------
+  // Every skill from the same catalogue the Workspace chips summarize, shown in full as a
+  // showcase card grouped by category with a direct "Run Agent" trigger — MASTER_SPEC.md §22
+  // "Feature Showcase Hub by Category" — mirroring the Android Capabilities screen. Unlike
+  // the Workspace chips (which only fill the composer so the user can review/edit first, a
+  // deliberate existing choice), "Run Agent" here executes immediately, matching what "direct
+  // triggers" means on Android's equivalent screen.
 
-  function setupDrawer() {
-    el.tasksToggle.addEventListener("click", openDrawer);
-    el.drawerClose.addEventListener("click", closeDrawer);
-    el.drawerOverlay.addEventListener("click", closeDrawer);
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && state.drawerOpen) closeDrawer();
-    });
+  function renderCapabilities() {
+    el.capabilitiesList.innerHTML = "";
+    if (state.skills.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "task-empty";
+      empty.textContent = "Couldn't load capabilities right now.";
+      el.capabilitiesList.appendChild(empty);
+      return;
+    }
+    const byCategory = groupByCategory(state.skills);
+    for (const [category, categorySkills] of byCategory) {
+      const label = document.createElement("h3");
+      label.className = "capability-group-label";
+      label.textContent = categoryLabel(category);
+      el.capabilitiesList.appendChild(label);
+      for (const skill of categorySkills) el.capabilitiesList.appendChild(renderCapabilityCard(skill));
+    }
   }
 
-  function openDrawer() {
-    state.drawerOpen = true;
-    el.drawerOverlay.hidden = false;
-    el.drawer.setAttribute("aria-hidden", "false");
-    // Applied on the next frame, not immediately — [hidden] must actually clear and the
-    // browser must paint that first, or the transform/opacity transition below has nothing
-    // to animate from and the drawer just snaps open instead of sliding.
-    requestAnimationFrame(() => {
-      el.drawerOverlay.classList.add("open");
-      el.drawer.classList.add("open");
-    });
-    refreshStatus();
-    refreshTasks();
-    taskPollTimer = setInterval(() => {
-      refreshStatus();
+  function renderCapabilityCard(skill) {
+    const card = document.createElement("div");
+    card.className = "capability-card";
+
+    const top = document.createElement("div");
+    top.className = "capability-card-top";
+    const name = document.createElement("h4");
+    name.className = "capability-card-name";
+    name.textContent = skill.name;
+    top.appendChild(name);
+    const risk = document.createElement("span");
+    risk.className = "risk-badge";
+    risk.dataset.level = skill.riskLevel;
+    risk.textContent = skill.riskLevel;
+    top.appendChild(risk);
+    card.appendChild(top);
+
+    const desc = document.createElement("p");
+    desc.className = "capability-card-desc";
+    desc.textContent = skill.description;
+    card.appendChild(desc);
+
+    const runBtn = document.createElement("button");
+    runBtn.type = "button";
+    runBtn.className = "capability-run-btn";
+    if (skill.upgradeRequired) {
+      runBtn.textContent = "Upgrade required";
+      runBtn.disabled = true;
+    } else {
+      runBtn.textContent = "Run Agent";
+      runBtn.addEventListener("click", () => {
+        haptic();
+        setActiveView("workspace");
+        submitUtterance(exampleFor(skill.description));
+      });
+    }
+    card.appendChild(runBtn);
+
+    return card;
+  }
+
+  // ---- Bottom nav / view switching ---------------------------------------------------------
+  // 4 top-level views (MASTER_SPEC.md §22/§23), mirroring the Android app's floating glass
+  // bottom nav: Workspace / Capabilities / Plans & Quotas / System Metrics. Only Workspace
+  // keeps the composer visible — the other three are read-only/showcase surfaces reached one
+  // tap away, replacing the old single "Status & Workflows" drawer.
+
+  const VIEWS = {
+    workspace: el.viewWorkspace,
+    capabilities: el.viewCapabilities,
+    plans: el.viewPlans,
+    metrics: el.viewMetrics,
+  };
+
+  function setupBottomNav() {
+    for (const item of el.navItems) {
+      item.addEventListener("click", () => {
+        haptic();
+        setActiveView(item.dataset.view);
+      });
+    }
+  }
+
+  function setActiveView(view) {
+    if (!VIEWS[view] || state.activeView === view) return;
+    if (state.activeView === "metrics") stopMetricsPolling();
+
+    state.activeView = view;
+    for (const [name, section] of Object.entries(VIEWS)) section.hidden = name !== view;
+    for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === view);
+    el.composer.hidden = view !== "workspace";
+
+    if (view === "capabilities") renderCapabilities();
+    if (view === "plans") refreshPlans();
+    if (view === "metrics") {
+      renderLatencyLog();
+      refreshMetricsHealth();
       refreshTasks();
-    }, 6000);
+      startMetricsPolling();
+    }
   }
 
-  function closeDrawer() {
-    state.drawerOpen = false;
-    el.drawerOverlay.classList.remove("open");
-    el.drawer.classList.remove("open");
-    el.drawer.setAttribute("aria-hidden", "true");
-    if (taskPollTimer) {
-      clearInterval(taskPollTimer);
-      taskPollTimer = null;
+  // ---- Plans & Quotas -----------------------------------------------------------------------
+  // Free vs Pro comparison — MASTER_SPEC.md §19-21. Never a fabricated price: Web/Play
+  // billing isn't wired up yet (§32), so real pricing is marked "coming soon" instead of
+  // invented — same honesty as the Android Plans screen. The monthly/yearly toggle is a real,
+  // working control; it only ever changes the billing-period label, never a dollar amount
+  // that doesn't exist yet.
+
+  const PLAN_TIERS = [
+    {
+      name: "FREE",
+      tag: null,
+      tagline: "Get started with zero commitment.",
+      features: ["LOW-risk, low-cost skills only", "Voice + text, English/Hindi/Hinglish", "Standard response speed"],
+      highlighted: false,
+    },
+    {
+      name: "PRO",
+      tag: "Recommended",
+      tagline: "Full access across every shipped skill.",
+      features: [
+        "Every skill Zarvis ships, at every risk tier",
+        "Higher usage/credit ceiling",
+        "Priority orchestrator queueing",
+      ],
+      highlighted: true,
+    },
+  ];
+
+  let currentPlanName = null;
+
+  function setupPlans() {
+    const options = el.billingToggle.querySelectorAll(".billing-option");
+    for (const btn of options) {
+      btn.addEventListener("click", () => {
+        haptic();
+        state.billing = btn.dataset.billing;
+        for (const b of options) b.classList.toggle("active", b === btn);
+        renderPlanCards(currentPlanName);
+      });
     }
-    setTimeout(() => {
-      if (!state.drawerOpen) el.drawerOverlay.hidden = true;
-    }, 300); // matches the drawer's CSS transition duration
-    fetchTasks(); // pick up the closed-state topbar badge in case anything changed
   }
 
-  async function refreshStatus() {
-    el.statusGrid.innerHTML = "";
-    const tiles = [];
-
-    try {
-      const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
-      const body = await res.json();
-      tiles.push({ label: "AI Provider", value: body.provider === "google" ? "Gemini (live)" : "Mock" });
-      tiles.push({ label: "Backend", value: "Online" });
-    } catch {
-      tiles.push({ label: "Backend", value: "Offline" });
-    }
-
+  async function refreshPlans() {
+    el.plansCurrent.innerHTML = "";
     try {
       const res = await apiFetch("/entitlements/me");
       if (res.ok) {
         const snapshot = await res.json();
-        tiles.push({ label: "Plan", value: snapshot.plan });
-        tiles.push({ label: "Credits", value: String(snapshot.creditBalance) });
+        currentPlanName = snapshot.plan;
+        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: snapshot.plan }));
+        el.plansCurrent.appendChild(renderStatTile({ label: "Credits", value: String(snapshot.creditBalance) }));
         if (snapshot.trialExpiresAt) {
-          tiles.push({ label: "Trial ends", value: new Date(snapshot.trialExpiresAt).toLocaleDateString() });
+          el.plansCurrent.appendChild(renderStatTile({ label: "Trial ends", value: new Date(snapshot.trialExpiresAt).toLocaleDateString() }));
         }
       }
     } catch {
-      // Entitlements are a nice-to-have here — the "Backend" tile above already covers
-      // whether the backend itself is reachable.
+      // The Free/Pro comparison below still renders regardless — this tile row is a
+      // nice-to-have, not a hard dependency.
+    }
+    renderPlanCards(currentPlanName);
+  }
+
+  function renderPlanCards(currentPlan) {
+    el.planCards.innerHTML = "";
+    for (const plan of PLAN_TIERS) el.planCards.appendChild(renderPlanCard(plan, currentPlan));
+  }
+
+  function renderPlanCard(plan, currentPlan) {
+    const card = document.createElement("div");
+    card.className = plan.highlighted ? "plan-card highlighted" : "plan-card";
+
+    const top = document.createElement("div");
+    top.className = "plan-card-top";
+    const name = document.createElement("h3");
+    name.className = "plan-card-name";
+    name.textContent = plan.name;
+    top.appendChild(name);
+    const tag = document.createElement("span");
+    tag.className = "plan-card-tag";
+    tag.textContent = currentPlan === plan.name ? "Current plan" : plan.tag || "";
+    top.appendChild(tag);
+    card.appendChild(top);
+
+    const tagline = document.createElement("p");
+    tagline.className = "plan-card-tagline";
+    tagline.textContent = plan.tagline;
+    card.appendChild(tagline);
+
+    if (plan.highlighted) {
+      const note = document.createElement("p");
+      note.className = "plan-card-note";
+      note.textContent = `Billed ${state.billing} · pricing coming soon`;
+      card.appendChild(note);
     }
 
-    for (const tile of tiles) el.statusGrid.appendChild(renderStatTile(tile));
+    const list = document.createElement("ul");
+    list.className = "plan-card-features";
+    for (const feature of plan.features) {
+      const li = document.createElement("li");
+      li.textContent = feature;
+      list.appendChild(li);
+    }
+    card.appendChild(list);
+
+    return card;
+  }
+
+  // ---- System Metrics -----------------------------------------------------------------------
+  // Real, client-measured per-turn latency (recordLatency(), called from submitUtterance()
+  // around the actual /orchestrator/turn fetch — pure on-device timing, no new backend
+  // endpoint) plus the task log, reusing the same render*Task* functions as before — replaces
+  // the old "Status & Workflows" drawer with a full tab, matching the Android System Metrics
+  // screen. Never a fabricated number.
+
+  const MAX_LATENCY_ENTRIES = 50;
+
+  function recordLatency(label, durationMs, success) {
+    latencyEntries = [{ id: `${Date.now()}-${Math.random()}`, label, durationMs, success }, ...latencyEntries].slice(0, MAX_LATENCY_ENTRIES);
+    if (state.activeView === "metrics") renderLatencyLog();
+  }
+
+  async function refreshMetricsHealth() {
+    el.metricsHealthGrid.innerHTML = "";
+    try {
+      const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
+      const body = await res.json();
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI Provider", value: body.provider === "google" ? "Gemini (live)" : "Mock" }));
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Backend", value: "Online" }));
+    } catch {
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Backend", value: "Offline" }));
+    }
+  }
+
+  function renderLatencyLog() {
+    el.latencyStats.innerHTML = "";
+    const avgMs =
+      latencyEntries.length === 0
+        ? "—"
+        : `${Math.round(latencyEntries.reduce((sum, entry) => sum + entry.durationMs, 0) / latencyEntries.length)}ms`;
+    const successRate =
+      latencyEntries.length === 0 ? "—" : `${Math.round((latencyEntries.filter((entry) => entry.success).length / latencyEntries.length) * 100)}%`;
+    el.latencyStats.appendChild(renderStatTile({ label: "Avg Latency", value: avgMs }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Turns Logged", value: String(latencyEntries.length) }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Success Rate", value: successRate }));
+
+    el.latencyLog.innerHTML = "";
+    if (latencyEntries.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "latency-empty";
+      empty.textContent = "No turns yet this session — ask Zarvis something on Workspace and it shows up here instantly.";
+      el.latencyLog.appendChild(empty);
+      return;
+    }
+    for (const entry of latencyEntries) el.latencyLog.appendChild(renderLatencyRow(entry));
+  }
+
+  function renderLatencyRow(entry) {
+    const row = document.createElement("div");
+    row.className = "latency-row";
+    row.dataset.success = String(entry.success);
+    const label = document.createElement("span");
+    label.className = "latency-row-label";
+    label.textContent = entry.label;
+    const ms = document.createElement("span");
+    ms.className = "latency-row-ms";
+    ms.textContent = `${entry.durationMs}ms`;
+    row.append(label, ms);
+    return row;
+  }
+
+  let metricsPollTimer = null;
+
+  function startMetricsPolling() {
+    if (metricsPollTimer) return;
+    metricsPollTimer = setInterval(() => {
+      refreshMetricsHealth();
+      refreshTasks();
+    }, 6000);
+  }
+
+  function stopMetricsPolling() {
+    if (metricsPollTimer) {
+      clearInterval(metricsPollTimer);
+      metricsPollTimer = null;
+    }
   }
 
   function renderStatTile({ label, value }) {
@@ -429,7 +670,9 @@
     if (!res.ok) return [];
     const { tasks } = await res.json();
     const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
-    el.tasksBadge.hidden = activeCount === 0;
+    // Surfaced on the Metrics bottom-nav tab now — the same "something's running" signal the
+    // old topbar tasks-toggle badge showed, just relocated with the drawer it replaced.
+    el.metricsBadge.hidden = activeCount === 0;
     return tasks;
   }
 
@@ -566,6 +809,10 @@
     state.firstTurn = false; // set before the request, not after — a failed first turn
     // shouldn't get a second "warm welcome" pass on retry.
 
+    // Real, client-measured round-trip time for this specific call — feeds the System
+    // Metrics tab's "Live API Latency" log (recordLatency()). Not a fabricated number: it's
+    // performance.now() wrapped around the exact fetch already being made for this turn.
+    const startedAt = performance.now();
     try {
       const res = await apiFetch("/orchestrator/turn", {
         method: "POST",
@@ -580,9 +827,11 @@
         const body = await res.json().catch(() => ({}));
         addBubble("assistant", body.error || `Request failed (${res.status}).`);
         setOrbState("ERROR");
+        recordLatency(utterance, Math.round(performance.now() - startedAt), false);
         return;
       }
       const result = await res.json();
+      recordLatency(utterance, Math.round(performance.now() - startedAt), true);
       const node = renderAssistantResult(result);
       // Awaited so the orb actually stays SPEAKING for the duration of playback — without
       // this, the fire-and-forget call returns almost immediately (it only runs
@@ -596,6 +845,7 @@
       console.error(err);
       addBubble("system", COPY[state.lang].bootError);
       setOrbState("ERROR");
+      recordLatency(utterance, Math.round(performance.now() - startedAt), false);
       return;
     }
     setOrbState("IDLE");

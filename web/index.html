@@ -30,10 +30,6 @@
         <span class="brand-name">ZARVIS <b>MOBILE</b></span>
       </div>
       <div class="topbar-actions">
-        <button id="tasks-toggle" class="chip-btn icon-btn" type="button" title="Status &amp; active workflows">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="14" y2="13"></line><line x1="7" y1="17" x2="11" y2="17"></line></svg>
-          <span class="chip-badge" id="tasks-badge" hidden></span>
-        </button>
         <button id="install-btn" class="chip-btn install-btn" type="button" hidden>
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           Install
@@ -49,31 +45,67 @@
       </div>
     </header>
 
-    <main class="stage">
-      <section class="hero" id="hero">
-        <div class="orb-wrap">
-          <div class="orb-ring" aria-hidden="true"></div>
-          <div
-            class="orb"
-            id="orb"
-            data-state="IDLE"
-            role="button"
-            tabindex="0"
-            aria-pressed="false"
-            aria-label="Toggle hands-free wake-word listening"
-            title="Tap to toggle hands-free mode — say &quot;Zarvis&quot; + your command"
-          ></div>
-        </div>
-        <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
-        <p class="hero-status" id="hero-status">IDLE</p>
+    <main class="views">
+      <section class="stage" id="view-workspace">
+        <section class="hero" id="hero">
+          <div class="orb-wrap">
+            <div class="orb-ring" aria-hidden="true"></div>
+            <div
+              class="orb"
+              id="orb"
+              data-state="IDLE"
+              role="button"
+              tabindex="0"
+              aria-pressed="false"
+              aria-label="Toggle hands-free wake-word listening"
+              title="Tap to toggle hands-free mode — say &quot;Zarvis&quot; + your command"
+            ></div>
+          </div>
+          <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
+          <p class="hero-status" id="hero-status">IDLE</p>
+        </section>
+
+        <section class="conversation" id="conversation" aria-live="polite"></section>
+
+        <section class="categories" id="categories" aria-label="Skill categories"></section>
       </section>
 
-      <section class="conversation" id="conversation" aria-live="polite"></section>
+      <section class="stage" id="view-capabilities" hidden>
+        <div class="view-header">
+          <h2>Capabilities</h2>
+          <p>Everything Zarvis can do right now, grouped by category.</p>
+        </div>
+        <div class="capabilities-list" id="capabilities-list"></div>
+      </section>
 
-      <section class="categories" id="categories" aria-label="Skill categories"></section>
+      <section class="stage" id="view-plans" hidden>
+        <div class="view-header">
+          <h2>Plans &amp; Quotas</h2>
+          <p>Free vs Pro — compare tiers and see what's on your account today.</p>
+        </div>
+        <div id="plans-current" class="status-grid"></div>
+        <div class="billing-toggle" id="billing-toggle" role="group" aria-label="Billing period">
+          <button type="button" class="billing-option active" data-billing="monthly">Monthly</button>
+          <button type="button" class="billing-option" data-billing="yearly">Yearly</button>
+        </div>
+        <div class="plan-cards" id="plan-cards"></div>
+      </section>
+
+      <section class="stage" id="view-metrics" hidden>
+        <div class="view-header">
+          <h2>System Metrics</h2>
+          <p>Latency measured live in this browser, and your current task log.</p>
+        </div>
+        <div class="status-grid" id="metrics-health-grid"></div>
+        <h3 class="section-label">Live API Latency</h3>
+        <div class="stat-row" id="latency-stats"></div>
+        <div class="latency-log" id="latency-log"></div>
+        <h3 class="section-label">Task Log</h3>
+        <div class="task-list" id="task-list"></div>
+      </section>
     </main>
 
-    <footer class="composer">
+    <footer class="composer" id="composer">
       <div class="command-bar" id="command-bar">
         <button id="mic-btn" class="mic-btn" type="button" title="Speak">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
@@ -85,26 +117,27 @@
         </button>
       </div>
     </footer>
-  </div>
 
-  <div class="drawer-overlay" id="drawer-overlay" hidden></div>
-  <aside class="drawer" id="tasks-drawer" aria-hidden="true" aria-label="Status and active workflows">
-    <div class="drawer-handle"></div>
-    <div class="drawer-header">
-      <h2>Status &amp; Workflows</h2>
-      <button id="drawer-close" class="drawer-close" type="button" aria-label="Close">×</button>
-    </div>
-    <div class="drawer-body">
-      <section aria-label="System status">
-        <h3 class="section-label">Status</h3>
-        <div class="status-grid" id="status-grid"></div>
-      </section>
-      <section aria-label="Active workflows">
-        <h3 class="section-label">Active Workflows</h3>
-        <div class="task-list" id="task-list"></div>
-      </section>
-    </div>
-  </aside>
+    <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
+      <button type="button" class="nav-item active" data-view="workspace">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <span>Workspace</span>
+      </button>
+      <button type="button" class="nav-item" data-view="capabilities">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+        <span>Capabilities</span>
+      </button>
+      <button type="button" class="nav-item" data-view="plans">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        <span>Plans</span>
+      </button>
+      <button type="button" class="nav-item" data-view="metrics">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+        <span>Metrics</span>
+        <span class="nav-badge" id="metrics-badge" hidden></span>
+      </button>
+    </nav>
+  </div>
 
   <script src="./app.js"></script>
 </body>

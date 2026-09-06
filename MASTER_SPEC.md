@@ -521,6 +521,19 @@ just wants to try the agent from a link.
   at all, so `await speak()` previously resolved instantly instead of for the real speech
   duration.
 
+- **Bottom nav (mirrors the Android app's §22/§23 shell):** a floating glass tab bar across 4
+  top-level views — Workspace (the hero/orb/composer/conversation/category-chips screen
+  described above), Capabilities (every skill from the same `/skills` catalogue the category
+  chips summarize, shown in full as a showcase card grouped by category with a direct "Run
+  Agent" trigger that executes immediately), Plans & Quotas (a Free vs Pro feature
+  comparison plus the current entitlement snapshot and a cosmetic monthly/yearly toggle —
+  never a fabricated price, since Web/Play billing isn't wired up yet, §32), and System
+  Metrics (real, client-measured latency for every orchestrator turn this session —
+  `performance.now()` wrapped around the same `/orchestrator/turn` fetch already being made,
+  not a new endpoint — plus the task log). This replaced an earlier single "Status &
+  Workflows" bottom-sheet drawer, which duplicated what these three dedicated tabs now cover
+  more legibly and consistently with Android's own navigation shape.
+
 ## 13. Developer Agent Architecture
 
 ```
