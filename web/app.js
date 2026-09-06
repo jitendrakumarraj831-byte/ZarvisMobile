@@ -175,6 +175,10 @@
 
   async function ensureSession() {
     if (localStorage.getItem(STORAGE_KEYS.accessToken)) return;
+    await createGuestSession();
+  }
+
+  async function createGuestSession() {
     const deviceId = crypto.randomUUID();
     const email = `guest-${deviceId}@device.zarvismobile.com`;
     const password = crypto.randomUUID() + crypto.randomUUID();
@@ -192,7 +196,17 @@
     localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
   }
 
-  async function apiFetch(path, options = {}, retried = false) {
+  // `attempt` walks three stages: 0 = the original call; 1 = retried once after a
+  // successful token refresh; 2 = retried once more after bootstrapping a brand-new guest
+  // account. That last stage matters on its own, not just as a refresh fallback: if the
+  // account this browser's stored tokens point to no longer exists server-side (e.g. the
+  // backend's user data was reset, migrated to a different store, or this is a stale token
+  // from before that migration), /auth/refresh 401s for the exact same "unknown user"
+  // reason the original call did — refreshing can never recover from that. Without this,
+  // a browser that bootstrapped a guest account before such a reset is stuck on 401 for
+  // every request forever, since ensureSession() only ever signs up when *no* token is
+  // stored at all, not when the stored one has gone stale.
+  async function apiFetch(path, options = {}, attempt = 0) {
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -202,11 +216,15 @@
         ...(options.headers || {}),
       },
     });
-    if (res.status === 401 && !retried) {
-      const refreshed = await tryRefresh();
-      if (refreshed) return apiFetch(path, options, true);
+    if (res.status !== 401 || attempt >= 2) return res;
+
+    if (attempt === 0 && (await tryRefresh())) {
+      return apiFetch(path, options, 1);
     }
-    return res;
+    localStorage.removeItem(STORAGE_KEYS.accessToken);
+    localStorage.removeItem(STORAGE_KEYS.refreshToken);
+    await createGuestSession();
+    return apiFetch(path, options, 2);
   }
 
   async function tryRefresh() {
