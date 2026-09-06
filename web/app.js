@@ -269,19 +269,42 @@
     }
   }
 
+  const CATEGORY_LABELS = { SEO: "SEO", GITHUB: "GitHub" };
+
+  function categoryLabel(category) {
+    return CATEGORY_LABELS[category] || category.charAt(0) + category.slice(1).toLowerCase();
+  }
+
+  // Grouped by category, one chip per category rather than one per skill — MASTER_SPEC.md
+  // §22's own Home Screen concept shows "Quick categories: Phone · Web · Work · Documents ·
+  // Developer", a short list of *categories*, not every individual skill flattened into its
+  // own chip. That held up fine back when there were 4 skills total; at 15 (Web, Documents,
+  // Developer, Business ×3, Creative ×3, Automation ×3, Research ×3, plus Personal on
+  // Android) it wrapped across 8 rows and ate roughly half the visible screen — exactly the
+  // clutter this section was never meant to have. Tapping a category still fills the
+  // composer with one representative example (that category's first skill) — the chip is a
+  // discovery hint, not an exhaustive menu; the user can always ask for anything by voice or
+  // text regardless of which chip (if any) they tapped.
   async function loadSkills() {
     const res = await apiFetch("/skills");
     if (!res.ok) return;
     const { skills } = await res.json();
     el.categories.innerHTML = "";
+
+    const byCategory = new Map();
     for (const skill of skills) {
+      if (!byCategory.has(skill.category)) byCategory.set(skill.category, []);
+      byCategory.get(skill.category).push(skill);
+    }
+
+    for (const [category, categorySkills] of byCategory) {
       const chip = document.createElement("button");
       chip.type = "button";
-      chip.className = "category-chip" + (skill.upgradeRequired ? " locked" : "");
-      chip.textContent = skill.name;
-      chip.title = skill.description;
+      chip.className = "category-chip" + (categorySkills.every((s) => s.upgradeRequired) ? " locked" : "");
+      chip.textContent = categoryLabel(category);
+      chip.title = categorySkills.map((s) => s.description).join("\n");
       chip.addEventListener("click", () => {
-        el.input.value = exampleFor(skill.description);
+        el.input.value = exampleFor(categorySkills[0].description);
         el.input.focus();
       });
       el.categories.appendChild(chip);
