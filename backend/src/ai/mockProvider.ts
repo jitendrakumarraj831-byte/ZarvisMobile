@@ -62,18 +62,39 @@ function selectTool(utterance: string, tools: ToolDefinition[]): ToolDefinition 
   return best?.tool;
 }
 
-/** Named heuristics for the small reference skill set — see SKILLS.md "Current catalogue". */
+/**
+ * Named heuristics for the small reference skill set — see SKILLS.md "Current catalogue".
+ * The `default` branch (whole utterance verbatim) is only correct when a skill has exactly
+ * one required field; a skill with two or more (first hit: `business.draft_invoice`'s
+ * `client` + `items`) would otherwise get the *same* full utterance crammed into every
+ * field. `client`/`items` below split on the first digit — every currently-registered
+ * multi-field skill's line-items shape always starts with a quantity — rather than adding a
+ * second identical default that would just re-hide the same bug for the next such skill.
+ */
 function fillInput(tool: ToolDefinition, utterance: string): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const field of tool.inputSchema.requiredFields) {
     switch (field) {
       case "query":
       case "text":
+      case "prompt":
+      case "customerMessage":
         values[field] = utterance;
         break;
       case "repoUrl": {
         const match = utterance.match(/https?:\/\/\S+/);
         values[field] = match?.[0] ?? "https://github.com/example/demo-repo";
+        break;
+      }
+      case "client": {
+        const beforeItems = utterance.split(/\d/)[0] ?? utterance;
+        const withoutTrigger = beforeItems.replace(/^.*?\b(?:invoice|bill)\b/i, "");
+        values[field] = withoutTrigger.replace(/\bfor\b\s*$/i, "").trim() || utterance;
+        break;
+      }
+      case "items": {
+        const digitIndex = utterance.search(/\d/);
+        values[field] = digitIndex >= 0 ? utterance.slice(digitIndex) : utterance;
         break;
       }
       default:

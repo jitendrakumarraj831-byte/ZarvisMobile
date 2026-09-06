@@ -60,8 +60,10 @@ data class SkillDefinition(
 | `phone.open_app` | Phone | On-device (Android `domain`) | LOW | Free | **Implemented** — resolves an installed app by name and launches it, unit-tested |
 | `phone.find_contact` | Phone | On-device (Android `domain`) | MEDIUM (rounded up — personal data about a third party) | Free | **Implemented** — `ContactsContract` lookup by name, unit-tested against a fake port |
 | `phone.call` | Phone | On-device (Android `domain`) | MEDIUM | Free | **Implemented** — resolves a contact name or accepts a raw number, places a real call via `Intent.ACTION_CALL`, unit-tested against a fake port |
-| Business (`business.*`) | Business | — | — | Foundation only: category + agent contract registered, no handler yet |
-| Research (`research.*`) | Research | — | — | Foundation only |
+| `business.social_post` | Business | Backend | LOW | 1 credit | **Implemented** — real Gemini generation once `GEMINI_API_KEY` is set, honestly-labeled mock otherwise |
+| `business.customer_reply` | Business | Backend | LOW | 1 credit | **Implemented** — same generator as `business.social_post` |
+| `business.draft_invoice` | Business | Backend | LOW | 1 credit | **Implemented** — deterministic line-item parser (no AI needed for arithmetic), real pipeline |
+| Research (`research.*`) | Research | — | — | Foundation only: category + agent contract registered, no handler yet |
 | Creative (`creative.*`) | Creative | — | — | Foundation only |
 | Automation (`automation.*`) | Automation | — | — | Foundation only |
 
@@ -76,6 +78,22 @@ hardcoded shape for every on-device match) is unit-tested and build-verified
 need) are written and reviewed against this codebase's existing patterns but — like the
 rest of the Android app beyond `domain` — not compiler-verified in this environment; see
 MASTER_SPEC.md §32.
+
+**Business Agent, stated honestly:** unlike Phone (Android, unverifiable here), these three
+are backend TypeScript and fully compiler- and test-verified in this environment —
+`npm run build && npm test` (backend), 61 tests, 0 failures. `business.social_post`/
+`business.customer_reply` share a `ContentGenerator` (`backend/src/skills/business/
+contentGenerator.ts`): real one-shot Gemini generation when `GEMINI_API_KEY` is configured,
+an honestly-labeled deterministic mock otherwise — deliberately not `MockAIProvider` (the
+Orchestrator's tool-*selection* mock, which returns "not sure which skill can help" for a
+plain generation request with no tools). A live end-to-end smoke test against a running
+server caught a real bug in `MockAIProvider.fillInput()` itself: its one generic
+"fill every required field with the whole utterance" fallback was correct only by
+coincidence for every skill before `business.draft_invoice` (each had at most one field, or
+`repoUrl`'s own regex case) — a skill with two distinct fields (`client` + `items`) got the
+*same* full utterance crammed into both. Fixed with field-specific heuristics
+(`test/ai/mockProvider.test.ts` now covers this) — the same class of bug, and the same fix
+shape, as `OnDeviceInputBuilder` above.
 
 "Foundation only" means the `SkillCategory` and the corresponding `Agent` interface exist
 and are wired into the Orchestrator's routing table, proving the architecture accepts the

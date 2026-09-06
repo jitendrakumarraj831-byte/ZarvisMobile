@@ -177,13 +177,15 @@ live Skill Registry, not a hardcoded screen) → user can tap a category to try 
   `ToolRegistry` — never directly with each other's internals. This keeps agents addable/
   removable without cross-wiring.
 - MVP ships the Orchestrator plus **Personal, Web (research-only), Document, and Developer**
-  agents fully wired with a real reference skill each (§29). **Phone** has since gained its
-  first three real skills (`phone.open_app`, `phone.find_contact`, `phone.call` — SKILLS.md,
-  Phase 4 of §28) added the same way: register a skill, touch nothing in the Orchestrator.
-  **Business, Research, Creative, and Automation** are still registered as **foundation
-  interfaces** only (agent contract + category entry in the Skill Registry, no handler yet)
-  — proving the architecture accepts them without orchestrator changes, while their first
-  working skill ships in Phases 5–9 (§28) rather than being simulated here.
+  agents fully wired with a real reference skill each (§29). **Phone** and **Business** have
+  since gained their first real skills the same way — register a skill, touch nothing in the
+  Orchestrator: Phone's `phone.open_app`/`phone.find_contact`/`phone.call` (Android
+  on-device, Phase 4 of §28) and Business's `business.social_post`/`business.customer_reply`/
+  `business.draft_invoice` (backend, SKILLS.md). **Research, Creative, and Automation** are
+  still registered as **foundation interfaces** only (agent contract + category entry in the
+  Skill Registry, no handler yet) — proving the architecture accepts them without
+  orchestrator changes, while their first working skill ships in Phases 5–9 (§28) rather
+  than being simulated here.
 
 ## 6. Skill Architecture
 
@@ -933,3 +935,20 @@ LOW-risk skills.
   the denial honestly if not (§16), the same behavior `personal.reminder`'s `NOTIFICATIONS`
   permission already had; a proactive rationale-then-request UI remains a follow-up, not
   regressed by this change.
+- **Business Agent's first three skills are backend TypeScript, so — unlike Phone above —
+  fully compiler- and test-verified in this environment.** `business.social_post`/
+  `business.customer_reply` route through a real `AIProvider` (Gemini once `GEMINI_API_KEY`
+  is set) for genuine generation, falling back to an honestly-labeled deterministic mock
+  otherwise; `business.draft_invoice` needs no AI at all (line-item arithmetic has one
+  correct answer, so a deterministic parser is both simpler and more reliable). A live
+  end-to-end smoke test against a running server caught a real, pre-existing bug this
+  exposed: `MockAIProvider.fillInput()`'s one generic "whole utterance into every required
+  field" fallback was only ever correct by coincidence — every skill registered before this
+  one had at most one required field, or `repoUrl`'s own special-cased regex extraction.
+  `business.draft_invoice`'s two distinct fields (`client`, `items`) both received the *same*
+  full utterance the first time it ran live, producing a client name like "invoice Sharma
+  Traders for 5 chairs at 2000 each..." instead of "Sharma Traders" — silently wrong output,
+  not a crash, so it would have shipped unnoticed without that live check. Fixed with
+  field-specific heuristics and now covered by `test/ai/mockProvider.test.ts`, which never
+  existed before this either. `./gradlew`-style confidence for the backend: `npm run build &&
+  npm test` — 61 tests, 0 failures.
