@@ -321,9 +321,11 @@ backend/
   endpoints directly for anything requiring a secret — it calls the ZARVIS backend, which
   proxies with server-held credentials. Direct-from-device calls are limited to
   no-secret, user-authorized flows (e.g., OS-level intents).
-- **Persistence:** relational DB (PostgreSQL in production; the reference backend in this
-  repo ships an interface-based store with an in-memory/SQLite adapter for local dev, so the
-  same code targets Postgres later without an API change).
+- **Persistence:** relational DB (PostgreSQL in production, via `PostgresStore`; the
+  reference backend also ships an in-memory `Store` adapter for local dev/tests, selected
+  automatically when no `POSTGRES_URL`/`DATABASE_URL` is configured — same `Store` interface,
+  no caller changes). The in-memory adapter must never be used on a serverless host: its
+  state does not survive a cold start, which breaks refresh tokens.
 - **Long-running tasks:** modeled as jobs with status polling + webhook/push callback,
   since multi-step agent tasks (website audits, repo fixes) can exceed a single request's
   lifetime.
@@ -810,8 +812,8 @@ LOW-risk skills.
 | Architecture pattern | Clean Architecture + MVI-flavored ViewModels | Testability, unidirectional flow fits task/voice state machines |
 | DI | Hilt | Standard, compile-time safe, less boilerplate than manual Dagger |
 | Backend language | TypeScript/Node.js + Express | Fast iteration, strong AI/GitHub SDK ecosystem, available in this build env |
-| DB (prod target) | PostgreSQL | Relational integrity for billing/entitlements; interface-based store ships now, Postgres adapter is additive later |
-| DB (local/dev, this repo) | In-memory adapter behind a `Store` interface (Postgres adapter additive later, same interface) | No external DB dependency needed to run/test locally; zero-migration path to Postgres |
+| DB (prod target) | PostgreSQL, via `PostgresStore` | Relational integrity for billing/entitlements; required on any serverless host since state must outlive a single invocation |
+| DB (local/dev, this repo) | In-memory adapter behind a `Store` interface, used only when no `POSTGRES_URL`/`DATABASE_URL` is set | No external DB dependency needed to run/test locally; same interface as `PostgresStore`, no code changes to switch |
 | AI provider integration | Server-side only, provider-agnostic `AIProvider` interface | Never ship secrets in the APK; swappable providers |
 | Billing | Google Play Billing, server-verified | Android-native, authoritative server check per §19 |
 | Module boundaries | `domain` pure Kotlin, no Android deps | Enables fast JVM unit testing without an emulator |

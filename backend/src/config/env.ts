@@ -2,6 +2,9 @@
 export const env = {
   port: Number(process.env.PORT ?? 3000),
   jwtSecret: process.env.JWT_SECRET || "dev-only-insecure-secret-do-not-use-in-production",
+  /** Postgres connection string. Leave unset to use the in-memory store (local dev/tests only —
+   * see store/inMemoryStore.ts; it does not survive process restarts or serverless cold starts). */
+  databaseUrl: process.env.POSTGRES_URL || process.env.DATABASE_URL,
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
