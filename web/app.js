@@ -42,6 +42,9 @@
       mic: "Speak",
       thinking: "Thinking…",
       bootError: "Couldn't reach the ZARVIS backend. Is it running?",
+      wakeIntro:
+        "Hi, I'm Zarvis — your AI assistant. I can search the web, manage tasks, summarize documents, and more, by voice or typing. What would you like me to do?",
+      wakeAck: "Yes? I'm listening!",
     },
     hi: {
       hero: "आप क्या करवाना चाहते हैं?",
@@ -50,6 +53,9 @@
       mic: "बोलें",
       thinking: "सोच रहा हूँ…",
       bootError: "ZARVIS बैकएंड तक नहीं पहुँच पाया। क्या यह चल रहा है?",
+      wakeIntro:
+        "नमस्ते, मैं ज़ार्विस हूँ — आपका AI असिस्टेंट। मैं वेब सर्च करना, टास्क मैनेज करना, डॉक्यूमेंट्स समराइज़ करना जैसे कई काम कर सकता हूँ, आवाज़ से या टाइप करके। बताइए, क्या करवाना है?",
+      wakeAck: "जी बोलिए, मैं सुन रहा हूँ! 👋",
     },
   };
 
@@ -92,6 +98,11 @@
     // for a warmer, more "attractive" welcome-style reply once, without every later message
     // paying that same introductory tax.
     firstTurn: true,
+    // True once the wake-word-alone acknowledgment has introduced Zarvis this session — the
+    // first time someone says just "Zarvis"/"Hey Zarvis" with no command attached, it gives
+    // a real self-introduction rather than a bare "I'm listening", but repeating that same
+    // introduction on every later "Zarvis?" in the same session would get old fast.
+    introduced: false,
   };
 
   // Common mishearings of "Zarvis" from real speech recognizers (most STT models have
@@ -633,11 +644,15 @@
       return;
     }
     recognition = new SpeechRecognition();
-    recognition.continuous = false;
     recognition.interimResults = false;
 
     recognition.addEventListener("result", (event) => {
-      const transcript = event.results[0][0].transcript;
+      // In continuous mode (see startListening()) `event.results` accumulates every phrase
+      // recognized since this session started, not just the latest one — always reading
+      // index 0 here would keep re-processing the very first phrase forever. The last entry
+      // is always the newest, since interimResults is off and every entry is therefore final.
+      const results = event.results;
+      const transcript = results[results.length - 1][0].transcript;
       if (state.autoListen) {
         const command = extractCommandAfterWakeWord(transcript);
         if (command === undefined) return; // no wake word at all — ignore background speech
@@ -710,8 +725,21 @@
   function startListening() {
     if (!recognition) return;
     recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
+    // Ambient wake-word listening stays continuous, so the browser keeps one recognition
+    // session open for minutes at a time instead of ending after every short pause — with
+    // continuous=false (the old setting, used for both modes) each pause ended the session,
+    // the "end" handler restarted it ~300ms later, and every restart re-triggered the
+    // LISTENING pulse below, which is what actually looked like constant on/off flicker. A
+    // manual mic tap still stops after one phrase, matching a normal "say one thing" tap.
+    recognition.continuous = state.autoListen;
     el.micBtn.setAttribute("aria-pressed", "true");
-    setOrbState("LISTENING");
+    // Only pulse the orb for a manual tap. While armed for the wake word, Zarvis should
+    // look idle/off until it's actually spoken to — restarting this same recognition
+    // session every time it briefly pauses (see the "end" handler) would otherwise flip the
+    // orb to LISTENING and back on every restart, which is the on/off flicker being fixed
+    // here; the ring already visible on the orb (see .auto-listen in styles.css) is enough
+    // to show it's armed at all.
+    if (!state.autoListen) setOrbState("LISTENING");
     try {
       recognition.start();
     } catch {
@@ -746,12 +774,16 @@
     return undefined;
   }
 
-  /** A short, attractive acknowledgment when the user says just "Zarvis" with no command
-   * yet — mirrors how a real voice assistant confirms it heard the wake word, rather than
-   * silently doing nothing. Restarts listening itself once done speaking, same as a normal
-   * turn (see submitUtterance). */
+  /** An acknowledgment when the user says just "Zarvis"/"Hey Zarvis" with no command yet —
+   * mirrors how a real voice assistant confirms it heard the wake word, rather than
+   * silently doing nothing. The first time this happens in a session it gives a real
+   * self-introduction (what Zarvis is, what it can do); later ones get a short "listening"
+   * reply instead, so repeating the wake word doesn't replay the same intro every time.
+   * Restarts listening itself once done speaking, same as a normal turn (see
+   * submitUtterance). */
   async function acknowledgeWakeWord() {
-    const reply = state.lang === "hi" ? "जी बोलिए, मैं सुन रहा हूँ! 👋" : "Yes? I'm listening!";
+    const reply = state.introduced ? COPY[state.lang].wakeAck : COPY[state.lang].wakeIntro;
+    state.introduced = true;
     addBubble("assistant", reply);
     await speak(reply);
     if (state.autoListen) startListening();
