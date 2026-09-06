@@ -387,9 +387,13 @@ interface AIResponse {
 State machine (single source of truth, drives both UI and TTS/STT lifecycle):
 
 ```
-IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SPEAKING → IDLE
+IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SUCCESS → SPEAKING → IDLE
                                                      ↘ ERROR ↗
 ```
+
+`SUCCESS` is a brief (~450ms), purely visual "done" flash (emerald glow, §22) shown right
+after a turn completes and before the assistant speaks — client-side timing only, never
+persisted and never blocking.
 
 - **STT:** Android `SpeechRecognizer` (on-device where available) for MVP; abstracted
   behind a `SpeechToTextEngine` interface so a cloud STT provider can be swapped in later
@@ -663,23 +667,36 @@ modeled in the schema now so they need no migration later.
 
 ## 22. UI/UX System
 
-**Direction:** futuristic, premium, minimal, trustworthy, modern, voice-first. Not a
-generic chatbot UI.
+**Direction:** "Zarvis Cyber Luxury" — futuristic, premium, minimal, trustworthy, modern,
+voice-first. Not a generic chatbot UI. Deep-midnight dark base (`#030712`) with an electric
+cyan (`#00F0FF`) active/signal accent and an emerald glow reserved for success states;
+glassmorphism surfaces (tinted, hairline-bordered panels — Compose has no backdrop-blur
+render effect without a third-party library, so this is a dependency-free approximation of
+`backdrop-blur bg-white/[0.03] border-white/10`) layered over a subtle two-glow radial mesh
+background (`ZarvisBackground`).
 
 - **Design tokens** (`core-ui/theme`): color scales (dark-first, with a full light theme),
   an 8dp spacing scale, type scale (Latin + Devanagari-capable font pairing for
-  Hindi/English), elevation/motion tokens, and a consistent corner-radius system.
-- **Core components:** buttons (primary/secondary/ghost/destructive), cards, the AI Orb
-  (animated, state-driven per §11), input composer (text + mic toggle), chips (skill
-  categories), bottom sheets (confirmation, skill details), dialogs (risk confirmation),
-  loading states (skeletons, per-step progress), empty states, error states (with a clear
-  next action, never a dead end).
-- **Themes:** dark (default) and light, both meeting WCAG AA contrast; full accessibility
-  support (TalkBack labels, scalable type, min touch targets 48dp).
-- **Motion:** purposeful, state-communicating (orb pulses while LISTENING, morphs while
-  PLANNING/EXECUTING) — never decorative-only animation.
+  Hindi/English), elevation/motion tokens, glass surface tokens (`GlassColors`), status glow
+  tokens (`GlowColors`), and a consistent corner-radius system.
+- **Core components:** buttons (primary/secondary/ghost/destructive), cards (`ZarvisCard`,
+  `GlassSurface`), the AI Orb (animated, state-driven per §11, with an ambient glow halo that
+  brightens for EXECUTING/SUCCESS), input composer (text + mic toggle, glowing neon border on
+  focus), category chips (`ZarvisChip`, glass pill), the floating glass bottom nav
+  (`GlassBottomBar`), a status-pulse badge (`StatusPulseBadge`) for optimistic "Executing…"
+  feedback, bottom sheets (skill details), dialogs (risk confirmation), loading states
+  (skeletons, per-step progress), empty states, error states (with a clear next action, never
+  a dead end).
+- **Themes:** dark (default, the primary "Cyber Luxury" experience) and light, both meeting
+  WCAG AA contrast; full accessibility support (TalkBack labels, scalable type, min touch
+  targets 48dp).
+- **Motion:** purposeful, state-communicating (orb pulses while LISTENING, glows brighter and
+  faster while EXECUTING, flashes emerald on SUCCESS, morphs while PLANNING) — never
+  decorative-only animation. Every state transition is a plain Compose state read with no
+  debounce, so the UI reacts the same frame a turn is submitted — the perceived "instant"
+  feedback is this immediacy, not an animation trick.
 
-### Home Screen (concept)
+### Workspace Screen (concept, `home` route)
 ```
    ZARVIS MOBILE
    "आप क्या करवाना चाहते हैं?"
@@ -688,19 +705,42 @@ generic chatbot UI.
 
    [ 🎙 Speak ]   [ Type your task ]
 
-   Quick categories: Phone · Web · Work · Documents · Developer
+   Quick categories (2-row chip rail): Web · Documents · Developer · Business ·
+                                        Creative · Automation · Research
 
+   What can you do? → Capabilities
    Recent Tasks
-   Active Task (if any, with live progress)
-   Subscription Status
+   Subscription summary → Plans & Quotas
 ```
+
+### Capabilities Hub (`capabilities` route)
+Every skill from the live catalogue (`GET /api/v1/skills`), grouped by category, as a glass
+showcase card (name, description, risk badge) with a direct "Run Agent" button that jumps
+straight into Conversation with that skill pre-armed.
+
+### Plans & Quotas (`subscription` route)
+Free vs Pro feature comparison (glass cards, Pro with a neon cyan border), a purely-cosmetic
+Monthly/Yearly billing toggle, and the current entitlement snapshot. Never shows a fabricated
+price — Play Billing isn't wired up yet (§32), so real pricing is marked "coming soon" rather
+than invented.
+
+### System Metrics (`metrics` route)
+Real, on-device-measured latency for every orchestrator turn this session (`TurnMetricsStore`
+in `core-common`, timed client-side around the existing `handleTurn` call — no new endpoint),
+plus the current task log reusing `GET /api/v1/tasks`. Never a fabricated number.
 
 ## 23. Navigation
 
-Single-Activity, Navigation Compose, top-level graph:
+Single-Activity, Navigation Compose, top-level graph with a persistent floating glass bottom
+nav (`GlassBottomBar`) across the 4 top-level tabs:
 
-`Onboarding → Home ⇄ {Conversation, Tasks, Developer, Subscription, Settings}`,
-with Conversation reachable directly from Home's orb/composer, deep-linkable from
+`Onboarding → {Workspace, Capabilities, Plans & Quotas, System Metrics} ⇄ {Conversation,
+Tasks, Developer, Settings}`,
+
+where the bottom nav is shown only on the 4 top-level tab routes (`home`, `capabilities`,
+`subscription`, `metrics`) and hidden on full-screen/drill-down destinations (Onboarding,
+Conversation, Tasks, Developer, Settings). Conversation is reachable directly from
+Workspace's orb/composer or a Capabilities card's "Run Agent", deep-linkable from
 notifications (task completed, PR ready, trial ending).
 
 ## 24. Data Model (core entities)

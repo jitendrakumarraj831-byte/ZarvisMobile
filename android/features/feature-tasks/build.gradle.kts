@@ -31,6 +31,7 @@ kotlin {
 dependencies {
     implementation(project(":data:data-remote"))
     implementation(project(":core:core-ui"))
+    implementation(project(":core:core-common"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

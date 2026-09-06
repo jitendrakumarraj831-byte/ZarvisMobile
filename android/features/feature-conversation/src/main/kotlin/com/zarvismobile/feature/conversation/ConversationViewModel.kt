@@ -3,17 +3,22 @@ package com.zarvismobile.feature.conversation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.agents.AndroidOrchestrator
+import com.zarvismobile.core.common.metrics.TurnMetricsStore
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.data.repository.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlin.time.measureTimedValue
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+private const val SUCCESS_FLASH_MS = 450L
 
 data class ConversationTurn(val userText: String, val assistantText: String?)
 
@@ -25,9 +30,9 @@ data class ConversationUiState(
 )
 
 /**
- * Drives the IDLE -> LISTENING -> UNDERSTANDING -> PLANNING -> EXECUTING -> SPEAKING state
- * machine from MASTER_SPEC.md §11, for both voice and text input (text always stays
- * available, per the same section). Every state transition is visible to the user via
+ * Drives the IDLE -> LISTENING -> UNDERSTANDING -> PLANNING -> EXECUTING -> SUCCESS ->
+ * SPEAKING state machine from MASTER_SPEC.md §11, for both voice and text input (text always
+ * stays available, per the same section). Every state transition is visible to the user via
  * [ConversationUiState.voiceState] driving the AI Orb.
  */
 @HiltViewModel
@@ -91,15 +96,20 @@ class ConversationViewModel @Inject constructor(
                 val accountId = sessionRepository.requireAccountId()
                 _uiState.update { it.copy(voiceState = VoiceState.PLANNING) }
                 _uiState.update { it.copy(voiceState = VoiceState.EXECUTING) }
-                val outcome = orchestrator.handleTurn(utterance, accountId)
+                val timedOutcome = measureTimedValue { orchestrator.handleTurn(utterance, accountId) }
+                val outcome = timedOutcome.value
+                TurnMetricsStore.record(utterance, timedOutcome.duration.inWholeMilliseconds, success = true)
 
                 _uiState.update { state ->
-                    state.copy(turns = replaceLastAssistantReply(state.turns, utterance, outcome.message), voiceState = VoiceState.SPEAKING)
+                    state.copy(turns = replaceLastAssistantReply(state.turns, utterance, outcome.message), voiceState = VoiceState.SUCCESS)
                 }
+                delay(SUCCESS_FLASH_MS)
+                _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
                 ttsEngine.speak(outcome.message, locale = "en-IN")
                 _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
             } catch (t: Throwable) {
                 val message = "Something went wrong: ${t.message ?: "unknown error"}"
+                TurnMetricsStore.record(utterance, durationMs = 0L, success = false)
                 _uiState.update { state ->
                     state.copy(
                         turns = replaceLastAssistantReply(state.turns, utterance, message),

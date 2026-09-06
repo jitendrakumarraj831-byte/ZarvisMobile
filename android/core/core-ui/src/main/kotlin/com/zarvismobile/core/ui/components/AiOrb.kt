@@ -22,14 +22,18 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zarvismobile.core.ui.theme.GlowColors
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentIndigo
 import com.zarvismobile.core.ui.theme.ZarvisErrorDark
 
 /**
- * The primary voice-first affordance on the Home screen (MASTER_SPEC.md §14). Each
- * [VoiceState] renders a visually distinct animation so the user always knows what the
- * system is doing (§11) — this is a state-communication device, not decoration.
+ * The primary voice-first affordance on the Home/Workspace screen (MASTER_SPEC.md §14). Each
+ * [VoiceState] renders a visually distinct animation — including an ambient glow halo behind
+ * the core sweep — so the user always knows what the system is doing (§11); this is a
+ * state-communication device, not decoration. Every transition is a plain state read, so the
+ * orb reacts the instant [state] changes — there is no debounce or animation warm-up, which is
+ * what keeps voice/text interactions feeling sub-second (§22).
  */
 @Composable
 fun AiOrb(
@@ -50,6 +54,16 @@ fun AiOrb(
         label = "ai-orb-pulse",
     )
 
+    val glowPulse by transition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = glowDurationMs(state), easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "ai-orb-glow",
+    )
+
     val rotationDegrees by transition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -63,6 +77,7 @@ fun AiOrb(
     val description = contentDescriptionFor(state)
     val interactionSource = remember { MutableInteractionSource() }
     val scale = if (state == VoiceState.LISTENING || state == VoiceState.SPEAKING) pulse else 1f
+    val glowStrength = glowIntensity(state) * glowPulse
 
     Canvas(
         modifier = modifier
@@ -72,6 +87,18 @@ fun AiOrb(
     ) {
         val radius = (this.size.minDimension / 2f) * scale
         val center = Offset(this.size.width / 2f, this.size.height / 2f)
+
+        // Ambient glow halo — energetic, brighter for EXECUTING/SUCCESS so a running task
+        // reads as unmistakably "alive" at a glance (MASTER_SPEC.md §22 "glowing pulse effects").
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(colorStart.copy(alpha = glowStrength), Color.Transparent),
+                center = center,
+                radius = radius * 1.9f,
+            ),
+            radius = radius * 1.9f,
+            center = center,
+        )
 
         rotate(degrees = rotationDegrees, pivot = center) {
             drawCircle(
@@ -84,12 +111,21 @@ fun AiOrb(
 }
 
 private fun orbColors(state: VoiceState): Pair<Color, Color> = when (state) {
-    VoiceState.IDLE -> ZarvisAccentIndigo to ZarvisAccentIndigo.copy(alpha = 0.6f)
-    VoiceState.LISTENING -> ZarvisAccentCyan to ZarvisAccentIndigo
-    VoiceState.UNDERSTANDING, VoiceState.PLANNING -> ZarvisAccentIndigo to ZarvisAccentCyan
-    VoiceState.EXECUTING -> ZarvisAccentCyan to ZarvisAccentCyan.copy(alpha = 0.5f)
-    VoiceState.SPEAKING -> ZarvisAccentIndigo to ZarvisAccentCyan
+    VoiceState.IDLE -> ZarvisAccentCyan to ZarvisAccentIndigo.copy(alpha = 0.6f)
+    VoiceState.LISTENING -> GlowColors.active to ZarvisAccentIndigo
+    VoiceState.UNDERSTANDING, VoiceState.PLANNING -> ZarvisAccentIndigo to GlowColors.active
+    VoiceState.EXECUTING -> GlowColors.active to GlowColors.active.copy(alpha = 0.5f)
+    VoiceState.SUCCESS -> GlowColors.success to GlowColors.success.copy(alpha = 0.5f)
+    VoiceState.SPEAKING -> ZarvisAccentIndigo to GlowColors.active
     VoiceState.ERROR -> ZarvisErrorDark to ZarvisErrorDark.copy(alpha = 0.6f)
+}
+
+private fun glowIntensity(state: VoiceState): Float = when (state) {
+    VoiceState.EXECUTING -> 0.55f
+    VoiceState.SUCCESS -> 0.6f
+    VoiceState.LISTENING -> 0.45f
+    VoiceState.ERROR -> 0.4f
+    else -> 0.28f
 }
 
 private fun pulseDurationMs(state: VoiceState): Int = when (state) {
@@ -98,9 +134,17 @@ private fun pulseDurationMs(state: VoiceState): Int = when (state) {
     else -> 1200
 }
 
+private fun glowDurationMs(state: VoiceState): Int = when (state) {
+    VoiceState.EXECUTING -> 350
+    VoiceState.SUCCESS -> 300
+    VoiceState.LISTENING -> 500
+    else -> 900
+}
+
 private fun rotationDurationMs(state: VoiceState): Int = when (state) {
     VoiceState.PLANNING, VoiceState.UNDERSTANDING -> 1500
     VoiceState.EXECUTING -> 900
+    VoiceState.SUCCESS -> 2400
     else -> 6000
 }
 
@@ -110,6 +154,7 @@ private fun contentDescriptionFor(state: VoiceState): String = when (state) {
     VoiceState.UNDERSTANDING -> "Understanding your request"
     VoiceState.PLANNING -> "Planning"
     VoiceState.EXECUTING -> "Working on it"
+    VoiceState.SUCCESS -> "Done"
     VoiceState.SPEAKING -> "Speaking"
     VoiceState.ERROR -> "Something went wrong"
 }
