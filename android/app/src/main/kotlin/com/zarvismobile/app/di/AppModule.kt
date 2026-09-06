@@ -3,6 +3,7 @@ package com.zarvismobile.app.di
 import android.content.Context
 import androidx.room.Room
 import com.zarvismobile.agents.AndroidOrchestrator
+import com.zarvismobile.app.BuildConfig
 import com.zarvismobile.app.voice.AndroidSpeechToTextEngine
 import com.zarvismobile.app.voice.AndroidTextToSpeechEngine
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
@@ -53,7 +54,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideZarvisApi(secureStorage: SecureStorage): ZarvisApi = ApiClientFactory.create(secureStorage)
+    fun provideZarvisApi(secureStorage: SecureStorage): ZarvisApi =
+        ApiClientFactory.create(secureStorage, baseUrl = BuildConfig.API_BASE_URL)
 
     @Provides
     @Singleton

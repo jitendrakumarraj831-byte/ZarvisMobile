@@ -18,6 +18,13 @@ class SessionRepository(
     private val secureStorage: SecureStorage,
 ) {
     suspend fun ensureSession(): String {
+        // Returns the stored account id as-is without checking it still exists server-side —
+        // if it doesn't (e.g. the backend's user data was reset/migrated since this device
+        // last bootstrapped), the first real API call after this will 401 and
+        // TokenAuthenticator (data-remote module) transparently bootstraps a fresh guest
+        // session and updates this same storage, the same way web/app.js's apiFetch
+        // self-heals. Checking here too would just be a redundant network call this app
+        // makes on every single launch for a case that resolves itself reactively anyway.
         secureStorage.getString(TokenStorageKeys.ACCOUNT_ID)?.let { return it }
 
         val deviceId = UUID.randomUUID().toString()

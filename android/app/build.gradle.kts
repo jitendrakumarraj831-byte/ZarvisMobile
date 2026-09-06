@@ -20,6 +20,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -28,8 +29,18 @@ android {
     }
 
     buildTypes {
+        // API_BASE_URL previously had no way to be set at all — ApiClientFactory's default
+        // (10.0.2.2, the Android emulator's alias for the host machine's localhost) was the
+        // *only* value ever used, in every build type, so a release build on a real device
+        // could never reach the deployed backend. debug keeps the emulator-local default
+        // (matches DEVELOPMENT.md's `npm run dev` local workflow); release points at the
+        // production domain the web client already uses (MASTER_SPEC.md §12a).
+        debug {
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3000/\"")
+        }
         release {
             isMinifyEnabled = false
+            buildConfigField("String", "API_BASE_URL", "\"https://zarvismobile.com/\"")
         }
     }
 }

@@ -35,6 +35,15 @@ build/run them. This limitation is recorded in
 [MASTER_SPEC.md §32](./MASTER_SPEC.md#32-risks-and-limitations); closing it (CI with an
 Android SDK image, instrumented tests) is Phase 12 work.
 
+The app talks to the same backend the web client does (`data-remote`'s `ZarvisApi`,
+MASTER_SPEC.md §25), via a base URL set per build type in `app/build.gradle.kts`'s
+`buildConfigField("String", "API_BASE_URL", ...)`: `debug` defaults to `10.0.2.2` (the
+Android emulator's alias for your host machine, matching `cd backend && npm run dev`
+running locally), `release` defaults to `https://zarvismobile.com/`. Point either build type
+at a different backend by editing that field directly — there's no runtime override flag
+(unlike the web client's `?api=` query param) since this is a compiled app config, not a
+browser URL.
+
 ## Backend
 
 ```bash

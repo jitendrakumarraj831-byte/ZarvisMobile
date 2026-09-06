@@ -11,7 +11,11 @@ class AuthInterceptor(private val secureStorage: SecureStorage) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val token = secureStorage.getString(ACCESS_TOKEN_KEY)
         val request = if (token != null) {
-            chain.request().newBuilder().addHeader("Authorization", "Bearer $token").build()
+            // `.header(...)` (set/replace), not `.addHeader(...)` — a request retried by
+            // [TokenAuthenticator] after a refresh already carries its own fresh
+            // Authorization header before it reaches this interceptor again, and
+            // `addHeader` would append a second one instead of replacing it.
+            chain.request().newBuilder().header("Authorization", "Bearer $token").build()
         } else {
             chain.request()
         }

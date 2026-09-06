@@ -10,8 +10,10 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
 /**
  * Builds the [ZarvisApi] client. `baseUrl` points at the ZARVIS backend (never at an AI
- * provider or GitHub directly — see MASTER_SPEC.md §9 and ARCHITECTURE.md). Defaults to a
- * local dev backend; production builds should inject the real deployed URL via build config.
+ * provider or GitHub directly — see MASTER_SPEC.md §9 and ARCHITECTURE.md). Defaults to the
+ * emulator-local dev backend; `app`'s `di/AppModule` passes `BuildConfig.API_BASE_URL`
+ * instead, which resolves to the real deployed backend in a release build — see
+ * `app/build.gradle.kts`.
  */
 object ApiClientFactory {
     private val json = Json { ignoreUnknownKeys = true }
@@ -25,6 +27,7 @@ object ApiClientFactory {
         val client = OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(secureStorage))
             .addInterceptor(loggingInterceptor)
+            .authenticator(TokenAuthenticator(baseUrl, secureStorage))
             .build()
 
         val contentType = "application/json".toMediaType()

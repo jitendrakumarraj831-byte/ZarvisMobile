@@ -891,3 +891,24 @@ LOW-risk skills.
   not yet schedule an `AlarmManager` trigger or post a notification at the due time — see
   `RoomReminderScheduler`'s doc comment. This is the first concrete gap to close in Phase 4
   (§28).
+- **The Android app previously could never reach a deployed backend at all, and would have
+  broken permanently after one hour.** Two gaps closed together, bringing the Android app to
+  the same working level as the web client (§12a) against the same backend: (1)
+  `ApiClientFactory`'s base URL had no way to be set to anything but its emulator-local
+  default (`10.0.2.2`, the emulator's alias for the host machine) — every build type,
+  release included, would have tried to reach `localhost` on a real device. `app/
+  build.gradle.kts` now exposes `BuildConfig.API_BASE_URL` (debug → emulator-local,
+  release → `https://zarvismobile.com/`, the same domain the web client already targets),
+  wired through `di/AppModule`. (2) Nothing in the Android networking layer ever refreshed
+  an access token or recovered from a rejected refresh token — `AuthInterceptor` only
+  attached whatever was stored, and `SessionRepository.ensureSession()` only bootstraps once
+  per install, so this app would have hit exactly the "Unknown user" 401s fixed on the web
+  client (see the PostgresStore/self-heal fixes above), with no recovery path. `data-remote`
+  now has a `TokenAuthenticator` (an OkHttp `Authenticator`) that refreshes on a 401 and, if
+  the refresh token itself is rejected, bootstraps a fresh guest session — mirroring
+  `web/app.js`'s `apiFetch` self-heal. **Stated honestly:** these changes are written and
+  manually reviewed against the same patterns already used elsewhere in this codebase, not
+  compiler-verified — `data-remote` and `app` are Android library/application modules
+  (need the Android Gradle Plugin, confirmed unavailable in this environment above), unlike
+  `domain`'s pure-Kotlin build. Build in Android Studio to get a real compile signal before
+  relying on this.
