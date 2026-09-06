@@ -62,7 +62,10 @@
             ></div>
           </div>
           <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
-          <p class="hero-status" id="hero-status">IDLE</p>
+          <p class="hero-status" id="hero-status" data-state="IDLE">
+            <span class="hero-status-dot" aria-hidden="true"></span>
+            <span id="hero-status-label">IDLE</span>
+          </p>
         </section>
 
         <section class="conversation" id="conversation" aria-live="polite"></section>

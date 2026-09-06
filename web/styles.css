@@ -278,6 +278,13 @@ body {
   background: conic-gradient(from 180deg, var(--zarvis-warning), var(--zarvis-error), #ff9a6b, var(--zarvis-warning));
   box-shadow: 0 0 46px 4px #ff6b6b59, inset 0 0 24px #ffffff33;
 }
+/* A brief emerald "done" flash between EXECUTING and SPEAKING — MASTER_SPEC.md §22
+   "Success = Emerald Green Glow", the same signal the Android orb's SUCCESS state gives. */
+.orb[data-state="SUCCESS"] {
+  background: conic-gradient(from 180deg, var(--zarvis-success), #17c98f, var(--zarvis-success));
+  box-shadow: 0 0 56px 6px #22e6b08c, inset 0 0 24px #ffffff33;
+  animation: pulse 0.3s ease-in-out infinite;
+}
 
 @keyframes pulse {
   0%, 100% { transform: scale(1); }
@@ -299,10 +306,38 @@ body {
   margin: 0 0 6px;
   color: var(--zarvis-text-primary);
 }
+/* The optimistic "Executing…" (etc.) feedback pill — a pulsing dot + colored label that
+   changes the instant setOrbState() runs, i.e. the same frame a turn is submitted, well
+   before any network response — MASTER_SPEC.md §22 sub-second feedback rule. Mirrors the
+   Android app's StatusPulseBadge. */
 .hero-status {
-  margin: 0; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--zarvis-text-secondary);
   font-weight: 500;
+  transition: color 0.2s ease;
+}
+.hero-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px 1px currentColor;
+  opacity: 0.5;
+}
+.hero-status:not([data-state="IDLE"]) .hero-status-dot { animation: hero-status-pulse 0.6s ease-in-out infinite; }
+.hero-status[data-state="EXECUTING"] .hero-status-dot { animation-duration: 0.35s; }
+.hero-status[data-state="LISTENING"],
+.hero-status[data-state="UNDERSTANDING"],
+.hero-status[data-state="PLANNING"],
+.hero-status[data-state="EXECUTING"] { color: var(--zarvis-accent-cyan); }
+.hero-status[data-state="SUCCESS"] { color: var(--zarvis-success); }
+.hero-status[data-state="SPEAKING"] { color: var(--zarvis-accent-violet); }
+.hero-status[data-state="ERROR"] { color: var(--zarvis-error); }
+@keyframes hero-status-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.25); }
 }
 
 .conversation {
@@ -796,8 +831,10 @@ body {
   padding: 6px 6px;
   border-radius: 999px;
   background: var(--zarvis-surface-strong);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  /* Real backdrop blur — browsers can do this natively, unlike Compose, so the "Floating
+     Glass Navigation Bar" gets the literal glassmorphism effect here. */
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--zarvis-border-soft);
   box-shadow: 0 10px 34px -16px #000000cc;
   flex-shrink: 0;
@@ -872,6 +909,8 @@ body {
 }
 .capability-card {
   background: var(--zarvis-surface-elevated);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--zarvis-border-soft);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
@@ -881,12 +920,35 @@ body {
 }
 .capability-card-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  gap: 10px;
+}
+/* A category glyph in a tinted circle — the lightweight, honest stand-in for a per-skill
+   "visual mockup": with dozens of dynamically-added skills, a bespoke illustration per skill
+   would mean fabricating artwork for skills that don't exist yet, so this reuses the same
+   recognizable category iconography as the Workspace chip rail instead. */
+.capability-icon {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #00f0ff20;
+  color: var(--zarvis-accent-cyan);
+}
+.capability-card-heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 .capability-card-name {
   margin: 0;
+  min-width: 0;
+  flex: 1;
   font-family: var(--font-display);
   font-size: 14.5px;
   font-weight: 600;
@@ -949,6 +1011,8 @@ body {
 }
 .plan-card {
   background: var(--zarvis-surface-elevated);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--zarvis-border-soft);
   border-radius: var(--radius-lg);
   padding: 18px 20px;

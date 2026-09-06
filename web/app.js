@@ -75,6 +75,7 @@
     orbWrap: document.querySelector(".orb-wrap"),
     heroTitle: document.getElementById("hero-title"),
     heroStatus: document.getElementById("hero-status"),
+    heroStatusLabel: document.getElementById("hero-status-label"),
     conversation: document.getElementById("conversation"),
     categories: document.getElementById("categories"),
     input: document.getElementById("text-input"),
@@ -306,6 +307,29 @@
     return CATEGORY_LABELS[category] || category.charAt(0) + category.slice(1).toLowerCase();
   }
 
+  // Feather-style icon paths, one per category — see CategoryIconAvatar's Android
+  // equivalent (feature-home/CapabilitiesScreen.kt) for why this exists: a recognizable
+  // glyph standing in for a per-skill "visual mockup", not a bespoke illustration per skill.
+  const CATEGORY_ICON_PATHS = {
+    WEB: '<circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>',
+    DOCUMENTS:
+      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line>',
+    DEVELOPER: '<polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline>',
+    BUSINESS: '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>',
+    CREATIVE: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"></path>',
+    AUTOMATION:
+      '<polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>',
+    RESEARCH: '<circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>',
+    PHONE:
+      '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>',
+  };
+  const DEFAULT_CATEGORY_ICON_PATH = '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>';
+
+  function categoryIconSvg(category) {
+    const path = CATEGORY_ICON_PATHS[category.toUpperCase()] || DEFAULT_CATEGORY_ICON_PATH;
+    return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+  }
+
   // Grouped by category, one chip per category rather than one per skill — MASTER_SPEC.md
   // §22's own Home Screen concept shows "Quick categories: Phone · Web · Work · Documents ·
   // Developer", a short list of *categories*, not every individual skill flattened into its
@@ -389,15 +413,25 @@
 
     const top = document.createElement("div");
     top.className = "capability-card-top";
+
+    const icon = document.createElement("span");
+    icon.className = "capability-icon";
+    icon.innerHTML = categoryIconSvg(skill.category);
+    top.appendChild(icon);
+
+    const heading = document.createElement("div");
+    heading.className = "capability-card-heading";
     const name = document.createElement("h4");
     name.className = "capability-card-name";
     name.textContent = skill.name;
-    top.appendChild(name);
+    heading.appendChild(name);
     const risk = document.createElement("span");
     risk.className = "risk-badge";
     risk.dataset.level = skill.riskLevel;
     risk.textContent = skill.riskLevel;
-    top.appendChild(risk);
+    heading.appendChild(risk);
+    top.appendChild(heading);
+
     card.appendChild(top);
 
     const desc = document.createElement("p");
@@ -832,6 +866,10 @@
       }
       const result = await res.json();
       recordLatency(utterance, Math.round(performance.now() - startedAt), true);
+      // A brief emerald "done" flash before speaking — MASTER_SPEC.md §22 "Success = Emerald
+      // Green Glow", mirroring the Android orb's SUCCESS state exactly (same 450ms flash).
+      setOrbState("SUCCESS");
+      await delay(450);
       const node = renderAssistantResult(result);
       // Awaited so the orb actually stays SPEAKING for the duration of playback — without
       // this, the fire-and-forget call returns almost immediately (it only runs
@@ -965,9 +1003,14 @@
     if (row) row.remove();
   }
 
+  // Drives both the orb's animation and the hero-status pill's pulsing dot from the same
+  // state — the optimistic-UI "instant feedback" for a submitted turn (MASTER_SPEC.md §22
+  // sub-second rule): this runs synchronously the moment a turn starts, well before the
+  // network call resolves, so the pulse appears the same frame as the tap/Enter.
   function setOrbState(newState) {
     el.orb.dataset.state = newState;
-    el.heroStatus.textContent = newState;
+    el.heroStatus.dataset.state = newState;
+    el.heroStatusLabel.textContent = newState;
   }
 
   function delay(ms) {
