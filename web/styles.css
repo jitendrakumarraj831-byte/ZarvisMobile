@@ -1,20 +1,26 @@
-/* ZARVIS MOBILE web client — tokens mirror android/core/core-ui/theme/Color.kt so the
-   browser client and the Android app read as the same product (MASTER_SPEC.md §22:
-   "futuristic, premium, minimal, trustworthy"). */
+/* ZARVIS MOBILE web client — "Jarvis Cyber-Luxury" theme: deep midnight background, neon
+   cyan/electric-blue accents, glassmorphism. Tokens mirror the intent of
+   android/core/core-ui/theme/Color.kt so the browser client and the Android app read as the
+   same product (MASTER_SPEC.md §22: "futuristic, premium, minimal, trustworthy"). */
 :root {
-  --zarvis-space-black: #0a0b12;
-  --zarvis-surface: #14161f;
-  --zarvis-surface-elevated: #1b1e2ad9;
-  --zarvis-accent-indigo: #6c6bff;
-  --zarvis-accent-cyan: #4ee1d6;
-  --zarvis-accent-violet: #a06bff;
-  --zarvis-text-primary: #f4f5fa;
-  --zarvis-text-secondary: #9298ae;
+  --zarvis-space-black: #030712;
+  --zarvis-bg-soft: #090d16;
+  --zarvis-surface: #0d1220;
+  --zarvis-surface-elevated: #0d1220d9;
+  --zarvis-surface-strong: #10182bf0;
+  --zarvis-accent-cyan: #00f0ff;
+  --zarvis-accent-blue: #0a84ff;
+  --zarvis-accent-indigo: #0a84ff;
+  --zarvis-accent-violet: #6c6bff;
+  --zarvis-text-primary: #f5f7fb;
+  --zarvis-text-secondary: #8b93a8;
   --zarvis-border: #2a2e3daa;
-  --zarvis-border-soft: #ffffff14;
-  --zarvis-error: #ff6b6b;
+  --zarvis-border-soft: #ffffff17;
+  --zarvis-error: #ff5c72;
   --zarvis-warning: #ffc46b;
-  --zarvis-success: #5fe38b;
+  --zarvis-success: #22e6b0;
+  --glow-cyan: #00f0ffb0;
+  --glow-cyan-soft: #00f0ff40;
   --radius: 18px;
   --radius-lg: 26px;
   --font-display: "Space Grotesk", "Noto Sans Devanagari", system-ui, sans-serif;
@@ -51,9 +57,9 @@ body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(60% 40% at 18% -5%, #4b4ae04a, transparent 60%),
-    radial-gradient(50% 35% at 100% 10%, #1fd9c930, transparent 60%),
-    radial-gradient(70% 50% at 50% 120%, #6c6bff26, transparent 60%);
+    radial-gradient(60% 40% at 18% -5%, #0a84ff3d, transparent 60%),
+    radial-gradient(50% 35% at 100% 10%, #00f0ff2e, transparent 60%),
+    radial-gradient(70% 50% at 50% 120%, #0a84ff26, transparent 60%);
 }
 
 .app {
@@ -75,7 +81,7 @@ body {
   border-bottom: 1px solid var(--zarvis-border-soft);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  background: #0a0b1299;
+  background: #030712b8;
   flex-shrink: 0;
 }
 
@@ -94,8 +100,8 @@ body {
 }
 .brand-mark {
   width: 12px; height: 12px; border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, var(--zarvis-accent-cyan), var(--zarvis-accent-indigo));
-  box-shadow: 0 0 16px 2px #6c6bffaa;
+  background: radial-gradient(circle at 30% 30%, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  box-shadow: 0 0 16px 2px var(--glow-cyan);
   flex-shrink: 0;
 }
 
@@ -116,20 +122,33 @@ body {
   cursor: pointer;
   transition: border-color 0.2s ease, transform 0.15s ease, background 0.2s ease;
 }
-.chip-btn:hover { border-color: #6c6bff88; transform: translateY(-1px); }
+.chip-btn:hover { border-color: #00f0ff88; transform: translateY(-1px); }
 .chip-btn:active { transform: translateY(0); }
-.icon-btn { padding: 7px; width: 32px; height: 32px; justify-content: center; }
+.icon-btn { padding: 7px; width: 32px; height: 32px; justify-content: center; position: relative; }
 .chip-static { cursor: default; color: var(--zarvis-text-secondary); }
 .chip-static:hover { transform: none; border-color: var(--zarvis-border-soft); }
 .chip-btn[aria-pressed="false"] { opacity: 0.4; }
 
+/* Small unread/active indicator dot on an icon button (e.g. active-task count) — a corner
+   badge rather than a number, so it stays legible at 32px without needing to truncate. */
+.chip-badge {
+  position: absolute;
+  top: 3px; right: 3px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--zarvis-accent-cyan);
+  box-shadow: 0 0 6px 1px var(--glow-cyan-soft);
+  border: 1.5px solid var(--zarvis-space-black);
+}
+.chip-badge[hidden] { display: none; }
+
 .install-btn {
-  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-indigo));
-  color: #06070c;
+  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  color: #041016;
   border: none;
   font-weight: 600;
 }
-.install-btn:hover { box-shadow: 0 4px 16px -6px #4ee1d670; }
+.install-btn:hover { box-shadow: 0 4px 16px -6px #00f0ff70; }
 /* `.chip-btn`'s own `display` would otherwise beat the browser's default `[hidden]` rule
    (same specificity, and .chip-btn comes later in the cascade) — this wins on specificity
    instead of relying on source order, so the button reliably disappears again once
@@ -180,14 +199,14 @@ body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 1px solid #6c6bff33;
+  border: 1px solid #00f0ff33;
   animation: ring-pulse 3.5s ease-in-out infinite;
 }
 .orb {
   width: 84px; height: 84px;
   border-radius: 50%;
-  background: conic-gradient(from 180deg, var(--zarvis-accent-cyan), var(--zarvis-accent-indigo), var(--zarvis-accent-violet), var(--zarvis-accent-cyan));
-  box-shadow: 0 0 46px 4px #6c6bff59, inset 0 0 24px #ffffff33;
+  background: conic-gradient(from 180deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue), var(--zarvis-accent-violet), var(--zarvis-accent-cyan));
+  box-shadow: 0 0 46px 4px #00f0ff59, inset 0 0 24px #ffffff33;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
   position: relative;
   cursor: pointer;
@@ -209,7 +228,7 @@ body {
 }
 .orb[data-state="LISTENING"] { animation: pulse 1s ease-in-out infinite; }
 .orb[data-state="UNDERSTANDING"], .orb[data-state="PLANNING"] { animation: spin 2.4s linear infinite; }
-.orb[data-state="EXECUTING"] { animation: pulse 0.55s ease-in-out infinite; box-shadow: 0 0 56px 6px #4ee1d670, inset 0 0 24px #ffffff33; }
+.orb[data-state="EXECUTING"] { animation: pulse 0.55s ease-in-out infinite; box-shadow: 0 0 56px 6px #00f0ff8c, inset 0 0 24px #ffffff33; }
 .orb[data-state="SPEAKING"] { animation: pulse 0.85s ease-in-out infinite; }
 .orb[data-state="ERROR"] {
   background: conic-gradient(from 180deg, var(--zarvis-warning), var(--zarvis-error), #ff9a6b, var(--zarvis-warning));
@@ -265,7 +284,7 @@ body {
 }
 .bubble.user {
   align-self: flex-end;
-  background: linear-gradient(135deg, var(--zarvis-accent-indigo), #4b4ae0);
+  background: linear-gradient(135deg, var(--zarvis-accent-blue), #0850c4);
   color: #fff;
   border-bottom-right-radius: 6px;
 }
@@ -307,79 +326,351 @@ body {
 .category-chip:hover {
   color: var(--zarvis-text-primary);
   border-color: var(--zarvis-accent-cyan);
-  background: #4ee1d61a;
+  background: #00f0ff1a;
   transform: translateY(-1px);
 }
 .category-chip.locked::after { content: " 🔒"; }
 
+/* ---- AI Command Bar — the Jarvis core input, one seamless glass pill instead of three
+   separate bordered controls (mic/input/send used to each draw their own box). ---- */
 .composer {
+  padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+  background: linear-gradient(to top, var(--zarvis-space-black) 55%, transparent);
+}
+
+.command-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 20px 20px;
-  flex-shrink: 0;
-  background: linear-gradient(to top, #0a0b12 55%, transparent);
+  gap: 4px;
+  padding: 5px 5px 5px 18px;
+  border-radius: 999px;
+  background: var(--zarvis-surface-strong);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--zarvis-border-soft);
+  box-shadow: 0 10px 34px -16px #000000cc;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.command-bar:focus-within {
+  border-color: #00f0ff66;
+  box-shadow: 0 10px 34px -16px #000000cc, 0 0 26px 2px var(--glow-cyan-soft);
 }
 
 .mic-btn, .send-btn {
-  border: 1px solid var(--zarvis-border-soft);
-  background: var(--zarvis-surface-elevated);
+  border: none;
+  background: transparent;
   color: var(--zarvis-text-primary);
   border-radius: 999px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 .mic-btn {
-  width: 46px; height: 46px; flex-shrink: 0;
+  width: 40px; height: 40px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
 }
 .mic-btn[aria-pressed="true"] {
-  background: linear-gradient(135deg, var(--zarvis-accent-indigo), var(--zarvis-accent-violet));
-  border-color: transparent;
-  box-shadow: 0 0 18px 2px #6c6bff70;
-  color: #fff;
+  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  box-shadow: 0 0 16px 2px var(--glow-cyan-soft);
+  color: #041016;
 }
 .mic-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.mic-btn:hover:not(:disabled) { border-color: var(--zarvis-accent-cyan); transform: translateY(-1px); }
+.mic-btn:hover:not(:disabled) { color: var(--zarvis-accent-cyan); }
+.mic-btn[aria-pressed="true"]:hover:not(:disabled) { color: #041016; }
 
 .text-input {
   flex: 1;
-  background: var(--zarvis-surface-elevated);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--zarvis-border-soft);
+  background: transparent;
+  border: none;
   color: var(--zarvis-text-primary);
-  border-radius: 999px;
-  padding: 0 18px;
-  height: 46px;
+  padding: 0 4px;
+  height: 40px;
   font-size: 14.5px;
   font-family: var(--font-body);
 }
 .text-input::placeholder { color: var(--zarvis-text-secondary); }
-.text-input:focus {
-  outline: none;
-  border-color: var(--zarvis-accent-cyan);
-  box-shadow: 0 0 0 3px #4ee1d626;
-}
+.text-input:focus { outline: none; }
 
 .send-btn {
   display: flex; align-items: center; gap: 7px;
-  height: 46px;
-  padding: 0 20px;
+  height: 40px;
+  padding: 0 18px;
   font-size: 14px;
   font-weight: 600;
   font-family: var(--font-body);
   flex-shrink: 0;
-  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-indigo));
-  color: #06070c;
-  border: none;
+  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  color: #041016;
 }
-.send-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px -6px #4ee1d670; }
-.send-btn:active { transform: translateY(0); }
+.send-btn:hover { box-shadow: 0 0 20px 2px var(--glow-cyan-soft); }
+.send-btn:active { transform: scale(0.97); }
 
 @media (max-width: 420px) {
   .send-label { display: none; }
   .send-btn { padding: 0 16px; }
 }
+
+/* ---- Micro-interaction: a glowing pulse border for anything actively "live" (a running
+   workflow card, an armed connection) — subtler than the orb's own pulse, meant to read at
+   a glance without demanding attention the way the orb's animation does. ---- */
+@keyframes glow-pulse-border {
+  0%, 100% { box-shadow: 0 0 0 0 transparent, 0 0 16px 1px var(--glow-cyan-soft); }
+  50% { box-shadow: 0 0 0 3px #00f0ff14, 0 0 26px 4px var(--glow-cyan); }
+}
+.glow-active { animation: glow-pulse-border 2.4s ease-in-out infinite; }
+
+/* ---- Status & Tasks drawer — a bottom sheet that keeps the live-status/execution-log
+   surface out of the main conversation viewport (per the "minimalist, uncluttered" brief)
+   while staying one tap away via the topbar's tasks-toggle chip. ---- */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #030712a3;
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.drawer-overlay.open { opacity: 1; pointer-events: auto; }
+
+.drawer {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 21;
+  margin: 0 auto;
+  max-width: 720px;
+  max-height: min(78dvh, 640px);
+  display: flex;
+  flex-direction: column;
+  background: var(--zarvis-surface-strong);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--zarvis-border-soft);
+  border-bottom: none;
+  border-radius: 26px 26px 0 0;
+  box-shadow: 0 -12px 50px -18px #000000e0;
+  transform: translateY(100%);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.drawer.open { transform: translateY(0); }
+
+.drawer-handle {
+  width: 36px; height: 4px;
+  border-radius: 4px;
+  background: var(--zarvis-border-soft);
+  margin: 10px auto 2px;
+  flex-shrink: 0;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px 14px;
+  border-bottom: 1px solid var(--zarvis-border-soft);
+  flex-shrink: 0;
+}
+.drawer-header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.drawer-close {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--zarvis-border-soft);
+  background: var(--zarvis-surface-elevated);
+  color: var(--zarvis-text-secondary);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.drawer-close:hover { color: var(--zarvis-text-primary); border-color: #00f0ff55; }
+
+.drawer-body {
+  overflow-y: auto;
+  padding: 16px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.section-label {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--zarvis-text-secondary);
+}
+
+/* ---- Status dashboard: small glass stat tiles, no borders touching/overlapping — each a
+   self-contained unit rather than one dense bordered table. ---- */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.stat-tile {
+  background: var(--zarvis-surface-elevated);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0; /* let long values ellipsize instead of forcing the grid wider */
+}
+.stat-tile-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--zarvis-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.stat-tile-value {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Active task / workflow cards. ---- */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-empty {
+  padding: 22px 16px;
+  text-align: center;
+  color: var(--zarvis-text-secondary);
+  font-size: 13px;
+  background: var(--zarvis-surface-elevated);
+  border: 1px dashed var(--zarvis-border-soft);
+  border-radius: var(--radius);
+}
+.task-card {
+  background: var(--zarvis-surface-elevated);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  animation: rise 0.25s ease;
+}
+.task-card[data-status="RUNNING"] { border-color: #00f0ff40; }
+.task-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.task-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--zarvis-border-soft);
+  color: var(--zarvis-text-secondary);
+}
+.task-status-badge::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px 1px currentColor;
+}
+.task-status-badge[data-status="RUNNING"] { color: var(--zarvis-accent-cyan); border-color: #00f0ff40; }
+.task-status-badge[data-status="PENDING"] { color: var(--zarvis-warning); border-color: #ffc46b40; }
+.task-status-badge[data-status="PAUSED"] { color: var(--zarvis-warning); border-color: #ffc46b40; }
+.task-status-badge[data-status="DONE"] { color: var(--zarvis-success); border-color: #22e6b040; }
+.task-status-badge[data-status="FAILED"] { color: var(--zarvis-error); border-color: #ff5c7240; }
+.task-status-badge[data-status="CANCELLED"] { color: var(--zarvis-text-secondary); }
+
+.task-time { font-size: 11px; color: var(--zarvis-text-secondary); flex-shrink: 0; }
+
+.task-goal {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--zarvis-text-primary);
+}
+
+.task-progress {
+  height: 4px;
+  border-radius: 4px;
+  background: #ffffff14;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.task-progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  transition: width 0.4s ease;
+}
+
+.task-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: #ffffff08;
+  border-radius: 12px;
+}
+.task-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--zarvis-text-secondary);
+}
+.task-step-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--zarvis-text-secondary); flex-shrink: 0; }
+.task-step[data-status="DONE"] .task-step-dot { background: var(--zarvis-success); }
+.task-step[data-status="RUNNING"] .task-step-dot { background: var(--zarvis-accent-cyan); box-shadow: 0 0 5px 1px var(--glow-cyan-soft); }
+.task-step[data-status="FAILED"] .task-step-dot { background: var(--zarvis-error); }
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.task-action-btn {
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--zarvis-border-soft);
+  background: transparent;
+  color: var(--zarvis-text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.task-action-btn:hover { border-color: #00f0ff55; color: var(--zarvis-accent-cyan); }
+.task-action-btn.primary {
+  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  border-color: transparent;
+  color: #041016;
+  font-weight: 600;
+}
+.task-action-btn.primary:hover { box-shadow: 0 0 16px 1px var(--glow-cyan-soft); color: #041016; }
+.task-action-btn.danger:hover { border-color: #ff5c7255; color: var(--zarvis-error); }
 
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: #ffffff1f; border-radius: 8px; }

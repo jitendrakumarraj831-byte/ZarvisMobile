@@ -69,11 +69,19 @@
     voiceSelect: document.getElementById("voice-select"),
     providerBadge: document.getElementById("provider-badge"),
     installBtn: document.getElementById("install-btn"),
+    tasksToggle: document.getElementById("tasks-toggle"),
+    tasksBadge: document.getElementById("tasks-badge"),
+    drawerOverlay: document.getElementById("drawer-overlay"),
+    drawer: document.getElementById("tasks-drawer"),
+    drawerClose: document.getElementById("drawer-close"),
+    statusGrid: document.getElementById("status-grid"),
+    taskList: document.getElementById("task-list"),
   };
 
   const state = {
     lang: localStorage.getItem(STORAGE_KEYS.lang) || "hi",
     speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
+    drawerOpen: false,
     // Hands-free "wake word" mode arms itself automatically on load (see init()) but this
     // flag is intentionally session-only (never persisted to localStorage) — the mute/armed
     // choice always resets fresh on the next reload rather than remembering a muted state
@@ -100,6 +108,7 @@
   // throwing "Cannot access '...' before initialization".
   let recognition = null;
   let cachedVoices = [];
+  let taskPollTimer = null;
 
   init().catch((err) => {
     console.error(err);
@@ -113,6 +122,7 @@
     el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
     setupSpeechRecognition();
     setupInstallPrompt();
+    setupDrawer();
 
     el.sendBtn.addEventListener("click", () => submitUtterance(el.input.value));
     el.input.addEventListener("keydown", (e) => {
@@ -130,7 +140,7 @@
     });
 
     await ensureSession();
-    await Promise.all([loadHealth(), loadSkills()]);
+    await Promise.all([loadHealth(), loadSkills(), fetchTasks()]);
     setOrbState("IDLE");
 
     // Hands-free mode arms itself automatically on load — no tap needed, per explicit
@@ -252,6 +262,225 @@
   function exampleFor(description) {
     const match = description.match(/"([^"]+)"/);
     return match ? match[1] : description;
+  }
+
+  // ---- Status & Tasks drawer -------------------------------------------------------------
+  // Keeps live status/execution-log detail out of the main conversation viewport (per the
+  // "minimalist, uncluttered" UI brief) behind a single topbar toggle instead. Backed by
+  // GET /api/v1/entitlements/me and GET/POST /api/v1/tasks — both already existed on the
+  // backend but were never surfaced by this client.
+
+  function setupDrawer() {
+    el.tasksToggle.addEventListener("click", openDrawer);
+    el.drawerClose.addEventListener("click", closeDrawer);
+    el.drawerOverlay.addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && state.drawerOpen) closeDrawer();
+    });
+  }
+
+  function openDrawer() {
+    state.drawerOpen = true;
+    el.drawerOverlay.hidden = false;
+    el.drawer.setAttribute("aria-hidden", "false");
+    // Applied on the next frame, not immediately — [hidden] must actually clear and the
+    // browser must paint that first, or the transform/opacity transition below has nothing
+    // to animate from and the drawer just snaps open instead of sliding.
+    requestAnimationFrame(() => {
+      el.drawerOverlay.classList.add("open");
+      el.drawer.classList.add("open");
+    });
+    refreshStatus();
+    refreshTasks();
+    taskPollTimer = setInterval(() => {
+      refreshStatus();
+      refreshTasks();
+    }, 6000);
+  }
+
+  function closeDrawer() {
+    state.drawerOpen = false;
+    el.drawerOverlay.classList.remove("open");
+    el.drawer.classList.remove("open");
+    el.drawer.setAttribute("aria-hidden", "true");
+    if (taskPollTimer) {
+      clearInterval(taskPollTimer);
+      taskPollTimer = null;
+    }
+    setTimeout(() => {
+      if (!state.drawerOpen) el.drawerOverlay.hidden = true;
+    }, 300); // matches the drawer's CSS transition duration
+    fetchTasks(); // pick up the closed-state topbar badge in case anything changed
+  }
+
+  async function refreshStatus() {
+    el.statusGrid.innerHTML = "";
+    const tiles = [];
+
+    try {
+      const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
+      const body = await res.json();
+      tiles.push({ label: "AI Provider", value: body.provider === "google" ? "Gemini (live)" : "Mock" });
+      tiles.push({ label: "Backend", value: "Online" });
+    } catch {
+      tiles.push({ label: "Backend", value: "Offline" });
+    }
+
+    try {
+      const res = await apiFetch("/entitlements/me");
+      if (res.ok) {
+        const snapshot = await res.json();
+        tiles.push({ label: "Plan", value: snapshot.plan });
+        tiles.push({ label: "Credits", value: String(snapshot.creditBalance) });
+        if (snapshot.trialExpiresAt) {
+          tiles.push({ label: "Trial ends", value: new Date(snapshot.trialExpiresAt).toLocaleDateString() });
+        }
+      }
+    } catch {
+      // Entitlements are a nice-to-have here — the "Backend" tile above already covers
+      // whether the backend itself is reachable.
+    }
+
+    for (const tile of tiles) el.statusGrid.appendChild(renderStatTile(tile));
+  }
+
+  function renderStatTile({ label, value }) {
+    const tile = document.createElement("div");
+    tile.className = "stat-tile";
+    const labelEl = document.createElement("span");
+    labelEl.className = "stat-tile-label";
+    labelEl.textContent = label;
+    const valueEl = document.createElement("span");
+    valueEl.className = "stat-tile-value";
+    valueEl.textContent = value;
+    tile.append(labelEl, valueEl);
+    return tile;
+  }
+
+  async function fetchTasks() {
+    const res = await apiFetch("/tasks");
+    if (!res.ok) return [];
+    const { tasks } = await res.json();
+    const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
+    el.tasksBadge.hidden = activeCount === 0;
+    return tasks;
+  }
+
+  async function refreshTasks() {
+    el.taskList.innerHTML = "";
+    const tasks = await fetchTasks();
+    if (tasks.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "task-empty";
+      empty.textContent = "No active workflows yet — multi-step tasks Zarvis runs will appear here.";
+      el.taskList.appendChild(empty);
+      return;
+    }
+    for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
+  }
+
+  // User-triggerable transitions per status — mirrors backend/src/tasks/taskService.ts's
+  // VALID_TRANSITIONS, minus the automatic RUNNING->DONE/FAILED transitions no button here
+  // should ever trigger directly.
+  const TASK_ACTIONS = {
+    PENDING: [{ action: "cancel", label: "Cancel", cls: "danger" }],
+    RUNNING: [
+      { action: "pause", label: "Pause", cls: "" },
+      { action: "cancel", label: "Cancel", cls: "danger" },
+    ],
+    PAUSED: [
+      { action: "resume", label: "Resume", cls: "primary" },
+      { action: "cancel", label: "Cancel", cls: "danger" },
+    ],
+    FAILED: [{ action: "retry", label: "Retry", cls: "primary" }],
+    DONE: [],
+    CANCELLED: [],
+  };
+
+  function renderTaskCard(task) {
+    const card = document.createElement("div");
+    card.className = "task-card";
+    card.dataset.status = task.status;
+    if (task.status === "RUNNING") card.classList.add("glow-active");
+
+    const top = document.createElement("div");
+    top.className = "task-card-top";
+    const badge = document.createElement("span");
+    badge.className = "task-status-badge";
+    badge.dataset.status = task.status;
+    badge.textContent = task.status;
+    const time = document.createElement("span");
+    time.className = "task-time";
+    time.textContent = formatRelativeTime(task.createdAt);
+    top.append(badge, time);
+    card.appendChild(top);
+
+    const goal = document.createElement("p");
+    goal.className = "task-goal";
+    goal.textContent = task.goal;
+    card.appendChild(goal);
+
+    if (task.steps && task.steps.length > 0) {
+      const doneCount = task.steps.filter((s) => s.status === "DONE").length;
+      const progress = document.createElement("div");
+      progress.className = "task-progress";
+      const bar = document.createElement("div");
+      bar.className = "task-progress-bar";
+      bar.style.width = `${Math.round((doneCount / task.steps.length) * 100)}%`;
+      progress.appendChild(bar);
+      card.appendChild(progress);
+
+      const stepsWrap = document.createElement("div");
+      stepsWrap.className = "task-steps";
+      for (const step of task.steps) {
+        const row = document.createElement("div");
+        row.className = "task-step";
+        row.dataset.status = step.status;
+        const dot = document.createElement("span");
+        dot.className = "task-step-dot";
+        const label = document.createElement("span");
+        label.textContent = step.description;
+        row.append(dot, label);
+        stepsWrap.appendChild(row);
+      }
+      card.appendChild(stepsWrap);
+    }
+
+    const actions = TASK_ACTIONS[task.status] || [];
+    if (actions.length > 0) {
+      const actionsWrap = document.createElement("div");
+      actionsWrap.className = "task-actions";
+      for (const { action, label, cls } of actions) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = cls ? `task-action-btn ${cls}` : "task-action-btn";
+        btn.textContent = label;
+        btn.addEventListener("click", () => performTaskAction(task.id, action));
+        actionsWrap.appendChild(btn);
+      }
+      card.appendChild(actionsWrap);
+    }
+
+    return card;
+  }
+
+  async function performTaskAction(taskId, action) {
+    const res = await apiFetch(`/tasks/${taskId}/${action}`, { method: "POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error(`Task ${action} failed:`, body.error || res.status);
+      return;
+    }
+    refreshTasks();
+  }
+
+  function formatRelativeTime(dateInput) {
+    const diffMin = Math.round((Date.now() - new Date(dateInput).getTime()) / 60000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.round(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return new Date(dateInput).toLocaleDateString();
   }
 
   // ---- Conversation turn -----------------------------------------------------------------
