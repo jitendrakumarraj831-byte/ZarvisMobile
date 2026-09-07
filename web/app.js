@@ -831,13 +831,22 @@
 
   async function submitUtterance(rawText) {
     const utterance = rawText.trim();
-    if (!utterance) return;
+    // isBusy() blocks a second turn from starting on top of one already in flight — reachable
+    // from three independent triggers (Send/Enter, a manual mic result, and a hands-free
+    // wake-word result), none of which used to check whether a turn was already running.
+    if (!utterance || isBusy()) return;
     el.input.value = "";
     addBubble("user", utterance);
 
     setOrbState("UNDERSTANDING");
-    await delay(250);
-    setOrbState("EXECUTING");
+    // Pause the mic for the rest of this turn. In hands-free mode `recognition` runs
+    // continuous:true and was never actually stopped here before — it stayed open straight
+    // through EXECUTING and SPEAKING, so it could pick up Zarvis's own spoken reply (or
+    // ambient noise) as a new command mid-turn. Marking the orb busy first (above) means the
+    // "end" event this triggers sees isBusy() and skips its own restart timer; we resume for
+    // real in `finally` below, on every exit path, so a failed turn can never leave hands-free
+    // mode stuck silently off (the old code only resumed after a *successful* turn).
+    if (state.autoListen) stopListening();
 
     const isFirstTurn = state.firstTurn;
     state.firstTurn = false; // set before the request, not after — a failed first turn
@@ -848,6 +857,8 @@
     // performance.now() wrapped around the exact fetch already being made for this turn.
     const startedAt = performance.now();
     try {
+      await delay(250);
+      setOrbState("EXECUTING");
       const res = await apiFetch("/orchestrator/turn", {
         method: "POST",
         body: JSON.stringify({
@@ -879,15 +890,15 @@
       // state to know when ZARVIS has actually finished talking before re-arming the mic —
       // starting to listen while still speaking would pick up its own voice.
       await speak(result.message, node);
+      setOrbState("IDLE");
     } catch (err) {
       console.error(err);
       addBubble("system", COPY[state.lang].bootError);
       setOrbState("ERROR");
       recordLatency(utterance, Math.round(performance.now() - startedAt), false);
-      return;
+    } finally {
+      if (state.autoListen) startListening();
     }
-    setOrbState("IDLE");
-    if (state.autoListen) startListening();
   }
 
   function addBubble(role, text) {
@@ -1013,6 +1024,14 @@
     el.heroStatusLabel.textContent = newState;
   }
 
+  // A turn is "in flight" for every state between UNDERSTANDING and the SPEAKING reply —
+  // shared by submitUtterance()'s own re-entrancy guard and the recognition "end" handler's
+  // restart guard, so the two can never disagree about whether it's safe to touch the mic.
+  const BUSY_STATES = ["UNDERSTANDING", "EXECUTING", "SUCCESS", "SPEAKING"];
+  function isBusy() {
+    return BUSY_STATES.includes(el.orb.dataset.state);
+  }
+
   function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -1087,6 +1106,9 @@
       // recognized since this session started, not just the latest one — always reading
       // index 0 here would keep re-processing the very first phrase forever. The last entry
       // is always the newest, since interimResults is off and every entry is therefore final.
+      if (isBusy()) return; // a turn is already running — the mic should be paused for it
+      // anyway (see submitUtterance), but this is the same guard belt-and-braces in case a
+      // stray result slips in during the gap before stopListening() actually takes effect.
       const results = event.results;
       const transcript = results[results.length - 1][0].transcript;
       if (state.autoListen) {
@@ -1104,11 +1126,12 @@
 
     recognition.addEventListener("end", () => {
       if (state.autoListen) {
-        // A turn already in flight restarts listening itself once it's actually done
-        // speaking (see submitUtterance/speak) — restarting here too would race it and
-        // risk the mic picking up ZARVIS's own reply.
-        const busy = ["UNDERSTANDING", "EXECUTING", "SPEAKING"].includes(el.orb.dataset.state);
-        if (!busy) setTimeout(startListening, 300);
+        // A turn already in flight (including the brief SUCCESS flash) restarts listening
+        // itself once it's actually done — via submitUtterance's `finally` or
+        // acknowledgeWakeWord — so restarting here too would race it and risk the mic
+        // picking up ZARVIS's own reply. isBusy() is the same check submitUtterance() itself
+        // uses, so the two can never disagree about whether a turn is running.
+        if (!isBusy()) setTimeout(startListening, 300);
         return;
       }
       el.micBtn.setAttribute("aria-pressed", "false");
@@ -1225,9 +1248,17 @@
   async function acknowledgeWakeWord() {
     const reply = state.introduced ? COPY[state.lang].wakeAck : COPY[state.lang].wakeIntro;
     state.introduced = true;
+    // Same pause-before-speaking pattern as submitUtterance: mark the orb busy first so the
+    // "end" event stopListening() triggers doesn't race its own restart, then actually pause
+    // the still-open continuous session so it can't pick this reply's own audio back up.
+    setOrbState("UNDERSTANDING");
+    if (state.autoListen) stopListening();
     addBubble("assistant", reply);
-    await speak(reply);
-    if (state.autoListen) startListening();
+    try {
+      await speak(reply);
+    } finally {
+      if (state.autoListen) startListening();
+    }
   }
 
   // The browser's voice list loads asynchronously (often empty until `voiceschanged`
