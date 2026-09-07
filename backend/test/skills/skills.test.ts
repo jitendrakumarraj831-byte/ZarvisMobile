@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createDocsSummarizeSkill, NaiveSummarizer } from "../../src/skills/docsSummarize.js";
+import { AIContentSummarizer, createDocsSummarizeSkill, NaiveSummarizer } from "../../src/skills/docsSummarize.js";
 import { createWebSearchSkill, MockSearchProvider } from "../../src/skills/webSearch.js";
 import { createDeveloperAnalyzeRepoSkill } from "../../src/skills/developerAnalyzeRepo.js";
 import { MockGitHubClient } from "../../src/github/githubClient.js";
+import { MockContentGenerator } from "../../src/ai/contentGenerator.js";
 
 const context = { accountId: "acc-1" };
 
@@ -34,6 +35,17 @@ describe("docs.summarize skill", () => {
   it("summarizes provided text", async () => {
     const result = await skill.handler({ values: { text: "This is a report. It has details." } }, context);
     expect(result.kind).toBe("success");
+  });
+});
+
+describe("docs.summarize skill with a live content generator", () => {
+  it("passes the source text straight through to the generator and returns its reply", async () => {
+    const skill = createDocsSummarizeSkill(new AIContentSummarizer(new MockContentGenerator("document summary")));
+    const result = await skill.handler({ values: { text: "Quarterly revenue rose 12% to ₹4.2 crore." } }, context);
+    expect(result.kind).toBe("success");
+    if (result.kind === "success") {
+      expect(result.summary).toContain("Quarterly revenue rose 12%");
+    }
   });
 });
 

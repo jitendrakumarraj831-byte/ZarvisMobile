@@ -15,7 +15,7 @@ import { CREATIVE_BRAINSTORM_SYSTEM_PROMPT, createCreativeBrainstormSkill } from
 import { CREATIVE_WRITE_MESSAGE_SYSTEM_PROMPT, createCreativeWriteMessageSkill } from "./creativeWriteMessage.js";
 import { CREATIVE_WRITE_POEM_SYSTEM_PROMPT, createCreativeWritePoemSkill } from "./creativeWritePoem.js";
 import { createDeveloperAnalyzeRepoSkill } from "./developerAnalyzeRepo.js";
-import { createDocsSummarizeSkill, NaiveSummarizer } from "./docsSummarize.js";
+import { AIContentSummarizer, createDocsSummarizeSkill, DOCS_SUMMARIZE_SYSTEM_PROMPT } from "./docsSummarize.js";
 import { RESEARCH_COMPARE_SYSTEM_PROMPT, createResearchCompareSkill } from "./researchCompare.js";
 import { RESEARCH_OUTLINE_SYSTEM_PROMPT, createResearchOutlineSkill } from "./researchOutline.js";
 import { RESEARCH_REPORT_SYSTEM_PROMPT, createResearchReportSkill } from "./researchReport.js";
@@ -44,7 +44,9 @@ export function buildSkillRegistry(store: Store): SkillRegistry {
   const taskService = new TaskService(store);
 
   registry.register(createWebSearchSkill(new MockSearchProvider()));
-  registry.register(createDocsSummarizeSkill(new NaiveSummarizer()));
+  registry.register(
+    createDocsSummarizeSkill(new AIContentSummarizer(contentGenerator("document summary", DOCS_SUMMARIZE_SYSTEM_PROMPT))),
+  );
   registry.register(createDeveloperAnalyzeRepoSkill(new MockGitHubClient()));
   registry.register(
     createBusinessSocialPostSkill(contentGenerator("social media post", BUSINESS_SOCIAL_POST_SYSTEM_PROMPT)),
