@@ -1,32 +1,34 @@
 # ARCHITECTURE
 
-Deep-dive companion to [MASTER_SPEC.md](./MASTER_SPEC.md) §5–§9, §22–§25. This document
-explains *how the pieces connect*; MASTER_SPEC.md remains the authority on *what is decided*.
+Deep-dive companion to [MASTER_SPEC.md](./MASTER_SPEC.md) §5–§9, §12a, §22–§25. This
+document explains *how the pieces connect*; MASTER_SPEC.md remains the authority on *what
+is decided*.
 
 ## System overview
 
 ```
-┌───────────────────────────── Android App ─────────────────────────────┐
-│  features/*  (Compose UI, ViewModels)                                 │
-│      │ StateFlow<UiState> / Intent                                    │
-│  agents/  (Orchestrator + per-category Agents)                        │
-│      │ uses                                                            │
-│  domain/  (pure Kotlin: entities, Skill/Tool contracts, ToolPipeline,  │
-│            RiskEngine, EntitlementResolver, planning logic — ports:    │
-│            PermissionPort, EntitlementPort, UsagePort, ConfirmationPort)│
-│      │ implemented by                                                  │
-│  core/core-security, core/core-tooling  (Android bindings for ports)   │
-│  data/data-remote  (Retrofit client)  ──────────────┐                  │
-└──────────────────────────────────────────────────────┼──────────────────┘
-                                                         │ HTTPS, versioned API
-┌────────────────────────────── Backend ─────────────────┼──────────────────┐
-│  api/  (Express routes)                                │                  │
-│      │                                                  ◄──────────────────┘
-│  agents/ (server-side Orchestrator + Web/Document/Developer agents)     │
-│  skills/ (server-executed skills)                                       │
-│  ai/     (AIProvider abstraction + adapters)                            │
-│  billing/, usage/, auth/, github/, security/, db/                       │
-└───────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────── Android App ─────────────────────────────┐   ┌─────────────────────────┐
+│  features/*  (Compose UI, ViewModels)                                 │   │  Browser Web Client     │
+│      │ StateFlow<UiState> / Intent                                    │   │  (web/, plain HTML/CSS/ │
+│  agents/  (Orchestrator + per-category Agents)                        │   │  JS, no build step —    │
+│      │ uses                                                            │   │  MASTER_SPEC.md §12a)   │
+│  domain/  (pure Kotlin: entities, Skill/Tool contracts, ToolPipeline,  │   └────────────┬────────────┘
+│            RiskEngine, EntitlementResolver, planning logic — ports:    │                │
+│            PermissionPort, EntitlementPort, UsagePort, ConfirmationPort)│                │
+│      │ implemented by                                                  │                │
+│  core/core-security, core/core-tooling  (Android bindings for ports)   │                │
+│  data/data-remote  (Retrofit client)  ──────────────┐                  │                │
+└──────────────────────────────────────────────────────┼──────────────────┘                │
+                                                         │ HTTPS, versioned API              │ HTTPS, same-origin
+                                                         ▼                                    ▼ (served by the backend itself)
+                                        ┌──────────────────────────── Backend ─────────────────────────────┐
+                                        │  api/  (Express routes)                                          │
+                                        │  agents/ (server-side Orchestrator + Web/Document/Developer agents) │
+                                        │  skills/ (server-executed skills)                                 │
+                                        │  ai/     (AIProvider abstraction: MockAIProvider + GeminiProvider) │
+                                        │  billing/, usage/, auth/, github/, security/, db/                 │
+                                        │  serves web/ as static assets at zarvismobile.com (server.ts)     │
+                                        └────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Why a pure-Kotlin `domain` module

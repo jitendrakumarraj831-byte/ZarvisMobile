@@ -31,9 +31,10 @@ export interface UsageEntry {
 }
 
 /**
- * Storage boundary. This repository ships only an in-memory implementation
- * (see MASTER_SPEC.md §31 and DEVELOPMENT.md); a Postgres adapter is additive later
- * against this same interface, requiring no change to any caller.
+ * Storage boundary. Two implementations ship against this interface: InMemoryStore
+ * (local dev/tests only — its state does not survive a process restart or serverless cold
+ * start) and PostgresStore (used automatically once POSTGRES_URL/DATABASE_URL is set — see
+ * container.ts). See MASTER_SPEC.md §31 and DEVELOPMENT.md.
  */
 export interface Store {
   createUser(email: string, passwordHash: string): Promise<User>;

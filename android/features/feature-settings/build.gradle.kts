@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.feature.settings"
+    namespace = "com.zarvismobile.feature.settings"
     compileSdk = 34
 
     defaultConfig {

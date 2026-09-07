@@ -1,8 +1,12 @@
-# JARVIS MOBILE — MASTER SPECIFICATION
+# ZARVIS MOBILE — MASTER SPECIFICATION
 
 **Status:** Living document — source of truth for product and technical decisions.
-**Version:** 0.1.0 (Phase 0 — Foundation)
-**Last updated:** 2026-08-26
+**Version:** 0.2.0 (Phase 0–3 — Foundation + Web Client + first live AI provider)
+**Last updated:** 2026-09-06
+**Production domain:** [zarvismobile.com](https://zarvismobile.com) — the registered domain
+for this product; the backend's `PUBLIC_APP_URL`/`CORS_ORIGINS` default to it (see
+`backend/.env.example`) and both the browser web client (§12a) and, once published, the
+Android app's backend base URL target it.
 
 > Every major implementation decision must be consistent with this document. If a better
 > technical approach is discovered later, this file is updated **first**, then the codebase
@@ -24,6 +28,7 @@
 10. [AI Architecture](#10-ai-architecture)
 11. [Voice Architecture](#11-voice-architecture)
 12. [Web Agent Architecture](#12-web-agent-architecture)
+    - [12a. Web Client Architecture](#12a-web-client-architecture)
 13. [Developer Agent Architecture](#13-developer-agent-architecture)
 14. [GitHub Architecture](#14-github-architecture)
 15. [Security Architecture](#15-security-architecture)
@@ -49,7 +54,7 @@
 
 ## 1. Product Vision
 
-JARVIS MOBILE is a **Universal AI Digital Agent** for Android. It is not a chatbot, not a
+ZARVIS MOBILE is a **Universal AI Digital Agent** for Android. It is not a chatbot, not a
 voice assistant shell, not a phone-automation macro tool, and not a coding assistant alone.
 
 Core promise:
@@ -114,7 +119,7 @@ Install → Welcome → capability tour → language selection → minimal permi
 account creation (or guest) → free trial activated → Home screen.
 
 ### 4.2 Voice task (happy path)
-Home → tap orb / "Hey Jarvis" → LISTENING → STT transcript shown live → UNDERSTANDING
+Home → tap orb / "Hey Zarvis" → LISTENING → STT transcript shown live → UNDERSTANDING
 (intent + entity extraction) → PLANNING (orchestrator selects agent/skill) → risk & permission
 check → (confirmation if MEDIUM/HIGH risk) → EXECUTING (tool calls, progress shown) →
 VERIFYING → SPEAKING/showing result → task saved to history.
@@ -172,11 +177,16 @@ live Skill Registry, not a hardcoded screen) → user can tap a category to try 
   `ToolRegistry` — never directly with each other's internals. This keeps agents addable/
   removable without cross-wiring.
 - MVP ships the Orchestrator plus **Personal, Web (research-only), Document, and Developer**
-  agents fully wired with a real reference skill each (§29). **Phone, Business, Research,
-  Creative, and Automation** are registered as **foundation interfaces** (agent contract +
-  category entry in the Skill Registry, no handler yet) — proving the architecture accepts
-  them without orchestrator changes, while their first working skill ships in Phases 4–9
-  (§28) rather than being simulated here.
+  agents fully wired with a real reference skill each (§29). **Phone**, **Business**,
+  **Creative**, **Automation**, and **Research** have since gained their first real skills
+  the same way — register a skill, touch nothing in the Orchestrator: Phone's
+  `phone.open_app`/`phone.find_contact`/`phone.call` (Android on-device, Phase 4 of §28),
+  Business's `business.social_post`/`business.customer_reply`/`business.draft_invoice`,
+  Creative's `creative.write_message`/`creative.write_poem`/`creative.brainstorm`,
+  Automation's `automation.create_workflow`/`automation.list_workflows`/
+  `automation.cancel_workflow`, and Research's `research.compare`/`research.report`/
+  `research.outline` (all backend, SKILLS.md). Every `SkillCategory` this section originally
+  named now has at least one real, working skill — none remain foundation-interface-only.
 
 ## 6. Skill Architecture
 
@@ -313,12 +323,14 @@ backend/
   provider calls, Web Agent execution, Developer Agent execution (repo analysis, codegen,
   PR creation), GitHub integration, long-running task execution, push notifications.
 - **API boundary:** the Android app never calls AI providers, GitHub, or arbitrary web
-  endpoints directly for anything requiring a secret — it calls the JARVIS backend, which
+  endpoints directly for anything requiring a secret — it calls the ZARVIS backend, which
   proxies with server-held credentials. Direct-from-device calls are limited to
   no-secret, user-authorized flows (e.g., OS-level intents).
-- **Persistence:** relational DB (PostgreSQL in production; the reference backend in this
-  repo ships an interface-based store with an in-memory/SQLite adapter for local dev, so the
-  same code targets Postgres later without an API change).
+- **Persistence:** relational DB (PostgreSQL in production, via `PostgresStore`; the
+  reference backend also ships an in-memory `Store` adapter for local dev/tests, selected
+  automatically when no `POSTGRES_URL`/`DATABASE_URL` is configured — same `Store` interface,
+  no caller changes). The in-memory adapter must never be used on a serverless host: its
+  state does not survive a cold start, which breaks refresh tokens.
 - **Long-running tasks:** modeled as jobs with status polling + webhook/push callback,
   since multi-step agent tasks (website audits, repo fixes) can exceed a single request's
   lifetime.
@@ -351,11 +363,20 @@ interface AIResponse {
 - `ProviderFactory` selects a provider/model per request (cost, capability, region,
   fallback chain). Swapping or adding a provider means adding one adapter, not touching
   callers.
+- **Google Gemini is this repository's first wired, real provider** (`backend/src/ai/
+  geminiProvider.ts`, registered as `id: "google"`). Setting `GEMINI_API_KEY`
+  (`backend/.env.example`) is the entire integration step: `providerFactory.ts` resolves the
+  turn-loop's `defaultModelConfig` to Gemini automatically whenever that key is present, and
+  falls back to `MockAIProvider` when it isn't — no caller of `getProvider`/`Orchestrator`
+  changes either way. This is the "config-only change, not a redesign" §32 previously called
+  out as pending.
 - **Important constraint:** a developer's Claude subscription (e.g., Claude Pro, or this
   Claude Code session) is a *development environment*, not a runtime API credential. The
   shipped product calls AI providers via **server-held API keys** billed to the product's
   own account, requested through the backend `ai/` module — never bundled in the APK,
-  never assumed to exist because the developer happens to have a Claude subscription.
+  never assumed to exist because the developer happens to have a Claude subscription. The
+  same rule applies to `GEMINI_API_KEY`: it is a backend environment variable, never bundled
+  in the APK or the web client's static assets (§15).
 - Tool-calling loop: Orchestrator builds `ToolDefinition[]` from the currently-enabled
   Skill Registry (filtered by user entitlement/permissions) → sends to the provider → model
   returns `ToolCall`s → each goes through the Tool Architecture pipeline (§7) → results are
@@ -366,15 +387,25 @@ interface AIResponse {
 State machine (single source of truth, drives both UI and TTS/STT lifecycle):
 
 ```
-IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SPEAKING → IDLE
+IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SUCCESS → SPEAKING → IDLE
                                                      ↘ ERROR ↗
 ```
+
+`SUCCESS` is a brief (~450ms), purely visual "done" flash (emerald glow, §22) shown right
+after a turn completes and before the assistant speaks — client-side timing only, never
+persisted and never blocking.
 
 - **STT:** Android `SpeechRecognizer` (on-device where available) for MVP; abstracted
   behind a `SpeechToTextEngine` interface so a cloud STT provider can be swapped in later
   without UI changes.
 - **TTS:** Android `TextToSpeech` engine for MVP, Hindi + English voices; same
-  provider-abstraction pattern (`TextToSpeechEngine`) for future higher-quality voices.
+  provider-abstraction pattern (`TextToSpeechEngine`) for future higher-quality voices. The
+  web client (§12a) already has a higher-quality option live: `POST
+  /api/v1/tts/synthesize` calls Gemini's native audio voice server-side (§10,
+  AI_ARCHITECTURE.md "Native audio voice") — the same underlying voice technology behind
+  the Gemini app's voice mode — falling back to the browser's built-in engine if that call
+  fails. Wiring the Android `TextToSpeechEngine` to the same backend endpoint instead of
+  the on-device engine is a natural follow-up, not implemented here yet.
 - Every state is rendered distinctly in the UI (orb animation + status text) so the user
   always knows what the system is doing.
 - Full interruption support: tapping the orb or speaking again while SPEAKING/EXECUTING
@@ -394,6 +425,114 @@ IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SPEAKING →
   explanation — it does not simulate a human to evade detection.
 - Structured extraction results carry source URLs for user verification (no un-sourced
   claims presented as fact when they originate from a fetched page).
+
+## 12a. Web Client Architecture
+
+Distinct from the **Web Agent** (§12, a server-side skill that researches the open web on
+the user's behalf): this is the **browser client** — a second, thin frontend for the same
+product, served from the product's own domain, [zarvismobile.com](https://zarvismobile.com),
+alongside the Android app rather than instead of it. It exists so "run ZARVIS in a browser"
+requires no install, matching Product Principle #1 (outcome over interface) for a user who
+just wants to try the agent from a link.
+
+- **No separate backend.** The web client calls the exact same versioned API (§25) the
+  Android app calls — `GET /api/v1/skills`, `POST /api/v1/orchestrator/turn`, `POST
+  /api/v1/auth/*` — so a skill added once (§6) is immediately usable from both clients with
+  zero web-specific server code.
+- **Serving:** `backend/src/server.ts` serves the static client (`web/` at the repo root)
+  from the same Express app and origin as the API, so the one production domain
+  (zarvismobile.com) serves both the app shell and `/api/v1/*` — no CORS hop for the default
+  deployment. `CORS_ORIGINS`/`PUBLIC_APP_URL` (`backend/.env.example`) exist for the case
+  where the client is instead deployed to a separate static host (e.g. a CDN) pointed at the
+  same backend.
+- **Deployment target: Vercel.** `vercel.json` + `api/index.ts` (both repo root) wrap the
+  same `buildContainer()`/`buildServer()` composition root as a Vercel serverless function,
+  with `web/` served as static files by the same project — see DEVELOPMENT.md "Deploying to
+  Vercel" for the exact setup steps, including attaching a Postgres database. This is
+  required, not optional: without `POSTGRES_URL`/`DATABASE_URL` set, `buildContainer()`
+  falls back to the in-memory `Store`, which does not persist across cold serverless
+  instances and previously broke refresh tokens and every authenticated endpoint soon after
+  signup/login — fixed by `backend/src/store/postgresStore.ts` against the same interface.
+- **No framework/build step.** Plain HTML/CSS/JS (`web/index.html`, `styles.css`, `app.js`)
+  deliberately mirrors the zero-credential, zero-setup spirit of `MockAIProvider` (§10):
+  the product is demoable by opening a URL, no `npm install`/bundler required for the client
+  itself (the backend it talks to still needs `npm install` per DEVELOPMENT.md).
+- **Session:** mirrors the Android app's guest bootstrap (§32) — on first load the client
+  calls `POST /api/v1/auth/signup` with a generated, unguessable device-scoped email so a
+  first-time visitor starts talking to ZARVIS immediately, no signup form. Tokens are kept in
+  `localStorage`, scoped to the browser/device like the Android app's Keystore-backed token
+  storage is scoped to the device (§15) — this is a convenience cache, not a durable identity;
+  linking a real account across devices is the same open item tracked in §32.
+- **Voice (§11):** uses the browser-native Web Speech API (`SpeechRecognition` for STT,
+  `speechSynthesis` for TTS) behind the same IDLE→LISTENING→UNDERSTANDING→EXECUTING→SPEAKING
+  state machine the orb renders on Android, rather than Android's `SpeechRecognizer`/
+  `TextToSpeech` — a different concrete engine behind the same product-level state machine,
+  consistent with §11's "abstracted behind an interface so a provider can be swapped."
+  Voice input degrades to text-only when the browser doesn't support it (Safari/older
+  browsers) — never a dead end (Product Principle #4). Voice output tries Gemini's native
+  audio voice first (`POST /api/v1/tts/synthesize`) before falling back to
+  `speechSynthesis` — see above and AI_ARCHITECTURE.md "Native audio voice".
+- **Hands-free wake word (web only, differs from §11's Android orb-tap behavior):** arms
+  itself automatically on page load (explicit product request — no tap needed); tapping
+  the orb here mutes/unmutes it instead of cancelling the current turn like Android's orb
+  does. Say "Zarvis" (or a common mishearing like "Jarvis") followed by a command. This is
+  a software approximation of a wake word (continuous `SpeechRecognition` with
+  auto-restart), not a true low-power OS wake-word detector — it only works while the tab
+  is foregrounded. The muted/armed choice is never persisted across a reload — it always
+  re-arms fresh rather than remembering a muted state indefinitely. Deliberately quiet by
+  design: arming/muting shows no bubble or toast (explicit product feedback — it should
+  listen in the background without announcing itself); the subtle cyan ring around the orb
+  is the transparency trade-off (§15 "never secretly monitor the device"), and the first
+  visible/audible reaction happens only once "Zarvis" is actually heard. See
+  DEVELOPMENT.md "Hands-free 'wake word' mode".
+- **Personalization:** the client sends an optional `userName` with every orchestrator
+  turn (`localStorage["zarvis.userName"]`, no settings UI yet — see §32) so replies can
+  address the user by name; a display label only, never an identity/auth claim.
+- **Bilingual (§3.6):** a lightweight English/Hindi copy toggle, extended the same way the
+  Android app's locale system is meant to grow — this is not a replacement for real i18n
+  infrastructure, just enough to prove the product's bilingual promise from a browser too.
+- **What it does not do:** it does not duplicate the Tool pipeline (§7) or entitlement
+  resolution (§19) — those live only in the backend, exactly as ARCHITECTURE.md's
+  "Backend/Android parity note" already requires for any client. The web client is a UI over
+  the same authoritative backend, not a second implementation of product logic.
+- **Responsive shell (§22):** the `.app` container caps at 480px (mimicking a clean mobile
+  viewport, `max-w-md`-style) and renders full-bleed edge-to-edge below a `640px` breakpoint
+  — real phones and narrow WebViews — while above it becomes a centered, bordered "device
+  frame" against the ambient background glow, so the same markup reads correctly on a wide
+  desktop browser without a second layout. `viewport-fit=cover` + `env(safe-area-inset-top/
+  bottom)` pad the topbar/composer under Android's edge-to-edge status bar and gesture nav;
+  `interactive-widget=resizes-content` keeps the composer above the on-screen keyboard rather
+  than being covered by it. `navigator.vibrate()` fires a short haptic pulse on the core taps
+  (send, mic, orb, category chip) — a no-op where unsupported (desktop, iOS Safari), never a
+  hard requirement.
+- **Adaptive result widgets:** a turn's reply renders as a shape-matched card instead of one
+  generic bubble whenever a backend skill actually ran — wide prose panels for report-style
+  content (`research.*`/`business.*`/`creative.*`/`docs.*`), a compact pill for automation's
+  short confirmations, and a monospace card with a copy button for `developer.*`. The card's
+  border glow reports the real `ToolExecutionOutcome` (emerald for `success`, amber for
+  anything else) — there is no separate "in progress" widget, since a turn is a single
+  request/response round-trip and a fabricated pending state would be exactly the "fake
+  progress" Product Principle #4 forbids. Skills outside those four categories (`web`,
+  `personal`, ...) still render as the plain bubble, deliberately — an invented shape for a
+  category no one asked to distinguish is decoration, not signal. A live waveform + stop
+  control attaches to whichever message is actually being spoken by `speak()` right now (real
+  Gemini audio or the browser `speechSynthesis` fallback) and is removed the moment playback
+  ends — fixed a latent bug where the `speechSynthesis` fallback path didn't return a promise
+  at all, so `await speak()` previously resolved instantly instead of for the real speech
+  duration.
+
+- **Bottom nav (mirrors the Android app's §22/§23 shell):** a floating glass tab bar across 4
+  top-level views — Workspace (the hero/orb/composer/conversation/category-chips screen
+  described above), Capabilities (every skill from the same `/skills` catalogue the category
+  chips summarize, shown in full as a showcase card grouped by category with a direct "Run
+  Agent" trigger that executes immediately), Plans & Quotas (a Free vs Pro feature
+  comparison plus the current entitlement snapshot and a cosmetic monthly/yearly toggle —
+  never a fabricated price, since Web/Play billing isn't wired up yet, §32), and System
+  Metrics (real, client-measured latency for every orchestrator turn this session —
+  `performance.now()` wrapped around the same `/orchestrator/turn` fetch already being made,
+  not a new endpoint — plus the task log). This replaced an earlier single "Status &
+  Workflows" bottom-sheet drawer, which duplicated what these three dedicated tabs now cover
+  more legibly and consistently with Android's own navigation shape.
 
 ## 13. Developer Agent Architecture
 
@@ -541,44 +680,80 @@ modeled in the schema now so they need no migration later.
 
 ## 22. UI/UX System
 
-**Direction:** futuristic, premium, minimal, trustworthy, modern, voice-first. Not a
-generic chatbot UI.
+**Direction:** "Zarvis Cyber Luxury" — futuristic, premium, minimal, trustworthy, modern,
+voice-first. Not a generic chatbot UI. Deep-midnight dark base (`#030712`) with an electric
+cyan (`#00F0FF`) active/signal accent and an emerald glow reserved for success states;
+glassmorphism surfaces (tinted, hairline-bordered panels — Compose has no backdrop-blur
+render effect without a third-party library, so this is a dependency-free approximation of
+`backdrop-blur bg-white/[0.03] border-white/10`) layered over a subtle two-glow radial mesh
+background (`ZarvisBackground`).
 
 - **Design tokens** (`core-ui/theme`): color scales (dark-first, with a full light theme),
   an 8dp spacing scale, type scale (Latin + Devanagari-capable font pairing for
-  Hindi/English), elevation/motion tokens, and a consistent corner-radius system.
-- **Core components:** buttons (primary/secondary/ghost/destructive), cards, the AI Orb
-  (animated, state-driven per §11), input composer (text + mic toggle), chips (skill
-  categories), bottom sheets (confirmation, skill details), dialogs (risk confirmation),
-  loading states (skeletons, per-step progress), empty states, error states (with a clear
-  next action, never a dead end).
-- **Themes:** dark (default) and light, both meeting WCAG AA contrast; full accessibility
-  support (TalkBack labels, scalable type, min touch targets 48dp).
-- **Motion:** purposeful, state-communicating (orb pulses while LISTENING, morphs while
-  PLANNING/EXECUTING) — never decorative-only animation.
+  Hindi/English), elevation/motion tokens, glass surface tokens (`GlassColors`), status glow
+  tokens (`GlowColors`), and a consistent corner-radius system.
+- **Core components:** buttons (primary/secondary/ghost/destructive), cards (`ZarvisCard`,
+  `GlassSurface`), the AI Orb (animated, state-driven per §11, with an ambient glow halo that
+  brightens for EXECUTING/SUCCESS), input composer (text + mic toggle, glowing neon border on
+  focus), category chips (`ZarvisChip`, glass pill), the floating glass bottom nav
+  (`GlassBottomBar`), a status-pulse badge (`StatusPulseBadge`) for optimistic "Executing…"
+  feedback, bottom sheets (skill details), dialogs (risk confirmation), loading states
+  (skeletons, per-step progress), empty states, error states (with a clear next action, never
+  a dead end).
+- **Themes:** dark (default, the primary "Cyber Luxury" experience) and light, both meeting
+  WCAG AA contrast; full accessibility support (TalkBack labels, scalable type, min touch
+  targets 48dp).
+- **Motion:** purposeful, state-communicating (orb pulses while LISTENING, glows brighter and
+  faster while EXECUTING, flashes emerald on SUCCESS, morphs while PLANNING) — never
+  decorative-only animation. Every state transition is a plain Compose state read with no
+  debounce, so the UI reacts the same frame a turn is submitted — the perceived "instant"
+  feedback is this immediacy, not an animation trick.
 
-### Home Screen (concept)
+### Workspace Screen (concept, `home` route)
 ```
-   JARVIS MOBILE
+   ZARVIS MOBILE
    "आप क्या करवाना चाहते हैं?"
 
         [ AI ORB ]
 
    [ 🎙 Speak ]   [ Type your task ]
 
-   Quick categories: Phone · Web · Work · Documents · Developer
+   Quick categories (2-row chip rail): Web · Documents · Developer · Business ·
+                                        Creative · Automation · Research
 
+   What can you do? → Capabilities
    Recent Tasks
-   Active Task (if any, with live progress)
-   Subscription Status
+   Subscription summary → Plans & Quotas
 ```
+
+### Capabilities Hub (`capabilities` route)
+Every skill from the live catalogue (`GET /api/v1/skills`), grouped by category, as a glass
+showcase card (name, description, risk badge) with a direct "Run Agent" button that jumps
+straight into Conversation with that skill pre-armed.
+
+### Plans & Quotas (`subscription` route)
+Free vs Pro feature comparison (glass cards, Pro with a neon cyan border), a purely-cosmetic
+Monthly/Yearly billing toggle, and the current entitlement snapshot. Never shows a fabricated
+price — Play Billing isn't wired up yet (§32), so real pricing is marked "coming soon" rather
+than invented.
+
+### System Metrics (`metrics` route)
+Real, on-device-measured latency for every orchestrator turn this session (`TurnMetricsStore`
+in `core-common`, timed client-side around the existing `handleTurn` call — no new endpoint),
+plus the current task log reusing `GET /api/v1/tasks`. Never a fabricated number.
 
 ## 23. Navigation
 
-Single-Activity, Navigation Compose, top-level graph:
+Single-Activity, Navigation Compose, top-level graph with a persistent floating glass bottom
+nav (`GlassBottomBar`) across the 4 top-level tabs:
 
-`Onboarding → Home ⇄ {Conversation, Tasks, Developer, Subscription, Settings}`,
-with Conversation reachable directly from Home's orb/composer, deep-linkable from
+`Onboarding → {Workspace, Capabilities, Plans & Quotas, System Metrics} ⇄ {Conversation,
+Tasks, Developer, Settings}`,
+
+where the bottom nav is shown only on the 4 top-level tab routes (`home`, `capabilities`,
+`subscription`, `metrics`) and hidden on full-screen/drill-down destinations (Onboarding,
+Conversation, Tasks, Developer, Settings). Conversation is reachable directly from
+Workspace's orb/composer or a Capabilities card's "Run Agent", deep-linkable from
 notifications (task completed, PR ready, trial ending).
 
 ## 24. Data Model (core entities)
@@ -615,6 +790,9 @@ Permission(id, accountId, type, granted, grantedAt)
 - `POST /api/v1/usage/charge` — records a completed, verified on-device skill execution
   against the server-authoritative credit ledger, cost looked up server-side by skill id
   (never client-supplied) — see ARCHITECTURE.md "Backend/Android parity note"
+- `POST /api/v1/tts/synthesize` — Gemini native audio voice for a piece of text, returns
+  `audio/wav` (§11, AI_ARCHITECTURE.md "Native audio voice"); not yet metered through the
+  usage ledger above (§21) — a known gap before this could scale beyond a single account
 - Versioned from day one (`/api/v1`), all authenticated routes require the access token,
   all mutating routes are idempotency-key aware for safe client retries.
 
@@ -691,11 +869,17 @@ Included in this repository's first implementation pass:
 - Security/permission foundation: Tool pipeline, permission bridge, secure storage helper,
   logging redaction facade.
 - "What can you do?" screen driven by the live Skill Registry.
+- A **browser web client** (§12a) at the product's own domain, zarvismobile.com, serving
+  the same conversation/skill-catalogue experience over the same API the Android app uses —
+  no separate backend, no build step.
+- A **live AI provider adapter** (Google Gemini, §10) wired behind the existing
+  provider-agnostic contract, selected automatically when `GEMINI_API_KEY` is configured.
 
-Explicitly **not** in this pass (documented as planned, not faked): live AI provider
-credentials, live Play Billing, Phone Agent's actual call/contacts intents beyond an
-"open app" skill, full Web Agent scraping pipeline, instrumented/emulator test runs
-(no Android SDK in this build environment — see §32).
+Explicitly **not** in this pass (documented as planned, not faked): a *deployed, credentialed*
+production environment (this repository ships the Gemini adapter and domain wiring, not a
+live server with a key already loaded — see §32), live Play Billing, Phone Agent's actual
+call/contacts intents beyond an "open app" skill, full Web Agent scraping pipeline,
+instrumented/emulator test runs (no Android SDK in this build environment — see §32).
 
 ## 30. Future Roadmap
 
@@ -713,8 +897,8 @@ LOW-risk skills.
 | Architecture pattern | Clean Architecture + MVI-flavored ViewModels | Testability, unidirectional flow fits task/voice state machines |
 | DI | Hilt | Standard, compile-time safe, less boilerplate than manual Dagger |
 | Backend language | TypeScript/Node.js + Express | Fast iteration, strong AI/GitHub SDK ecosystem, available in this build env |
-| DB (prod target) | PostgreSQL | Relational integrity for billing/entitlements; interface-based store ships now, Postgres adapter is additive later |
-| DB (local/dev, this repo) | In-memory adapter behind a `Store` interface (Postgres adapter additive later, same interface) | No external DB dependency needed to run/test locally; zero-migration path to Postgres |
+| DB (prod target) | PostgreSQL, via `PostgresStore` | Relational integrity for billing/entitlements; required on any serverless host since state must outlive a single invocation |
+| DB (local/dev, this repo) | In-memory adapter behind a `Store` interface, used only when no `POSTGRES_URL`/`DATABASE_URL` is set | No external DB dependency needed to run/test locally; same interface as `PostgresStore`, no code changes to switch |
 | AI provider integration | Server-side only, provider-agnostic `AIProvider` interface | Never ship secrets in the APK; swappable providers |
 | Billing | Google Play Billing, server-verified | Android-native, authoritative server check per §19 |
 | Module boundaries | `domain` pure Kotlin, no Android deps | Enables fast JVM unit testing without an emulator |
@@ -724,13 +908,53 @@ LOW-risk skills.
 
 - **No Android SDK in this build environment.** The Gradle/Android project is written to
   compile under a standard Android Studio/SDK setup, but this session cannot run a full
-  Android Gradle build or instrumented tests here. The pure-Kotlin `domain` module and the
-  Node/TypeScript `backend` **are** built/tested in this session as real, verifiable
-  correctness signals. This is called out explicitly in the final report rather than
-  claiming an unverified Android build succeeded.
-- **No live AI provider or billing credentials.** Both are architected behind interfaces
-  with mock/local adapters so the product runs and is demoable without secrets; wiring
-  real credentials is a config-only change (§10, §19), not a redesign.
+  Android Gradle build or instrumented tests here — confirmed directly: `./gradlew
+  :app:assembleDebug` fails immediately because the Android Gradle Plugin itself can't be
+  resolved (`Plugin [id: 'com.android.application', version: '8.5.2'] was not found`,
+  the plugin repository requiring Google's Android SDK component repo). The `app`, `core`,
+  `data`, `agents`, `skills`, and `features` modules therefore remain build-unverified here
+  — open `android/` in Android Studio to build/run them. The pure-Kotlin `domain` module
+  needs none of that and **is** built/tested in this session as a real, verifiable
+  correctness signal: `./gradlew :domain:build` succeeds, running 22 tests across 4 test
+  classes (`ToolPipelineTest`, `EntitlementResolverTest`, `KeywordSkillMatcherTest`,
+  `ReminderSkillFactoryTest`) with 0 failures. The Node/TypeScript `backend` is likewise
+  built/tested for real (`npm run build && npm test`, 48 tests, 0 failures, including
+  against a real local Postgres instance for `PostgresStore`). This split is called out
+  explicitly rather than claiming an unverified Android app build succeeded.
+- **The Gemini adapter has been live-verified, but no key is committed to this repository.**
+  A real `GEMINI_API_KEY` was configured locally (never committed — `.env` is git-ignored)
+  and exercised end-to-end against the real Generative Language API: `GET /health` reported
+  `provider: "google"`, and live turns correctly answered a direct question, selected
+  `web.search` for a shopping query, and selected `docs.summarize` for a summarization
+  query — genuine model-driven tool selection, not the keyword-matching mock. The
+  downstream skill results themselves are still `MockSearchProvider`/`NaiveSummarizer`
+  output (honestly labeled as such in the response) since no live search/summarization API
+  is wired — only the *AI provider* step of the pipeline is real. **No live billing
+  credential exists at all** — that remains a config-only change pending a Play Console
+  listing (§19). Note also: the live call surfaced that `gemini-2.0-flash` (this adapter's
+  original default) has been retired by Google in favor of `gemini-3.6-flash` — the default
+  in `config/env.ts`/`.env.example` was corrected accordingly; a deployment should still
+  confirm the current recommended model at integration time rather than trusting any
+  hardcoded default indefinitely.
+- **A live-triggered bug was found and fixed in the same session:** the same Gemini error
+  (before the model-name fix) crashed the *entire* backend process, because Express 4 does
+  not catch a rejected promise thrown inside an `async` route handler — it becomes an
+  unhandled rejection that kills the whole Node process, not just the one request. Every
+  route handler that lacked its own `try`/`catch` (`orchestrator`, `developer`,
+  `entitlements`, `skills`, `billing`, `usage`, most of `tasks`) is now wrapped in a shared
+  `asyncHandler` (`backend/src/api/asyncHandler.ts`) that forwards the rejection to
+  Express's error middleware instead, which logs it and returns an honest 500 — one failed
+  AI/GitHub/billing call can no longer take down every other in-flight user's request.
+- **The web client (§12a) has since been verified in a real browser**, in a later session
+  that had one available (Playwright + a pre-installed Chromium): a full chat turn against
+  the running server, the Status & Workflows drawer rendering live entitlements/task data,
+  zero horizontal overflow from 390px to 1280px wide, and the auth self-heal path (§25/§32
+  "No login screen yet") recovering from corrupted/orphaned localStorage tokens without
+  getting stuck. Real device/OS speech recognition and TTS quality are still unverified —
+  that sandbox had no microphone hardware at all (`SpeechRecognition` failed immediately
+  with an `audio-capture` error), so only the wake-word arm/acknowledge/recover logic was
+  exercised with a mocked `SpeechRecognition`, not real recognition accuracy. Test voice
+  input/output on a real device before relying on it.
 - **Voice quality depends on Android OS engines at MVP** — acceptable for Hindi/English
   coverage on modern devices, but quality will vary by device/OEM until a cloud engine is
   wired in behind the existing interface.
@@ -750,3 +974,107 @@ LOW-risk skills.
   not yet schedule an `AlarmManager` trigger or post a notification at the due time — see
   `RoomReminderScheduler`'s doc comment. This is the first concrete gap to close in Phase 4
   (§28).
+- **The Android app previously could never reach a deployed backend at all, and would have
+  broken permanently after one hour.** Two gaps closed together, bringing the Android app to
+  the same working level as the web client (§12a) against the same backend: (1)
+  `ApiClientFactory`'s base URL had no way to be set to anything but its emulator-local
+  default (`10.0.2.2`, the emulator's alias for the host machine) — every build type,
+  release included, would have tried to reach `localhost` on a real device. `app/
+  build.gradle.kts` now exposes `BuildConfig.API_BASE_URL` (debug → emulator-local,
+  release → `https://zarvismobile.com/`, the same domain the web client already targets),
+  wired through `di/AppModule`. (2) Nothing in the Android networking layer ever refreshed
+  an access token or recovered from a rejected refresh token — `AuthInterceptor` only
+  attached whatever was stored, and `SessionRepository.ensureSession()` only bootstraps once
+  per install, so this app would have hit exactly the "Unknown user" 401s fixed on the web
+  client (see the PostgresStore/self-heal fixes above), with no recovery path. `data-remote`
+  now has a `TokenAuthenticator` (an OkHttp `Authenticator`) that refreshes on a 401 and, if
+  the refresh token itself is rejected, bootstraps a fresh guest session — mirroring
+  `web/app.js`'s `apiFetch` self-heal. **Stated honestly:** these changes are written and
+  manually reviewed against the same patterns already used elsewhere in this codebase, not
+  compiler-verified — `data-remote` and `app` are Android library/application modules
+  (need the Android Gradle Plugin, confirmed unavailable in this environment above), unlike
+  `domain`'s pure-Kotlin build. Build in Android Studio to get a real compile signal before
+  relying on this.
+- **Phone Agent's first three skills shipped with a mix of verification levels — split
+  deliberately along the pure-Kotlin `domain` boundary (ARCHITECTURE.md) so the highest-risk
+  part is the part that's actually proven.** `phone.open_app`/`phone.find_contact`/
+  `phone.call`'s skill definitions and handlers, and `OnDeviceInputBuilder` (which maps a
+  keyword-matched skill + raw utterance to that skill's own input shape — see the entry
+  above this one for the bug this fixes for `personal.reminder` too, retroactively), are
+  real and unit-tested: `./gradlew :domain:build` now runs 40 tests across domain,
+  0 failures. Their Android platform bindings
+  (`AndroidAppLauncherPort`/`AndroidContactLookupPort`/`AndroidPhoneCallPort` in
+  `core-tooling`, using `PackageManager`/`ContactsContract`/`Intent.ACTION_CALL`) are written
+  and carefully reviewed but not compiler-verified, the same limitation as the rest of the
+  Android app beyond `domain`. `phone.call` places a real call (not `ACTION_DIAL`'s
+  "pre-fill the dialer") — its MEDIUM risk classification means the Tool pipeline always
+  blocks on explicit user confirmation first (§7), the same guardrail that already applies
+  to every other MEDIUM/HIGH-risk skill. No OS-level permission *request* flow was added —
+  the Tool pipeline checks whether `CONTACTS`/`PHONE_CALL` are already granted and explains
+  the denial honestly if not (§16), the same behavior `personal.reminder`'s `NOTIFICATIONS`
+  permission already had; a proactive rationale-then-request UI remains a follow-up, not
+  regressed by this change.
+- **Business Agent's first three skills are backend TypeScript, so — unlike Phone above —
+  fully compiler- and test-verified in this environment.** `business.social_post`/
+  `business.customer_reply` route through a real `AIProvider` (Gemini once `GEMINI_API_KEY`
+  is set) for genuine generation, falling back to an honestly-labeled deterministic mock
+  otherwise; `business.draft_invoice` needs no AI at all (line-item arithmetic has one
+  correct answer, so a deterministic parser is both simpler and more reliable). A live
+  end-to-end smoke test against a running server caught a real, pre-existing bug this
+  exposed: `MockAIProvider.fillInput()`'s one generic "whole utterance into every required
+  field" fallback was only ever correct by coincidence — every skill registered before this
+  one had at most one required field, or `repoUrl`'s own special-cased regex extraction.
+  `business.draft_invoice`'s two distinct fields (`client`, `items`) both received the *same*
+  full utterance the first time it ran live, producing a client name like "invoice Sharma
+  Traders for 5 chairs at 2000 each..." instead of "Sharma Traders" — silently wrong output,
+  not a crash, so it would have shipped unnoticed without that live check. Fixed with
+  field-specific heuristics and now covered by `test/ai/mockProvider.test.ts`, which never
+  existed before this either. `./gradlew`-style confidence for the backend: `npm run build &&
+  npm test` — 61 tests, 0 failures.
+- **Creative Agent's first three skills** (`creative.write_message` — MASTER_SPEC.md §1's
+  own birthday-message example — `creative.write_poem`, `creative.brainstorm`) reuse the
+  same `ContentGenerator` Business's generation skills established, relocated from
+  `skills/business/` to `ai/contentGenerator.ts` once a second category needed it (a
+  business-specific location for a category-agnostic utility would have been the wrong
+  smell to leave in place). Each skill has a single `prompt` field and its own system
+  prompt — no new `MockAIProvider.fillInput()` case was needed, and a live smoke test
+  confirmed all three route correctly with no cross-contamination between each other or
+  Business's own generation skills. Backend TypeScript, fully verified the same way:
+  `npm run build && npm test` — 67 tests, 0 failures.
+- **Automation Agent's first three skills are CRUD over the already-implemented Task Engine
+  (§18) — `TaskService` — not generation, so they need no `GEMINI_API_KEY` at all.**
+  `automation.create_workflow` creates and tracks a real, multi-step `Task` (visible and
+  controllable — pause/resume/cancel/retry — in both clients' existing task views) but does
+  **not** execute the steps; claiming it did would be exactly the "fake success" Product
+  Principle #4 forbids — step execution stays future work, unchanged from what
+  `TaskService`'s own doc comment already disclosed. `automation.cancel_workflow` never
+  accepts a raw task id from the user, only a goal-text match searched within the *calling
+  account's own* tasks, so it can't be pointed at another account's workflow regardless of
+  `TaskService.cancel`'s own authorization posture (dedicated test coverage for this).
+  `buildSkillRegistry()` needed a new dependency it didn't have before (`Store`, to
+  construct a `TaskService`) — its signature changed from `()` to `(store: Store)`, and its
+  one caller (`container.ts`) updated accordingly. `TaskService` itself had zero test
+  coverage before this (`test/tasks/taskService.test.ts` is new). A live end-to-end smoke
+  test caught the same `MockAIProvider.fillInput()` bug class a *third* time: `goal`/`steps`
+  (create) and `goalMatch` (cancel) all fell through to the whole-utterance default, so a
+  cancel request's own trigger words ("cancel my ... workflow") never matched any stored
+  goal text — fixed with field-specific heuristics, covered by two more regression tests,
+  and re-confirmed live end to end (create → cancel → list correctly shows `CANCELLED`).
+  `npm run build && npm test` — 85 tests, 0 failures.
+- **Research Agent's first three skills (`research.compare`/`research.report`/
+  `research.outline`) are deliberately distinct from same-sounding existing skills**, not
+  thin restatements of them: `research.compare` reasons over general knowledge rather than
+  fetching live results (`web.search`'s job), and `research.report` writes a structured
+  overview from a topic alone rather than condensing text the user already supplied
+  (`docs.summarize`'s job). Because general-knowledge output like this is never sourced or
+  current, each skill's own system prompt requires the model to say so explicitly in its
+  reply, not just in a doc comment — the same "no un-sourced claims presented as fact"
+  constraint §12 already states for the Web Agent, carried into these skills' actual
+  output rather than left as an unenforced aspiration. All three share Business/Creative's
+  `ContentGenerator` and are single-`prompt`-field, so — like Creative, unlike Business and
+  Automation — this category hit none of the `MockAIProvider.fillInput()` bugs found
+  earlier; a live smoke test also confirmed a plain search request still correctly routes to
+  `web.search`, not `research.compare`, despite both mentioning comparison. This was also
+  the last of the five categories this section (§5) and SKILLS.md's catalogue table listed
+  as foundation-interface-only — every `SkillCategory` MASTER_SPEC.md §1 names now has at
+  least one real, working skill. `npm run build && npm test` — 91 tests, 0 failures.

@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.feature.onboarding"
+    namespace = "com.zarvismobile.feature.onboarding"
     compileSdk = 34
 
     defaultConfig {

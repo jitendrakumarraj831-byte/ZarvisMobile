@@ -35,6 +35,15 @@ build/run them. This limitation is recorded in
 [MASTER_SPEC.md §32](./MASTER_SPEC.md#32-risks-and-limitations); closing it (CI with an
 Android SDK image, instrumented tests) is Phase 12 work.
 
+The app talks to the same backend the web client does (`data-remote`'s `ZarvisApi`,
+MASTER_SPEC.md §25), via a base URL set per build type in `app/build.gradle.kts`'s
+`buildConfigField("String", "API_BASE_URL", ...)`: `debug` defaults to `10.0.2.2` (the
+Android emulator's alias for your host machine, matching `cd backend && npm run dev`
+running locally), `release` defaults to `https://zarvismobile.com/`. Point either build type
+at a different backend by editing that field directly — there's no runtime override flag
+(unlike the web client's `?api=` query param) since this is a compiled app config, not a
+browser URL.
+
 ## Backend
 
 ```bash
@@ -49,6 +58,150 @@ Copy `backend/.env.example` to `backend/.env` to configure real provider/GitHub/
 credentials — the server runs fully functional against mocks with no `.env` at all,
 which is the default for local development and CI (see
 [AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md) and [SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md)).
+Set `GEMINI_API_KEY` there to switch the orchestrator's default provider from
+`MockAIProvider` to live Google Gemini calls — get a key from
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+
+## Web client (browser)
+
+`web/` (repo root) is a plain HTML/CSS/JS client — no build step, no separate dependency
+install — served automatically by the backend from the same origin. See
+[MASTER_SPEC.md §12a](./MASTER_SPEC.md#12a-web-client-architecture).
+
+```bash
+cd backend && npm run dev
+# then open http://localhost:3000 in a browser
+```
+
+It calls the same `/api/v1/*` routes the Android app calls, bootstraps a guest account on
+first load (mirrors the Android app's device-scoped account, §32), and works with either
+`MockAIProvider` or a configured `GEMINI_API_KEY` with no client-side change. To point the
+client at a different backend host, open it with `?api=https://your-backend/api/v1`.
+
+### Voice quality
+
+`web/app.js`'s `speak()` calls `POST /api/v1/tts/synthesize` first — Gemini's own
+native-audio-output voice (`backend/src/ai/geminiTts.ts`), the same underlying voice
+technology behind the Gemini app's voice mode, using the same `GEMINI_API_KEY` already
+configured (no separate credential). If that call fails for any reason (not configured,
+offline, rate-limited), it falls back to the browser's built-in `speechSynthesis` —
+picking its best available network voice for the current language, with a manual voice
+picker in the topbar once more than one is available (persisted in `localStorage`) — so
+voice output never silently goes dead, per Product Principle #4.
+
+`GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE` (`.env.example`) configure the model and one of
+Gemini's fixed prebuilt voice names (e.g. `Kore`, `Puck`, `Charon`, `Aoede`, `Fenrir`).
+Live-verified in this repository: a real signed WAV response, confirmed to be real speech
+(not silence) by inspecting its PCM sample RMS/peak amplitude, not just a non-error status
+code.
+
+**Note this is a different, separate integration from Google Cloud Text-to-Speech**
+(Neural2/Studio/Chirp voices) — that remains a documented-but-unimplemented option if
+Gemini's prebuilt voices aren't sufficient later; it needs its own Cloud project and
+credential, unlike the native-audio route actually wired in here.
+
+### Hands-free "wake word" mode
+
+Arms itself automatically on every page load (per explicit product request — no tap
+needed): say "Zarvis" (or a close mishearing like "Jarvis" — most speech recognizers have
+never seen the actual word and fall back to the much more common one) followed by a
+command, e.g. *"Zarvis, find the best phone under 20000"*. Tapping the orb mutes/unmutes it
+manually. This is a software approximation of a wake word built on the Web Speech API's
+`continuous`/auto-restart pattern (`setupSpeechRecognition()` in `app.js`), **not** a true
+low-power OS wake-word detector: it only works while the tab is open and in the
+foreground, and every second of "armed" audio is sent to the browser's speech-recognition
+service exactly like a manual mic tap would be — stated honestly rather than oversold. The
+armed/muted choice itself is intentionally never persisted across a reload — it always
+re-arms fresh rather than remembering a muted state indefinitely, so it can't end up
+silently listening in a way the person in front of the screen forgot was ever turned on.
+
+Deliberately quiet by design (explicit product feedback: it should listen for "Zarvis" in
+the background without announcing itself, the same way a phone's real wake word doesn't
+pop up a notification every time it starts listening) — arming or muting shows no bubble
+or toast. The transparency trade-off is the subtle cyan ring around the orb whenever armed
+(so it stays inspectable, not literally secret — MASTER_SPEC.md §15) plus the fact that
+the very first visible/audible reaction only happens once "Zarvis" is actually heard
+(`acknowledgeWakeWord()`/`submitUtterance()` in `app.js`), not before.
+
+Not testable end-to-end in this environment — the sandbox this was built in has no
+microphone hardware at all (Chrome's Web Speech API failed immediately with an
+`audio-capture` error even with WebRTC fake-device flags, which don't extend to
+`SpeechRecognition`), so only the arm/error/recovery logic was verified, not real
+wake-word detection accuracy. Test on a real device before relying on it.
+
+### Personalizing replies with a name
+
+`POST /api/v1/orchestrator/turn` accepts an optional `userName`, folded into the system
+prompt (`orchestrator.ts`) so Gemini can address the user by name naturally. `web/app.js`
+sends whatever is in `localStorage["zarvis.userName"]` with every turn, defaulting it to
+the product owner's name on first load (no settings screen exists yet to change it — see
+MASTER_SPEC.md §32 "No login screen yet"; edit `localStorage` directly for now). This is a
+display label only, never an identity/auth claim — the account itself is authenticated by
+the bearer token regardless of what this field says.
+
+### First-reply warmth
+
+The turn request also carries `isFirstTurn` (`web/app.js` tracks it client-side, true only
+once per page load), asking Gemini for one short, warm, energetic welcome-style opening
+line before the very first reply of a session — every later turn stays direct and concise.
+Live-verified this actually reaches the user even when the model also invokes a skill in
+that same first turn: `Orchestrator.runTurn` used to build the returned `message` purely
+from the tool-pipeline outcome, discarding any conversational text the model attached to a
+tool-calling response — silently swallowing that greeting exactly when it mattered most
+(a first request like "find me a phone" that immediately triggers `web.search`). Fixed by
+prepending `aiResponse.message.content` when present; the system prompt also had to say
+explicitly that a tool call must still carry that greeting as accompanying text, since
+Gemini's default behavior for a clear, actionable first request was a tool call with no
+text at all.
+
+## Deploying to Vercel (public URL, e.g. zarvismobile.com)
+
+This is how the web client (§12a) becomes reachable at a real URL in any browser, not just
+`localhost` — the step before an Android build exists to try. `vercel.json` (repo root) and
+`api/index.ts` wrap the same `buildContainer()`/`buildServer()` composition root
+`backend/src/index.ts` uses, as a Vercel serverless function; `web/` is served as static
+files by the same deployment (see `vercel.json`'s `routes` for exactly which path goes
+where). This has been sanity-checked in this repository by bundling `api/index.ts` with
+esbuild (what Vercel's Node builder uses) and running the bundle directly — health check,
+signup, and the skill catalogue all worked — but not by an actual `vercel deploy`, which
+needs a real Vercel account this environment doesn't have.
+
+**One-time setup (Vercel dashboard or CLI), done by whoever owns the Vercel account:**
+
+1. Import this GitHub repository into Vercel (New Project → this repo). Leave the Root
+   Directory as the repo root (not `backend/`) — `vercel.json` and `api/index.ts` are at
+   the top level on purpose so one project serves both the API and `web/`.
+2. Project Settings → Storage → add a Postgres database (e.g. Vercel Postgres/Neon) and
+   connect it to this project — Vercel sets `POSTGRES_URL` automatically. This is required,
+   not optional: without it the backend falls back to the in-memory `Store` (see "Known
+   limitation" below), which breaks refresh tokens and every authenticated endpoint soon
+   after signup/login on a serverless deployment.
+3. Project Settings → Environment Variables → add `GEMINI_API_KEY` (from
+   [aistudio.google.com/apikey](https://aistudio.google.com/apikey)) so the deployed
+   backend uses live Gemini instead of the mock — same variable as `backend/.env.example`,
+   just set through Vercel's dashboard instead of a local file. `PUBLIC_APP_URL` and
+   `CORS_ORIGINS` (see `.env.example`) already default to `zarvismobile.com`; only override
+   them if deploying under a different domain.
+4. Project Settings → Domains → add `zarvismobile.com` (and `www.zarvismobile.com`), then
+   update the domain's DNS at the registrar (GoDaddy) to the records Vercel's dashboard
+   shows for it (typically an `A` record to Vercel's IP for the apex domain and a `CNAME`
+   to `cname.vercel-dns.com` for `www`) — Vercel's domain settings page shows the exact
+   values to use once the domain is added there.
+5. Deploy (Vercel redeploys automatically on every push to `main` once the project is
+   imported).
+
+Or from the CLI, once logged in (`npx vercel login`) and with a project token:
+`npx vercel --prod --token=<token>`.
+
+**Formerly a known limitation, now fixed:** `backend/src/store/inMemoryStore.ts` keeps
+accounts/tasks/usage in a plain in-process `Map`, which does not survive a serverless
+deployment routing a request to a fresh, cold instance — this previously broke refresh
+tokens and every authenticated endpoint (`/api/v1/auth/refresh`, `/api/v1/skills`,
+`/api/v1/orchestrator`, `/api/v1/tts/*`, ...) soon after signup/login in production.
+`backend/src/store/postgresStore.ts` implements the same `Store` interface against a real
+Postgres database and is selected automatically whenever `POSTGRES_URL`/`DATABASE_URL` is
+set (see step 2 above) — `container.ts` falls back to the in-memory store only when neither
+is configured, which should never be the case for a deployed environment.
 
 ## Repository conventions
 

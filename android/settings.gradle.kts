@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "jarvis-mobile"
+rootProject.name = "zarvis-mobile"
 
 // Pure-Kotlin core — builds/tests on plain JVM, no Android SDK required.
 // See ../DEVELOPMENT.md and MASTER_SPEC.md §31.

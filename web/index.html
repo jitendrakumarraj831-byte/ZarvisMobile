@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <title>ZARVIS MOBILE</title>
+  <meta name="description" content="ZARVIS MOBILE — a universal AI digital agent, in your browser." />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0a0b12" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">ZARVIS <b>MOBILE</b></span>
+      </div>
+      <div class="topbar-actions">
+        <button id="install-btn" class="chip-btn install-btn" type="button" hidden>
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Install
+        </button>
+        <button id="lang-toggle" class="chip-btn" type="button" title="Switch language / भाषा बदलें">EN</button>
+        <button id="voice-out-toggle" class="chip-btn icon-btn" type="button" title="Toggle spoken replies" aria-pressed="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+        </button>
+        <select id="voice-select" class="chip-btn voice-select" hidden title="Choose voice"></select>
+        <span id="provider-badge" class="chip-btn chip-static" title="Active AI provider">
+          <span class="status-dot" aria-hidden="true"></span>
+        </span>
+      </div>
+    </header>
+
+    <main class="views">
+      <section class="stage" id="view-workspace">
+        <section class="hero" id="hero">
+          <div class="orb-wrap">
+            <div class="orb-ring" aria-hidden="true"></div>
+            <div
+              class="orb"
+              id="orb"
+              data-state="IDLE"
+              role="button"
+              tabindex="0"
+              aria-pressed="false"
+              aria-label="Toggle hands-free wake-word listening"
+              title="Tap to toggle hands-free mode — say &quot;Zarvis&quot; + your command"
+            ></div>
+          </div>
+          <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
+          <p class="hero-status" id="hero-status" data-state="IDLE">
+            <span class="hero-status-dot" aria-hidden="true"></span>
+            <span id="hero-status-label">IDLE</span>
+          </p>
+        </section>
+
+        <section class="conversation" id="conversation" aria-live="polite"></section>
+
+        <section class="categories" id="categories" aria-label="Skill categories"></section>
+      </section>
+
+      <section class="stage" id="view-capabilities" hidden>
+        <div class="view-header">
+          <h2>Capabilities</h2>
+          <p>Everything Zarvis can do right now, grouped by category.</p>
+        </div>
+        <div class="capabilities-list" id="capabilities-list"></div>
+      </section>
+
+      <section class="stage" id="view-plans" hidden>
+        <div class="view-header">
+          <h2>Plans &amp; Quotas</h2>
+          <p>Free vs Pro — compare tiers and see what's on your account today.</p>
+        </div>
+        <div id="plans-current" class="status-grid"></div>
+        <div class="billing-toggle" id="billing-toggle" role="group" aria-label="Billing period">
+          <button type="button" class="billing-option active" data-billing="monthly">Monthly</button>
+          <button type="button" class="billing-option" data-billing="yearly">Yearly</button>
+        </div>
+        <div class="plan-cards" id="plan-cards"></div>
+      </section>
+
+      <section class="stage" id="view-metrics" hidden>
+        <div class="view-header">
+          <h2>System Metrics</h2>
+          <p>Latency measured live in this browser, and your current task log.</p>
+        </div>
+        <div class="status-grid" id="metrics-health-grid"></div>
+        <h3 class="section-label">Live API Latency</h3>
+        <div class="stat-row" id="latency-stats"></div>
+        <div class="latency-log" id="latency-log"></div>
+        <h3 class="section-label">Task Log</h3>
+        <div class="task-list" id="task-list"></div>
+      </section>
+    </main>
+
+    <footer class="composer" id="composer">
+      <div class="command-bar" id="command-bar">
+        <button id="mic-btn" class="mic-btn" type="button" title="Speak">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        </button>
+        <input id="text-input" class="text-input" type="text" placeholder="Type your task…" autocomplete="off" />
+        <button id="send-btn" class="send-btn" type="button" title="Send">
+          <span class="send-label">Send</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+      </div>
+    </footer>
+
+    <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
+      <button type="button" class="nav-item active" data-view="workspace">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <span>Workspace</span>
+      </button>
+      <button type="button" class="nav-item" data-view="capabilities">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+        <span>Capabilities</span>
+      </button>
+      <button type="button" class="nav-item" data-view="plans">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        <span>Plans</span>
+      </button>
+      <button type="button" class="nav-item" data-view="metrics">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+        <span>Metrics</span>
+        <span class="nav-badge" id="metrics-badge" hidden></span>
+      </button>
+    </nav>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

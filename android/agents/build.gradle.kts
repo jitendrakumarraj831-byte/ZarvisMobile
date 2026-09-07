@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.agents"
+    namespace = "com.zarvismobile.agents"
     compileSdk = 34
 
     defaultConfig {

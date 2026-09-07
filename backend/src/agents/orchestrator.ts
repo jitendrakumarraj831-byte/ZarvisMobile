@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
-import type { AIProvider } from "../ai/provider.js";
+import type { AIProvider, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { ToolPipeline } from "../tooling/toolPipeline.js";
@@ -11,6 +11,13 @@ export interface TurnRequest {
   utterance: string;
   confirmed?: boolean;
   locale?: string;
+  /** Client-supplied display name (see api/routes/orchestrator.ts) — used only to let the
+   * model address the user naturally; never an identity/auth claim (the account is already
+   * authenticated via the bearer token, see authMiddleware.ts). */
+  userName?: string;
+  /** True only for the first turn of a client session — asks for a warmer, one-time
+   * welcome-style reply instead of the terser tone every later turn uses. */
+  isFirstTurn?: boolean;
 }
 
 export interface TurnResult {
@@ -30,6 +37,7 @@ export class Orchestrator {
     private readonly entitlementPort: EntitlementPort,
     private readonly pipeline: ToolPipeline,
     private readonly provider: AIProvider,
+    private readonly modelConfig: ModelConfiguration,
   ) {}
 
   async runTurn(request: TurnRequest): Promise<TurnResult> {
@@ -41,16 +49,14 @@ export class Orchestrator {
       .filter((skill) => resolveEntitlement(snapshot, skill, now).allowed);
 
     const aiResponse = await this.provider.generate({
-      systemPrompt:
-        "You are JARVIS, a universal AI digital agent. Select at most one tool that " +
-        "accomplishes the user's request, or reply directly if no tool applies.",
+      systemPrompt: buildSystemPrompt(request),
       messages: [{ role: "user", content: request.utterance }],
       tools: availableSkills.map((skill) => ({
         name: skill.id,
         description: skill.description,
         inputSchema: skill.inputSchema,
       })),
-      modelConfig: { provider: "mock", model: "mock-v1" },
+      modelConfig: this.modelConfig,
     });
 
     if (aiResponse.toolCalls.length === 0) {
@@ -71,9 +77,42 @@ export class Orchestrator {
       results.push({ skillId: call.skillId, outcome });
     }
 
-    const message = results.map((r) => explainOutcome(r.outcome)).join("\n");
+    // Gemini frequently returns conversational text *alongside* a tool call (e.g. an
+    // opening greeting, or "let me check that for you") — discarding it here would also
+    // silently drop the first-turn welcome instruction above whenever the model reasonably
+    // combined the greeting with actually doing the work, which is the common case, not an
+    // edge case.
+    const toolMessage = results.map((r) => explainOutcome(r.outcome)).join("\n");
+    const message = aiResponse.message.content ? `${aiResponse.message.content}\n\n${toolMessage}` : toolMessage;
     return { message, toolCalls: results };
   }
+}
+
+/**
+ * Builds the system prompt for one turn. The base instruction never changes; `userName`
+ * and `isFirstTurn` add short, optional clauses only when the client actually sent them —
+ * see TurnRequest's doc comments for why each exists and its trust boundary.
+ */
+function buildSystemPrompt(request: TurnRequest): string {
+  let prompt =
+    "You are ZARVIS, a universal AI digital agent. Select at most one tool that " +
+    "accomplishes the user's request, or reply directly if no tool applies.";
+  if (request.userName) {
+    prompt +=
+      ` The user's name is ${request.userName} — address them by name when it feels ` +
+      "natural (e.g. an opening greeting), not in every single reply.";
+  }
+  if (request.isFirstTurn) {
+    prompt +=
+      " This is the very first message of a new conversation session: open with one " +
+      "short, warm, energetic welcome/introduction as ZARVIS before addressing what they " +
+      "asked — not a generic template, and never longer than a sentence or two. This " +
+      "applies even when you also select a tool to fulfill the request: always include " +
+      "that short greeting as your own text response alongside the tool call, never a " +
+      "tool call with no accompanying text on this first turn. Every later reply in this " +
+      "session should be direct and concise, without repeating the introduction.";
+  }
+  return prompt;
 }
 
 /** Maps every pipeline outcome to an honest, user-facing explanation — never a fake success. */

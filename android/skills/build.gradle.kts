@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.skills"
+    namespace = "com.zarvismobile.skills"
     compileSdk = 34
 
     defaultConfig {
@@ -24,5 +24,6 @@ kotlin {
 dependencies {
     implementation(project(":domain"))
     implementation(project(":data:data-local"))
+    implementation(project(":core:core-tooling"))
     implementation(libs.coroutines.core)
 }

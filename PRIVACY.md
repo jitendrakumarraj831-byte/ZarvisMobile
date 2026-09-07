@@ -5,7 +5,7 @@ This document describes the product's data handling in plain language. It will b
 finalized with legal review before any public launch; until then it is the binding
 internal policy engineering builds against.
 
-## What JARVIS MOBILE stores about you
+## What ZARVIS MOBILE stores about you
 
 | Data | Stored? | Retention |
 |---|---|---|

@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.feature.conversation"
+    namespace = "com.zarvismobile.feature.conversation"
     compileSdk = 34
 
     defaultConfig {

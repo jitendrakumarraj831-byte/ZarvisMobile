@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jarvismobile.core.tooling"
+    namespace = "com.zarvismobile.core.tooling"
     compileSdk = 34
 
     defaultConfig {
