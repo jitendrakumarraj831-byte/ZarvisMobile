@@ -1,0 +1,1073 @@
+<title>JARVIS Mobile</title>
+<style>
+  :root {
+    --bg: #0b0d14;
+    --bg-glow-1: #6c6bff;
+    --bg-glow-2: #4ee1d6;
+    --surface: #14171f;
+    --surface-elevated: #1c202b;
+    --accent-indigo: #6c6bff;
+    --accent-cyan: #4ee1d6;
+    --text-primary: #f3f4f8;
+    --text-secondary: #a0a5b8;
+    --border: #2a2f3d;
+    --error: #ff6b6b;
+    --warning: #ffc46b;
+    --success: #5fe38b;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 16px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  body::before, body::after {
+    content: "";
+    position: fixed;
+    width: 46vmax;
+    height: 46vmax;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.16;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before { background: var(--bg-glow-1); top: -14vmax; left: -12vmax; }
+  body::after  { background: var(--bg-glow-2); bottom: -16vmax; right: -10vmax; }
+
+  h1, h2, h3, .display {
+    font-family: "Sora", ui-sans-serif, system-ui, sans-serif;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  button {
+    font-family: inherit;
+    padding: 0;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* ---------- page chrome (context around the phone) ---------- */
+
+  .stage {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .stage-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+  .stage-label .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent);
+  }
+
+  /* ---------- phone frame ---------- */
+
+  .phone {
+    width: 380px;
+    max-width: 92vw;
+    height: 800px;
+    max-height: 86vh;
+    background: linear-gradient(180deg, #171a24, #0d0f16);
+    border-radius: 46px;
+    padding: 14px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.06),
+      0 40px 90px -30px rgba(0,0,0,0.85),
+      0 0 60px -10px color-mix(in srgb, var(--accent-indigo) 25%, transparent);
+    position: relative;
+  }
+
+  .screen {
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    border-radius: 32px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .notch {
+    position: absolute;
+    top: 10px; left: 50%; transform: translateX(-50%);
+    width: 90px; height: 22px;
+    background: #05060a;
+    border-radius: 12px;
+    z-index: 30;
+  }
+
+  .statusbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 26px 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex-shrink: 0;
+  }
+  .statusbar .icons { display: flex; gap: 5px; align-items: center; color: var(--text-secondary); }
+
+  /* ---------- view switching ---------- */
+
+  .views { position: relative; flex: 1; min-height: 0; }
+  .view {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    transition: transform 320ms cubic-bezier(.32,.72,0,1), opacity 320ms ease;
+  }
+  .view[data-active="false"] { pointer-events: none; }
+
+  #view-home[data-active="true"]  { transform: translateX(0); opacity: 1; }
+  #view-home[data-active="false"] { transform: translateX(-6%); opacity: 0; }
+  #view-convo[data-active="true"]  { transform: translateX(0); opacity: 1; }
+  #view-convo[data-active="false"] { transform: translateX(100%); opacity: 0; }
+
+  .scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    scrollbar-width: none;
+  }
+  .scroll::-webkit-scrollbar { display: none; }
+
+  /* ---------- home header ---------- */
+
+  .home-topbar { display: flex; justify-content: flex-end; padding-top: 6px; }
+  .icon-btn {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .icon-btn:hover { color: var(--text-primary); border-color: color-mix(in srgb, var(--accent-cyan) 40%, var(--border)); }
+
+  .brand { text-align: center; display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+  .brand .wordmark {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    background: linear-gradient(90deg, var(--text-primary), var(--accent-cyan));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand .tagline { font-size: 14px; color: var(--text-secondary); }
+
+  /* ---------- orb ---------- */
+
+  .orb-wrap { display: flex; justify-content: center; padding: 6px 0 2px; }
+  .orb-pulse {
+    display: flex; align-items: center; justify-content: center;
+    transform: scale(1);
+  }
+  .orb-pulse.pulsing { animation: orb-pulse var(--orb-pulse-dur, 1200ms) ease-in-out infinite alternate; }
+  @keyframes orb-pulse { from { transform: scale(0.92); } to { transform: scale(1.07); } }
+
+  .orb {
+    width: var(--orb-size, 116px);
+    height: var(--orb-size, 116px);
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--orb-c1), var(--orb-c2), var(--orb-c1));
+    box-shadow: 0 0 46px -6px var(--orb-c1);
+    animation: orb-rotate var(--orb-rot-dur, 6000ms) linear infinite;
+    cursor: pointer;
+    border: none;
+    position: relative;
+  }
+  .orb::after {
+    content: "";
+    position: absolute;
+    inset: 10%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.22), transparent 60%), var(--bg);
+    opacity: 0.9;
+  }
+  @keyframes orb-rotate { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .orb, .orb-pulse.pulsing { animation: none; }
+  }
+  .orb[data-busy="true"] { cursor: default; pointer-events: none; }
+
+  /* ---------- composer ---------- */
+
+  .composer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 6px 6px 6px 14px;
+  }
+  .composer:focus-within { border-color: color-mix(in srgb, var(--accent-cyan) 55%, var(--border)); }
+  .composer input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 15px;
+    padding: 8px 2px;
+    min-width: 0;
+  }
+  .composer input::placeholder { color: var(--text-secondary); }
+  .composer input:disabled { opacity: 0.5; }
+
+  .mic-btn, .send-btn {
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    border: none;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    background: transparent;
+    transition: background 150ms, color 150ms;
+  }
+  .mic-btn:hover, .send-btn:hover:not(:disabled) { background: var(--surface-elevated); color: var(--text-primary); }
+  .mic-btn[data-live="true"] { color: var(--accent-cyan); background: color-mix(in srgb, var(--accent-cyan) 14%, transparent); }
+  .send-btn { color: var(--accent-indigo); }
+  .send-btn:disabled { color: var(--text-secondary); opacity: 0.4; cursor: default; }
+  .mic-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* ---------- chips ---------- */
+
+  .chip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; transition: opacity 150ms ease; }
+  .chip-row::-webkit-scrollbar { display: none; }
+  .chip-row[data-busy="true"] { opacity: 0.45; pointer-events: none; }
+  .chip {
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 15px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: color-mix(in srgb, var(--accent-indigo) 55%, var(--border)); }
+
+  /* ---------- cards ---------- */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .card-title { font-size: 15px; font-weight: 700; }
+  .card-sub { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+  .link-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--accent-cyan); font-weight: 700; font-size: 13px; padding: 4px 0;
+  }
+  .link-btn:hover { color: var(--text-primary); }
+
+  .outline-btn {
+    width: 100%;
+    padding: 13px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .outline-btn:hover { border-color: color-mix(in srgb, var(--accent-cyan) 55%, var(--border)); }
+
+  .progress-track { width: 100%; height: 6px; border-radius: 999px; background: var(--surface-elevated); overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent-indigo), var(--accent-cyan)); }
+
+  /* ---------- conversation ---------- */
+
+  .convo-top {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px 2px;
+    flex-shrink: 0;
+  }
+  .back-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text-primary); display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+  }
+  .back-btn:hover { border-color: color-mix(in srgb, var(--accent-cyan) 50%, var(--border)); }
+  .convo-title { font-size: 15px; font-weight: 700; }
+  .convo-title .status { display: block; font-size: 12px; font-weight: 500; color: var(--accent-cyan); margin-top: 1px; }
+
+  .turns {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 14px 16px 6px;
+    display: flex; flex-direction: column; gap: 12px;
+    scrollbar-width: none;
+  }
+  .turns::-webkit-scrollbar { display: none; }
+  .turns-empty {
+    margin: auto;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+    max-width: 220px;
+    line-height: 1.6;
+  }
+
+  .bubble { border-radius: 16px; padding: 11px 14px; font-size: 14px; line-height: 1.5; max-width: 88%; }
+  .bubble.user { align-self: flex-end; background: linear-gradient(135deg, var(--accent-indigo), color-mix(in srgb, var(--accent-indigo) 70%, var(--accent-cyan))); color: #08090d; font-weight: 600; }
+  .bubble.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); }
+  .bubble.thinking { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); font-style: italic; }
+
+  .convo-bottom { flex-shrink: 0; padding: 10px 20px 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .convo-status-line { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-secondary); height: 16px; }
+  .convo-status-line[data-tone="error"] { color: var(--error); }
+  .convo-status-line[data-tone="live"] { color: var(--accent-cyan); }
+  .convo-composer-wrap { width: 100%; }
+
+  /* ---------- dev log ---------- */
+
+  .devlog-toggle {
+    align-self: center;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 4px;
+  }
+  .devlog-toggle:hover { color: var(--text-primary); }
+  .devlog-toggle svg { transition: transform 200ms; }
+  .devlog-toggle[data-open="true"] svg { transform: rotate(180deg); }
+
+  .devlog {
+    width: 100%;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 260ms ease;
+    background: #05060a;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  .devlog[data-open="true"] { max-height: 132px; }
+  .devlog-inner { padding: 8px 10px; height: 116px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+  .devlog-line { font-size: 10.5px; line-height: 1.5; color: var(--text-secondary); display: flex; gap: 7px; }
+  .devlog-line .t { color: #4d5266; flex-shrink: 0; }
+  .devlog-line[data-kind="mic-on"] .msg { color: var(--accent-cyan); }
+  .devlog-line[data-kind="mic-off"] .msg { color: var(--text-secondary); }
+  .devlog-line[data-kind="error"] .msg { color: var(--error); }
+  .devlog-line[data-kind="state"] .msg { color: var(--accent-indigo); }
+
+  /* ---------- sheet (capabilities) ---------- */
+
+  .sheet-scrim {
+    position: absolute; inset: 0; background: rgba(5,6,10,0.6);
+    opacity: 0; pointer-events: none; transition: opacity 220ms ease;
+    z-index: 40;
+  }
+  .sheet-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    max-height: 72%;
+    background: var(--surface-elevated);
+    border-radius: 22px 22px 0 0;
+    border-top: 1px solid var(--border);
+    transform: translateY(100%);
+    transition: transform 260ms cubic-bezier(.32,.72,0,1);
+    z-index: 41;
+    display: flex; flex-direction: column;
+  }
+  .sheet[data-open="true"] { transform: translateY(0); }
+  .sheet-handle { width: 36px; height: 4px; border-radius: 999px; background: var(--border); margin: 10px auto 4px; flex-shrink: 0; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 18px 10px; flex-shrink: 0; }
+  .sheet-body { overflow-y: auto; padding: 0 18px 22px; display: flex; flex-direction: column; gap: 16px; }
+
+  .skill-group-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin: 6px 0 2px; }
+  .skill-row { display: flex; flex-direction: column; gap: 3px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .skill-row:last-child { border-bottom: none; }
+  .skill-name-line { display: flex; align-items: center; gap: 8px; }
+  .skill-name { font-size: 14px; font-weight: 700; }
+  .skill-desc { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+  .badge {
+    font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
+    padding: 2px 7px; border-radius: 999px; text-transform: uppercase;
+  }
+  .badge.low { color: var(--success); background: color-mix(in srgb, var(--success) 16%, transparent); }
+  .badge.medium { color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, transparent); }
+  .badge.high { color: var(--error); background: color-mix(in srgb, var(--error) 16%, transparent); }
+
+  /* ---------- footnote below phone ---------- */
+
+  .footnote {
+    max-width: 380px;
+    text-align: center;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
+  .footnote b { color: var(--text-primary); }
+</style>
+
+<div class="stage">
+  <div class="stage-label"><span class="dot"></span> Browser preview &middot; no build required</div>
+
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"></div>
+
+      <div class="statusbar">
+        <span>9:41</span>
+        <span class="icons">
+          <svg width="15" height="11" viewBox="0 0 15 11" fill="none"><path d="M1 8.5C4.5 4 10.5 4 14 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <svg width="14" height="10" viewBox="0 0 14 10" fill="none"><rect x="1" y="6" width="2.4" height="4" fill="currentColor"/><rect x="4.6" y="4" width="2.4" height="6" fill="currentColor"/><rect x="8.2" y="2" width="2.4" height="8" fill="currentColor"/><rect x="11.8" y="0.5" width="2.4" height="9.5" fill="currentColor"/></svg>
+        </span>
+      </div>
+
+      <div class="views">
+        <!-- ============ HOME ============ -->
+        <section id="view-home" class="view" data-active="true">
+          <div class="scroll">
+            <div class="home-topbar">
+              <button class="icon-btn" id="btn-settings" aria-label="Settings" title="Settings">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+              </button>
+            </div>
+
+            <div class="brand">
+              <div class="wordmark">JARVIS MOBILE</div>
+              <div class="tagline">आप क्या करवाना चाहते हैं?</div>
+            </div>
+
+            <div class="orb-wrap">
+              <div class="orb-pulse" id="home-orb-pulse">
+                <button class="orb" id="home-orb" aria-label="Tap to speak" title="Tap to speak"></button>
+              </div>
+            </div>
+
+            <div class="composer" id="home-composer">
+              <button class="mic-btn" id="home-mic" aria-label="Speak" title="Speak">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+              </button>
+              <input id="home-input" type="text" placeholder="Type your task" autocomplete="off" />
+              <button class="send-btn" id="home-send" aria-label="Send" disabled>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l18-8L3 4l0 7 12 1-12 1z"/></svg>
+              </button>
+            </div>
+
+            <div class="chip-row" id="chip-row"></div>
+
+            <div class="card">
+              <div class="card-row"><span class="card-title">What can you do?</span></div>
+              <div class="card-sub">See every skill JARVIS currently has, grouped by category.</div>
+              <button class="link-btn" id="btn-capabilities">Browse skills (9)</button>
+            </div>
+
+            <div class="card">
+              <div class="card-row"><span class="card-title">Subscription</span></div>
+              <div class="card-sub">Plan: Free &middot; 6 credits left</div>
+              <div class="progress-track"><div class="progress-fill" style="width: 60%"></div></div>
+              <button class="link-btn" id="btn-subscription">Manage subscription</button>
+            </div>
+
+            <div class="card">
+              <div class="card-row">
+                <span class="card-title">Recent Tasks</span>
+                <button class="link-btn" style="padding:0;">See all</button>
+              </div>
+              <div class="card-sub">No tasks yet — ask JARVIS to do something to get started.</div>
+            </div>
+
+            <button class="outline-btn" id="btn-developer">Open Developer Mode</button>
+          </div>
+        </section>
+
+        <!-- ============ CONVERSATION ============ -->
+        <section id="view-convo" class="view" data-active="false">
+          <div class="convo-top">
+            <button class="back-btn" id="btn-back" aria-label="Back">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <div class="convo-title">JARVIS<span class="status" id="convo-title-status">Tap the orb or type to start</span></div>
+          </div>
+
+          <div class="turns" id="turns">
+            <div class="turns-empty" id="turns-empty">Ask something out loud, or type below — both work the same way.</div>
+          </div>
+
+          <div class="convo-bottom">
+            <div class="convo-status-line" id="convo-status"></div>
+            <div class="orb-pulse" id="convo-orb-pulse" style="--orb-size:72px;">
+              <button class="orb" id="convo-orb" style="width:72px;height:72px;" aria-label="Tap to speak" title="Tap to speak"></button>
+            </div>
+            <div class="composer convo-composer-wrap" id="convo-composer">
+              <button class="mic-btn" id="convo-mic" aria-label="Speak" title="Speak">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+              </button>
+              <input id="convo-input" type="text" placeholder="Type your task" autocomplete="off" />
+              <button class="send-btn" id="convo-send" aria-label="Send" disabled>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l18-8L3 4l0 7 12 1-12 1z"/></svg>
+              </button>
+            </div>
+
+            <button class="devlog-toggle" id="devlog-toggle" data-open="false">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+              mic engine log
+            </button>
+            <div class="devlog" id="devlog" data-open="false">
+              <div class="devlog-inner" id="devlog-inner"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- capabilities bottom sheet -->
+      <div class="sheet-scrim" id="sheet-scrim" data-open="false"></div>
+      <div class="sheet" id="sheet" data-open="false">
+        <div class="sheet-handle"></div>
+        <div class="sheet-head">
+          <span style="font-weight:800; font-size:15px;">Capabilities</span>
+          <button class="icon-btn" id="sheet-close" aria-label="Close" style="width:30px;height:30px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <div class="sheet-body" id="sheet-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    Tap the mic once — it listens, then <b>stops itself</b> the moment it has an answer or gives up.
+    It never restarts on its own, so watch the <b>mic engine log</b> in the conversation screen: one
+    <span style="color:var(--accent-cyan)">mic-on</span> line per tap, always followed by a
+    <span style="color:var(--text-secondary)">mic-off</span> — that's the loop bug, fixed.
+  </div>
+</div>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------------------------------------------------------
+   * Skill catalogue — real data from this repo's SKILLS.md, grouped
+   * exactly the way HomeScreen's capabilities sheet groups it.
+   * ------------------------------------------------------------- */
+  var SKILLS = [
+    { id: "personal.reminder", category: "Personal", name: "Reminder", desc: "Create, list, and complete reminders — runs on-device.", risk: "low" },
+    { id: "web.search", category: "Web", name: "Web search", desc: "Search the web through the backend search pipeline.", risk: "low" },
+    { id: "docs.summarize", category: "Documents", name: "Summarize", desc: "Summarize a document you share with JARVIS.", risk: "low" },
+    { id: "developer.analyze_repo", category: "Developer", name: "Analyze repo", desc: "Read-only scan of a GitHub repository for issues.", risk: "low" },
+    { id: "phone.*", category: "Phone", name: "Phone actions", desc: "Foundation registered — handlers ship in a later phase.", risk: "medium" },
+    { id: "business.*", category: "Business", name: "Business actions", desc: "Foundation registered — handlers ship in a later phase.", risk: "medium" },
+    { id: "research.*", category: "Research", name: "Research", desc: "Foundation registered — handlers ship in a later phase.", risk: "medium" },
+    { id: "creative.*", category: "Creative", name: "Creative", desc: "Foundation registered — handlers ship in a later phase.", risk: "medium" },
+    { id: "automation.*", category: "Automation", name: "Automation", desc: "Foundation registered — handlers ship in a later phase.", risk: "high" },
+  ];
+
+  var CATEGORIES = [
+    { label: "Phone", example: "Open YouTube" },
+    { label: "Web", example: "Find the best phone under 20000" },
+    { label: "Work", example: "What's important for me to do today?" },
+    { label: "Documents", example: "Summarize this document" },
+    { label: "Developer", example: "Check my GitHub project for errors" },
+  ];
+
+  var REPLIES = {
+    "Open YouTube": "Phone actions are foundation-only right now — I can't open apps yet, but this is queued for a later phase.",
+    "Find the best phone under 20000": "Here are the top three under ₹20,000 by review score: Nova X3, Pulse G5, and Orbit Lite — want a side-by-side?",
+    "What's important for me to do today?": "You have no reminders set yet. Say \"remind me to…\" and I'll track it for you.",
+    "Summarize this document": "I don't have a document attached to this turn — share one and I'll summarize it in a few lines.",
+    "Check my GitHub project for errors": "Scanning is read-only and mocked in this preview: no blocking issues found in the sample repo.",
+  };
+  var DEFAULT_REPLY = "Got it — I don't have a live backend in this browser preview, but that's exactly the turn a real request would take.";
+
+  /* ---------------------------------------------------------------
+   * Orb visual spec — ported 1:1 from AiOrb.kt so this preview
+   * matches the real component's colors/timings per VoiceState.
+   * ------------------------------------------------------------- */
+  var C = { indigo: "#6c6bff", cyan: "#4ee1d6", error: "#ff6b6b" };
+  function withAlpha(hex, a) {
+    var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+  }
+  var ORB_SPEC = {
+    idle:          { c1: C.indigo, c2: withAlpha(C.indigo,0.6), rot: 6000, pulses: false, status: "Tap the orb or type to start" },
+    listening:     { c1: C.cyan,   c2: C.indigo,               rot: 6000, pulses: true,  pulseDur: 700, status: "Listening…" },
+    understanding: { c1: C.indigo, c2: C.cyan,                 rot: 1500, pulses: false, status: "Understanding…" },
+    planning:      { c1: C.indigo, c2: C.cyan,                 rot: 1500, pulses: false, status: "Planning…" },
+    executing:     { c1: C.cyan,   c2: withAlpha(C.cyan,0.5),  rot: 900,  pulses: false, status: "Working on it…" },
+    speaking:      { c1: C.indigo, c2: C.cyan,                 rot: 6000, pulses: true,  pulseDur: 500, status: "Speaking…" },
+    error:         { c1: C.error,  c2: withAlpha(C.error,0.6), rot: 6000, pulses: false, status: "Something went wrong — try again" },
+  };
+
+  function applyOrbState(orbEl, pulseEl, key) {
+    var spec = ORB_SPEC[key];
+    orbEl.style.setProperty("--orb-c1", spec.c1);
+    orbEl.style.setProperty("--orb-c2", spec.c2);
+    orbEl.style.setProperty("--orb-rot-dur", spec.rot + "ms");
+    orbEl.setAttribute("data-state", key);
+    if (spec.pulses) {
+      pulseEl.style.setProperty("--orb-pulse-dur", spec.pulseDur + "ms");
+      pulseEl.classList.add("pulsing");
+    } else {
+      pulseEl.classList.remove("pulsing");
+    }
+  }
+
+  /* ---------------------------------------------------------------
+   * App state
+   * ------------------------------------------------------------- */
+  var state = {
+    screen: "home",
+    voice: "idle",     // idle | listening | understanding | planning | executing | speaking | error
+    composer: "",
+    turns: [],          // {user, assistant|null}
+  };
+
+  var els = {
+    viewHome: document.getElementById("view-home"),
+    viewConvo: document.getElementById("view-convo"),
+    homeOrb: document.getElementById("home-orb"),
+    homeOrbPulse: document.getElementById("home-orb-pulse"),
+    homeInput: document.getElementById("home-input"),
+    homeSend: document.getElementById("home-send"),
+    homeMic: document.getElementById("home-mic"),
+    convoOrb: document.getElementById("convo-orb"),
+    convoOrbPulse: document.getElementById("convo-orb-pulse"),
+    convoInput: document.getElementById("convo-input"),
+    convoSend: document.getElementById("convo-send"),
+    convoMic: document.getElementById("convo-mic"),
+    convoStatus: document.getElementById("convo-status"),
+    convoTitleStatus: document.getElementById("convo-title-status"),
+    turns: document.getElementById("turns"),
+    turnsEmpty: document.getElementById("turns-empty"),
+    chipRow: document.getElementById("chip-row"),
+    devlogInner: document.getElementById("devlog-inner"),
+    devlog: document.getElementById("devlog"),
+    devlogToggle: document.getElementById("devlog-toggle"),
+    sheet: document.getElementById("sheet"),
+    sheetScrim: document.getElementById("sheet-scrim"),
+    sheetBody: document.getElementById("sheet-body"),
+  };
+
+  function go(screen) {
+    state.screen = screen;
+    els.viewHome.setAttribute("data-active", screen === "home");
+    els.viewConvo.setAttribute("data-active", screen === "conversation");
+  }
+
+  /* ---------------------------------------------------------------
+   * Dev log — every mic start/stop is timestamped here so the
+   * "does the mic loop?" question has a visible, checkable answer.
+   * ------------------------------------------------------------- */
+  var logStartedAt = null;
+  function logLine(kind, msg) {
+    if (logStartedAt === null) logStartedAt = performance.now();
+    var t = ((performance.now() - logStartedAt) / 1000).toFixed(1) + "s";
+    var row = document.createElement("div");
+    row.className = "devlog-line";
+    row.setAttribute("data-kind", kind);
+    var tEl = document.createElement("span");
+    tEl.className = "t mono";
+    tEl.textContent = t;
+    var msgEl = document.createElement("span");
+    msgEl.className = "msg mono";
+    msgEl.textContent = msg;   // textContent, not innerHTML — msg can carry a live speech transcript
+    row.appendChild(tEl);
+    row.appendChild(msgEl);
+    els.devlogInner.appendChild(row);
+    els.devlogInner.scrollTop = els.devlogInner.scrollHeight;
+    while (els.devlogInner.children.length > 60) els.devlogInner.removeChild(els.devlogInner.firstChild);
+  }
+
+  els.devlogToggle.addEventListener("click", function () {
+    var open = els.devlogToggle.getAttribute("data-open") !== "true";
+    els.devlogToggle.setAttribute("data-open", open);
+    els.devlog.setAttribute("data-open", open);
+  });
+
+  /* ---------------------------------------------------------------
+   * Voice engine — mirrors ConversationViewModel's state machine
+   * (idle -> listening -> understanding -> planning -> executing ->
+   * speaking -> idle).
+   *
+   * Every mic session carries a token. A callback from a recognizer
+   * (onresult/onerror/onend) only acts if its token still matches
+   * `currentToken` — once a session has been ended (by us, by the
+   * user cancelling, or by a result), its own late-arriving events
+   * are ignored instead of being able to restart or interrupt
+   * whatever comes next. This is what actually prevents the
+   * "mic keeps turning on by itself" failure mode: without a token
+   * guard, a real recognizer's `onend` can fire *after* we've
+   * already switched to a fallback and stop that fallback session
+   * out from under it.
+   * ------------------------------------------------------------- */
+  var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recognizer = null;
+  var micSessionActive = false;   // true from the moment a session opens until it's fully closed
+  var currentToken = 0;
+  var simTimer = null;            // the setInterval driving the simulated-dictation fallback, if any
+  var pendingTimers = [];
+
+  function clearTimers() {
+    pendingTimers.forEach(clearTimeout);
+    pendingTimers = [];
+    if (simTimer !== null) { clearInterval(simTimer); simTimer = null; }
+  }
+  function after(ms, fn) { var id = setTimeout(fn, ms); pendingTimers.push(id); return id; }
+
+  /** Closes the session identified by `token`, if it's still the live one. No-op otherwise. */
+  function endSession(token) {
+    if (token !== currentToken) return;
+    if (simTimer !== null) { clearInterval(simTimer); simTimer = null; }
+    if (recognizer) { try { recognizer.stop(); } catch (e) {} recognizer = null; }
+    micSessionActive = false;
+    logLine("mic-off", "session closed");
+  }
+
+  function setVoice(key) {
+    state.voice = key;
+    applyOrbState(els.homeOrb, els.homeOrbPulse, key);
+    applyOrbState(els.convoOrb, els.convoOrbPulse, key);
+    var spec = ORB_SPEC[key];
+    els.convoStatus.textContent = spec.status;
+    els.convoStatus.setAttribute("data-tone", key === "error" ? "error" : (key === "listening" ? "live" : ""));
+    els.convoTitleStatus.textContent = spec.status;
+
+    var busy = key !== "idle" && key !== "listening" && key !== "error";
+    [els.homeInput, els.convoInput].forEach(function (i) { i.disabled = busy; });
+    els.homeMic.disabled = busy;
+    els.convoMic.disabled = busy;
+    els.homeMic.setAttribute("data-live", key === "listening");
+    els.convoMic.setAttribute("data-live", key === "listening");
+    els.homeOrb.setAttribute("data-busy", busy);
+    els.convoOrb.setAttribute("data-busy", busy);
+    els.chipRow.setAttribute("data-busy", busy);
+    updateSendButtons();
+    logLine("state", key.toUpperCase());
+  }
+
+  function updateSendButtons() {
+    var busy = state.voice !== "idle" && state.voice !== "listening" && state.voice !== "error";
+    els.homeSend.disabled = busy || !els.homeInput.value.trim();
+    els.convoSend.disabled = busy || !els.convoInput.value.trim();
+  }
+
+  function startListening() {
+    // Guard: ignore taps while a mic session is already running — this is the
+    // single check that stops "double start" loops caused by fast repeat taps.
+    if (micSessionActive) return;
+    micSessionActive = true;
+    var token = ++currentToken;
+    setVoice("listening");
+
+    if (state.screen === "home") go("conversation");
+
+    if (Recognition) {
+      try {
+        var r = new Recognition();
+        recognizer = r;
+        r.lang = "en-IN";
+        r.interimResults = true;
+        r.continuous = false;       // one utterance per session, by design
+        r.maxAlternatives = 1;
+
+        r.onresult = function (e) {
+          if (token !== currentToken) return;   // stale session — ignore
+          var last = e.results[e.results.length - 1];
+          var text = last[0].transcript;
+          setComposerText(text);
+          if (last.isFinal) finishListening(text, token);
+        };
+        r.onerror = function (e) {
+          if (token !== currentToken) return;   // stale session — ignore
+          logLine("error", "recognizer error: " + e.error);
+          if (e.error === "no-speech" || e.error === "aborted") {
+            endSession(token);
+            setVoice("idle");
+          } else {
+            // Close this failed session outright, then open a fresh one for the
+            // fallback — never let the two overlap under the same token.
+            endSession(token);
+            useSimulatedListening(true);
+          }
+        };
+        r.onend = function () {
+          if (token !== currentToken) return;   // stale session — ignore, never restart from here
+          if (micSessionActive) { endSession(token); setVoice("idle"); }
+        };
+
+        r.start();
+        logLine("mic-on", "SpeechRecognition.start()");
+      } catch (err) {
+        endSession(token);
+        useSimulatedListening(true);
+      }
+    } else {
+      useSimulatedListening(false);
+    }
+  }
+
+  function useSimulatedListening(afterRealApiFailed) {
+    micSessionActive = true;
+    var token = ++currentToken;
+    logLine("mic-on", afterRealApiFailed
+      ? "mic unavailable here — simulating"
+      : "SpeechRecognition unsupported — simulating");
+    var examples = CATEGORIES.map(function (c) { return c.example; });
+    var phrase = examples[Math.floor(Math.random() * examples.length)];
+    var i = 0;
+    setComposerText("");
+    simTimer = setInterval(function () {
+      if (token !== currentToken) { clearInterval(simTimer); simTimer = null; return; }
+      i++;
+      setComposerText(phrase.slice(0, i));
+      if (i >= phrase.length) {
+        clearInterval(simTimer);
+        simTimer = null;
+        finishListening(phrase, token);
+      }
+    }, 45);
+  }
+
+  function finishListening(finalText, token) {
+    if (token !== currentToken) return;
+    endSession(token);
+    logLine("mic-off", 'final: "' + finalText + '"');
+    runTurn(finalText.trim());
+  }
+
+  function cancelListening() {
+    if (!micSessionActive) return;
+    endSession(currentToken);
+    // Bump the token *after* closing, so any in-flight recognizer/timer
+    // callback that fires later sees a mismatch and is a guaranteed no-op.
+    currentToken++;
+    setVoice("idle");
+  }
+
+  function setComposerText(t) {
+    state.composer = t;
+    els.homeInput.value = t;
+    els.convoInput.value = t;
+    updateSendButtons();
+  }
+
+  /* ---------------------------------------------------------------
+   * Turn pipeline
+   * ------------------------------------------------------------- */
+  function runTurn(text) {
+    if (!text) { setVoice("idle"); return; }
+    clearTimers();
+    setComposerText("");
+    addTurn(text, null);
+    if (state.screen === "home") go("conversation");
+
+    setVoice("understanding");
+    after(120, function () {
+      setVoice("planning");
+      after(130, function () {
+        setVoice("executing");
+        after(150, function () {
+          var reply = REPLIES[text] || DEFAULT_REPLY;
+          setLastAssistantReply(reply);
+          setVoice("speaking");
+          speak(reply, function () { setVoice("idle"); });
+        });
+      });
+    });
+  }
+
+  function speak(text, done) {
+    var settled = false;
+    function finish() { if (settled) return; settled = true; done(); }
+    if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+      try {
+        var u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-IN";
+        u.onend = finish;
+        u.onerror = finish;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+        after(6000, finish); // safety net if the platform never fires onend
+        return;
+      } catch (e) {}
+    }
+    after(900, finish);
+  }
+
+  function addTurn(user, assistant) {
+    state.turns.push({ user: user, assistant: assistant });
+    renderTurns();
+  }
+  function setLastAssistantReply(reply) {
+    if (state.turns.length) state.turns[state.turns.length - 1].assistant = reply;
+    renderTurns();
+  }
+  function renderTurns() {
+    els.turnsEmpty.style.display = state.turns.length ? "none" : "block";
+    var frag = document.createDocumentFragment();
+    state.turns.forEach(function (turn) {
+      var u = document.createElement("div");
+      u.className = "bubble user";
+      u.textContent = turn.user;
+      frag.appendChild(u);
+      if (turn.assistant) {
+        var a = document.createElement("div");
+        a.className = "bubble assistant";
+        a.textContent = turn.assistant;
+        frag.appendChild(a);
+      } else {
+        var th = document.createElement("div");
+        th.className = "bubble thinking";
+        th.textContent = "…";
+        frag.appendChild(th);
+      }
+    });
+    els.turns.innerHTML = "";
+    els.turns.appendChild(frag);
+    els.turns.scrollTop = els.turns.scrollHeight;
+  }
+
+  /* ---------------------------------------------------------------
+   * Wiring
+   * ------------------------------------------------------------- */
+  function toggleMic() {
+    if (state.voice === "listening") cancelListening();
+    else if (state.voice === "idle" || state.voice === "error") startListening();
+  }
+
+  els.homeOrb.addEventListener("click", function () { go("conversation"); });
+  els.convoOrb.addEventListener("click", toggleMic);
+  els.homeMic.addEventListener("click", toggleMic);
+  els.convoMic.addEventListener("click", toggleMic);
+
+  [els.homeInput, els.convoInput].forEach(function (input) {
+    input.addEventListener("input", function () {
+      state.composer = input.value;
+      var other = input === els.homeInput ? els.convoInput : els.homeInput;
+      other.value = input.value;
+      updateSendButtons();
+    });
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") submitComposer(); });
+  });
+  els.homeSend.addEventListener("click", submitComposer);
+  els.convoSend.addEventListener("click", submitComposer);
+
+  function canStartTurn() {
+    return state.voice === "idle" || state.voice === "listening" || state.voice === "error";
+  }
+
+  function submitComposer() {
+    var text = state.composer.trim();
+    if (!text || !canStartTurn()) return;
+    if (state.voice === "listening") cancelListening();
+    runTurn(text);
+  }
+
+  document.getElementById("btn-back").addEventListener("click", function () {
+    if (state.voice === "listening") cancelListening();
+    go("home");
+  });
+
+  CATEGORIES.forEach(function (c) {
+    var chip = document.createElement("button");
+    chip.className = "chip";
+    chip.textContent = c.label;
+    chip.addEventListener("click", function () {
+      if (!canStartTurn()) return;
+      if (state.voice === "listening") cancelListening();
+      setComposerText(c.example);
+      runTurn(c.example);
+    });
+    els.chipRow.appendChild(chip);
+  });
+
+  /* capabilities sheet */
+  var GROUP_ORDER = [];
+  SKILLS.forEach(function (s) { if (GROUP_ORDER.indexOf(s.category) === -1) GROUP_ORDER.push(s.category); });
+  GROUP_ORDER.forEach(function (cat) {
+    var h = document.createElement("div");
+    h.className = "skill-group-title";
+    h.textContent = cat;
+    els.sheetBody.appendChild(h);
+    SKILLS.filter(function (s) { return s.category === cat; }).forEach(function (s) {
+      var row = document.createElement("div");
+      row.className = "skill-row";
+      row.innerHTML =
+        '<div class="skill-name-line"><span class="skill-name">' + s.name + '</span>' +
+        '<span class="badge ' + s.risk + '">' + s.risk + '</span></div>' +
+        '<div class="skill-desc">' + s.desc + ' <span class="mono" style="opacity:.6;">' + s.id + '</span></div>';
+      els.sheetBody.appendChild(row);
+    });
+  });
+
+  function openSheet() { els.sheet.setAttribute("data-open", "true"); els.sheetScrim.setAttribute("data-open", "true"); }
+  function closeSheet() { els.sheet.setAttribute("data-open", "false"); els.sheetScrim.setAttribute("data-open", "false"); }
+  document.getElementById("btn-capabilities").addEventListener("click", openSheet);
+  document.getElementById("sheet-close").addEventListener("click", closeSheet);
+  els.sheetScrim.addEventListener("click", closeSheet);
+
+  document.getElementById("btn-subscription").addEventListener("click", function () {
+    logLine("state", "Subscription screen not in this preview");
+  });
+  document.getElementById("btn-developer").addEventListener("click", function () {
+    logLine("state", "Developer Mode not in this preview");
+  });
+  document.getElementById("btn-settings").addEventListener("click", function () {
+    logLine("state", "Settings not in this preview");
+  });
+
+  /* init */
+  setVoice("idle");
+})();
+</script>

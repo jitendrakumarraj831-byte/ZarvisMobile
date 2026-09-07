@@ -41,6 +41,10 @@ backend/                  # Node.js + TypeScript backend (Express)
                           # auth, skill catalogue, orchestrator turn endpoint, AI
                           # provider abstraction, entitlements, usage ledger,
                           # developer/web/document skills — see MASTER_SPEC.md §9
+
+preview/                  # Static browser mockup of the Home + Conversation screens
+                          # (no Android build required) — open jarvis-mobile-ui.html
+                          # directly in a browser
 ```
 
 ## Status
