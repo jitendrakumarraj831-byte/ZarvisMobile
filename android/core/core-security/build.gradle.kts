@@ -23,6 +23,7 @@ kotlin {
 
 dependencies {
     implementation(project(":domain"))
+    implementation(libs.core.ktx)
     implementation(libs.security.crypto)
     implementation(libs.coroutines.core)
 }
