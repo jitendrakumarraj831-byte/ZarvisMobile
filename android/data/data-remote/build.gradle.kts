@@ -23,7 +23,9 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":core:core-security"))
+    // ApiClientFactory.create(secureStorage, baseUrl) takes SecureStorage in its public
+    // signature, so core-security is part of this module's API.
+    api(project(":core:core-security"))
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.okhttp.core)

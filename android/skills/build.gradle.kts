@@ -22,8 +22,10 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":domain"))
-    implementation(project(":data:data-local"))
+    // OnDeviceSkillRegistryFactory.create(reminderDao, context) takes a Room DAO from
+    // data-local and returns a domain SkillRegistry, so both are part of its public API.
+    api(project(":domain"))
+    api(project(":data:data-local"))
     implementation(project(":core:core-tooling"))
     implementation(libs.coroutines.core)
 }

@@ -22,6 +22,9 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":domain"))
-    implementation(libs.coroutines.core)
+    // The Android*Port classes implement domain ports and ComposeConfirmationPort exposes a
+    // StateFlow<PendingConfirmation?> that app's ConfirmationViewModel re-publishes, so both
+    // the domain types and coroutines are part of this module's public API.
+    api(project(":domain"))
+    api(libs.coroutines.core)
 }

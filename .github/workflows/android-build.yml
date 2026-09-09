@@ -1,0 +1,64 @@
+name: Android build
+
+# The authoritative automated check that the Android app actually assembles.
+# Runs on a runner that has the Android SDK installed, because :app:assembleDebug
+# needs AGP, the platform SDK and the androidx artifacts from Google's Maven repo.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  assemble-debug:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Java 17 to match every module's `kotlin { jvmToolchain(17) }` / compileOptions.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Pure-Kotlin core: compiles and unit-tests without the Android SDK at all.
+      - name: Build and test :domain
+        run: ./gradlew :domain:build --stacktrace --console=plain
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace --console=plain
+
+      - name: Verify the APK was actually produced
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK" || { echo "::error::$APK does not exist"; exit 1; }
+          SIZE=$(stat -c%s "$APK")
+          echo "APK size: $SIZE bytes"
+          test "$SIZE" -gt 0 || { echo "::error::$APK is empty"; exit 1; }
+          # A valid APK is a zip carrying a binary manifest and at least one dex file.
+          unzip -l "$APK" | grep -q "AndroidManifest.xml" || { echo "::error::no AndroidManifest.xml in APK"; exit 1; }
+          unzip -l "$APK" | grep -q "classes.dex" || { echo "::error::no classes.dex in APK"; exit 1; }
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "$AAPT2" ]; then
+            "$AAPT2" dump badging "$APK" | head -n 5
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

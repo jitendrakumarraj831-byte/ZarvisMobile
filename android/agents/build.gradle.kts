@@ -22,7 +22,9 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":domain"))
-    implementation(project(":data:data-remote"))
+    // AndroidOrchestrator's public constructor takes SkillRegistry + ToolPipeline (domain)
+    // and ZarvisApi (data-remote), and app's di/AppModule calls it directly.
+    api(project(":domain"))
+    api(project(":data:data-remote"))
     implementation(libs.coroutines.core)
 }

@@ -27,10 +27,14 @@ kotlin {
 }
 
 dependencies {
-    implementation(platform(libs.compose.bom))
-    implementation(libs.compose.ui)
-    implementation(libs.compose.material3)
+    // This is a Compose component library: every public declaration in it is Compose-typed
+    // (@Composable functions taking Modifier/Color, ZarvisNavItem carrying an ImageVector,
+    // the ZarvisTheme entry point), so Compose is `api` here and reaches every consumer that
+    // calls into it. The BOM is exported too, so consumers resolve the same Compose versions.
+    api(platform(libs.compose.bom))
+    api(libs.compose.ui)
+    api(libs.compose.material3)
+    api(libs.compose.material.icons)
     implementation(libs.compose.ui.tooling.preview)
-    implementation(libs.compose.material.icons)
     debugImplementation(libs.compose.ui.tooling)
 }
