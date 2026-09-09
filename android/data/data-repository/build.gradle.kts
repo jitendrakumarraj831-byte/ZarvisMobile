@@ -22,8 +22,11 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":domain"))
-    implementation(project(":data:data-remote"))
-    implementation(project(":core:core-security"))
+    // RemoteEntitlementPort/RemoteUsagePort implement domain ports, and SessionRepository's
+    // public constructor takes ZarvisApi and SecureStorage — all three are in this module's
+    // API, and app's di/AppModule constructs them by name.
+    api(project(":domain"))
+    api(project(":data:data-remote"))
+    api(project(":core:core-security"))
     implementation(libs.coroutines.core)
 }

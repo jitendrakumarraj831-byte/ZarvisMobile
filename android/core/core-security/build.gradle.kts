@@ -22,7 +22,9 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":domain"))
+    // AndroidPermissionPort *implements* the domain's PermissionPort, so the domain type is
+    // part of this module's public API and must reach consumers.
+    api(project(":domain"))
     implementation(libs.core.ktx)
     implementation(libs.security.crypto)
     implementation(libs.coroutines.core)

@@ -22,6 +22,9 @@ kotlin {
 }
 
 dependencies {
-    implementation(libs.coroutines.core)
+    // Public API is coroutine-typed (DispatcherProvider exposes CoroutineDispatcher,
+    // SpeechToTextEngine returns Flow, TurnMetricsStore exposes StateFlow), so coroutines
+    // belong on `api` rather than stopping at this module's boundary.
+    api(libs.coroutines.core)
     implementation(libs.coroutines.android)
 }
