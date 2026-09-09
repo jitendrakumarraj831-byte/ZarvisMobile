@@ -47,11 +47,12 @@ class DeveloperViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isAnalyzing = true, error = null, result = null, summary = null)
             try {
                 val response = api.analyzeRepo(DeveloperAnalyzeRequest(repoUrl))
-                if (response.kind == "success" && response.result != null) {
+                val result = response.result
+                if (response.kind == "success" && result != null) {
                     _uiState.value = _uiState.value.copy(
                         isAnalyzing = false,
-                        result = response.result.output.structure,
-                        summary = response.result.summary,
+                        result = result.output.structure,
+                        summary = result.summary,
                     )
                 } else {
                     // Never fake success — the pipeline reported a non-success outcome (e.g. an
