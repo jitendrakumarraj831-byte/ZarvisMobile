@@ -39,7 +39,7 @@ android {
             // 10.0.2.2 is the *emulator's* alias for the host machine's localhost; it is not
             // routable from a physical device, which needs the dev machine's LAN address
             // instead. Override without editing this file (see ../DEVELOPMENT.md):
-            //   ./gradlew :app:assembleDebug -Pzarvis.devApiHost=192.168.1.42
+            //   ./gradlew :app:assembleDebug -Pzarvis.devApiHost=<your-lan-ip>
             // Cleartext HTTP for whatever host this resolves to is permitted only in debug
             // builds, via app/src/debug/res/xml/network_security_config.xml.
             val devApiHost = (project.findProperty("zarvis.devApiHost") as String?) ?: "10.0.2.2"

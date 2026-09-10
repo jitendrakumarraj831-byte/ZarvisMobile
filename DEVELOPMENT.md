@@ -48,12 +48,26 @@ otherwise the app fails to connect. Override the host (and port) at build time r
 editing the file:
 
 ```bash
-./gradlew :app:assembleDebug -Pzarvis.devApiHost=192.168.1.42
-./gradlew :app:assembleDebug -Pzarvis.devApiHost=192.168.1.42 -Pzarvis.devApiPort=3000
+# Substitute YOUR machine's current LAN IP — `ipconfig` on Windows, `ip addr` on Linux,
+# `ipconfig getifaddr en0` on macOS. It is not a fixed value and changes with the network.
+./gradlew :app:assembleDebug -Pzarvis.devApiHost=<your-lan-ip>
+./gradlew :app:assembleDebug -Pzarvis.devApiHost=<your-lan-ip> -Pzarvis.devApiPort=3000
 ```
 
-Make sure the backend is listening on that interface (not just `127.0.0.1`) and that your
-firewall allows the port. Because the dev backend is plain HTTP and Android 9+ blocks
+To avoid retyping it every build, put it in your **personal** Gradle properties —
+`~/.gradle/gradle.properties` (`%USERPROFILE%\.gradle\gradle.properties` on Windows), which
+is outside the repo so a machine-specific address is never committed:
+
+```properties
+zarvis.devApiHost=<your-lan-ip>
+```
+
+The backend already listens on all interfaces: `backend/src/index.ts` calls
+`app.listen(port)` with no host argument, so Node binds the unspecified address rather than
+loopback only — nothing to configure. What does commonly block a phone is the **host
+firewall** (allow inbound TCP 3000) and **client isolation** on guest/corporate/hotspot
+Wi-Fi, which blocks device-to-device traffic outright; on such a network use a phone
+hotspot the laptop joins, or a tunnel, instead. Because the dev backend is plain HTTP and Android 9+ blocks
 cleartext by default, debug builds ship `app/src/debug/res/xml/network_security_config.xml`,
 which permits cleartext. It is in the `debug` source set, so **release builds never include
 it** and keep the platform's secure HTTPS-only default — see SECURITY.md.
