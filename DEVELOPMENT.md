@@ -37,12 +37,30 @@ Android SDK image, instrumented tests) is Phase 12 work.
 
 The app talks to the same backend the web client does (`data-remote`'s `ZarvisApi`,
 MASTER_SPEC.md §25), via a base URL set per build type in `app/build.gradle.kts`'s
-`buildConfigField("String", "API_BASE_URL", ...)`: `debug` defaults to `10.0.2.2` (the
-Android emulator's alias for your host machine, matching `cd backend && npm run dev`
-running locally), `release` defaults to `https://zarvismobile.com/`. Point either build type
-at a different backend by editing that field directly — there's no runtime override flag
-(unlike the web client's `?api=` query param) since this is a compiled app config, not a
-browser URL.
+`buildConfigField("String", "API_BASE_URL", ...)`: `debug` defaults to
+`http://10.0.2.2:3000/` (the Android emulator's alias for your host machine, matching
+`cd backend && npm run dev` running locally), `release` defaults to
+`https://zarvismobile.com/`.
+
+`10.0.2.2` only works on an **emulator**. A physical device is on your LAN, not the
+emulator's virtual network, so it must reach your dev machine by its LAN address instead —
+otherwise the app fails to connect. Override the host (and port) at build time rather than
+editing the file:
+
+```bash
+./gradlew :app:assembleDebug -Pzarvis.devApiHost=192.168.1.42
+./gradlew :app:assembleDebug -Pzarvis.devApiHost=192.168.1.42 -Pzarvis.devApiPort=3000
+```
+
+Make sure the backend is listening on that interface (not just `127.0.0.1`) and that your
+firewall allows the port. Because the dev backend is plain HTTP and Android 9+ blocks
+cleartext by default, debug builds ship `app/src/debug/res/xml/network_security_config.xml`,
+which permits cleartext. It is in the `debug` source set, so **release builds never include
+it** and keep the platform's secure HTTPS-only default — see SECURITY.md.
+
+`release` has no such override flag; point it at a different backend by editing that field
+directly (unlike the web client's `?api=` query param, this is compiled app config, not a
+browser URL).
 
 ## Backend
 

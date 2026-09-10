@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only manifest overlay. The manifest merger gives source-set manifests higher
+  priority than `src/main/AndroidManifest.xml`, so this adds `networkSecurityConfig` to the
+  existing <application> element for debug builds without redeclaring it and without any
+  tools:replace. The main manifest does not set the attribute at all, so release builds
+  remain on the platform's secure default.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>
