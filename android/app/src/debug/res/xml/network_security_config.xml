@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG-ONLY network security config.
+
+  This file lives in `app/src/debug/`, so the Android Gradle Plugin merges it into debug
+  builds only — a release build never sees it and keeps the platform default
+  (`cleartextTrafficPermitted="false"` for targetSdk 28+, MASTER_SPEC.md §15/SECURITY.md).
+
+  Why it is needed: `app/build.gradle.kts` points debug builds at the local dev backend over
+  plain HTTP (`http://<dev-host>:3000/`, matching `cd backend && npm run dev`). Since
+  Android 9 (API 28) the platform blocks cleartext by default, which is what produces
+      CLEARTEXT communication to 10.0.2.2 not permitted by network security policy
+  on a device running a debug build.
+
+  Why base-config rather than a per-domain allowlist: the dev backend's host is
+  machine-specific — the emulator reaches the host machine at 10.0.2.2, but a physical
+  device needs that machine's LAN IP (see the `zarvis.devApiHost` Gradle property), and a
+  network security config can only list literal hosts, not address ranges. Scoping is
+  therefore done by build type instead, which is exact here: a debug build's only network
+  destination is API_BASE_URL — `ApiClientFactory` builds the single Retrofit/OkHttp client
+  the app owns, and `TokenAuthenticator` reuses that same base URL. There is no image
+  loader, analytics SDK or other network caller for this to widen.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

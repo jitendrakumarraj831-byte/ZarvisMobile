@@ -57,6 +57,28 @@ jobs:
             "$AAPT2" dump badging "$APK" | head -n 5
           fi
 
+      # Proves the cleartext permission is debug-only: it must be present in the merged
+      # DEBUG manifest and absent from the merged RELEASE manifest. Guards against anyone
+      # later moving the network security config out of app/src/debug/ into src/main/.
+      - name: Assert cleartext config is debug-only
+        run: |
+          set -euo pipefail
+          ./gradlew :app:processReleaseMainManifest --console=plain
+          debug_manifest=$(find app/build/intermediates -path '*ebug*' -name AndroidManifest.xml \
+            -path '*erged*' | head -n 1)
+          release_manifest=$(find app/build/intermediates -path '*elease*' -name AndroidManifest.xml \
+            -path '*erged*' | head -n 1)
+          test -n "$debug_manifest"   || { echo "::error::merged debug manifest not found"; exit 1; }
+          test -n "$release_manifest" || { echo "::error::merged release manifest not found"; exit 1; }
+          echo "debug   : $debug_manifest"
+          echo "release : $release_manifest"
+          grep -q 'networkSecurityConfig' "$debug_manifest" \
+            || { echo "::error::debug manifest is missing networkSecurityConfig"; exit 1; }
+          if grep -q 'networkSecurityConfig\|usesCleartextTraffic="true"' "$release_manifest"; then
+            echo "::error::release manifest must not enable cleartext traffic"; exit 1
+          fi
+          echo "OK: cleartext permitted in debug only; release untouched"
+
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
