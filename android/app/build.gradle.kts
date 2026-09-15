@@ -1,9 +1,167 @@
+import java.net.Inet4Address
+import java.net.NetworkInterface
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+}
+
+// ---------------------------------------------------------------------------------------
+// Dev backend address (debug builds only)
+//
+// `10.0.2.2` is the *emulator's* NAT alias for the host machine's loopback. A physical
+// phone is a separate machine on the LAN: it has no route to 10.0.2.2 at all, so a debug
+// build hardcoded to it can never reach `cd backend && npm run dev`. The host is therefore
+// resolved per build machine, in this order:
+//
+//   1. -Pzarvis.devApiHost=<host>   (command line, or any gradle.properties — including the
+//                                    personal ~/.gradle/gradle.properties, see DEVELOPMENT.md)
+//   2. ZARVIS_DEV_API_HOST env var  (CI / scripted builds)
+//   3. this machine's LAN IPv4      (auto-detected: what a phone on the same Wi-Fi dials)
+//   4. 10.0.2.2                     (last resort — emulator only; warned about below)
+//
+// Auto-detection is what makes "plug in a phone and Run" work with no setup: the address a
+// phone needs is the address of the machine doing the build.
+// ---------------------------------------------------------------------------------------
+
+/** Interfaces that are never the LAN link a phone can reach (containers, VMs, VPNs, loopback). */
+val virtualInterfacePrefixes = Regex("^(lo|docker|br-|veth|virbr|vmnet|vboxnet|tun|tap|utun|wg|zt|ham|awdl|llw)")
+
+/** Real-hardware LAN IPv4 of the build machine, or null when there is no such interface. */
+fun detectLanIpv4(): String? = runCatching {
+    NetworkInterface.getNetworkInterfaces()
+        .toList()
+        .filter { candidate ->
+            candidate.isUp && !candidate.isLoopback && !candidate.isVirtual &&
+                !virtualInterfacePrefixes.containsMatchIn(candidate.name.lowercase())
+        }
+        // Wi-Fi/Ethernet first (a phone is almost always on the Wi-Fi link), then stable by index.
+        .sortedWith(
+            compareBy(
+                { iface -> if (Regex("^(wl|en|eth|eno|enp|ens|wlp)").containsMatchIn(iface.name.lowercase())) 0 else 1 },
+                { iface -> iface.index },
+            ),
+        )
+        .flatMap { candidate -> candidate.inetAddresses.toList() }
+        .filterIsInstance<Inet4Address>()
+        .firstOrNull { address -> address.isSiteLocalAddress }
+        ?.hostAddress
+}.getOrNull()
+
+/**
+ * True for addresses that only ever exist inside a private network: loopback, RFC1918,
+ * link-local, the emulator alias, and mDNS/`localhost` names. Cleartext HTTP is permitted
+ * (below) only for these — pointing a debug build at a *public* host must not silently
+ * downgrade that host's traffic to plaintext.
+ */
+fun isPrivateDevAddress(host: String): Boolean {
+    val lower = host.lowercase()
+    if (lower == "localhost" || lower.endsWith(".localhost") || lower.endsWith(".local")) return true
+    val octets = lower.split(".").mapNotNull { part -> part.toIntOrNull()?.takeIf { it in 0..255 } }
+    if (octets.size != 4 || lower.split(".").size != 4) return false
+    val (first, second) = octets
+    return when {
+        first == 127 -> true                       // loopback
+        first == 10 -> true                        // RFC1918 (covers the 10.0.2.2 emulator alias)
+        first == 192 && second == 168 -> true      // RFC1918
+        first == 172 && second in 16..31 -> true   // RFC1918
+        first == 169 && second == 254 -> true      // link-local
+        else -> false
+    }
+}
+
+val devApiHostFromProperty = (project.findProperty("zarvis.devApiHost") as String?)?.trim()?.ifEmpty { null }
+val devApiHostFromEnv = System.getenv("ZARVIS_DEV_API_HOST")?.trim()?.ifEmpty { null }
+val devApiHostDetected = if (devApiHostFromProperty == null && devApiHostFromEnv == null) detectLanIpv4() else null
+
+val devApiHostResolution: Pair<String, String> = when {
+    devApiHostFromProperty != null -> devApiHostFromProperty to "-Pzarvis.devApiHost"
+    devApiHostFromEnv != null -> devApiHostFromEnv to "ZARVIS_DEV_API_HOST"
+    devApiHostDetected != null -> devApiHostDetected to "auto-detected LAN address of this machine"
+    else -> "10.0.2.2" to "fallback (no LAN interface found)"
+}
+val devApiHost: String = devApiHostResolution.first
+val devApiHostSource: String = devApiHostResolution.second
+val devApiPort = ((project.findProperty("zarvis.devApiPort") as String?) ?: System.getenv("ZARVIS_DEV_API_PORT"))
+    ?.trim()?.ifEmpty { null } ?: "3000"
+val devApiBaseUrl = "http://$devApiHost:$devApiPort/"
+
+/**
+ * Hosts the generated debug network security config permits cleartext to. The dev host is
+ * included only when it is a private address; `10.0.2.2` (emulator) and loopback (`adb
+ * reverse tcp:3000 tcp:3000`) are always included so one APK works on both emulator and
+ * phone. Everything else keeps the platform's HTTPS-only default.
+ */
+val devCleartextHosts: List<String> = buildList {
+    if (isPrivateDevAddress(devApiHost)) add(devApiHost)
+    addAll(listOf("10.0.2.2", "127.0.0.1", "localhost"))
+}.distinct()
+
+logger.lifecycle("ZARVIS debug API base URL: $devApiBaseUrl  [host from $devApiHostSource]")
+if (devApiHost == "10.0.2.2" && devApiHostSource.startsWith("fallback")) {
+    logger.warn(
+        "ZARVIS: falling back to the emulator alias 10.0.2.2 — a PHYSICAL DEVICE cannot reach it. " +
+            "Build with -Pzarvis.devApiHost=<your-machine's-LAN-IP> (see DEVELOPMENT.md).",
+    )
+}
+if (!isPrivateDevAddress(devApiHost)) {
+    logger.warn(
+        "ZARVIS: dev API host '$devApiHost' is not a private/LAN address, so cleartext HTTP to it is " +
+            "NOT permitted by the generated network security config (it would downgrade a public host to " +
+            "plaintext). Use an https:// backend for non-local hosts, or a LAN address for local dev.",
+    )
+}
+
+/**
+ * Writes the debug-only `res/xml/network_security_config.xml`. Generated rather than
+ * checked in because the one host that actually needs a cleartext exemption — the dev
+ * machine's LAN address — is machine-specific, and Android's network security config can
+ * only name literal hosts, never ranges. Generating it keeps the exemption scoped to the
+ * exact host this build talks to instead of a blanket `base-config` that would permit
+ * cleartext to every domain on the internet.
+ */
+abstract class GenerateNetworkSecurityConfig : DefaultTask() {
+
+    /** Hosts to permit cleartext HTTP for. Everything else keeps the secure default. */
+    @get:Input
+    abstract val cleartextHosts: ListProperty<String>
+
+    /** Recorded in a comment so the generated file explains itself when someone finds it. */
+    @get:Input
+    abstract val baseUrl: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val xmlDir = outputDir.get().asFile.resolve("xml")
+        xmlDir.mkdirs()
+        val lines = buildList {
+            add("""<?xml version="1.0" encoding="utf-8"?>""")
+            add("<!--")
+            add("  GENERATED by :app:$name — do not edit, and do not check in.")
+            add("")
+            add("  Debug builds talk to a local dev backend over plain HTTP (${baseUrl.get()}), which")
+            add("  Android 9+ (API 28) blocks by default. Only the hosts listed below are exempted;")
+            add("  every other destination keeps the platform's HTTPS-only default, including in debug.")
+            add("  This whole file exists in debug builds only — release keeps the platform default and")
+            add("  never sees a cleartext exemption (SECURITY.md).")
+            add("-->")
+            add("<network-security-config>")
+            add("""    <base-config cleartextTrafficPermitted="false" />""")
+            add("""    <domain-config cleartextTrafficPermitted="true">""")
+            cleartextHosts.get().forEach { host ->
+                add("""        <domain includeSubdomains="false">$host</domain>""")
+            }
+            add("    </domain-config>")
+            add("</network-security-config>")
+        }
+        xmlDir.resolve("network_security_config.xml").writeText(lines.joinToString("\n", postfix = "\n"))
+    }
 }
 
 android {
@@ -29,27 +187,33 @@ android {
     }
 
     buildTypes {
-        // API_BASE_URL previously had no way to be set at all — ApiClientFactory's default
-        // (10.0.2.2, the Android emulator's alias for the host machine's localhost) was the
-        // *only* value ever used, in every build type, so a release build on a real device
-        // could never reach the deployed backend. debug keeps the emulator-local default
-        // (matches DEVELOPMENT.md's `npm run dev` local workflow); release points at the
+        // API_BASE_URL is the app's only network destination (`ApiClientFactory` builds the
+        // single Retrofit/OkHttp client, and `TokenAuthenticator` reuses the same base URL).
+        // debug points at the local dev backend resolved above; release points at the
         // production domain the web client already uses (MASTER_SPEC.md §12a).
         debug {
-            // 10.0.2.2 is the *emulator's* alias for the host machine's localhost; it is not
-            // routable from a physical device, which needs the dev machine's LAN address
-            // instead. Override without editing this file (see ../DEVELOPMENT.md):
-            //   ./gradlew :app:assembleDebug -Pzarvis.devApiHost=<your-lan-ip>
-            // Cleartext HTTP for whatever host this resolves to is permitted only in debug
-            // builds, via app/src/debug/res/xml/network_security_config.xml.
-            val devApiHost = (project.findProperty("zarvis.devApiHost") as String?) ?: "10.0.2.2"
-            val devApiPort = (project.findProperty("zarvis.devApiPort") as String?) ?: "3000"
-            buildConfigField("String", "API_BASE_URL", "\"http://$devApiHost:$devApiPort/\"")
+            buildConfigField("String", "API_BASE_URL", "\"$devApiBaseUrl\"")
         }
         release {
             isMinifyEnabled = false
             buildConfigField("String", "API_BASE_URL", "\"https://zarvismobile.com/\"")
         }
+    }
+}
+
+// The generated config is wired into the debug variant's resources only, so a release build
+// has no `@xml/network_security_config` at all (app/src/debug/AndroidManifest.xml, which
+// references it, is likewise debug-only).
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        val generateTask = tasks.register<GenerateNetworkSecurityConfig>(
+            "generate${variant.name.replaceFirstChar { it.uppercase() }}NetworkSecurityConfig",
+        ) {
+            description = "Generates the debug-only network security config scoped to the dev backend host."
+            cleartextHosts.set(devCleartextHosts)
+            baseUrl.set(devApiBaseUrl)
+        }
+        variant.sources.res?.addGeneratedSourceDirectory(generateTask, GenerateNetworkSecurityConfig::outputDir)
     }
 }
 

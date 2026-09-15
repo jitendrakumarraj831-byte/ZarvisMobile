@@ -10,15 +10,19 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 
 /**
  * Builds the [ZarvisApi] client. `baseUrl` points at the ZARVIS backend (never at an AI
- * provider or GitHub directly — see MASTER_SPEC.md §9 and ARCHITECTURE.md). Defaults to the
- * emulator-local dev backend; `app`'s `di/AppModule` passes `BuildConfig.API_BASE_URL`
- * instead, which resolves to the real deployed backend in a release build — see
- * `app/build.gradle.kts`.
+ * provider or GitHub directly — see MASTER_SPEC.md §9 and ARCHITECTURE.md).
+ *
+ * It is deliberately a required parameter with no default: the only correct value depends
+ * on the build (`BuildConfig.API_BASE_URL`, passed by `app`'s `di/AppModule`) — the local
+ * dev backend in debug, `https://zarvismobile.com/` in release. A default here used to be
+ * `http://10.0.2.2:3000/`, the *emulator's* alias for the host machine's loopback, which is
+ * unroutable from a physical phone; making callers state the URL keeps that address from
+ * silently reappearing on a real device. See `app/build.gradle.kts`.
  */
 object ApiClientFactory {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun create(secureStorage: SecureStorage, baseUrl: String = "http://10.0.2.2:3000/"): ZarvisApi {
+    fun create(secureStorage: SecureStorage, baseUrl: String): ZarvisApi {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             // BASIC only — never log request/response bodies, which may carry tokens or
             // conversation content. See SECURITY.md "Logging redaction".
