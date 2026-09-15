@@ -105,14 +105,18 @@ jobs:
       - name: Assert the exemption follows -Pzarvis.devApiHost
         run: |
           set -euo pipefail
+          # Only <domain> entries grant an exemption. The file's header comment names the
+          # base URL that was configured, so match the entries rather than the whole file.
+          exempted_hosts() { sed -n 's/.*<domain[^>]*>\(.*\)<\/domain>.*/\1/p' "$1"; }
           ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=192.168.1.50 --console=plain
           NSC=$(find app/build/generated -name network_security_config.xml | head -n 1)
           cat "$NSC"
-          grep -q '<domain includeSubdomains="false">192.168.1.50</domain>' "$NSC" \
+          exempted_hosts "$NSC" | grep -qx '192.168.1.50' \
             || { echo "::error::LAN dev host was not exempted"; exit 1; }
           # A public host must never be granted a cleartext exemption, even in debug.
           ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=staging.example.com --console=plain
-          if grep -q 'staging.example.com' "$NSC"; then
+          cat "$NSC"
+          if exempted_hosts "$NSC" | grep -qx 'staging.example.com'; then
             echo "::error::a public host was granted a cleartext exemption"; exit 1
           fi
           echo "OK: exemption tracks the configured LAN host; public hosts stay HTTPS-only"
