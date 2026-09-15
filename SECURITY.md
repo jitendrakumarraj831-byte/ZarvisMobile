@@ -48,6 +48,29 @@ structured log line is written. Tool execution logs (`ToolExecution` records) st
 schema-validated input/output with the same redaction applied — see
 [MASTER_SPEC.md §24](./MASTER_SPEC.md#24-data-model-core-entities).
 
+## Transport security (Android)
+
+Release builds have no network security config and no `usesCleartextTraffic` flag, so they
+keep the platform default for `targetSdk` 28+: **HTTPS only, cleartext refused**. The
+production base URL is `https://zarvismobile.com/`.
+
+Debug builds need one exception, because the local dev backend (`npm run dev`) speaks plain
+HTTP. It is granted as narrowly as the platform allows:
+
+- the config is *generated per build* (`app/build.gradle.kts`,
+  `generateDebugNetworkSecurityConfig`) into the **debug variant only** — release builds
+  never see the file, and the manifest attribute referencing it is in
+  `app/src/debug/AndroidManifest.xml`;
+- `base-config` keeps `cleartextTrafficPermitted="false"`, so the exemption is a
+  `domain-config` allowlist, never an app-wide switch;
+- only the configured dev host plus the loopback/emulator aliases are listed, and only when
+  the host is a **private** address (loopback, RFC1918, link-local, `.local`/`localhost`).
+  A public host is never granted a cleartext exemption — it must be reached over HTTPS.
+
+The `Android build` workflow enforces all of the above on every push: it fails if the
+release manifest gains a cleartext setting, if `base-config` stops refusing cleartext, or if
+a non-private host appears in the allowlist.
+
 ## Absolute constraints
 
 The following are never configurable, never bypassed by a skill, and never overridden by a

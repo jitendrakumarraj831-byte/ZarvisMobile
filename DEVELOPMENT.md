@@ -36,45 +36,106 @@ build/run them. This limitation is recorded in
 Android SDK image, instrumented tests) is Phase 12 work.
 
 The app talks to the same backend the web client does (`data-remote`'s `ZarvisApi`,
-MASTER_SPEC.md §25), via a base URL set per build type in `app/build.gradle.kts`'s
-`buildConfigField("String", "API_BASE_URL", ...)`: `debug` defaults to
-`http://10.0.2.2:3000/` (the Android emulator's alias for your host machine, matching
-`cd backend && npm run dev` running locally), `release` defaults to
-`https://zarvismobile.com/`.
+MASTER_SPEC.md §25), via a base URL compiled into `BuildConfig.API_BASE_URL` by
+`app/build.gradle.kts` — `release` is `https://zarvismobile.com/`, `debug` is your local
+dev backend (`cd backend && npm run dev`).
 
-`10.0.2.2` only works on an **emulator**. A physical device is on your LAN, not the
-emulator's virtual network, so it must reach your dev machine by its LAN address instead —
-otherwise the app fails to connect. Override the host (and port) at build time rather than
-editing the file:
+### Pointing a debug build at your dev backend
+
+**A physical phone cannot use `10.0.2.2`.** That address is the *emulator's* NAT alias for
+the host machine's loopback; a real phone is a separate machine on your Wi-Fi and has no
+route to it at all. Symptoms of a build that still uses it are a startup failure like
+`Failed to connect to /10.0.2.2:3000` or, before this was fixed, `CLEARTEXT communication
+to 10.0.2.2 not permitted by network security policy`.
+
+So the debug host is resolved per build machine, in this order:
+
+1. `-Pzarvis.devApiHost=<host>` on the command line, or `zarvis.devApiHost=<host>` in any
+   `gradle.properties` — including your **personal** `~/.gradle/gradle.properties`
+   (`%USERPROFILE%\.gradle\gradle.properties` on Windows), which lives outside the repo so a
+   machine-specific address is never committed.
+2. The `ZARVIS_DEV_API_HOST` environment variable (CI and scripted builds).
+3. **Auto-detected**: this machine's own LAN IPv4 — the address a phone on the same Wi-Fi
+   dials. This is the default, so a plain `./gradlew :app:assembleDebug` (or hitting Run in
+   Android Studio) already produces an APK a physical device can talk to.
+4. `10.0.2.2`, only if no LAN interface was found at all. The build logs a warning when it
+   falls back this far.
+
+Every build prints what it resolved, so you can always check what the APK will dial:
+
+```
+$ ./gradlew :app:assembleDebug
+ZARVIS debug API base URL: http://192.168.1.50:3000/  [host from auto-detected LAN address of this machine]
+```
+
+Use `-Pzarvis.devApiHost` when auto-detection picks the wrong interface (multiple NICs, a
+VPN) or when the backend runs somewhere else entirely; `-Pzarvis.devApiPort` (default
+`3000`) sets the port:
 
 ```bash
-# Substitute YOUR machine's current LAN IP — `ipconfig` on Windows, `ip addr` on Linux,
-# `ipconfig getifaddr en0` on macOS. It is not a fixed value and changes with the network.
-./gradlew :app:assembleDebug -Pzarvis.devApiHost=<your-lan-ip>
-./gradlew :app:assembleDebug -Pzarvis.devApiHost=<your-lan-ip> -Pzarvis.devApiPort=3000
+./gradlew :app:assembleDebug -Pzarvis.devApiHost=192.168.1.50 -Pzarvis.devApiPort=3000
 ```
 
-To avoid retyping it every build, put it in your **personal** Gradle properties —
-`~/.gradle/gradle.properties` (`%USERPROFILE%\.gradle\gradle.properties` on Windows), which
-is outside the repo so a machine-specific address is never committed:
+The address the app shows on its startup error screen is the one it actually used, so a
+phone that can't connect tells you which backend it was configured for.
 
-```properties
-zarvis.devApiHost=<your-lan-ip>
+Before building for a device, confirm the backend is reachable the way the phone will reach
+it — over the LAN rather than loopback:
+
+```bash
+./scripts/check-dev-backend.sh          # auto-detects this machine's LAN IP
+./scripts/check-dev-backend.sh 192.168.1.50 3000
 ```
 
-The backend already listens on all interfaces: `backend/src/index.ts` calls
-`app.listen(port)` with no host argument, so Node binds the unspecified address rather than
-loopback only — nothing to configure. What does commonly block a phone is the **host
-firewall** (allow inbound TCP 3000) and **client isolation** on guest/corporate/hotspot
-Wi-Fi, which blocks device-to-device traffic outright; on such a network use a phone
-hotspot the laptop joins, or a tunnel, instead. Because the dev backend is plain HTTP and Android 9+ blocks
-cleartext by default, debug builds ship `app/src/debug/res/xml/network_security_config.xml`,
-which permits cleartext. It is in the `debug` source set, so **release builds never include
-it** and keep the platform's secure HTTPS-only default — see SECURITY.md.
+The backend itself needs no configuration: `backend/src/index.ts` calls `app.listen(port)`
+with no host argument, so Node binds the unspecified address rather than loopback only.
+What does commonly block a phone is the **host firewall** (allow inbound TCP 3000) and
+**client isolation** on guest/corporate/hotspot Wi-Fi, which blocks device-to-device traffic
+outright; on such a network use a phone hotspot the laptop joins, or a tunnel. To check the
+phone's own path, open `http://<your-lan-ip>:3000/health` in the phone's browser — the
+script can only prove the *build machine* can reach it. A USB-only alternative that avoids
+the network entirely is `adb reverse tcp:3000 tcp:3000` with
+`-Pzarvis.devApiHost=127.0.0.1`, which the generated config also permits.
 
-`release` has no such override flag; point it at a different backend by editing that field
-directly (unlike the web client's `?api=` query param, this is compiled app config, not a
-browser URL).
+The debug APK built in CI is pinned to `10.0.2.2` (a runner's own address would be
+meaningless to download), so it is emulator-only — build locally for a phone.
+
+### Cleartext HTTP in debug builds
+
+The dev backend is plain HTTP and Android 9+ (API 28) blocks cleartext by default, so debug
+builds ship a network security config that exempts it. It is **generated** per build by
+`app/build.gradle.kts`'s `generateDebugNetworkSecurityConfig` task rather than checked in,
+because the host needing the exemption is machine-specific and Android's config format can
+only name literal hosts, never address ranges:
+
+```xml
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.1.50</domain>  <!-- your dev host -->
+        <domain includeSubdomains="false">10.0.2.2</domain>      <!-- emulator alias -->
+        <domain includeSubdomains="false">127.0.0.1</domain>     <!-- adb reverse -->
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
+```
+
+Two properties this deliberately keeps, both enforced by the `Android build` workflow:
+
+- **Cleartext is never permitted app-wide.** `base-config` stays `false`, so every host
+  other than the dev backend keeps the platform's HTTPS-only default, even in debug.
+- **Only private addresses are ever exempted.** Loopback, RFC1918, link-local and
+  `.local`/`localhost` names qualify. Point `zarvis.devApiHost` at a *public* host and it is
+  deliberately **not** exempted (the build warns) — a real domain must be reached over
+  HTTPS, not silently downgraded to plaintext.
+
+The task is wired into the debug variant's resources only, and the manifest attribute that
+references it lives in `app/src/debug/AndroidManifest.xml`, so **release builds have no
+network security config at all** and keep the platform default — see SECURITY.md.
+
+`release` has no host override flag; point it at a different backend by editing its
+`buildConfigField` directly (unlike the web client's `?api=` query param, this is compiled
+app config, not a browser URL).
 
 ## Backend
 

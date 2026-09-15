@@ -38,8 +38,14 @@ jobs:
       - name: Build and test :domain
         run: ./gradlew :domain:build --stacktrace --console=plain
 
+      # The dev API host is machine-specific and auto-detected from the build machine's LAN
+      # address (see app/build.gradle.kts). A CI runner's address is meaningless to anyone
+      # downloading the artifact, so pin it here: the uploaded APK is deterministic and
+      # emulator-ready, and a build for a physical phone is made locally with
+      # -Pzarvis.devApiHost=<your LAN IP> (DEVELOPMENT.md). An APK built here and side-loaded
+      # onto a phone cannot reach a backend — the app says exactly that on its startup screen.
       - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace --console=plain
+        run: ./gradlew :app:assembleDebug -Pzarvis.devApiHost=10.0.2.2 --stacktrace --console=plain
 
       - name: Verify the APK was actually produced
         run: |
@@ -56,6 +62,60 @@ jobs:
           if [ -n "$AAPT2" ]; then
             "$AAPT2" dump badging "$APK" | head -n 5
           fi
+
+      # The base URL is compiled into BuildConfig, so this is what the app on the device
+      # actually dials. Guards against the build type losing its buildConfigField.
+      - name: Assert the debug build targets the configured dev backend
+        run: |
+          set -euo pipefail
+          BUILD_CONFIG=$(find app/build/generated -path '*debug*' -name BuildConfig.java | head -n 1)
+          test -n "$BUILD_CONFIG" || { echo "::error::debug BuildConfig.java not found"; exit 1; }
+          echo "BuildConfig: $BUILD_CONFIG"
+          grep -n 'API_BASE_URL' "$BUILD_CONFIG"
+          grep -q 'API_BASE_URL = "http://10.0.2.2:3000/"' "$BUILD_CONFIG" \
+            || { echo "::error::API_BASE_URL does not match -Pzarvis.devApiHost"; exit 1; }
+
+      # The cleartext exemption must stay scoped to the dev backend host. A blanket
+      # <base-config cleartextTrafficPermitted="true"> would permit plaintext to every domain
+      # the app could ever talk to, which is what this repo must not ship (SECURITY.md).
+      - name: Assert the cleartext exemption is scoped, not blanket
+        run: |
+          set -euo pipefail
+          NSC=$(find app/build/generated -name network_security_config.xml | head -n 1)
+          test -n "$NSC" || { echo "::error::generated network_security_config.xml not found"; exit 1; }
+          echo "--- $NSC"; cat "$NSC"
+          grep -q '<base-config cleartextTrafficPermitted="false" />' "$NSC" \
+            || { echo "::error::base-config must keep cleartext disabled by default"; exit 1; }
+          grep -q 'cleartextTrafficPermitted="true"' "$NSC" \
+            || { echo "::error::no cleartext exemption at all — the dev backend is unreachable"; exit 1; }
+          grep -q '<domain includeSubdomains="false">10.0.2.2</domain>' "$NSC" \
+            || { echo "::error::the configured dev host is not exempted"; exit 1; }
+          # Every exempted host must be a loopback/private address, never a public one.
+          while read -r host; do
+            case "$host" in
+              localhost|127.*|10.*|192.168.*|169.254.*) ;;
+              172.1[6-9].*|172.2[0-9].*|172.3[01].*) ;;
+              *) echo "::error::non-private host exempted from cleartext policy: $host"; exit 1 ;;
+            esac
+          done < <(sed -n 's/.*<domain[^>]*>\(.*\)<\/domain>.*/\1/p' "$NSC")
+          echo "OK: cleartext permitted only for the dev backend and local aliases"
+
+      # The exemption is generated from the host the build was given, so it follows a real
+      # LAN address (physical-phone development) rather than being pinned to the emulator.
+      - name: Assert the exemption follows -Pzarvis.devApiHost
+        run: |
+          set -euo pipefail
+          ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=192.168.1.50 --console=plain
+          NSC=$(find app/build/generated -name network_security_config.xml | head -n 1)
+          cat "$NSC"
+          grep -q '<domain includeSubdomains="false">192.168.1.50</domain>' "$NSC" \
+            || { echo "::error::LAN dev host was not exempted"; exit 1; }
+          # A public host must never be granted a cleartext exemption, even in debug.
+          ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=staging.example.com --console=plain
+          if grep -q 'staging.example.com' "$NSC"; then
+            echo "::error::a public host was granted a cleartext exemption"; exit 1
+          fi
+          echo "OK: exemption tracks the configured LAN host; public hosts stay HTTPS-only"
 
       # Proves the cleartext permission is debug-only: it must be present in the merged
       # DEBUG manifest and absent from the merged RELEASE manifest. Guards against anyone
@@ -81,6 +141,47 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
+          # Built with -Pzarvis.devApiHost=10.0.2.2: usable on an emulator whose host machine
+          # runs the backend. For a physical phone, build locally with your own LAN address.
+          name: app-debug-apk-emulator
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  # The Android side of "can the app reach the backend" is only half the story: the backend
+  # has to answer on a non-loopback address, which is what a phone actually dials. This job
+  # runs the same check a developer runs before building for a device.
+  dev-backend-reachability:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Start the dev backend
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          # nohup + disown so the server survives this step's shell exiting.
+          nohup npm run dev > /tmp/backend.log 2>&1 &
+          disown || true
+          for _ in $(seq 1 60); do
+            if curl -sf --max-time 2 http://127.0.0.1:3000/health >/dev/null; then
+              echo "backend is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::backend did not become healthy"; cat /tmp/backend.log; exit 1
+
+      # No arguments: exercises the same LAN auto-detection the Gradle build uses, then
+      # proves the backend answers on that address and not merely on loopback.
+      - name: Check the backend is reachable over the LAN
+        run: ./scripts/check-dev-backend.sh
