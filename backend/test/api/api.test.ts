@@ -122,11 +122,52 @@ describe("API integration", () => {
     expect(res.status).toBe(404);
   });
 
-  it("verifies a mock billing webhook", async () => {
+  it("rejects an unauthenticated billing webhook call", async () => {
     const res = await request(app)
       .post("/api/v1/billing/webhook")
       .send({ purchaseToken: "abc123token", productId: "zarvis_pro_monthly" });
+    expect(res.status).toBe(401);
+  });
+
+  it("verifies a mock billing webhook and upgrades the account's plan", async () => {
+    const token = await signupAndGetToken();
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ purchaseToken: "abc123token", productId: "zarvis_pro_monthly" });
     expect(res.status).toBe(200);
     expect(res.body.acknowledged).toBe(true);
+    expect(res.body.account.plan).toBe("PRO");
+
+    const entitlements = await request(app)
+      .get("/api/v1/entitlements/me")
+      .set("Authorization", `Bearer ${token}`);
+    expect(entitlements.body.plan).toBe("PRO");
+  });
+
+  it("rejects a billing webhook call for an unrecognized product id", async () => {
+    const token = await signupAndGetToken();
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ purchaseToken: "abc123token", productId: "not_a_real_product" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an unauthenticated account deletion", async () => {
+    const res = await request(app).delete("/api/v1/account");
+    expect(res.status).toBe(401);
+  });
+
+  it("deletes the account, its tasks and usage history, and prevents future login", async () => {
+    const email = "delete-me@example.com";
+    const token = await signupAndGetToken(email);
+    await request(app).post("/api/v1/tasks").set("Authorization", `Bearer ${token}`).send({ goal: "A task" });
+
+    const del = await request(app).delete("/api/v1/account").set("Authorization", `Bearer ${token}`);
+    expect(del.status).toBe(204);
+
+    const login = await request(app).post("/api/v1/auth/login").send({ email, password: "password123" });
+    expect(login.status).toBe(401);
   });
 });

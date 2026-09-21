@@ -9,11 +9,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.ZarvisCard
@@ -28,6 +33,8 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val deleteStatus by viewModel.deleteAccountStatus.collectAsState()
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
 
     // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23): claims the
     // gesture-nav-bar inset itself.
@@ -55,10 +62,24 @@ fun SettingsScreen(
         ZarvisCard(modifier = Modifier.fillMaxWidth()) {
             Text(text = "Memory & Data", style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "View memory, clear conversation, export data, and delete account are planned " +
-                    "(see PRIVACY.md and MASTER_SPEC.md §29) — not yet wired to a backend endpoint in this build.",
+                text = "Viewing individual memories, clearing a single conversation, and exporting your " +
+                    "data are planned (see PRIVACY.md and MASTER_SPEC.md §29) — not yet wired to a backend " +
+                    "endpoint in this build. Deleting your account below is fully wired: it removes your " +
+                    "account, tasks, and usage history from the server.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (deleteStatus == DeleteAccountStatus.FAILED) {
+                Text(
+                    text = "Couldn't delete your account — check your connection and try again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            ZarvisDestructiveButton(
+                text = if (deleteStatus == DeleteAccountStatus.IN_PROGRESS) "Deleting account…" else "Delete account",
+                enabled = deleteStatus != DeleteAccountStatus.IN_PROGRESS,
+                onClick = { showDeleteConfirmation = true },
             )
         }
 
@@ -72,5 +93,27 @@ fun SettingsScreen(
                 },
             )
         }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text("Delete your account?") },
+            text = {
+                Text(
+                    "This permanently deletes your account, tasks, and usage history from the " +
+                        "server. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirmation = false
+                    viewModel.deleteAccount(onDeleted = onSessionCleared)
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") }
+            },
+        )
     }
 }

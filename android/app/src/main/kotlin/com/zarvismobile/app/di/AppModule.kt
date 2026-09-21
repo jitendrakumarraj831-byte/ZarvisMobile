@@ -120,6 +120,6 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideTextToSpeechEngine(@ApplicationContext context: Context): TextToSpeechEngine =
-        AndroidTextToSpeechEngine(context)
+    fun provideTextToSpeechEngine(@ApplicationContext context: Context, api: ZarvisApi): TextToSpeechEngine =
+        AndroidTextToSpeechEngine(context, api)
 }

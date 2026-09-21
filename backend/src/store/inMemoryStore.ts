@@ -66,6 +66,37 @@ export class InMemoryStore implements Store {
     return id ? this.accountsById.get(id) : undefined;
   }
 
+  async updateAccountPlan(accountId: string, plan: Account["plan"]): Promise<Account> {
+    const existing = this.accountsById.get(accountId);
+    if (!existing) {
+      throw new Error(`Cannot update unknown account '${accountId}'`);
+    }
+    const updated: Account = { ...existing, plan };
+    this.accountsById.set(accountId, updated);
+    return updated;
+  }
+
+  async deleteAccount(accountId: string): Promise<void> {
+    const account = this.accountsById.get(accountId);
+    if (!account) {
+      throw new Error(`Cannot delete unknown account '${accountId}'`);
+    }
+    this.trials.delete(accountId);
+    this.creditBalances.delete(accountId);
+    this.permissions.delete(accountId);
+    for (const [taskId, task] of this.tasks) {
+      if (task.accountId === accountId) this.tasks.delete(taskId);
+    }
+    for (let i = this.usageLedger.length - 1; i >= 0; i -= 1) {
+      if (this.usageLedger[i]!.accountId === accountId) this.usageLedger.splice(i, 1);
+    }
+    this.accountsById.delete(accountId);
+    this.accountsByUserId.delete(account.userId);
+    const user = this.usersById.get(account.userId);
+    this.usersById.delete(account.userId);
+    if (user) this.usersByEmail.delete(user.email);
+  }
+
   async getTrial(accountId: string): Promise<TrialRecord | undefined> {
     return this.trials.get(accountId);
   }

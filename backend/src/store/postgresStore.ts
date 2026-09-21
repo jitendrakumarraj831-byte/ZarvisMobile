@@ -143,6 +143,45 @@ export class PostgresStore implements Store {
     return rows[0] ? toAccount(rows[0]) : undefined;
   }
 
+  async updateAccountPlan(accountId: string, plan: Account["plan"]): Promise<Account> {
+    const { rows } = await this.query<AccountRow>(
+      "UPDATE accounts SET plan = $2 WHERE id = $1 RETURNING *",
+      [accountId, plan],
+    );
+    if (!rows[0]) {
+      throw new Error(`Cannot update unknown account '${accountId}'`);
+    }
+    return toAccount(rows[0]);
+  }
+
+  async deleteAccount(accountId: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await this.ensureSchema();
+      await client.query("BEGIN");
+      const { rows } = await client.query<AccountRow>("SELECT * FROM accounts WHERE id = $1 FOR UPDATE", [
+        accountId,
+      ]);
+      const account = rows[0];
+      if (!account) {
+        throw new Error(`Cannot delete unknown account '${accountId}'`);
+      }
+      await client.query("DELETE FROM usage_ledger WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM account_permissions WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM trials WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM credit_balances WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM tasks WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM accounts WHERE id = $1", [accountId]);
+      await client.query("DELETE FROM users WHERE id = $1", [account.user_id]);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async getTrial(accountId: string): Promise<TrialRecord | undefined> {
     const { rows } = await this.query<TrialRow>("SELECT * FROM trials WHERE account_id = $1", [accountId]);
     const row = rows[0];

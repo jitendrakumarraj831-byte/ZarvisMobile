@@ -13,12 +13,17 @@ import com.zarvismobile.data.remote.dto.SignupRequest
 import com.zarvismobile.data.remote.dto.SkillsResponse
 import com.zarvismobile.data.remote.dto.TaskDto
 import com.zarvismobile.data.remote.dto.TasksResponse
+import com.zarvismobile.data.remote.dto.TtsSynthesizeRequest
 import com.zarvismobile.data.remote.dto.UsageChargeRequest
 import com.zarvismobile.data.remote.dto.UsageChargeResponse
+import okhttp3.ResponseBody
+import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Streaming
 
 /** Retrofit surface for the endpoints defined in MASTER_SPEC.md §25 / backend/src/api. */
 interface ZarvisApi {
@@ -30,6 +35,10 @@ interface ZarvisApi {
 
     @POST("api/v1/auth/refresh")
     suspend fun refresh(@Body request: RefreshRequest): AuthTokensResponse
+
+    /** Cascading account deletion — MASTER_SPEC.md §17 "Memory Architecture". */
+    @DELETE("api/v1/account")
+    suspend fun deleteAccount()
 
     @GET("api/v1/skills")
     suspend fun getSkills(): SkillsResponse
@@ -54,4 +63,11 @@ interface ZarvisApi {
 
     @POST("api/v1/developer/analyze")
     suspend fun analyzeRepo(@Body request: DeveloperAnalyzeRequest): DeveloperAnalyzeResponse
+
+    // Response<ResponseBody>, not a thrown exception on non-2xx: a 503 here (no
+    // GEMINI_API_KEY configured server-side, see backend/src/api/routes/tts.ts) is an
+    // expected, honestly-reported outcome the caller falls back from, not an error to catch.
+    @Streaming
+    @POST("api/v1/tts/synthesize")
+    suspend fun synthesizeSpeech(@Body request: TtsSynthesizeRequest): Response<ResponseBody>
 }
