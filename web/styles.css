@@ -216,18 +216,6 @@ body {
   background: var(--zarvis-border-soft);
 }
 
-/* Deliberately as quiet as the other topbar chips (Settings, language, voice) rather than a
-   bold filled CTA — installing the app is a nice-to-have any visitor can take or leave, not
-   the primary action of this screen, and a loud button here fought with the header's overall
-   "clean and minimal" goal. */
-.install-btn { color: var(--zarvis-text-secondary); }
-.install-btn:hover { color: var(--zarvis-text-primary); }
-/* `.chip-btn`'s own `display` would otherwise beat the browser's default `[hidden]` rule
-   (same specificity, and .chip-btn comes later in the cascade) — this wins on specificity
-   instead of relying on source order, so the button reliably disappears again once
-   installed or dismissed. */
-.install-btn[hidden] { display: none; }
-
 .voice-select {
   max-width: 84px;
   color-scheme: dark;
@@ -343,7 +331,7 @@ body {
 /* `.stage` sets its own `display: flex` above, which (author CSS always outranks the
    browser's UA stylesheet, regardless of specificity) would otherwise beat the `[hidden]`
    attribute's own `display: none` and leave every hidden view visibly stacked underneath the
-   active one — the same class of bug already called out above for `.install-btn[hidden]`. */
+   active one. */
 .stage[hidden] { display: none; }
 
 .view-header { padding: 18px 0 2px; flex-shrink: 0; position: relative; }
@@ -640,8 +628,14 @@ body {
    starts, alongside the greeting above, so the shrunk hero reads as a compact status strip
    rather than repeating the full welcome copy above every reply. */
 .hero-subtitle {
-  margin: 0;
+  /* A full descriptive sentence rather than the old short one-liner — capped and centered so
+     line length stays readable instead of stretching edge-to-edge on wide viewports (the
+     outer .stage/.hero already center/constrain everything else, but a plain <p> with no
+     max-width of its own would otherwise run the full available width). */
+  max-width: 420px;
+  margin: 0 auto;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--zarvis-text-secondary);
   transition: opacity 0.2s ease, max-height 0.2s ease, margin 0.2s ease;
 }
@@ -949,6 +943,19 @@ body {
 }
 .waveform-stop:hover { border-color: #00f0ff88; }
 
+/* A short lead-in line introducing the quick-action row below it — gives that row its own
+   small "start here" framing instead of the chips just appearing with no context. Collapses
+   away together with .categories once a conversation starts (see the :has() rule below). */
+.quick-actions-lead {
+  margin: 0 0 2px;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--zarvis-text-secondary);
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, max-height 0.2s ease, margin 0.2s ease;
+}
+
 .categories {
   display: flex;
   flex-wrap: wrap;
@@ -988,6 +995,7 @@ body {
    link below them) give way entirely to the conversation itself — the "clean chat-focused
    layout" the workspace transitions into, rather than leaving a static menu permanently
    competing with the transcript for space. */
+#view-workspace:has(#conversation:not(:empty)) .quick-actions-lead,
 #view-workspace:has(#conversation:not(:empty)) .categories,
 #view-workspace:has(#conversation:not(:empty)) .developer-link {
   opacity: 0;
