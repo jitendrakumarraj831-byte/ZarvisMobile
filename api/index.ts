@@ -44,8 +44,28 @@ import { logger } from "../backend/src/security/redact.js";
 
 let appPromise: Promise<Express> | undefined;
 
+/**
+ * Buckets a container-build failure into one of a small set of known, secret-free causes so
+ * `/health` can name *which* optional integration is misconfigured without ever echoing the
+ * underlying error message to a public, unauthenticated caller. That message is NOT always
+ * safe to expose as-is: e.g. `JSON.parse` on a malformed `PLAY_BILLING_SERVICE_ACCOUNT_JSON`
+ * can embed a snippet of the raw (secret-bearing) input in its own message (verified locally),
+ * and a malformed `POSTGRES_URL` could similarly leak connection-string fragments some Node
+ * versions include in `Invalid URL` errors. The full message is still logged server-side via
+ * `logger.error` below, for whoever has access to those logs.
+ */
+function classifyStartupError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/JWT_SECRET/.test(message)) return "jwt_secret_missing_or_invalid";
+  if (/PLAY_BILLING_SERVICE_ACCOUNT_JSON|is not valid JSON/.test(message)) return "play_billing_config_invalid";
+  if (err instanceof TypeError && /invalid url/i.test(message)) return "postgres_url_invalid";
+  return "unknown_startup_error";
+}
+
 function buildFallbackApp(err: unknown): Express {
+  const reason = classifyStartupError(err);
   logger.error("Server failed to start; serving a minimal health-only fallback", {
+    reason,
     error: err instanceof Error ? err.message : String(err),
   });
   const app = express();
@@ -53,7 +73,7 @@ function buildFallbackApp(err: unknown): Express {
   // helper: that module also imports config/env.ts, the very thing that may have just thrown,
   // and Node caches a module's evaluation failure — a second import of it fails the same way.
   const provider = process.env.GEMINI_API_KEY ? "google" : "mock";
-  app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider }));
+  app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider, reason }));
   app.use((_req, res) => res.status(500).json({ error: "Server is misconfigured; check environment variables." }));
   return app;
 }
