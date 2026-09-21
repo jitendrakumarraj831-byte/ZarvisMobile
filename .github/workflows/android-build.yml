@@ -151,6 +151,48 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      # No RELEASE_STORE_FILE/etc. secrets are configured for this workflow (see
+      # app/build.gradle.kts and DEVELOPMENT.md "Release build & signing"), so this proves
+      # the release variant actually compiles/assembles — a real compile-verification signal
+      # this repo previously had no way to get at all — without ever holding or inventing a
+      # production signing key in CI.
+      - name: Assemble release APK + AAB (unsigned — no signing credentials in this workflow)
+        run: ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace --console=plain
+
+      - name: Verify the release artifacts were actually produced
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release-unsigned.apk
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          test -f "$APK" || { echo "::error::$APK does not exist"; exit 1; }
+          test -f "$AAB" || { echo "::error::$AAB does not exist"; exit 1; }
+          echo "release APK size: $(stat -c%s "$APK") bytes"
+          echo "release AAB size: $(stat -c%s "$AAB") bytes"
+          unzip -l "$APK" | grep -q "classes.dex" || { echo "::error::no classes.dex in release APK"; exit 1; }
+
+      # Guards against the release build type losing its buildConfigField, or (worse)
+      # silently inheriting a dev/localhost URL — see the debug-side assertion above.
+      - name: Assert the release build targets the production backend
+        run: |
+          set -euo pipefail
+          BUILD_CONFIG=$(find app/build/generated -path '*release*' -name BuildConfig.java | head -n 1)
+          test -n "$BUILD_CONFIG" || { echo "::error::release BuildConfig.java not found"; exit 1; }
+          grep -n 'API_BASE_URL' "$BUILD_CONFIG"
+          grep -q 'API_BASE_URL = "https://zarvismobile.com/"' "$BUILD_CONFIG" \
+            || { echo "::error::release API_BASE_URL is not the production domain"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          # UNSIGNED: this workflow holds no signing credentials (by design — see
+          # DEVELOPMENT.md). Not installable on a device or uploadable to Play Console as-is;
+          # proves only that the release variant compiles. Sign locally or in a workflow that
+          # has real RELEASE_STORE_FILE/etc. secrets before distributing.
+          name: app-release-unsigned
+          path: |
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+            android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
   # The Android side of "can the app reach the backend" is only half the story: the backend
   # has to answer on a non-loopback address, which is what a phone actually dials. This job
   # runs the same check a developer runs before building for a device.
