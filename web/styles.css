@@ -613,6 +613,10 @@ body {
   font-size: 14.5px;
   line-height: 1.5;
   white-space: pre-wrap;
+  /* A long unbroken run (a URL, an unspaced code token) must wrap inside the bubble rather
+     than pushing it wider than the conversation column — pre-wrap alone only breaks at
+     existing whitespace. */
+  overflow-wrap: anywhere;
   animation: rise 0.25s ease;
   box-shadow: 0 4px 18px -8px #00000080;
 }
@@ -641,6 +645,42 @@ body {
   border: 1px solid #ff6b6b33;
   border-radius: 14px;
   max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.bubble-error-text { margin: 0; text-align: center; }
+.bubble-retry-btn {
+  padding: 6px 16px;
+  border: 1px solid #ff6b6b55;
+  border-radius: 999px;
+  background: transparent;
+  color: #ffb3b3;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.bubble-retry-btn:hover { background: #ff6b6b22; border-color: #ff6b6b88; }
+
+/* ---- "Thinking" placeholder — shown for the UNDERSTANDING/EXECUTING span of a turn
+   (addThinkingBubble()), removed the instant a real reply or error is ready. Three dots
+   rather than a spinner, consistent with the rest of the product's understated motion. ---- */
+.bubble.thinking { display: flex; align-items: center; padding: 14px 18px; }
+.thinking-dots { display: flex; gap: 4px; }
+.thinking-dots span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--zarvis-text-secondary);
+  animation: thinking-bounce 1.1s ease-in-out infinite;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes thinking-bounce {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
 }
 
 /* ---- Dynamic result widgets — a skill execution renders as a shape/purpose-matched card
@@ -700,6 +740,11 @@ body {
 }
 .result-widget[data-status="success"] .widget-status-dot { color: var(--zarvis-success); }
 .result-widget[data-status="error"] .widget-status-dot { color: var(--zarvis-warning); }
+
+/* A long unbroken run (a URL, an unspaced code token) must wrap inside the card rather than
+   pushing it wider than the conversation column — pre-wrap alone only breaks at existing
+   whitespace. Shared by every kind below. */
+.widget-body { overflow-wrap: anywhere; min-width: 0; }
 
 /* Panel — wide, prose-first: research/report/business/creative/document content. */
 .result-widget[data-kind="panel"] .widget-body {
@@ -884,9 +929,17 @@ body {
   flex-shrink: 0;
   background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
   color: #041016;
+  transition: background 0.2s ease;
 }
 .send-btn:hover { box-shadow: 0 0 20px 2px var(--glow-cyan-soft); }
 .send-btn:active { transform: scale(0.97); }
+/* Send becomes Stop for the whole busy span (UNDERSTANDING through SPEAKING, see
+   updateComposerMode()) — the composer's always-visible way to cancel a turn. */
+.send-btn .stop-icon { display: none; }
+.send-btn.stop-mode { background: var(--zarvis-surface-strong); color: var(--zarvis-text-primary); }
+.send-btn.stop-mode:hover { box-shadow: 0 0 16px 1px #ff5c7240; }
+.send-btn.stop-mode .send-icon { display: none; }
+.send-btn.stop-mode .stop-icon { display: block; color: var(--zarvis-error); }
 
 @media (max-width: 420px) {
   .send-label { display: none; }
