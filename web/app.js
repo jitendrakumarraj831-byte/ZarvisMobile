@@ -36,26 +36,72 @@
 
   const COPY = {
     en: {
-      hero: "What would you like me to do?",
-      placeholder: "Type your task…",
+      greeting: "Hi 👋 I'm Zarvis",
+      hero: "What can I help you with today?",
+      subtitle: "Ask, speak, or start a task.",
+      placeholder: "Ask Zarvis…",
       send: "Send",
+      stop: "Stop",
       mic: "Speak",
       thinking: "Thinking…",
-      bootError: "Couldn't reach the ZARVIS backend. Is it running?",
+      retry: "Retry",
+      // Deliberately generic and non-technical — shown for every connection/server failure
+      // regardless of the underlying cause (network down, backend cold start, a platform
+      // error page), so a raw status code or platform failure text is never what the user
+      // sees. The real error is only ever logged via console.error, never rendered here.
+      bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
       wakeIntro:
         "Hi, I'm Zarvis — your AI assistant. I can search the web, manage tasks, summarize documents, and more, by voice or typing. What would you like me to do?",
       wakeAck: "Yes? I'm listening!",
+      stateLabels: {
+        IDLE: "Ready",
+        LISTENING: "Listening",
+        UNDERSTANDING: "Understanding",
+        PLANNING: "Understanding",
+        EXECUTING: "Working",
+        SUCCESS: "Done",
+        SPEAKING: "Speaking",
+        ERROR: "Something went wrong",
+      },
+      quickActions: {
+        ask: "Ask Zarvis",
+        write: "Write something",
+        research: "Search & Research",
+        plan: "Plan a task",
+        analyze: "Analyze something",
+      },
     },
     hi: {
-      hero: "आप क्या करवाना चाहते हैं?",
-      placeholder: "अपना काम लिखें…",
+      greeting: "नमस्ते 👋 मैं Zarvis हूँ",
+      hero: "आज मैं आपकी किस काम में मदद करूँ?",
+      subtitle: "पूछें, बोलें या कोई काम शुरू करें।",
+      placeholder: "Zarvis से पूछें…",
       send: "भेजें",
+      stop: "रोकें",
       mic: "बोलें",
       thinking: "सोच रहा हूँ…",
-      bootError: "ZARVIS बैकएंड तक नहीं पहुँच पाया। क्या यह चल रहा है?",
+      retry: "फिर कोशिश करें",
+      bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
       wakeIntro:
         "नमस्ते, मैं ज़ार्विस हूँ — आपका AI असिस्टेंट। मैं वेब सर्च करना, टास्क मैनेज करना, डॉक्यूमेंट्स समराइज़ करना जैसे कई काम कर सकता हूँ, आवाज़ से या टाइप करके। बताइए, क्या करवाना है?",
       wakeAck: "जी बोलिए, मैं सुन रहा हूँ! 👋",
+      stateLabels: {
+        IDLE: "तैयार",
+        LISTENING: "सुन रहा हूँ",
+        UNDERSTANDING: "समझ रहा हूँ",
+        PLANNING: "समझ रहा हूँ",
+        EXECUTING: "काम कर रहा हूँ",
+        SUCCESS: "पूरा हुआ",
+        SPEAKING: "बोल रहा हूँ",
+        ERROR: "समस्या हुई",
+      },
+      quickActions: {
+        ask: "Zarvis से पूछें",
+        write: "कुछ लिखें",
+        research: "खोजें और रिसर्च करें",
+        plan: "काम की योजना बनाएं",
+        analyze: "कुछ एनालाइज़ करें",
+      },
     },
   };
 
@@ -73,7 +119,9 @@
   const el = {
     orb: document.getElementById("orb"),
     orbWrap: document.querySelector(".orb-wrap"),
+    heroGreeting: document.getElementById("hero-greeting"),
     heroTitle: document.getElementById("hero-title"),
+    heroSubtitle: document.getElementById("hero-subtitle"),
     heroStatus: document.getElementById("hero-status"),
     heroStatusLabel: document.getElementById("hero-status-label"),
     conversation: document.getElementById("conversation"),
@@ -170,8 +218,11 @@
   let latencyEntries = [];
 
   init().catch((err) => {
+    // The technical detail (network failure, a platform error page, whatever) is only ever
+    // logged here — never rendered into the UI. addErrorBubble always shows the same
+    // friendly, translated connection message regardless of cause.
     console.error(err);
-    addBubble("system", `${COPY[state.lang].bootError}\n\n${err instanceof Error ? err.message : String(err)}`);
+    addErrorBubble(COPY[state.lang].bootError, () => location.reload());
     setOrbState("ERROR");
   });
 
@@ -227,12 +278,23 @@
   function applyLanguage() {
     const copy = COPY[state.lang];
     el.langToggle.textContent = state.lang.toUpperCase();
+    el.heroGreeting.textContent = copy.greeting;
     el.heroTitle.textContent = copy.hero;
+    el.heroSubtitle.textContent = copy.subtitle;
     el.input.placeholder = copy.placeholder;
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
     el.sendLabel.textContent = copy.send;
     el.micBtn.title = copy.mic;
+    // Re-render the status pill and quick-action tiles in the new language — both build
+    // their own text at render time (setOrbState, renderQuickActions) rather than reading it
+    // lazily, so switching languages mid-session needs both refreshed explicitly here. Not
+    // updateComposerMode() itself: it (via isBusy()) reads BUSY_STATES, a `const` declared
+    // later in this file — applyLanguage() runs synchronously from init(), before that
+    // declaration executes, so calling it here throws "Cannot access before initialization"
+    // and takes down the entire init() sequence with it. el.sendLabel is already set above.
+    el.heroStatusLabel.textContent = copy.stateLabels[el.orb.dataset.state] || copy.stateLabels.IDLE;
+    if (state.skills.length) renderQuickActions(state.skills);
     populateVoiceSelect(); // available voices differ between "en" and "hi"
     for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
       btn.classList.toggle("active", btn.dataset.lang === state.lang);
@@ -377,22 +439,12 @@
     return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
   }
 
-  // Grouped by category, one chip per category rather than one per skill — MASTER_SPEC.md
-  // §22's own Home Screen concept shows "Quick categories: Phone · Web · Work · Documents ·
-  // Developer", a short list of *categories*, not every individual skill flattened into its
-  // own chip. That held up fine back when there were 4 skills total; at 15 (Web, Documents,
-  // Developer, Business ×3, Creative ×3, Automation ×3, Research ×3, plus Personal on
-  // Android) it wrapped across 8 rows and ate roughly half the visible screen — exactly the
-  // clutter this section was never meant to have. Tapping a category still fills the
-  // composer with one representative example (that category's first skill) — the chip is a
-  // discovery hint, not an exhaustive menu; the user can always ask for anything by voice or
-  // text regardless of which chip (if any) they tapped.
   async function loadSkills() {
     const res = await apiFetch("/skills");
     if (!res.ok) return;
     const { skills } = await res.json();
     state.skills = skills;
-    renderCategoryChips(skills);
+    renderQuickActions(skills);
   }
 
   function groupByCategory(skills) {
@@ -404,21 +456,52 @@
     return byCategory;
   }
 
-  function renderCategoryChips(skills) {
+  // Five curated, plain-language entry points instead of one raw chip per backend skill
+  // category (Web, Documents, Developer, Business, Creative, Automation, Research — a wall
+  // of technical category names that meant little to a first-time user). Each one (besides
+  // "ask", which is just a composer shortcut — always available, no backend dependency) maps
+  // to real, currently-registered skill categories; a group whose categories are entirely
+  // absent from this build's /skills response renders nothing rather than promising an
+  // action the backend can't actually do. Order matches the product's own priority: talk to
+  // Zarvis first, then the concrete task shapes it already supports.
+  const QUICK_ACTION_GROUPS = [
+    { key: "ask", categories: [] },
+    { key: "write", categories: ["CREATIVE", "BUSINESS"] },
+    { key: "research", categories: ["WEB", "RESEARCH"] },
+    { key: "plan", categories: ["AUTOMATION"] },
+    { key: "analyze", categories: ["DOCUMENTS", "DEVELOPER"] },
+  ];
+  const QUICK_ACTION_ICON_PATHS = {
+    ask: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
+    write: CATEGORY_ICON_PATHS.CREATIVE,
+    research: CATEGORY_ICON_PATHS.RESEARCH,
+    plan: CATEGORY_ICON_PATHS.AUTOMATION,
+    analyze: CATEGORY_ICON_PATHS.DOCUMENTS,
+  };
+
+  function quickActionIconSvg(key) {
+    return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${QUICK_ACTION_ICON_PATHS[key]}</svg>`;
+  }
+
+  function renderQuickActions(skills) {
     el.categories.innerHTML = "";
     const byCategory = groupByCategory(skills);
-    for (const [category, categorySkills] of byCategory) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "category-chip" + (categorySkills.every((s) => s.upgradeRequired) ? " locked" : "");
-      chip.textContent = categoryLabel(category);
-      chip.title = categorySkills.map((s) => s.description).join("\n");
-      chip.addEventListener("click", () => {
+    const labels = COPY[state.lang].quickActions;
+    for (const group of QUICK_ACTION_GROUPS) {
+      const matched = group.categories.flatMap((c) => byCategory.get(c) || []);
+      if (group.categories.length && !matched.length) continue; // not supported by this backend build
+      const example = matched.length ? exampleFor(matched[0].description) : "";
+
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "quick-action";
+      card.innerHTML = `${quickActionIconSvg(group.key)}<span>${labels[group.key]}</span>`;
+      card.addEventListener("click", () => {
         haptic();
-        el.input.value = exampleFor(categorySkills[0].description);
+        el.input.value = example;
         el.input.focus();
       });
-      el.categories.appendChild(chip);
+      el.categories.appendChild(card);
     }
   }
 
@@ -712,7 +795,7 @@
       renderDeveloperMessage(body.result?.summary || "Analyzed.", "success");
     } catch (err) {
       console.error(err);
-      renderDeveloperMessage(COPY[state.lang].bootError, "error");
+      renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerAnalyzeBtn.disabled = false;
       el.developerAnalyzeBtn.textContent = "Analyze";
@@ -1094,7 +1177,11 @@
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        addErrorBubble(body.error || `Request failed (${res.status}).`, utterance);
+        // The backend's own `error` string is logged for debugging but never shown — a
+        // caller-facing message here is always the same friendly, translated copy,
+        // regardless of what actually failed server-side.
+        console.error(`Orchestrator turn failed (${res.status}):`, body.error || body.reason);
+        addErrorBubble(COPY[state.lang].bootError, utterance);
         setOrbState("ERROR");
         recordLatency(utterance, Math.round(performance.now() - startedAt), false);
         return;
@@ -1170,29 +1257,36 @@
     return bubble;
   }
 
-  /** A failed turn's reply — the message plus a Retry button that re-runs the exact same
-   * utterance, per the product rule that a failure must never be a dead end. Calls
-   * `runTurn` directly (not `submitUtterance`) so retrying doesn't echo the user's message
-   * a second time — the failed attempt's own user bubble is already on screen. Never shows
-   * a raw stack trace/internal error — only `message`, which is already either the
-   * backend's own user-facing `error` string or the generic, translated boot-error copy. */
-  function addErrorBubble(message, retryUtterance) {
+  /** A failed turn's reply — always the generic, translated connection-error copy (a short
+   * title plus a softer supporting line, e.g. `COPY[lang].bootError`) plus a Retry action,
+   * per the product rule that a failure must never be a dead end and never a raw technical
+   * message. `retryAction` is either the utterance to resubmit (calls `runTurn` directly, not
+   * `submitUtterance`, so retrying doesn't echo the user's message a second time — the failed
+   * attempt's own user bubble is already on screen) or a plain function, for failures with no
+   * utterance to retry (e.g. the initial session bootstrap). */
+  function addErrorBubble(errorCopy, retryAction) {
     const bubble = document.createElement("div");
     bubble.className = "bubble system";
 
-    const text = document.createElement("p");
-    text.className = "bubble-error-text";
-    text.textContent = message;
-    bubble.appendChild(text);
+    const title = document.createElement("p");
+    title.className = "bubble-error-text";
+    title.textContent = errorCopy.title;
+    bubble.appendChild(title);
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "bubble-error-subtitle";
+    subtitle.textContent = errorCopy.subtitle;
+    bubble.appendChild(subtitle);
 
     const retryBtn = document.createElement("button");
     retryBtn.type = "button";
     retryBtn.className = "bubble-retry-btn";
-    retryBtn.textContent = "Retry";
+    retryBtn.textContent = COPY[state.lang].retry;
     retryBtn.addEventListener("click", () => {
       haptic();
       bubble.remove(); // the retry attempt gets its own thinking/success/error bubble
-      runTurn(retryUtterance);
+      if (typeof retryAction === "function") retryAction();
+      else runTurn(retryAction);
     });
     bubble.appendChild(retryBtn);
 
@@ -1312,7 +1406,12 @@
   function setOrbState(newState) {
     el.orb.dataset.state = newState;
     el.heroStatus.dataset.state = newState;
-    el.heroStatusLabel.textContent = newState;
+    // A natural-language status ("Working…", "काम कर रहा हूँ…"), never the raw internal
+    // state name — showing enum values like "EXECUTING" or "UNDERSTANDING" verbatim would be
+    // exactly the kind of developer/debug leak the product content rules rule out. The
+    // `dataset.state` above (unchanged) is what CSS/animations key off of.
+    const labels = COPY[state.lang].stateLabels;
+    el.heroStatusLabel.textContent = labels[newState] || labels.IDLE;
     updateComposerMode();
   }
 
@@ -1323,9 +1422,10 @@
    * button that would crowd the already-tight command bar. */
   function updateComposerMode() {
     const busy = isBusy();
+    const copy = COPY[state.lang];
     el.sendBtn.classList.toggle("stop-mode", busy);
-    el.sendBtn.title = busy ? "Stop" : "Send";
-    el.sendLabel.textContent = busy ? "Stop" : COPY[state.lang].send;
+    el.sendBtn.title = busy ? copy.stop : copy.send;
+    el.sendLabel.textContent = busy ? copy.stop : copy.send;
   }
 
   // A turn is "in flight" for every state between UNDERSTANDING and the SPEAKING reply —
