@@ -188,10 +188,16 @@
 
     el.sendBtn.addEventListener("click", () => {
       haptic();
-      submitUtterance(el.input.value);
+      // While a turn is running the same button reads "Stop" (see updateComposerMode). With
+      // new text typed, clicking it still means "send this" — submitUtterance() itself
+      // interrupts the running turn and starts this one instead of queuing behind it. Only
+      // an empty input turns the click into a pure Stop (nothing to interrupt *with*).
+      if (isBusy() && !el.input.value.trim()) cancelCurrentTurn();
+      else submitUtterance(el.input.value);
     });
     el.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submitUtterance(el.input.value);
+      if (e.key === "Escape" && isBusy()) cancelCurrentTurn();
     });
     el.langToggle.addEventListener("click", () => {
       setLanguage(state.lang === "en" ? "hi" : "en");
@@ -1021,23 +1027,44 @@
 
   // ---- Conversation turn -----------------------------------------------------------------
 
+  // The in-flight turn's controller, if any — lets a new turn (text, mic, or wake word)
+  // interrupt whatever ZARVIS is still doing, the same way Android's ConversationViewModel
+  // cancels its tracked `turnJob` when a new one starts, rather than blocking the new one
+  // until the old one finishes. `null` when idle.
+  let currentTurnController = null;
+
   async function submitUtterance(rawText) {
     const utterance = rawText.trim();
-    // isBusy() blocks a second turn from starting on top of one already in flight — reachable
-    // from three independent triggers (Send/Enter, a manual mic result, and a hands-free
-    // wake-word result), none of which used to check whether a turn was already running.
-    if (!utterance || isBusy()) return;
+    if (!utterance) return;
     el.input.value = "";
     addBubble("user", utterance);
+    await runTurn(utterance);
+  }
+
+  /** The actual orchestrator round trip, shared by a fresh submission (submitUtterance,
+   * which first echoes the utterance as a user bubble) and Retry (addErrorBubble, which
+   * deliberately does not — the failed attempt's own user bubble is still on screen, so
+   * retrying the exact same text would otherwise show it twice). */
+  async function runTurn(utterance) {
+    // A turn already running gets interrupted, not queued behind — cancels its network
+    // request (the AbortError branch below exits quietly, exactly like Android's
+    // `catch (t: CancellationException) { throw t }`: not a failure to report) and stops
+    // whatever it was speaking, so the new turn starts from a clean IDLE-equivalent state.
+    if (currentTurnController) {
+      currentTurnController.abort();
+      stopSpeaking();
+    }
+    const controller = new AbortController();
+    currentTurnController = controller;
+
+    const thinkingNode = addThinkingBubble();
 
     setOrbState("UNDERSTANDING");
     // Pause the mic for the rest of this turn. In hands-free mode `recognition` runs
-    // continuous:true and was never actually stopped here before — it stayed open straight
-    // through EXECUTING and SPEAKING, so it could pick up Zarvis's own spoken reply (or
-    // ambient noise) as a new command mid-turn. Marking the orb busy first (above) means the
-    // "end" event this triggers sees isBusy() and skips its own restart timer; we resume for
-    // real in `finally` below, on every exit path, so a failed turn can never leave hands-free
-    // mode stuck silently off (the old code only resumed after a *successful* turn).
+    // continuous:true — without this it stays open straight through EXECUTING and
+    // SPEAKING, and could pick up Zarvis's own spoken reply (or ambient noise) as a new
+    // command mid-turn. We resume for real in `finally` below, on every exit path, so a
+    // failed turn can never leave hands-free mode stuck silently off.
     if (state.autoListen) stopListening();
 
     const isFirstTurn = state.firstTurn;
@@ -1050,19 +1077,24 @@
     const startedAt = performance.now();
     try {
       await delay(250);
+      if (controller.signal.aborted) return;
       setOrbState("EXECUTING");
-      const res = await apiFetch("/orchestrator/turn", {
-        method: "POST",
-        body: JSON.stringify({
-          utterance,
-          locale: state.lang,
-          userName: localStorage.getItem(STORAGE_KEYS.userName),
-          isFirstTurn,
-        }),
-      });
+      const res = await apiFetch(
+        "/orchestrator/turn",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            utterance,
+            locale: state.lang,
+            userName: localStorage.getItem(STORAGE_KEYS.userName),
+            isFirstTurn,
+          }),
+          signal: controller.signal,
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        addBubble("assistant", body.error || `Request failed (${res.status}).`);
+        addErrorBubble(body.error || `Request failed (${res.status}).`, utterance);
         setOrbState("ERROR");
         recordLatency(utterance, Math.round(performance.now() - startedAt), false);
         return;
@@ -1073,6 +1105,7 @@
       // Green Glow", mirroring the Android orb's SUCCESS state exactly (same 450ms flash).
       setOrbState("SUCCESS");
       await delay(450);
+      if (controller.signal.aborted) return;
       const node = renderAssistantResult(result);
       // Awaited so the orb actually stays SPEAKING for the duration of playback — without
       // this, the fire-and-forget call returns almost immediately (it only runs
@@ -1082,21 +1115,87 @@
       // state to know when ZARVIS has actually finished talking before re-arming the mic —
       // starting to listen while still speaking would pick up its own voice.
       await speak(result.message, node);
+      if (controller.signal.aborted) return;
       setOrbState("IDLE");
     } catch (err) {
+      if (err.name === "AbortError") return; // interrupted by a newer turn — not a failure
       console.error(err);
-      addBubble("system", COPY[state.lang].bootError);
+      addErrorBubble(COPY[state.lang].bootError, utterance);
       setOrbState("ERROR");
       recordLatency(utterance, Math.round(performance.now() - startedAt), false);
     } finally {
-      if (state.autoListen) startListening();
+      // Runs on every exit path (success, HTTP failure, thrown error, or an early return
+      // from the abort checks above) — removing it here, once, is what guarantees it can
+      // never linger, rather than repeating `thinkingNode.remove()` at each return site
+      // above and risking a path that forgets to.
+      thinkingNode.remove();
+      // Only the still-current call resumes hands-free listening / clears the tracked
+      // controller — an older, since-interrupted call's `finally` must not race the newer
+      // turn that superseded it.
+      if (currentTurnController === controller) {
+        currentTurnController = null;
+        if (state.autoListen) startListening();
+      }
     }
+  }
+
+  /** Cancels whatever ZARVIS is currently doing (thinking or speaking) without starting a
+   * new turn — the composer's Stop action (see updateComposerMode()) and the sole way to
+   * interrupt a turn from the keyboard/mouse without also submitting new text. */
+  function cancelCurrentTurn() {
+    if (currentTurnController) currentTurnController.abort();
+    stopSpeaking();
+    setOrbState("IDLE");
   }
 
   function addBubble(role, text) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
     bubble.textContent = text;
+    el.conversation.appendChild(bubble);
+    el.conversation.scrollTop = el.conversation.scrollHeight;
+    return bubble;
+  }
+
+  /** A transient "thinking" placeholder shown for the UNDERSTANDING/EXECUTING span of a
+   * turn — removed the moment the real reply (or an error) is ready, in every exit path of
+   * submitUtterance (success, HTTP failure, thrown error, and abort-by-interruption alike),
+   * so it can never linger as a fake "still working" state. */
+  function addThinkingBubble() {
+    const bubble = document.createElement("div");
+    bubble.className = "bubble assistant thinking";
+    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+    el.conversation.appendChild(bubble);
+    el.conversation.scrollTop = el.conversation.scrollHeight;
+    return bubble;
+  }
+
+  /** A failed turn's reply — the message plus a Retry button that re-runs the exact same
+   * utterance, per the product rule that a failure must never be a dead end. Calls
+   * `runTurn` directly (not `submitUtterance`) so retrying doesn't echo the user's message
+   * a second time — the failed attempt's own user bubble is already on screen. Never shows
+   * a raw stack trace/internal error — only `message`, which is already either the
+   * backend's own user-facing `error` string or the generic, translated boot-error copy. */
+  function addErrorBubble(message, retryUtterance) {
+    const bubble = document.createElement("div");
+    bubble.className = "bubble system";
+
+    const text = document.createElement("p");
+    text.className = "bubble-error-text";
+    text.textContent = message;
+    bubble.appendChild(text);
+
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "bubble-retry-btn";
+    retryBtn.textContent = "Retry";
+    retryBtn.addEventListener("click", () => {
+      haptic();
+      bubble.remove(); // the retry attempt gets its own thinking/success/error bubble
+      runTurn(retryUtterance);
+    });
+    bubble.appendChild(retryBtn);
+
     el.conversation.appendChild(bubble);
     el.conversation.scrollTop = el.conversation.scrollHeight;
     return bubble;
@@ -1214,6 +1313,19 @@
     el.orb.dataset.state = newState;
     el.heroStatus.dataset.state = newState;
     el.heroStatusLabel.textContent = newState;
+    updateComposerMode();
+  }
+
+  /** Swaps the Send button into a Stop button for the whole busy span (UNDERSTANDING through
+   * SPEAKING) — the composer's always-visible way to cancel a turn, alongside the
+   * per-message waveform's own stop control (attachWaveform) and the Escape key. Mirrors the
+   * common "Send becomes Stop while generating" pattern rather than inventing a second
+   * button that would crowd the already-tight command bar. */
+  function updateComposerMode() {
+    const busy = isBusy();
+    el.sendBtn.classList.toggle("stop-mode", busy);
+    el.sendBtn.title = busy ? "Stop" : "Send";
+    el.sendLabel.textContent = busy ? "Stop" : COPY[state.lang].send;
   }
 
   // A turn is "in flight" for every state between UNDERSTANDING and the SPEAKING reply —
@@ -1298,9 +1410,13 @@
       // recognized since this session started, not just the latest one — always reading
       // index 0 here would keep re-processing the very first phrase forever. The last entry
       // is always the newest, since interimResults is off and every entry is therefore final.
-      if (isBusy()) return; // a turn is already running — the mic should be paused for it
-      // anyway (see submitUtterance), but this is the same guard belt-and-braces in case a
-      // stray result slips in during the gap before stopListening() actually takes effect.
+      // Only SPEAKING is actually guarded: a manual mic tap during UNDERSTANDING/EXECUTING
+      // is a deliberate voice interruption (submitUtterance() cancels the running turn, the
+      // same as tapping Send with new text would), but during SPEAKING the mic could pick
+      // up Zarvis's own audio output as if it were a new command — hands-free mode never
+      // reaches here while SPEAKING anyway (its mic is stopped for the whole turn), so this
+      // guard only ever matters for a manual tap.
+      if (el.orb.dataset.state === "SPEAKING") return;
       const results = event.results;
       const transcript = results[results.length - 1][0].transcript;
       if (state.autoListen) {
@@ -1438,6 +1554,14 @@
    * Restarts listening itself once done speaking, same as a normal turn (see
    * submitUtterance). */
   async function acknowledgeWakeWord() {
+    // A bare "Zarvis" heard while a real turn is still running (reachable now that a manual
+    // mic tap can interrupt mid-turn, see setupSpeechRecognition's result handler) must not
+    // let that turn's reply speak over this acknowledgment — interrupt it the same way a new
+    // utterance would.
+    if (currentTurnController) {
+      currentTurnController.abort();
+      stopSpeaking();
+    }
     const reply = state.introduced ? COPY[state.lang].wakeAck : COPY[state.lang].wakeIntro;
     state.introduced = true;
     // Same pause-before-speaking pattern as submitUtterance: mark the orb busy first so the
@@ -1531,20 +1655,38 @@
     try {
       playedLive = await speakWithGemini(text);
     } catch (err) {
+      // An explicit Stop (waveform button, composer Stop, or a new turn interrupting this
+      // one) must not then fall back to the browser's own voice reading the same reply —
+      // that would ignore the very "stop talking" the user just asked for. A real Gemini
+      // failure (network, no credential, rate limit, ...) still falls back below.
+      if (err.name === "AbortError") {
+        if (node) detachWaveform(node);
+        return;
+      }
       console.warn("Gemini voice unavailable, falling back to the browser's voice:", err);
     }
     if (!playedLive) await speakWithBrowser(text);
     if (node) detachWaveform(node);
   }
 
-  // Tracks whatever is currently producing audio so the waveform's stop control can
-  // actually interrupt it — a plain Audio element for the Gemini path, the
-  // SpeechSynthesisUtterance for the browser fallback (only one of the two is ever active
-  // at a time, matching speak()'s own try-Gemini-then-fall-back sequencing above).
+  // Tracks whatever is currently producing audio/network activity so stopSpeaking() can
+  // actually interrupt it, however far it's gotten: `activeTtsController` cancels the
+  // /tts/synthesize request itself if Stop is hit before any audio exists yet, `activeAudio`
+  // pauses the Gemini path's playback once it does, and speechSynthesis.cancel() below
+  // covers the browser-fallback path — only one of these is ever relevant at a time,
+  // matching speak()'s own try-Gemini-then-fall-back sequencing.
   let activeAudio = null;
+  let activeTtsController = null;
 
   async function speakWithGemini(text) {
-    const res = await apiFetch("/tts/synthesize", { method: "POST", body: JSON.stringify({ text }) });
+    const controller = new AbortController();
+    activeTtsController = controller;
+    let res;
+    try {
+      res = await apiFetch("/tts/synthesize", { method: "POST", body: JSON.stringify({ text }), signal: controller.signal });
+    } finally {
+      activeTtsController = null;
+    }
     if (!res.ok) return false;
     const url = URL.createObjectURL(await res.blob());
     const audio = new Audio(url);
@@ -1567,9 +1709,10 @@
   }
 
   // Interrupts whichever voice is currently speaking (tapped from the waveform's stop
-  // control) — mirrors the mic/orb's existing "never leave the user stuck mid-interaction"
-  // behavior for playback specifically.
+  // control, the composer's Stop button, or a new turn superseding this one) — mirrors the
+  // mic/orb's existing "never leave the user stuck mid-interaction" behavior for playback.
   function stopSpeaking() {
+    if (activeTtsController) activeTtsController.abort();
     if (activeAudio) activeAudio.pause();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     setOrbState("IDLE");
