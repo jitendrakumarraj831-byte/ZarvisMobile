@@ -5,6 +5,9 @@ build/
 .externalNativeBuild
 .cxx
 local.properties
+keystore.properties
+*.jks
+*.keystore
 .idea/
 *.hprof
 .DS_Store

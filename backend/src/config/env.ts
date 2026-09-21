@@ -1,7 +1,31 @@
+const DEV_ONLY_JWT_SECRET = "dev-only-insecure-secret-do-not-use-in-production";
+
+/**
+ * `JWT_SECRET` is the one env var whose absence is a silent auth bypass rather than a
+ * missing feature: unlike the provider keys below (unset → an honestly-labeled mock), every
+ * server signs and verifies tokens with this secret, so a production deploy that forgets to
+ * set it would still "work" — every token it issues would just be forgeable by anyone who
+ * has read this source file. Refusing to start is the only safe behavior once
+ * `NODE_ENV=production` (what Vercel's serverless runtime, and any conventional prod
+ * deployment, sets); local dev and `vitest run` (`NODE_ENV` unset or `"test"`) keep the
+ * fallback so `npm run dev`/`npm test` need no setup, per .env.example.
+ */
+function resolveJwtSecret(): string {
+  const configured = process.env.JWT_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "JWT_SECRET is not set. Refusing to start in production with the publicly-known dev " +
+        "fallback secret — set JWT_SECRET to a real, random value (see .env.example).",
+    );
+  }
+  return DEV_ONLY_JWT_SECRET;
+}
+
 /** Central place environment variables are read — see ../../.env.example. */
 export const env = {
   port: Number(process.env.PORT ?? 3000),
-  jwtSecret: process.env.JWT_SECRET || "dev-only-insecure-secret-do-not-use-in-production",
+  jwtSecret: resolveJwtSecret(),
   /** Postgres connection string. Leave unset to use the in-memory store (local dev/tests only —
    * see store/inMemoryStore.ts; it does not survive process restarts or serverless cold starts). */
   databaseUrl: process.env.POSTGRES_URL || process.env.DATABASE_URL,
