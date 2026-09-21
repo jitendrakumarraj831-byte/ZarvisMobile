@@ -137,6 +137,39 @@ network security config at all** and keep the platform default — see SECURITY.
 `buildConfigField` directly (unlike the web client's `?api=` query param, this is compiled
 app config, not a browser URL).
 
+### Release build & signing (Play Store submission)
+
+No production keystore is ever committed to this repository — secrets live outside source
+control (SECURITY.md). `app/build.gradle.kts` resolves signing credentials, in order:
+
+1. `RELEASE_STORE_FILE` / `RELEASE_STORE_PASSWORD` / `RELEASE_KEY_ALIAS` / `RELEASE_KEY_PASSWORD`
+   environment variables (CI / scripted release builds).
+2. `android/app/keystore.properties` (git-ignored — see `android/.gitignore`), the same 4
+   keys as `key=value` lines, for a local release build:
+
+   ```properties
+   storeFile=/absolute/path/to/your-release.jks
+   storePassword=...
+   keyAlias=...
+   keyPassword=...
+   ```
+
+Generate a keystore if you don't have one yet (standard `keytool`, part of every JDK):
+
+```bash
+keytool -genkeypair -v -keystore release.jks -alias zarvis -keyalg RSA -keysize 2048 -validity 10000
+```
+
+**Back this keystore up somewhere durable and never lose it.** Play Store ties an app's
+listing to the signing identity it was first uploaded with (directly, or as the upload key
+under Play App Signing) — losing it means you can never publish an update to the same app
+listing again.
+
+Without real credentials, `./gradlew :app:assembleRelease` still succeeds (useful as a
+compile-verification step) but produces an **unsigned** APK/AAB: installable on no device,
+rejected by Play Console. The build logs a warning naming exactly what's missing when this
+is the case.
+
 ## Backend
 
 ```bash

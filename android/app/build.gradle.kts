@@ -1,5 +1,6 @@
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -115,6 +116,46 @@ if (!isPrivateDevAddress(devApiHost)) {
     )
 }
 
+// ---------------------------------------------------------------------------------------
+// Release signing (Play Store submission / installing a release build on a real device)
+//
+// No production keystore is ever committed to this repository — secrets live outside
+// source control (SECURITY.md). Credentials are resolved, in order:
+//   1. RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD
+//      environment variables (CI / scripted release builds)
+//   2. app/keystore.properties (git-ignored; same 4 keys, for a local release build)
+// When neither is present, `release` still builds — assembleRelease stays usable as a
+// compile-verification step — but the output is UNSIGNED: installable on no device and
+// impossible to upload to Play Console until real signing credentials exist. This mirrors
+// the devApiHost resolution above: resolve what's available, warn loudly about what isn't,
+// never fail the build for a missing credential that only matters at actual release time.
+// ---------------------------------------------------------------------------------------
+val keystorePropertiesFile = project.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) keystorePropertiesFile.inputStream().use { load(it) }
+}
+
+fun releaseSigningValue(propertyKey: String, envVar: String): String? =
+    System.getenv(envVar)?.trim()?.ifEmpty { null }
+        ?: keystoreProperties.getProperty(propertyKey)?.trim()?.ifEmpty { null }
+
+val releaseStoreFile = releaseSigningValue("storeFile", "RELEASE_STORE_FILE")
+val releaseStorePassword = releaseSigningValue("storePassword", "RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("keyAlias", "RELEASE_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("keyPassword", "RELEASE_KEY_PASSWORD")
+val hasReleaseSigningConfig =
+    releaseStoreFile != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null
+
+if (!hasReleaseSigningConfig) {
+    logger.warn(
+        "ZARVIS: no release signing configuration found. Set RELEASE_STORE_FILE, " +
+            "RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD (env vars) or create " +
+            "app/keystore.properties with the same 4 keys (see DEVELOPMENT.md). assembleRelease will " +
+            "still produce an APK/AAB, but it will be UNSIGNED: it cannot be installed on a device or " +
+            "uploaded to Play Console until real signing credentials are supplied.",
+    )
+}
+
 /**
  * Writes the debug-only `res/xml/network_security_config.xml`. Generated rather than
  * checked in because the one host that actually needs a cleartext exemption — the dev
@@ -186,6 +227,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        if (hasReleaseSigningConfig) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         // API_BASE_URL is the app's only network destination (`ApiClientFactory` builds the
         // single Retrofit/OkHttp client, and `TokenAuthenticator` reuses the same base URL).
@@ -195,8 +247,17 @@ android {
             buildConfigField("String", "API_BASE_URL", "\"$devApiBaseUrl\"")
         }
         release {
+            // Not yet enabled: this repository has no way to compile-verify a minified build
+            // (no Android SDK in the sandbox that wrote this — see MASTER_SPEC.md §32), and
+            // shipping an unverified R8 config is worse than shipping an unshrunk release.
+            // A starter proguard-rules.pro is included; flip this once a real build confirms
+            // the app still works minified.
             isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "API_BASE_URL", "\"https://zarvismobile.com/\"")
+            if (hasReleaseSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
