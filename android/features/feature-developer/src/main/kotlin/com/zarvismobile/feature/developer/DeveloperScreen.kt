@@ -4,7 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -25,8 +30,17 @@ import com.zarvismobile.core.ui.theme.ZarvisSpacing
 fun DeveloperScreen(viewModel: DeveloperViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
 
+    // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23): claims the
+    // gesture-nav-bar inset itself, and imePadding() keeps the repo-URL field/button above
+    // the keyboard instead of the keyboard covering them.
     Column(
-        modifier = Modifier.fillMaxSize().padding(ZarvisSpacing.md),
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(ZarvisSpacing.md),
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
     ) {
         Text(text = "Developer Mode", style = MaterialTheme.typography.headlineMedium)

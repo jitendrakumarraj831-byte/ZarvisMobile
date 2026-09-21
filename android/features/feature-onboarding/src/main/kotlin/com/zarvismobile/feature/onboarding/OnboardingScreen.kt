@@ -6,9 +6,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +49,8 @@ fun OnboardingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(ZarvisSpacing.xl),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -55,8 +61,15 @@ fun OnboardingScreen(
             ZarvisGhostButton(text = "Skip", onClick = viewModel::skip)
         }
 
+        // weight(fill = false) + verticalScroll: takes only the space it needs (preserving
+        // the original SpaceBetween look for today's short copy) but scrolls instead of
+        // clipping if a longer page or a larger accessibility font size ever needs more
+        // height than is available between the skip row and the page controls below.
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
