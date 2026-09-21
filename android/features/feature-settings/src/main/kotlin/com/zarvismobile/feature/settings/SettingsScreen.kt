@@ -4,7 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,8 +29,15 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23): claims the
+    // gesture-nav-bar inset itself.
     Column(
-        modifier = Modifier.fillMaxSize().padding(ZarvisSpacing.md),
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(ZarvisSpacing.md),
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
     ) {
         Text(text = "Settings", style = MaterialTheme.typography.headlineMedium)

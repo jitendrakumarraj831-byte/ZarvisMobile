@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -56,7 +58,19 @@ fun ConversationScreen(
     }
 
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+        // No Scaffold bottomBar on this route (MASTER_SPEC.md §23 — Conversation is a
+        // full-screen destination), so nothing else claims the gesture-nav-bar inset for it;
+        // without navigationBarsPadding() the composer/orb would sit flush against or under
+        // it. imePadding() raises the same content above the keyboard instead of it covering
+        // the composer — the "content remains usable while typing" requirement (MASTER_SPEC
+        // §11 "text input must also remain available").
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding(),
+        ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().weight(1f),
                 state = listState,

@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -26,7 +28,9 @@ import com.zarvismobile.data.remote.dto.TaskDto
 fun TasksScreen(viewModel: TasksViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
 
-    Column(modifier = Modifier.fillMaxSize().padding(ZarvisSpacing.md)) {
+    // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23), so this screen
+    // must claim the gesture-nav-bar inset itself.
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(ZarvisSpacing.md)) {
         Text(text = "Tasks", style = MaterialTheme.typography.headlineMedium)
 
         if (uiState.tasks.isEmpty() && !uiState.isLoading) {
