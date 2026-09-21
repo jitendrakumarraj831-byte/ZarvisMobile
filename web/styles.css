@@ -50,10 +50,9 @@ body {
   overflow-x: hidden;
 }
 
-/* Above phone width the shell reads as a floating device frame — a `max-w-md`-style
-   centered container — instead of stretching a mobile layout edge-to-edge across a
-   desktop browser window; below it (real phones, and narrow WebViews) .app already
-   fills the viewport exactly as before, so nothing changes there. */
+/* Tablet and up: centers the shell instead of letting it hug the left edge of a wider
+   viewport. Desktop (≥1024px, further below) additionally switches .app itself from a
+   capped mobile-width card to a full sidebar workspace. */
 @media (min-width: 640px) {
   body {
     display: flex;
@@ -83,13 +82,17 @@ body {
   height: 100vh; /* fallback for browsers without dvh support */
   height: 100dvh; /* the real visible viewport height on mobile, address bar and all */
   width: 100%;
-  max-width: 480px; /* mimics a clean mobile viewport ("max-w-md") even on wide desktop browsers */
+  max-width: 480px; /* mimics a clean mobile viewport ("max-w-md") on phones and narrow tablets */
   margin: 0 auto;
   overflow-x: hidden;
 }
 
+/* Tablet (≥640px, <1024px): the same single-column shell as mobile, just given real
+   breathing room in a bordered "device frame" instead of hugging 480px — an adaptive
+   widening, not yet the desktop sidebar workspace below. */
 @media (min-width: 640px) {
   .app {
+    max-width: 720px;
     height: min(100dvh, 900px);
     margin: 24px auto;
     border-radius: 32px;
@@ -97,6 +100,44 @@ body {
     box-shadow: 0 40px 120px -30px #000000cc, 0 0 60px -12px #00f0ff26;
     overflow: hidden;
   }
+}
+
+/* Desktop (≥1024px): a real workspace instead of a stretched phone screen — .app switches
+   from a capped, centered "device frame" to a full-width grid (sidebar nav + wide content
+   area), using the available screen instead of floating a narrow card in empty space. The
+   underlying markup is unchanged (.main-content already wraps .views + .composer exactly as
+   they were direct .app children before, so nothing about their own internal flex layout has
+   to change here — only how .app arranges its top-level children). */
+@media (min-width: 1024px) {
+  body { align-items: stretch; }
+  .app {
+    max-width: 1400px;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "topbar topbar" "sidebar main";
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    overflow: hidden;
+  }
+  .topbar { grid-area: topbar; padding: 18px 28px; }
+  .sidebar-nav { grid-area: sidebar; }
+  .main-content { grid-area: main; }
+  /* NOT .bottom-nav: display:none here would lose to the unconditional, later-in-file
+     .bottom-nav { display: flex } rule at equal specificity (source order decides ties
+     regardless of media-query nesting) — the real override lives right after that rule. */
+
+  /* Wide screens still read comfortably: the conversation/workspace column caps its own
+     line length instead of stretching every bubble/card edge-to-edge across 1150px+. */
+  .stage { padding: 24px 56px 16px; }
+  .stage > * { max-width: 760px; width: 100%; margin-left: auto; margin-right: auto; }
+  .composer { padding: 14px 56px 22px; }
+  .command-bar { max-width: 760px; margin: 0 auto; }
 }
 
 .topbar {
@@ -187,14 +228,63 @@ body {
 .status-dot.live { background: var(--zarvis-success); color: var(--zarvis-success); }
 .status-dot.mock { background: var(--zarvis-warning); color: var(--zarvis-warning); }
 
-/* Holds the 4 top-level views (Workspace/Capabilities/Plans/Metrics, see .stage below) —
-   only one is ever un-hidden at a time (app.js's setActiveView), so this just needs to give
-   whichever one is visible the full remaining height between the topbar and the composer. */
+/* Groups .views + .composer as one flex column and takes their old place as .app's direct
+   flex child — see the ≥1024px rule above for why (a single grid-area target for the
+   desktop sidebar layout). Identical flex behavior to before this wrapper existed. */
+.main-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Holds the top-level views (Workspace/Capabilities/Plans/Metrics/Developer/Settings, see
+   .stage below) — only one is ever un-hidden at a time (app.js's setActiveView), so this
+   just needs to give whichever one is visible the full remaining height between the topbar
+   and the composer. */
 .views {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Desktop sidebar nav (see the ≥1024px .app rule above) — hidden below that breakpoint,
+   where .bottom-nav is the real navigation surface. Reuses .nav-item so app.js's existing
+   generic querySelectorAll(".nav-item") wiring drives both without any script change. */
+.sidebar-nav {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 20px 12px;
+    border-right: 1px solid var(--zarvis-border-soft);
+    overflow-y: auto;
+  }
+  .sidebar-nav .nav-item {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
+    position: relative;
+  }
+  .sidebar-nav .nav-item.active {
+    background: #00f0ff14;
+  }
+  .sidebar-nav .nav-badge {
+    position: static;
+    margin-left: auto;
+    border: none;
+  }
+  .sidebar-nav-divider {
+    height: 1px;
+    margin: 10px 6px;
+    background: var(--zarvis-border-soft);
+  }
 }
 
 .stage {
@@ -215,7 +305,7 @@ body {
    active one — the same class of bug already called out above for `.install-btn[hidden]`. */
 .stage[hidden] { display: none; }
 
-.view-header { padding: 18px 0 2px; flex-shrink: 0; }
+.view-header { padding: 18px 0 2px; flex-shrink: 0; position: relative; }
 .view-header h2 {
   margin: 0 0 4px;
   font-family: var(--font-display);
@@ -228,6 +318,175 @@ body {
   color: var(--zarvis-text-secondary);
   line-height: 1.5;
 }
+/* A view reached from Workspace rather than the bottom nav (Settings, Developer) gets a
+   back control instead of living as its own nav-bar tab — mirrors how Android reaches these
+   same two screens from a Home icon/link rather than the bottom nav (MASTER_SPEC.md §23). */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  margin: 0 0 10px -6px;
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: 50%;
+  background: var(--zarvis-surface-elevated);
+  color: var(--zarvis-text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.back-btn:hover { border-color: #00f0ff88; color: var(--zarvis-accent-cyan); }
+
+/* ---- Reusable card shell for Settings/Developer sections — same visual recipe as
+   .capability-card/.plan-card (glass surface, soft border, radius-lg), factored out once
+   these two screens needed several stacked sections rather than one repeating list. ---- */
+.zarvis-card {
+  background: var(--zarvis-surface-elevated);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.card-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--zarvis-text-secondary);
+}
+.card-error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--zarvis-error);
+}
+.card-error[hidden] { display: none; }
+
+/* ---- Generic pill buttons for Settings/Developer — same gradient-primary /
+   outline-danger-on-hover language already established by .capability-run-btn and
+   .task-action-btn, generalized so these two screens don't duplicate one-off button CSS. ---- */
+.zarvis-btn {
+  align-self: flex-start;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--zarvis-border-soft);
+  background: transparent;
+  color: var(--zarvis-text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.zarvis-btn:hover { border-color: #00f0ff55; color: var(--zarvis-accent-cyan); }
+.zarvis-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.zarvis-btn-primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
+  color: #041016;
+}
+.zarvis-btn-primary:hover { box-shadow: 0 0 18px 2px var(--glow-cyan-soft); color: #041016; }
+.zarvis-btn-secondary { background: var(--zarvis-surface); }
+.zarvis-btn-danger { color: var(--zarvis-error); border-color: #ff5c7240; }
+.zarvis-btn-danger:hover { border-color: #ff5c7288; background: #ff5c7214; color: var(--zarvis-error); }
+
+/* ---- Language option pills (Settings) — same active/inactive pattern as .billing-option. ---- */
+.option-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.option-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: 999px;
+  background: var(--zarvis-surface);
+  color: var(--zarvis-text-secondary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.option-btn.active { background: #00f0ff2e; border-color: transparent; color: var(--zarvis-accent-cyan); }
+
+/* ---- Developer screen's repo-URL field — a full-width block input, distinct from the
+   composer's pill-shaped .text-input which is purpose-built for the command bar. ---- */
+.text-input-block {
+  width: 100%;
+  background: var(--zarvis-surface);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: 12px;
+  color: var(--zarvis-text-primary);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: var(--font-body);
+}
+.text-input-block::placeholder { color: var(--zarvis-text-secondary); }
+.text-input-block:focus { outline: none; border-color: #00f0ff66; }
+
+/* ---- Workspace → Developer discovery link — mirrors Android Home's plain TextButton
+   entry point into the dedicated Developer screen (feature-home/HomeScreen.kt), rather than
+   a 5th/6th category chip in the already-full chip rail. ---- */
+.developer-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  margin-top: -4px;
+  padding: 9px 16px;
+  border: 1px dashed var(--zarvis-border-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--zarvis-text-secondary);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.developer-link:hover { color: var(--zarvis-accent-cyan); border-color: #00f0ff55; }
+
+/* ---- Confirmation modal (e.g. "Delete account?") — mirrors the Android AlertDialog pattern
+   used for the same confirmation (SettingsScreen.kt / MainActivity's RiskConfirmationDialog):
+   a title, a body sentence, Cancel + a destructive confirm action. ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #030712b3;
+  backdrop-filter: blur(4px);
+}
+.modal-overlay[hidden] { display: none; }
+.modal-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--zarvis-surface-strong);
+  border: 1px solid var(--zarvis-border-soft);
+  border-radius: var(--radius-lg);
+  padding: 22px 22px 18px;
+  box-shadow: 0 30px 80px -20px #000000e0;
+  animation: widget-in 0.2s ease;
+}
+.modal-card h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+}
+.modal-card p {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--zarvis-text-secondary);
+}
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 .hero { text-align: center; padding: 26px 0 6px; flex-shrink: 0; }
 
@@ -838,6 +1097,12 @@ body {
   border: 1px solid var(--zarvis-border-soft);
   box-shadow: 0 10px 34px -16px #000000cc;
   flex-shrink: 0;
+}
+/* Desktop (≥1024px) uses .sidebar-nav instead — placed after the unconditional rule above
+   so it actually wins the cascade at equal specificity (see the note by the desktop .app
+   rule near the top of this file). */
+@media (min-width: 1024px) {
+  .bottom-nav { display: none; }
 }
 .nav-item {
   position: relative;

@@ -34,6 +34,9 @@
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           Install
         </button>
+        <button id="settings-btn" class="chip-btn icon-btn" type="button" title="Settings">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
         <button id="lang-toggle" class="chip-btn" type="button" title="Switch language / भाषा बदलें">EN</button>
         <button id="voice-out-toggle" class="chip-btn icon-btn" type="button" title="Toggle spoken replies" aria-pressed="true">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
@@ -45,81 +48,184 @@
       </div>
     </header>
 
-    <main class="views">
-      <section class="stage" id="view-workspace">
-        <section class="hero" id="hero">
-          <div class="orb-wrap">
-            <div class="orb-ring" aria-hidden="true"></div>
-            <div
-              class="orb"
-              id="orb"
-              data-state="IDLE"
-              role="button"
-              tabindex="0"
-              aria-pressed="false"
-              aria-label="Toggle hands-free wake-word listening"
-              title="Tap to toggle hands-free mode — say &quot;Zarvis&quot; + your command"
-            ></div>
-          </div>
-          <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
-          <p class="hero-status" id="hero-status" data-state="IDLE">
-            <span class="hero-status-dot" aria-hidden="true"></span>
-            <span id="hero-status-label">IDLE</span>
-          </p>
+    <!-- Desktop-only sidebar (≥1024px, see styles.css) — mirrors .bottom-nav's items via the
+         same shared .nav-item class/data-view attributes, so app.js's existing generic
+         querySelectorAll(".nav-item") wiring drives both without any script changes; also
+         carries Settings/Developer, which stay reachable on mobile via the topbar gear icon
+         and the Workspace "Developer" link instead of a 6th bottom-nav tab. -->
+    <nav class="sidebar-nav" id="sidebar-nav" aria-label="Main">
+      <button type="button" class="nav-item active" data-view="workspace">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <span>Workspace</span>
+      </button>
+      <button type="button" class="nav-item" data-view="capabilities">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+        <span>Capabilities</span>
+      </button>
+      <button type="button" class="nav-item" data-view="plans">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        <span>Plans</span>
+      </button>
+      <button type="button" class="nav-item" data-view="metrics">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+        <span>Metrics</span>
+        <span class="nav-badge" id="metrics-badge-sidebar" hidden></span>
+      </button>
+      <div class="sidebar-nav-divider" aria-hidden="true"></div>
+      <button type="button" class="nav-item" data-view="developer">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+        <span>Developer</span>
+      </button>
+      <button type="button" class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <!-- Groups the switchable views + composer as one flex column, so the desktop grid
+         (styles.css, ≥1024px) can place them as a single "main" grid-area next to
+         .sidebar-nav without changing their own internal flex layout (unchanged from before
+         this wrapper existed: .views takes remaining height, .composer sticks to the bottom). -->
+    <div class="main-content">
+      <main class="views">
+        <section class="stage" id="view-workspace">
+          <section class="hero" id="hero">
+            <div class="orb-wrap">
+              <div class="orb-ring" aria-hidden="true"></div>
+              <div
+                class="orb"
+                id="orb"
+                data-state="IDLE"
+                role="button"
+                tabindex="0"
+                aria-pressed="false"
+                aria-label="Toggle hands-free wake-word listening"
+                title="Tap to toggle hands-free mode — say &quot;Zarvis&quot; + your command"
+              ></div>
+            </div>
+            <p class="hero-title" id="hero-title">आप क्या करवाना चाहते हैं?</p>
+            <p class="hero-status" id="hero-status" data-state="IDLE">
+              <span class="hero-status-dot" aria-hidden="true"></span>
+              <span id="hero-status-label">IDLE</span>
+            </p>
+          </section>
+
+          <section class="conversation" id="conversation" aria-live="polite"></section>
+
+          <section class="categories" id="categories" aria-label="Skill categories"></section>
+
+          <button type="button" class="developer-link" id="developer-entry-link">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            Developer Agent — analyze a GitHub repo
+          </button>
         </section>
 
-        <section class="conversation" id="conversation" aria-live="polite"></section>
+        <section class="stage" id="view-capabilities" hidden>
+          <div class="view-header">
+            <h2>Capabilities</h2>
+            <p>Everything Zarvis can do right now, grouped by category.</p>
+          </div>
+          <div class="capabilities-list" id="capabilities-list"></div>
+        </section>
 
-        <section class="categories" id="categories" aria-label="Skill categories"></section>
-      </section>
+        <section class="stage" id="view-plans" hidden>
+          <div class="view-header">
+            <h2>Plans &amp; Quotas</h2>
+            <p>Free vs Pro — compare tiers and see what's on your account today.</p>
+          </div>
+          <div id="plans-current" class="status-grid"></div>
+          <div class="billing-toggle" id="billing-toggle" role="group" aria-label="Billing period">
+            <button type="button" class="billing-option active" data-billing="monthly">Monthly</button>
+            <button type="button" class="billing-option" data-billing="yearly">Yearly</button>
+          </div>
+          <div class="plan-cards" id="plan-cards"></div>
+        </section>
 
-      <section class="stage" id="view-capabilities" hidden>
-        <div class="view-header">
-          <h2>Capabilities</h2>
-          <p>Everything Zarvis can do right now, grouped by category.</p>
+        <section class="stage" id="view-metrics" hidden>
+          <div class="view-header">
+            <h2>System Metrics</h2>
+            <p>Latency measured live in this browser, and your current task log.</p>
+          </div>
+          <div class="status-grid" id="metrics-health-grid"></div>
+          <h3 class="section-label">Live API Latency</h3>
+          <div class="stat-row" id="latency-stats"></div>
+          <div class="latency-log" id="latency-log"></div>
+          <h3 class="section-label">Task Log</h3>
+          <div class="task-list" id="task-list"></div>
+        </section>
+
+        <section class="stage" id="view-developer" hidden>
+          <div class="view-header">
+            <button type="button" class="back-btn" id="developer-back-btn" aria-label="Back to Workspace">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <h2>Developer</h2>
+            <p>Read-only structural analysis of a GitHub repository — the Repository Agent's first stage.</p>
+          </div>
+          <div class="zarvis-card">
+            <label class="card-title" for="developer-repo-input">Repository URL</label>
+            <input id="developer-repo-input" class="text-input-block" type="text" placeholder="https://github.com/owner/repo" autocomplete="off" />
+            <button type="button" class="zarvis-btn zarvis-btn-primary" id="developer-analyze-btn">Analyze</button>
+          </div>
+          <div id="developer-result"></div>
+        </section>
+
+        <section class="stage" id="view-settings" hidden>
+          <div class="view-header">
+            <button type="button" class="back-btn" id="settings-back-btn" aria-label="Back to Workspace">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <h2>Settings</h2>
+            <p>Language, voice, and your account data.</p>
+          </div>
+
+          <div class="zarvis-card">
+            <h3 class="card-title">Language</h3>
+            <p class="card-desc">Choose English or Hindi for replies and interface text.</p>
+            <div class="option-row" id="settings-lang-options" role="group" aria-label="Language">
+              <button type="button" class="option-btn" data-lang="en">English</button>
+              <button type="button" class="option-btn" data-lang="hi">हिंदी</button>
+            </div>
+          </div>
+
+          <div class="zarvis-card">
+            <h3 class="card-title">Spoken replies</h3>
+            <p class="card-desc">Toggle whether Zarvis speaks its replies out loud (Gemini voice, falling back to your browser's voice).</p>
+            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="true">Spoken replies: On</button>
+          </div>
+
+          <div class="zarvis-card">
+            <h3 class="card-title">Memory &amp; Data</h3>
+            <p class="card-desc">
+              Viewing individual memories, clearing a single conversation, and exporting your data are
+              planned — not yet wired to a backend endpoint. Deleting your account below is fully wired: it
+              removes your account, tasks, and usage history from the server.
+            </p>
+            <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p>
+            <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button>
+          </div>
+
+          <div class="zarvis-card">
+            <h3 class="card-title">Session</h3>
+            <p class="card-desc">Clears your locally-stored session only. The next visit bootstraps a fresh guest account.</p>
+            <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-clear-session-btn">Clear local session</button>
+          </div>
+        </section>
+      </main>
+
+      <footer class="composer" id="composer">
+        <div class="command-bar" id="command-bar">
+          <button id="mic-btn" class="mic-btn" type="button" title="Speak">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+          </button>
+          <input id="text-input" class="text-input" type="text" placeholder="Type your task…" autocomplete="off" />
+          <button id="send-btn" class="send-btn" type="button" title="Send">
+            <span class="send-label">Send</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          </button>
         </div>
-        <div class="capabilities-list" id="capabilities-list"></div>
-      </section>
-
-      <section class="stage" id="view-plans" hidden>
-        <div class="view-header">
-          <h2>Plans &amp; Quotas</h2>
-          <p>Free vs Pro — compare tiers and see what's on your account today.</p>
-        </div>
-        <div id="plans-current" class="status-grid"></div>
-        <div class="billing-toggle" id="billing-toggle" role="group" aria-label="Billing period">
-          <button type="button" class="billing-option active" data-billing="monthly">Monthly</button>
-          <button type="button" class="billing-option" data-billing="yearly">Yearly</button>
-        </div>
-        <div class="plan-cards" id="plan-cards"></div>
-      </section>
-
-      <section class="stage" id="view-metrics" hidden>
-        <div class="view-header">
-          <h2>System Metrics</h2>
-          <p>Latency measured live in this browser, and your current task log.</p>
-        </div>
-        <div class="status-grid" id="metrics-health-grid"></div>
-        <h3 class="section-label">Live API Latency</h3>
-        <div class="stat-row" id="latency-stats"></div>
-        <div class="latency-log" id="latency-log"></div>
-        <h3 class="section-label">Task Log</h3>
-        <div class="task-list" id="task-list"></div>
-      </section>
-    </main>
-
-    <footer class="composer" id="composer">
-      <div class="command-bar" id="command-bar">
-        <button id="mic-btn" class="mic-btn" type="button" title="Speak">
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-        </button>
-        <input id="text-input" class="text-input" type="text" placeholder="Type your task…" autocomplete="off" />
-        <button id="send-btn" class="send-btn" type="button" title="Send">
-          <span class="send-label">Send</span>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-        </button>
-      </div>
-    </footer>
+      </footer>
+    </div>
 
     <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
       <button type="button" class="nav-item active" data-view="workspace">
@@ -140,6 +246,17 @@
         <span class="nav-badge" id="metrics-badge" hidden></span>
       </button>
     </nav>
+  </div>
+
+  <div class="modal-overlay" id="confirm-modal" hidden>
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-body">
+      <h3 id="confirm-modal-title"></h3>
+      <p id="confirm-modal-body"></p>
+      <div class="modal-actions">
+        <button type="button" class="zarvis-btn zarvis-btn-secondary" id="confirm-modal-cancel">Cancel</button>
+        <button type="button" class="zarvis-btn zarvis-btn-danger" id="confirm-modal-confirm">Delete</button>
+      </div>
+    </div>
   </div>
 
   <script src="./app.js"></script>

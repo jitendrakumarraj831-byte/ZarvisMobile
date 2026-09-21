@@ -89,11 +89,14 @@
     installBtn: document.getElementById("install-btn"),
     composer: document.getElementById("composer"),
     navItems: Array.from(document.querySelectorAll(".nav-item")),
-    metricsBadge: document.getElementById("metrics-badge"),
+    // Two badges (bottom-nav + desktop sidebar) share one dot of state — see fetchTasks().
+    metricsBadges: Array.from(document.querySelectorAll(".nav-badge")),
     viewWorkspace: document.getElementById("view-workspace"),
     viewCapabilities: document.getElementById("view-capabilities"),
     viewPlans: document.getElementById("view-plans"),
     viewMetrics: document.getElementById("view-metrics"),
+    viewDeveloper: document.getElementById("view-developer"),
+    viewSettings: document.getElementById("view-settings"),
     capabilitiesList: document.getElementById("capabilities-list"),
     plansCurrent: document.getElementById("plans-current"),
     billingToggle: document.getElementById("billing-toggle"),
@@ -102,6 +105,23 @@
     latencyStats: document.getElementById("latency-stats"),
     latencyLog: document.getElementById("latency-log"),
     taskList: document.getElementById("task-list"),
+    settingsBtn: document.getElementById("settings-btn"),
+    settingsBackBtn: document.getElementById("settings-back-btn"),
+    settingsLangOptions: document.getElementById("settings-lang-options"),
+    settingsVoiceToggle: document.getElementById("settings-voice-toggle"),
+    settingsDeleteBtn: document.getElementById("settings-delete-btn"),
+    settingsDeleteError: document.getElementById("settings-delete-error"),
+    settingsClearSessionBtn: document.getElementById("settings-clear-session-btn"),
+    developerEntryLink: document.getElementById("developer-entry-link"),
+    developerBackBtn: document.getElementById("developer-back-btn"),
+    developerRepoInput: document.getElementById("developer-repo-input"),
+    developerAnalyzeBtn: document.getElementById("developer-analyze-btn"),
+    developerResult: document.getElementById("developer-result"),
+    confirmModal: document.getElementById("confirm-modal"),
+    confirmModalTitle: document.getElementById("confirm-modal-title"),
+    confirmModalBody: document.getElementById("confirm-modal-body"),
+    confirmModalCancel: document.getElementById("confirm-modal-cancel"),
+    confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
   };
 
   const state = {
@@ -158,11 +178,13 @@
   async function init() {
     setupSpeechSynthesis();
     applyLanguage();
-    el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
+    applyVoiceToggleState();
     setupSpeechRecognition();
     setupInstallPrompt();
     setupBottomNav();
     setupPlans();
+    setupSettings();
+    setupDeveloper();
 
     el.sendBtn.addEventListener("click", () => {
       haptic();
@@ -172,15 +194,9 @@
       if (e.key === "Enter") submitUtterance(el.input.value);
     });
     el.langToggle.addEventListener("click", () => {
-      state.lang = state.lang === "en" ? "hi" : "en";
-      localStorage.setItem(STORAGE_KEYS.lang, state.lang);
-      applyLanguage();
+      setLanguage(state.lang === "en" ? "hi" : "en");
     });
-    el.voiceOutToggle.addEventListener("click", () => {
-      state.speak = !state.speak;
-      localStorage.setItem(STORAGE_KEYS.speak, state.speak ? "on" : "off");
-      el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
-    });
+    el.voiceOutToggle.addEventListener("click", toggleSpeak);
 
     await ensureSession();
     await Promise.all([loadHealth(), loadSkills(), fetchTasks()]);
@@ -212,6 +228,31 @@
     el.sendLabel.textContent = copy.send;
     el.micBtn.title = copy.mic;
     populateVoiceSelect(); // available voices differ between "en" and "hi"
+    for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
+      btn.classList.toggle("active", btn.dataset.lang === state.lang);
+    }
+  }
+
+  /** Shared by the topbar's quick toggle and the Settings screen's language pills — both
+   * read/write the same `state.lang`/localStorage key, so either one always reflects what
+   * the other just changed. */
+  function setLanguage(lang) {
+    state.lang = lang;
+    localStorage.setItem(STORAGE_KEYS.lang, state.lang);
+    applyLanguage();
+  }
+
+  /** Shared by the topbar's speaker icon and the Settings screen's "Spoken replies" button. */
+  function toggleSpeak() {
+    state.speak = !state.speak;
+    localStorage.setItem(STORAGE_KEYS.speak, state.speak ? "on" : "off");
+    applyVoiceToggleState();
+  }
+
+  function applyVoiceToggleState() {
+    el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
+    el.settingsVoiceToggle.setAttribute("aria-pressed", String(state.speak));
+    el.settingsVoiceToggle.textContent = state.speak ? "Spoken replies: On" : "Spoken replies: Off";
   }
 
   // ---- Session (guest account bootstrap + refresh) -------------------------------------
@@ -469,6 +510,8 @@
     capabilities: el.viewCapabilities,
     plans: el.viewPlans,
     metrics: el.viewMetrics,
+    developer: el.viewDeveloper,
+    settings: el.viewSettings,
   };
 
   function setupBottomNav() {
@@ -478,6 +521,12 @@
         setActiveView(item.dataset.view);
       });
     }
+    el.settingsBtn.addEventListener("click", () => {
+      haptic();
+      setActiveView("settings");
+    });
+    el.settingsBackBtn.addEventListener("click", () => setActiveView("workspace"));
+    el.developerBackBtn.addEventListener("click", () => setActiveView("workspace"));
   }
 
   function setActiveView(view) {
@@ -539,6 +588,148 @@
         renderPlanCards(currentPlanName);
       });
     }
+  }
+
+  // ---- Confirmation modal ----------------------------------------------------------------
+  // One generic instance (mirrors Android's RiskConfirmationDialog/AlertDialog pattern)
+  // rather than a one-off dialog per caller — currently used only by Settings' "Delete
+  // account", but written to take any title/body/confirm label.
+
+  function showConfirmModal({ title, body, confirmLabel = "Confirm", onConfirm }) {
+    el.confirmModalTitle.textContent = title;
+    el.confirmModalBody.textContent = body;
+    el.confirmModalConfirm.textContent = confirmLabel;
+    el.confirmModal.hidden = false;
+
+    const close = () => {
+      el.confirmModal.hidden = true;
+      el.confirmModalConfirm.removeEventListener("click", handleConfirm);
+      el.confirmModalCancel.removeEventListener("click", close);
+    };
+    const handleConfirm = () => {
+      close();
+      onConfirm();
+    };
+    el.confirmModalConfirm.addEventListener("click", handleConfirm);
+    el.confirmModalCancel.addEventListener("click", close);
+  }
+
+  // ---- Settings ----------------------------------------------------------------------------
+  // Language, spoken-reply toggle, and Memory & Data controls — mirrors the Android Settings
+  // screen's own sections (feature-settings/SettingsScreen.kt) and, for account deletion,
+  // its exact backend call (DELETE /api/v1/account, already wired server-side).
+
+  function setupSettings() {
+    for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setLanguage(btn.dataset.lang);
+      });
+    }
+    el.settingsVoiceToggle.addEventListener("click", () => {
+      haptic();
+      toggleSpeak();
+    });
+    el.settingsClearSessionBtn.addEventListener("click", () => {
+      haptic();
+      clearLocalSession();
+    });
+    el.settingsDeleteBtn.addEventListener("click", () => {
+      haptic();
+      el.settingsDeleteError.hidden = true;
+      showConfirmModal({
+        title: "Delete your account?",
+        body: "This permanently deletes your account, tasks, and usage history from the server. This cannot be undone.",
+        confirmLabel: "Delete",
+        onConfirm: deleteAccount,
+      });
+    });
+  }
+
+  /** Clears only the session tokens (keeps language/voice preferences) so the next reload
+   * bootstraps a fresh guest account — the web equivalent of Android's "Clear local
+   * session," which does the same thing to its own token storage. */
+  function clearLocalSession() {
+    localStorage.removeItem(STORAGE_KEYS.accessToken);
+    localStorage.removeItem(STORAGE_KEYS.refreshToken);
+    location.reload();
+  }
+
+  async function deleteAccount() {
+    el.settingsDeleteBtn.disabled = true;
+    el.settingsDeleteBtn.textContent = "Deleting…";
+    try {
+      const res = await apiFetch("/account", { method: "DELETE" });
+      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+      clearLocalSession(); // reloads — a fresh guest session bootstraps on the next load
+    } catch (err) {
+      console.error(err);
+      el.settingsDeleteBtn.disabled = false;
+      el.settingsDeleteBtn.textContent = "Delete account";
+      el.settingsDeleteError.hidden = false;
+    }
+  }
+
+  // ---- Developer ---------------------------------------------------------------------------
+  // Repository Agent's read-only structural analysis — calls the same direct endpoint
+  // (POST /api/v1/developer/analyze) the Android Developer screen calls, distinct from
+  // routing the same request through the orchestrator's natural-language turn.
+
+  function setupDeveloper() {
+    el.developerEntryLink.addEventListener("click", () => {
+      haptic();
+      setActiveView("developer");
+    });
+    el.developerAnalyzeBtn.addEventListener("click", () => {
+      haptic();
+      analyzeRepo();
+    });
+    el.developerRepoInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") analyzeRepo();
+    });
+  }
+
+  async function analyzeRepo() {
+    const repoUrl = el.developerRepoInput.value.trim();
+    el.developerResult.innerHTML = "";
+    if (!repoUrl) return;
+
+    el.developerAnalyzeBtn.disabled = true;
+    el.developerAnalyzeBtn.textContent = "Analyzing…";
+    try {
+      const res = await apiFetch("/developer/analyze", { method: "POST", body: JSON.stringify({ repoUrl }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.kind !== "success") {
+        renderDeveloperMessage(body.error || body.userMessage || `Analysis failed (${res.status}).`, "error");
+        return;
+      }
+      renderDeveloperMessage(body.result?.summary || "Analyzed.", "success");
+    } catch (err) {
+      console.error(err);
+      renderDeveloperMessage(COPY[state.lang].bootError, "error");
+    } finally {
+      el.developerAnalyzeBtn.disabled = false;
+      el.developerAnalyzeBtn.textContent = "Analyze";
+    }
+  }
+
+  function renderDeveloperMessage(message, status) {
+    const widget = document.createElement("div");
+    widget.className = "result-widget";
+    widget.dataset.kind = "code";
+    widget.dataset.status = status;
+
+    const header = document.createElement("div");
+    header.className = "widget-header";
+    header.innerHTML = `<span class="widget-title"><span class="widget-status-dot"></span>Developer</span>`;
+    widget.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "widget-body";
+    body.textContent = message;
+    widget.appendChild(body);
+
+    el.developerResult.appendChild(widget);
   }
 
   async function refreshPlans() {
@@ -704,9 +895,10 @@
     if (!res.ok) return [];
     const { tasks } = await res.json();
     const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
-    // Surfaced on the Metrics bottom-nav tab now — the same "something's running" signal the
-    // old topbar tasks-toggle badge showed, just relocated with the drawer it replaced.
-    el.metricsBadge.hidden = activeCount === 0;
+    // Surfaced on the Metrics nav item (bottom-nav on mobile, sidebar on desktop) — the same
+    // "something's running" signal the old topbar tasks-toggle badge showed, just relocated
+    // with the drawer it replaced.
+    for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
     return tasks;
   }
 
