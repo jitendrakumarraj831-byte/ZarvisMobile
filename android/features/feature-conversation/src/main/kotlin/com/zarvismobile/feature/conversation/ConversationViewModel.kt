@@ -11,6 +11,8 @@ import com.zarvismobile.data.repository.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.measureTimedValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +48,11 @@ class ConversationViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ConversationUiState())
     val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
 
+    // Tracks the in-flight runTurn() coroutine so startListening() can cancel it — the
+    // "full interruption support" MASTER_SPEC.md §11 requires (tapping the orb while
+    // EXECUTING/SPEAKING cancels the current turn cleanly, not force-kill).
+    private var turnJob: Job? = null
+
     fun onComposerChange(text: String) {
         _uiState.update { it.copy(composerText = text) }
     }
@@ -64,6 +71,12 @@ class ConversationViewModel @Inject constructor(
     }
 
     fun startListening() {
+        if (_uiState.value.voiceState == VoiceState.LISTENING) return
+        // Interrupting mid-turn: cancel whatever runTurn() is doing (network call or TTS
+        // playback — both are cooperatively cancellable, see AndroidTextToSpeechEngine) and
+        // stop any speech immediately, rather than starting a second, overlapping turn.
+        turnJob?.cancel()
+        ttsEngine.stop()
         _uiState.update { it.copy(voiceState = VoiceState.LISTENING, error = null) }
         viewModelScope.launch {
             try {
@@ -88,7 +101,7 @@ class ConversationViewModel @Inject constructor(
     }
 
     private fun runTurn(utterance: String) {
-        viewModelScope.launch {
+        turnJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(voiceState = VoiceState.UNDERSTANDING, turns = it.turns + ConversationTurn(utterance, null), error = null)
             }
@@ -107,6 +120,10 @@ class ConversationViewModel @Inject constructor(
                 _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
                 ttsEngine.speak(outcome.message, locale = "en-IN")
                 _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+            } catch (t: CancellationException) {
+                // Interrupted by startListening() (or the ViewModel being cleared) — not a
+                // failure to report; the caller is already driving the UI to its next state.
+                throw t
             } catch (t: Throwable) {
                 val message = "Something went wrong: ${t.message ?: "unknown error"}"
                 TurnMetricsStore.record(utterance, durationMs = 0L, success = false)
