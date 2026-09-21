@@ -174,7 +174,9 @@ body {
   flex-shrink: 0;
 }
 
-.topbar-actions { display: flex; gap: 8px; align-items: center; }
+/* Tightened from the original 8px so a full row of controls (Settings, EN/HI, voice,
+   provider) reads as one organized cluster rather than loosely scattered chips. */
+.topbar-actions { display: flex; gap: 5px; align-items: center; }
 
 .chip-btn {
   display: inline-flex;
@@ -184,7 +186,7 @@ body {
   border: 1px solid var(--zarvis-border-soft);
   color: var(--zarvis-text-primary);
   border-radius: 999px;
-  padding: 7px 13px;
+  padding: 6px 12px;
   font-size: 12px;
   font-weight: 500;
   font-family: var(--font-body);
@@ -193,10 +195,26 @@ body {
 }
 .chip-btn:hover { border-color: #00f0ff88; transform: translateY(-1px); }
 .chip-btn:active { transform: translateY(0); }
-.icon-btn { padding: 7px; width: 32px; height: 32px; justify-content: center; position: relative; }
+.icon-btn { padding: 6px; width: 30px; height: 30px; justify-content: center; position: relative; }
 .chip-static { cursor: default; color: var(--zarvis-text-secondary); }
 .chip-static:hover { transform: none; border-color: var(--zarvis-border-soft); }
 .chip-btn[aria-pressed="false"] { opacity: 0.4; }
+
+/* Groups the topbar into two legible clusters instead of one undifferentiated row: Settings
+   + language + voice (things you tap) on the left of this divider, the provider status
+   (something you only glance at) on the right — no new markup, just a border on the chip
+   that already sits at that seam. */
+#lang-toggle { margin-left: 8px; position: relative; }
+#lang-toggle::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 18px;
+  background: var(--zarvis-border-soft);
+}
 
 .install-btn {
   background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
@@ -218,6 +236,20 @@ body {
   font-size: 11px;
 }
 .voice-select[hidden] { display: none; }
+
+/* A second divider ahead of the provider badge — separates "things you tap" (Settings,
+   language, voice toggle) from "status you glance at" (which AI provider answered you). */
+#provider-badge { margin-left: 8px; position: relative; }
+#provider-badge::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 18px;
+  background: var(--zarvis-border-soft);
+}
 
 .status-dot {
   width: 7px; height: 7px; border-radius: 50%;
@@ -296,8 +328,18 @@ body {
   padding: 8px 20px 8px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   scroll-behavior: smooth;
+}
+/* An empty Workspace (nothing said yet) centers its greeting/orb/categories in the
+   available height instead of hugging the top with a wall of empty space below — the
+   desktop sidebar layout (≥1024px) is where that empty space was most visible, since the
+   column is tall and the orb alone no longer fills it the way the old, larger orb did.
+   The instant a conversation starts this reverts to normal top-aligned flow. */
+@media (min-width: 1024px) {
+  #view-workspace:not(:has(#conversation:not(:empty))) {
+    justify-content: center;
+  }
 }
 /* `.stage` sets its own `display: flex` above, which (author CSS always outranks the
    browser's UA stylesheet, regardless of specificity) would otherwise beat the `[hidden]`
@@ -488,74 +530,93 @@ body {
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
-.hero { text-align: center; padding: 26px 0 6px; flex-shrink: 0; }
+.hero { text-align: center; padding: 20px 0 6px; flex-shrink: 0; transition: padding 0.3s ease; }
+
+/* Once a conversation is under way the greeting orb is a secondary status indicator, not
+   the focal point — shrinking it here (a pure state-driven style, no markup/script change:
+   :has() reads whether #conversation actually has any children) hands that vertical space
+   back to the conversation, which is the point of the whole screen once it's in use. */
+#view-workspace:has(#conversation:not(:empty)) .hero {
+  padding: 8px 0 4px;
+}
 
 .orb-wrap {
   position: relative;
-  width: 108px; height: 108px;
-  margin: 0 auto 18px;
+  width: 84px; height: 84px;
+  margin: 0 auto 16px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: width 0.3s ease, height 0.3s ease, margin 0.3s ease;
+}
+#view-workspace:has(#conversation:not(:empty)) .orb-wrap {
+  width: 56px; height: 56px;
+  margin: 0 auto 10px;
 }
 .orb-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 1px solid #00f0ff33;
-  animation: ring-pulse 3.5s ease-in-out infinite;
+  border: 1px solid #00f0ff2e;
+  animation: ring-pulse 4.5s ease-in-out infinite;
 }
+/* A smaller, more elegant sphere than the original 84px — a soft two-stop radial blend
+   reads as a glassy premium orb rather than the flatter, louder conic "pie" gradient it
+   replaces, while keeping the exact same brand colors. */
 .orb {
-  width: 84px; height: 84px;
+  width: 60px; height: 60px;
   border-radius: 50%;
-  background: conic-gradient(from 180deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue), var(--zarvis-accent-violet), var(--zarvis-accent-cyan));
-  box-shadow: 0 0 46px 4px #00f0ff59, inset 0 0 24px #ffffff33;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+  background: radial-gradient(circle at 32% 28%, #6be9ff, var(--zarvis-accent-cyan) 42%, var(--zarvis-accent-blue) 78%, var(--zarvis-accent-violet) 100%);
+  box-shadow: 0 0 32px -2px #00f0ff70, 0 0 8px -1px #00f0ff40, inset 0 0 16px #ffffff2e;
+  transition: width 0.3s ease, height 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.4s ease;
   position: relative;
   cursor: pointer;
+}
+#view-workspace:has(#conversation:not(:empty)) .orb {
+  width: 44px; height: 44px;
 }
 .orb:focus-visible { outline: 2px solid var(--zarvis-accent-cyan); outline-offset: 6px; }
 /* Hands-free ("say Zarvis") mode armed — a persistent cyan ring distinct from the default
    idle indigo one, so it's visible even while the orb itself isn't actively LISTENING. */
 .orb-wrap.auto-listen .orb-ring {
-  border-color: var(--zarvis-accent-cyan);
-  animation: ring-pulse 1.6s ease-in-out infinite;
+  border-color: #00f0ff77;
+  animation: ring-pulse 2.2s ease-in-out infinite;
 }
 .orb::after {
   content: "";
   position: absolute;
-  inset: 8px;
+  inset: 15%;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffffffcc, transparent 55%);
+  background: radial-gradient(circle at 35% 28%, #ffffffd9, transparent 60%);
   mix-blend-mode: overlay;
 }
-.orb[data-state="LISTENING"] { animation: pulse 1s ease-in-out infinite; }
-.orb[data-state="UNDERSTANDING"], .orb[data-state="PLANNING"] { animation: spin 2.4s linear infinite; }
-.orb[data-state="EXECUTING"] { animation: pulse 0.55s ease-in-out infinite; box-shadow: 0 0 56px 6px #00f0ff8c, inset 0 0 24px #ffffff33; }
-.orb[data-state="SPEAKING"] { animation: pulse 0.85s ease-in-out infinite; }
+.orb[data-state="LISTENING"] { animation: pulse 1.3s ease-in-out infinite; }
+.orb[data-state="UNDERSTANDING"], .orb[data-state="PLANNING"] { animation: spin 3s linear infinite; }
+.orb[data-state="EXECUTING"] { animation: pulse 0.7s ease-in-out infinite; box-shadow: 0 0 38px -2px #00f0ff8c, 0 0 10px -1px #00f0ff55, inset 0 0 16px #ffffff2e; }
+.orb[data-state="SPEAKING"] { animation: pulse 1s ease-in-out infinite; }
 .orb[data-state="ERROR"] {
-  background: conic-gradient(from 180deg, var(--zarvis-warning), var(--zarvis-error), #ff9a6b, var(--zarvis-warning));
-  box-shadow: 0 0 46px 4px #ff6b6b59, inset 0 0 24px #ffffff33;
+  background: radial-gradient(circle at 32% 28%, #ffcf9e, var(--zarvis-warning) 42%, var(--zarvis-error) 85%);
+  box-shadow: 0 0 32px -2px #ff6b6b66, 0 0 8px -1px #ff6b6b40, inset 0 0 16px #ffffff2e;
 }
 /* A brief emerald "done" flash between EXECUTING and SPEAKING — MASTER_SPEC.md §22
    "Success = Emerald Green Glow", the same signal the Android orb's SUCCESS state gives. */
 .orb[data-state="SUCCESS"] {
-  background: conic-gradient(from 180deg, var(--zarvis-success), #17c98f, var(--zarvis-success));
-  box-shadow: 0 0 56px 6px #22e6b08c, inset 0 0 24px #ffffff33;
-  animation: pulse 0.3s ease-in-out infinite;
+  background: radial-gradient(circle at 32% 28%, #a6ffe6, var(--zarvis-success) 50%, #17c98f 100%);
+  box-shadow: 0 0 38px -2px #22e6b08c, 0 0 10px -1px #22e6b055, inset 0 0 16px #ffffff2e;
+  animation: pulse 0.4s ease-in-out infinite;
 }
 
 @keyframes pulse {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.1); }
+  50% { transform: scale(1.06); }
 }
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 @keyframes ring-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.7; }
-  50% { transform: scale(1.18); opacity: 0.15; }
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.1); opacity: 0.2; }
 }
 
 .hero-title {
@@ -564,7 +625,9 @@ body {
   font-weight: 600;
   margin: 0 0 6px;
   color: var(--zarvis-text-primary);
+  transition: font-size 0.3s ease;
 }
+#view-workspace:has(#conversation:not(:empty)) .hero-title { font-size: 14px; }
 /* The optimistic "Executing…" (etc.) feedback pill — a pulsing dot + colored label that
    changes the instant setOrbState() runs, i.e. the same frame a turn is submitted, well
    before any network response — MASTER_SPEC.md §22 sub-second feedback rule. Mirrors the
@@ -637,33 +700,56 @@ body {
   border: 1px solid var(--zarvis-border-soft);
   border-bottom-left-radius: 6px;
 }
+/* Every error a user can see here is already a short, human sentence — the backend's own
+   user-facing `error` string or a fixed, translated fallback (see runTurn()'s catch/!res.ok
+   branches) — never a raw platform failure (a Vercel FUNCTION_INVOCATION_FAILED page, a
+   stack trace, a request id). This card's only job is to present that sentence calmly. */
 .bubble.system {
   align-self: center;
-  background: #ff6b6b14;
-  color: #ffb3b3;
-  font-size: 12.5px;
-  border: 1px solid #ff6b6b33;
-  border-radius: 14px;
+  background: var(--zarvis-surface-elevated);
+  backdrop-filter: blur(12px);
+  color: var(--zarvis-text-primary);
+  font-size: 13px;
+  border: 1px solid #ff6b6b2e;
+  border-radius: var(--radius);
   max-width: 92%;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  box-shadow: 0 4px 18px -8px #00000080;
+}
+.bubble-error-text {
+  margin: 0;
+  text-align: center;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
 }
-.bubble-error-text { margin: 0; text-align: center; }
+.bubble-error-text::before {
+  content: "";
+  width: 6px; height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--zarvis-error);
+  box-shadow: 0 0 6px 1px #ff5c7280;
+}
 .bubble-retry-btn {
-  padding: 6px 16px;
-  border: 1px solid #ff6b6b55;
+  padding: 7px 18px;
+  border: 1px solid #ff5c7245;
   border-radius: 999px;
   background: transparent;
-  color: #ffb3b3;
+  color: var(--zarvis-error);
   font-family: var(--font-body);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }
-.bubble-retry-btn:hover { background: #ff6b6b22; border-color: #ff6b6b88; }
+.bubble-retry-btn:hover { background: #ff5c7218; border-color: #ff5c7280; }
 
 /* ---- "Thinking" placeholder — shown for the UNDERSTANDING/EXECUTING span of a turn
    (addThinkingBubble()), removed the instant a real reply or error is ready. Three dots
@@ -894,7 +980,7 @@ body {
   transition: all 0.2s ease;
 }
 .mic-btn {
-  width: 40px; height: 40px; flex-shrink: 0;
+  width: 44px; height: 44px; flex-shrink: 0; /* >=44px meets the standard touch-target size */
   display: flex; align-items: center; justify-content: center;
 }
 .mic-btn[aria-pressed="true"] {
@@ -912,7 +998,7 @@ body {
   border: none;
   color: var(--zarvis-text-primary);
   padding: 0 4px;
-  height: 40px;
+  height: 44px;
   font-size: 14.5px;
   font-family: var(--font-body);
 }
@@ -921,7 +1007,7 @@ body {
 
 .send-btn {
   display: flex; align-items: center; gap: 7px;
-  height: 40px;
+  height: 44px;
   padding: 0 18px;
   font-size: 14px;
   font-weight: 600;
@@ -1138,9 +1224,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-evenly;
-  gap: 4px;
-  margin: 0 12px calc(10px + env(safe-area-inset-bottom, 0px));
-  padding: 6px 6px;
+  gap: 2px;
+  margin: 0 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  padding: 5px;
   border-radius: 999px;
   background: var(--zarvis-surface-strong);
   /* Real backdrop blur — browsers can do this natively, unlike Compose, so the "Floating
@@ -1164,20 +1250,23 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 7px 4px 8px;
+  padding: 7px 4px;
   border: none;
-  border-radius: 16px;
+  border-radius: 14px;
   background: transparent;
   color: var(--zarvis-text-secondary);
   cursor: pointer;
   font-family: var(--font-body);
   font-size: 10.5px;
   font-weight: 500;
-  transition: color 0.2s ease;
+  transition: color 0.2s ease, background 0.2s ease;
 }
 .nav-item svg { transition: filter 0.2s ease; }
+/* A soft filled pill behind the active tab — a clearer "you are here" than color alone,
+   and the one clean active state this container had been missing. */
 .nav-item.active {
   color: var(--zarvis-accent-cyan);
+  background: #00f0ff16;
 }
 .nav-item.active svg { filter: drop-shadow(0 0 6px var(--glow-cyan-soft)); }
 .nav-badge {
