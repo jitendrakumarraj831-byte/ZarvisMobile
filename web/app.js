@@ -175,7 +175,7 @@
   };
 
   const state = {
-    lang: localStorage.getItem(STORAGE_KEYS.lang) || "hi",
+    lang: localStorage.getItem(STORAGE_KEYS.lang) || "en",
     speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
     // Which of the 4 bottom-nav views is currently showing — see setActiveView().
     activeView: "workspace",
