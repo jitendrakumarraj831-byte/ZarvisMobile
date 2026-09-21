@@ -36,9 +36,10 @@
 
   const COPY = {
     en: {
-      greeting: "Hi 👋 I'm Zarvis",
-      hero: "What can I help you with today?",
-      subtitle: "Ask, speak, or start a task.",
+      greeting: "Hey, I'm Zarvis. 👋",
+      hero: "Think it. Ask it. Get it done.",
+      subtitle: "Your intelligent AI assistant for conversations, ideas, research, writing, and everyday tasks.",
+      quickActionsLead: "Ask anything. Start anywhere.",
       placeholder: "Ask Zarvis…",
       send: "Send",
       stop: "Stop",
@@ -72,9 +73,10 @@
       },
     },
     hi: {
-      greeting: "नमस्ते 👋 मैं Zarvis हूँ",
-      hero: "आज मैं आपकी किस काम में मदद करूँ?",
-      subtitle: "पूछें, बोलें या कोई काम शुरू करें।",
+      greeting: "नमस्ते, मैं Zarvis हूँ। 👋",
+      hero: "सोचें। पूछें। हो जाए।",
+      subtitle: "बातचीत, विचार, रिसर्च, लेखन और रोज़मर्रा के कामों के लिए आपका बुद्धिमान AI असिस्टेंट।",
+      quickActionsLead: "कुछ भी पूछें। कहीं से भी शुरू करें।",
       placeholder: "Zarvis से पूछें…",
       send: "भेजें",
       stop: "रोकें",
@@ -122,6 +124,7 @@
     heroGreeting: document.getElementById("hero-greeting"),
     heroTitle: document.getElementById("hero-title"),
     heroSubtitle: document.getElementById("hero-subtitle"),
+    quickActionsLead: document.getElementById("quick-actions-lead"),
     heroStatus: document.getElementById("hero-status"),
     heroStatusLabel: document.getElementById("hero-status-label"),
     conversation: document.getElementById("conversation"),
@@ -134,7 +137,6 @@
     voiceOutToggle: document.getElementById("voice-out-toggle"),
     voiceSelect: document.getElementById("voice-select"),
     providerBadge: document.getElementById("provider-badge"),
-    installBtn: document.getElementById("install-btn"),
     composer: document.getElementById("composer"),
     navItems: Array.from(document.querySelectorAll(".nav-item")),
     // Two badges (bottom-nav + desktop sidebar) share one dot of state — see fetchTasks().
@@ -231,7 +233,7 @@
     applyLanguage();
     applyVoiceToggleState();
     setupSpeechRecognition();
-    setupInstallPrompt();
+    registerServiceWorker();
     setupBottomNav();
     setupPlans();
     setupSettings();
@@ -281,6 +283,7 @@
     el.heroGreeting.textContent = copy.greeting;
     el.heroTitle.textContent = copy.hero;
     el.heroSubtitle.textContent = copy.subtitle;
+    el.quickActionsLead.textContent = copy.quickActionsLead;
     el.input.placeholder = copy.placeholder;
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
@@ -1440,55 +1443,16 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // ---- Install as an app (PWA) -----------------------------------------------------------
-  // Chrome/Edge/Android fire `beforeinstallprompt` only once the page passes installability
-  // checks (manifest.webmanifest + a registered service worker, see sw.js) — capture that
-  // event so the Install button can trigger the browser's own native install prompt on tap,
-  // rather than showing a button that does nothing on browsers that don't support it (never
-  // fake success). iOS Safari never fires this event at all; there the button instead
-  // explains the manual "Share -> Add to Home Screen" step, since no programmatic install
-  // API exists there.
-
-  let deferredInstallPrompt = null;
-
-  function setupInstallPrompt() {
+  // ---- Service worker (PWA) ---------------------------------------------------------------
+  // Registered unconditionally for offline/installability support (manifest.webmanifest +
+  // sw.js) — no visible Install button in the header (kept deliberately out of the topbar per
+  // the product's "clean and minimal" header goal); a visitor who wants to install still can
+  // via their browser's own menu (e.g. Chrome's address-bar install icon, iOS Safari's Share
+  // -> Add to Home Screen).
+  function registerServiceWorker() {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").catch((err) => console.error("Service worker registration failed:", err));
     }
-
-    const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
-    if (isStandalone) return; // already installed/running as an app — nothing to offer.
-
-    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-
-    window.addEventListener("beforeinstallprompt", (event) => {
-      event.preventDefault();
-      deferredInstallPrompt = event;
-      el.installBtn.hidden = false;
-    });
-
-    window.addEventListener("appinstalled", () => {
-      deferredInstallPrompt = null;
-      el.installBtn.hidden = true;
-    });
-
-    if (isIos) {
-      // No beforeinstallprompt on iOS — show the button unconditionally with instructions.
-      el.installBtn.hidden = false;
-    }
-
-    el.installBtn.addEventListener("click", async () => {
-      if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        await deferredInstallPrompt.userChoice;
-        deferredInstallPrompt = null;
-        el.installBtn.hidden = true;
-        return;
-      }
-      if (isIos) {
-        addBubble("system", "iPhone/iPad par install karne ke liye: Share button (⬆) dabao, phir \"Add to Home Screen\" chuno.");
-      }
-    });
   }
 
   // ---- Voice in (STT) and out (TTS) — MASTER_SPEC.md §11 Voice Architecture, browser-native
