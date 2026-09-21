@@ -27,4 +27,6 @@ dependencies {
     // the domain types and coroutines are part of this module's public API.
     api(project(":domain"))
     api(libs.coroutines.core)
+    // NotificationCompat/NotificationManagerCompat for ReminderAlarmReceiver.
+    implementation(libs.core.ktx)
 }
