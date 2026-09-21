@@ -4,6 +4,7 @@ import android.content.Context
 import com.zarvismobile.core.tooling.AndroidAppLauncherPort
 import com.zarvismobile.core.tooling.AndroidContactLookupPort
 import com.zarvismobile.core.tooling.AndroidPhoneCallPort
+import com.zarvismobile.core.tooling.AndroidReminderAlarmPort
 import com.zarvismobile.data.local.reminder.ReminderDao
 import com.zarvismobile.data.local.reminder.RoomReminderScheduler
 import com.zarvismobile.domain.port.SystemClockPort
@@ -28,7 +29,7 @@ object OnDeviceSkillRegistryFactory {
         val registry = SkillRegistry()
         registry.register(
             ReminderSkillFactory.create(
-                scheduler = RoomReminderScheduler(reminderDao),
+                scheduler = RoomReminderScheduler(reminderDao, AndroidReminderAlarmPort(context)),
                 clock = SystemClockPort,
             ),
         )

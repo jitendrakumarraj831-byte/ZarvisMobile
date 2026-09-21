@@ -53,7 +53,7 @@ data class SkillDefinition(
 
 | Skill ID | Category | Executes | Risk | Usage cost | Status |
 |---|---|---|---|---|---|
-| `personal.reminder` | Personal | On-device (Android `domain`) | LOW | Free | **Implemented** — create/list/complete a reminder, unit-tested |
+| `personal.reminder` | Personal | On-device (Android `domain`) | LOW | Free | **Implemented** — create/list/complete a reminder, unit-tested; a real `AlarmManager` trigger + notification fires at `dueAt` and survives reboot (see MASTER_SPEC.md §32) |
 | `web.search` | Web | Backend | LOW (search, per the rubric above) | 2 credits (real infra cost) | **Implemented** — mocked search provider, real pipeline |
 | `docs.summarize` | Documents | Backend | LOW | 1 credit | **Implemented** — mocked summarizer, real pipeline |
 | `developer.analyze_repo` | Developer | Backend | LOW (read-only) | 3 credits | **Implemented** — mocked repo analysis, real pipeline |

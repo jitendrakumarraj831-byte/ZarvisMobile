@@ -969,11 +969,31 @@ LOW-risk skills.
   usable immediately (§4.1's "account creation (or guest)" journey resolves to guest for
   now). Linking that account to a real email/password or OAuth identity — so a trial or
   purchase follows the user across devices — is planned, not implemented.
-- **`personal.reminder` does not yet trigger an OS-level alert.** The skill validates,
-  persists (Room), and lists/completes reminders through the full Tool pipeline, but does
-  not yet schedule an `AlarmManager` trigger or post a notification at the due time — see
-  `RoomReminderScheduler`'s doc comment. This is the first concrete gap to close in Phase 4
-  (§28).
+- **`personal.reminder` now triggers a real OS-level alert — the first concrete Phase 4
+  (§28) gap this section flagged, now closed.** `RoomReminderScheduler` (data-local) still
+  persists via Room, but `schedule()`/`complete()` now also arm/cancel a real
+  `AlarmManager` entry through a new `ReminderAlarmPort` (domain seam), implemented on
+  Android by `AndroidReminderAlarmPort` (`core-tooling`) using
+  `setAndAllowWhileIdle` — fires during Doze, needs no `SCHEDULE_EXACT_ALARM`/
+  `USE_EXACT_ALARM` permission on any API level, at the honest cost of the few minutes of
+  OS-imposed slop that trade-off allows (a reminder is not an alarm-clock-precision use
+  case). `ReminderAlarmReceiver` posts the actual notification when the alarm fires,
+  self-contained (no DAO access — everything it needs travels in the alarm's own Intent
+  extras) so it needs no Hilt entry point unlike the rest of the app's Android-side
+  bindings. Because `AlarmManager` entries do not survive a reboot, a second receiver,
+  `BootRescheduleReceiver` (`app`, `@AndroidEntryPoint` — it does need `ReminderDao` from
+  the Hilt graph), re-arms every incomplete reminder on `BOOT_COMPLETED`; a reminder whose
+  `dueAt` already passed while the device was off fires immediately rather than being
+  silently dropped. **Stated honestly, same limitation as the rest of Android beyond
+  `domain`** (§32 above): written and reviewed against the same patterns already used
+  elsewhere in this codebase (`AndroidPhoneCallPort`'s defensive `SecurityException`
+  handling, `AppModule`'s Hilt-agnostic-module boundary), not compiler-verified — this build
+  environment has neither the Android Gradle Plugin nor, it turns out, a JDK 17 (`./gradlew
+  :domain:build` itself now fails here on toolchain resolution, a new, narrower version of
+  the same "no Android SDK in this build environment" gap already documented above). Build
+  in Android Studio to get a real compile signal, and test on a real device before relying
+  on it — no emulator/device with real Doze behavior was available to verify delivery
+  timing either.
 - **The Android app previously could never reach a deployed backend at all, and would have
   broken permanently after one hour.** Two gaps closed together, bringing the Android app to
   the same working level as the web client (§12a) against the same backend: (1)
