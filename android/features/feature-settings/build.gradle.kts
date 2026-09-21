@@ -30,6 +30,7 @@ kotlin {
 
 dependencies {
     implementation(project(":data:data-local"))
+    implementation(project(":data:data-remote"))
     implementation(project(":core:core-security"))
     implementation(project(":core:core-ui"))
 
