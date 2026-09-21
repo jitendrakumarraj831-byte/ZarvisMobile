@@ -45,6 +45,16 @@ export interface Store {
   createAccountForUser(userId: string): Promise<Account>;
   getAccount(accountId: string): Promise<Account | undefined>;
   getAccountByUserId(userId: string): Promise<Account | undefined>;
+  /** Updates the account's plan (e.g. after a verified Play Billing purchase). Throws if the account is unknown. */
+  updateAccountPlan(accountId: string, plan: EntitlementLevel): Promise<Account>;
+  /**
+   * Deletes the account and everything scoped to it (trial, credit balance, usage ledger,
+   * granted permissions, tasks) along with its user record, so a deleted account cannot log
+   * back in — see MASTER_SPEC.md §17 "delete account (cascades: memory, tasks, usage
+   * history, ...)" (there is no separate memory table yet; nothing else to cascade there).
+   * Throws if the account is unknown.
+   */
+  deleteAccount(accountId: string): Promise<void>;
 
   getTrial(accountId: string): Promise<TrialRecord | undefined>;
   getCreditBalance(accountId: string): Promise<number>;

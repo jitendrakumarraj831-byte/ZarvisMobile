@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import type { Container } from "./container.js";
+import { accountRouter } from "./api/routes/account.js";
 import { authRouter } from "./api/routes/auth.js";
 import { billingRouter } from "./api/routes/billing.js";
 import { developerRouter } from "./api/routes/developer.js";
@@ -46,13 +47,14 @@ export function buildServer(container: Container): Express {
   app.get("/health", (_req, res) => res.json({ status: "ok", provider: defaultModelConfig.provider }));
 
   app.use("/api/v1/auth", authRouter(container.authService));
+  app.use("/api/v1/account", accountRouter(container.store));
   app.use("/api/v1/skills", skillsRouter(container.registry, container.entitlementPort));
   app.use("/api/v1/orchestrator", orchestratorRouter(container.orchestrator));
   app.use("/api/v1/entitlements", entitlementsRouter(container.entitlementPort));
   app.use("/api/v1/tasks", tasksRouter(container.taskService));
   app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
   app.use("/api/v1/developer", developerRouter(container.pipeline));
-  app.use("/api/v1/billing", billingRouter(container.billingVerifier));
+  app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
 
   // Serves the browser web client (see MASTER_SPEC.md §12a "Web Client Architecture") from

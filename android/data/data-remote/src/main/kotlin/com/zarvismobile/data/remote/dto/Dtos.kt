@@ -99,6 +99,9 @@ data class TasksResponse(val tasks: List<TaskDto>)
 @Serializable
 data class DeveloperAnalyzeRequest(val repoUrl: String)
 
+@Serializable
+data class TtsSynthesizeRequest(val text: String)
+
 /**
  * Only the success shape is fully modeled — other [ToolExecutionOutcome] kinds (permission/
  * entitlement denial, etc.) are rendered from [kind] alone in this pass. See

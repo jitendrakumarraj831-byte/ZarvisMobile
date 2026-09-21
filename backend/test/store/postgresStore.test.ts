@@ -63,4 +63,25 @@ describe.skipIf(!TEST_DATABASE_URL)("PostgresStore", () => {
     const fetched = await store.getTask(created.id);
     expect(fetched?.steps).toEqual(created.steps);
   });
+
+  it("deleteAccount cascades to tasks, usage, and the user record", async () => {
+    const email = `delete-${Date.now()}@example.com`;
+    const user = await store.createUser(email, "hashed");
+    const account = await store.createAccountForUser(user.id);
+    await store.createTask({
+      id: crypto.randomUUID(),
+      accountId: account.id,
+      goal: "goal",
+      status: "PENDING",
+      steps: [],
+      riskLevel: "LOW",
+      createdAt: new Date(),
+    });
+
+    await store.deleteAccount(account.id);
+
+    expect(await store.getAccount(account.id)).toBeUndefined();
+    expect(await store.findUserById(user.id)).toBeUndefined();
+    expect(await store.listTasksForAccount(account.id)).toEqual([]);
+  });
 });
