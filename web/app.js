@@ -51,9 +51,16 @@
       // error page), so a raw status code or platform failure text is never what the user
       // sees. The real error is only ever logged via console.error, never rendered here.
       bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
-      wakeIntro:
-        "Hi, I'm Zarvis — your AI assistant. I can search the web, manage tasks, summarize documents, and more, by voice or typing. What would you like me to do?",
-      wakeAck: "Yes? I'm listening!",
+      unsupportedFile: {
+        title: "Can't read this file type yet.",
+        subtitle: "Zarvis can read plain text (.txt, .md, .csv, .json) — PDF/Word extraction isn't wired up. Paste the text instead.",
+      },
+      unreadableFile: { title: "Couldn't read that file.", subtitle: "Please try again or paste the text directly." },
+      emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
+      oversizedFile: {
+        title: "That file is too long to send in one go.",
+        subtitle: "Try a shorter excerpt or paste the most relevant part directly.",
+      },
       stateLabels: {
         IDLE: "Ready",
         LISTENING: "Listening",
@@ -84,9 +91,16 @@
       thinking: "सोच रहा हूँ…",
       retry: "फिर कोशिश करें",
       bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
-      wakeIntro:
-        "नमस्ते, मैं ज़ार्विस हूँ — आपका AI असिस्टेंट। मैं वेब सर्च करना, टास्क मैनेज करना, डॉक्यूमेंट्स समराइज़ करना जैसे कई काम कर सकता हूँ, आवाज़ से या टाइप करके। बताइए, क्या करवाना है?",
-      wakeAck: "जी बोलिए, मैं सुन रहा हूँ! 👋",
+      unsupportedFile: {
+        title: "यह फ़ाइल प्रकार अभी पढ़ा नहीं जा सकता।",
+        subtitle: "Zarvis सिर्फ़ प्लेन टेक्स्ट (.txt, .md, .csv, .json) पढ़ सकता है — PDF/Word अभी सपोर्टेड नहीं है। कृपया टेक्स्ट सीधे पेस्ट करें।",
+      },
+      unreadableFile: { title: "यह फ़ाइल पढ़ी नहीं जा सकी।", subtitle: "कृपया फिर कोशिश करें या टेक्स्ट सीधे पेस्ट करें।" },
+      emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
+      oversizedFile: {
+        title: "यह फ़ाइल एक बार में भेजने के लिए बहुत बड़ी है।",
+        subtitle: "छोटा हिस्सा आज़माएं या सबसे ज़रूरी टेक्स्ट सीधे पेस्ट करें।",
+      },
       stateLabels: {
         IDLE: "तैयार",
         LISTENING: "सुन रहा हूँ",
@@ -120,7 +134,6 @@
 
   const el = {
     orb: document.getElementById("orb"),
-    orbWrap: document.querySelector(".orb-wrap"),
     heroGreeting: document.getElementById("hero-greeting"),
     heroTitle: document.getElementById("hero-title"),
     heroSubtitle: document.getElementById("hero-subtitle"),
@@ -133,6 +146,8 @@
     sendBtn: document.getElementById("send-btn"),
     sendLabel: document.querySelector("#send-btn .send-label"),
     micBtn: document.getElementById("mic-btn"),
+    uploadBtn: document.getElementById("upload-btn"),
+    fileInput: document.getElementById("file-input"),
     voiceSelect: document.getElementById("voice-select"),
     composer: document.getElementById("composer"),
     navItems: Array.from(document.querySelectorAll(".nav-item")),
@@ -155,7 +170,6 @@
     settingsBtn: document.getElementById("settings-btn"),
     settingsBackBtn: document.getElementById("settings-back-btn"),
     settingsLangOptions: document.getElementById("settings-lang-options"),
-    settingsHandsFreeToggle: document.getElementById("settings-handsfree-toggle"),
     settingsVoiceToggle: document.getElementById("settings-voice-toggle"),
     settingsDeleteBtn: document.getElementById("settings-delete-btn"),
     settingsDeleteError: document.getElementById("settings-delete-error"),
@@ -184,31 +198,11 @@
     // chips and the full Capabilities Hub cards, instead of fetching /skills twice.
     skills: [],
     billing: "monthly",
-    // Hands-free "wake word" mode — never armed automatically; only an explicit tap (the orb,
-    // or the Settings "Hands-free listening" toggle, both call toggleAutoListen()) turns it
-    // on. Intentionally session-only (never persisted to localStorage) — the armed choice
-    // always resets fresh on the next reload rather than remembering a listening state
-    // indefinitely, so it can't end up silently listening in a way nobody remembers enabling
-    // (MASTER_SPEC.md §15, "never secretly monitor the device").
-    autoListen: false,
     // True only for the very first turn of a session — lets the system prompt ask Gemini
     // for a warmer, more "attractive" welcome-style reply once, without every later message
     // paying that same introductory tax.
     firstTurn: true,
-    // True once the wake-word-alone acknowledgment has introduced Zarvis this session — the
-    // first time someone says just "Zarvis"/"Hey Zarvis" with no command attached, it gives
-    // a real self-introduction rather than a bare "I'm listening", but repeating that same
-    // introduction on every later "Zarvis?" in the same session would get old fast.
-    introduced: false,
   };
-
-  // Common mishearings of "Zarvis" from real speech recognizers (most STT models have
-  // never seen this word and fall back to the much more common "Jarvis") — matched
-  // case-insensitively against the transcript. This is a software approximation of a wake
-  // word, not a true low-power OS wake-word detector: it only works while this tab is open
-  // and in the foreground, and every second of "armed" audio is sent to the browser's
-  // speech-recognition service exactly like a manual mic tap would be.
-  const WAKE_WORDS = ["zarvis", "ज़ार्विस", "जार्विस", "जारविस", "jarvis", "sarvis"];
 
   // Declared here (not near their setup functions below) because init() runs synchronously
   // up to its first `await` and calls those setup functions immediately — a `let` declared
@@ -234,7 +228,6 @@
     setupSpeechSynthesis();
     applyLanguage();
     applyVoiceToggleState();
-    applyHandsFreeToggleState();
     setupSpeechRecognition();
     registerServiceWorker();
     setupBottomNav();
@@ -255,15 +248,18 @@
       if (e.key === "Enter") submitUtterance(el.input.value);
       if (e.key === "Escape" && isBusy()) cancelCurrentTurn();
     });
+    el.uploadBtn.addEventListener("click", () => {
+      haptic();
+      el.fileInput.click();
+    });
+    el.fileInput.addEventListener("change", handleFileSelected);
 
     await ensureSession();
     await Promise.all([loadSkills(), fetchTasks()]);
     setOrbState("IDLE");
-
-    // No auto-arm here: hands-free listening only ever turns on from an explicit tap (the
-    // orb, or the Settings "Hands-free listening" toggle), never on load. The browser's
-    // native "allow microphone" prompt therefore only appears once someone actually asks for
-    // voice input, not on every first visit.
+    // No auto-arm: voice input only ever starts from an explicit mic/orb press, never on
+    // load — the browser's native "allow microphone" prompt therefore only appears once
+    // someone actually asks for voice input, not on every first visit.
   }
 
   function resolveApiBase() {
@@ -316,13 +312,6 @@
   function applyVoiceToggleState() {
     el.settingsVoiceToggle.setAttribute("aria-pressed", String(state.speak));
     el.settingsVoiceToggle.textContent = state.speak ? "Spoken replies: On" : "Spoken replies: Off";
-  }
-
-  /** Settings screen's "Hands-free listening" button — mirrors the orb's own toggle so both
-   * controls (quick access on Workspace, organized preference in Settings) always agree. */
-  function applyHandsFreeToggleState() {
-    el.settingsHandsFreeToggle.setAttribute("aria-pressed", String(state.autoListen));
-    el.settingsHandsFreeToggle.textContent = state.autoListen ? "Hands-free listening: On" : "Hands-free listening: Off";
   }
 
   // ---- Session (guest account bootstrap + refresh) -------------------------------------
@@ -708,10 +697,6 @@
     el.settingsVoiceToggle.addEventListener("click", () => {
       haptic();
       toggleSpeak();
-    });
-    el.settingsHandsFreeToggle.addEventListener("click", () => {
-      haptic();
-      toggleAutoListen();
     });
     el.settingsClearSessionBtn.addEventListener("click", () => {
       haptic();
@@ -1104,21 +1089,24 @@
 
   // ---- Conversation turn -----------------------------------------------------------------
 
-  // The in-flight turn's controller, if any — lets a new turn (text, mic, or wake word)
-  // interrupt whatever ZARVIS is still doing, the same way Android's ConversationViewModel
-  // cancels its tracked `turnJob` when a new one starts, rather than blocking the new one
-  // until the old one finishes. `null` when idle.
+  // The in-flight turn's controller, if any — lets a new turn (text or voice) interrupt
+  // whatever ZARVIS is still doing, the same way Android's ConversationViewModel cancels its
+  // tracked `turnJob` when a new one starts, rather than blocking the new one until the old
+  // one finishes. `null` when idle.
   let currentTurnController = null;
 
-  /** `isVoice` is true only for the speech-recognition result handler (mic tap or wake word)
-   * — every other caller (Send, Enter, a quick-action/capability card) is a typed submission.
-   * Threaded through to runTurn() so a typed message's reply always stays text-only, even
-   * with Spoken replies on: only a voice-originated turn is ever a candidate to speak back. */
-  async function submitUtterance(rawText, isVoice = false) {
+  /** `isVoice` is true only for the speech-recognition result handler (a mic/orb press) —
+   * every other caller (Send, Enter, a quick-action/capability card, a file upload) is a
+   * typed/text submission. Threaded through to runTurn() so a typed message's reply always
+   * stays text-only, even with Spoken replies on: only a voice-originated turn is ever a
+   * candidate to speak back. `displayText`, when given, is what the user's own chat bubble
+   * shows instead of the raw `rawText` sent to the backend — used by the upload flow so the
+   * bubble reads "📎 filename.txt" rather than the file's entire contents. */
+  async function submitUtterance(rawText, isVoice = false, displayText) {
     const utterance = rawText.trim();
     if (!utterance) return;
     el.input.value = "";
-    addBubble("user", utterance);
+    addBubble("user", displayText ?? utterance);
     await runTurn(utterance, isVoice);
   }
 
@@ -1142,12 +1130,6 @@
     const thinkingNode = addThinkingBubble();
 
     setOrbState("UNDERSTANDING");
-    // Pause the mic for the rest of this turn. In hands-free mode `recognition` runs
-    // continuous:true — without this it stays open straight through EXECUTING and
-    // SPEAKING, and could pick up Zarvis's own spoken reply (or ambient noise) as a new
-    // command mid-turn. We resume for real in `finally` below, on every exit path, so a
-    // failed turn can never leave hands-free mode stuck silently off.
-    if (state.autoListen) stopListening();
 
     const isFirstTurn = state.firstTurn;
     state.firstTurn = false; // set before the request, not after — a failed first turn
@@ -1196,10 +1178,7 @@
       // Awaited so the orb actually stays SPEAKING for the duration of playback — without
       // this, the fire-and-forget call returns almost immediately (it only runs
       // synchronously up to its first internal await) and the setOrbState("IDLE") below
-      // would fire right after, overwriting SPEAKING a fraction of a second in. That
-      // matters beyond cosmetics: auto-listen mode (see startListening()) uses the orb
-      // state to know when ZARVIS has actually finished talking before re-arming the mic —
-      // starting to listen while still speaking would pick up its own voice.
+      // would fire right after, overwriting SPEAKING a fraction of a second in.
       // Typed messages stay text-only — only a voice-originated turn ever speaks back (and
       // even then, only with Spoken replies on; see speak()'s own state.speak check).
       if (isVoice) await speak(result.message, node);
@@ -1217,12 +1196,10 @@
       // never linger, rather than repeating `thinkingNode.remove()` at each return site
       // above and risking a path that forgets to.
       thinkingNode.remove();
-      // Only the still-current call resumes hands-free listening / clears the tracked
-      // controller — an older, since-interrupted call's `finally` must not race the newer
-      // turn that superseded it.
+      // Only the still-current call clears the tracked controller — an older,
+      // since-interrupted call's `finally` must not race the newer turn that superseded it.
       if (currentTurnController === controller) {
         currentTurnController = null;
-        if (state.autoListen) startListening();
       }
     }
   }
@@ -1294,6 +1271,79 @@
     el.conversation.appendChild(bubble);
     el.conversation.scrollTop = el.conversation.scrollHeight;
     return bubble;
+  }
+
+  /** A plain informational/error notice with no retry action (unlike addErrorBubble, above)
+   * — used for client-side upload validation failures that happen before any turn is
+   * submitted, so there's nothing to retry. */
+  function addSystemNotice(copy) {
+    const bubble = document.createElement("div");
+    bubble.className = "bubble system";
+
+    const title = document.createElement("p");
+    title.className = "bubble-error-text";
+    title.textContent = copy.title;
+    bubble.appendChild(title);
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "bubble-error-subtitle";
+    subtitle.textContent = copy.subtitle;
+    bubble.appendChild(subtitle);
+
+    el.conversation.appendChild(bubble);
+    el.conversation.scrollTop = el.conversation.scrollHeight;
+    return bubble;
+  }
+
+  // ---- File upload (document summarization via the existing docs.summarize skill) --------
+  // No new backend capability: this reads a local text file in the browser and submits it
+  // as a normal chat utterance through the same POST /api/v1/orchestrator/turn every other
+  // message uses — the model picks docs.summarize itself, exactly as it would for pasted
+  // text (see backend/src/skills/docsSummarize.ts). Deliberately does NOT attempt PDF/DOCX
+  // extraction — no client-side parser is wired in this pass, and an honest "can't read
+  // this yet" beats silently mangling a binary file into garbled text and pretending it
+  // worked (Product Principle #4, "Never fake success").
+
+  const MAX_UPLOAD_BYTES = 60000; // safely under Express's default 100kb JSON body limit
+  const READABLE_TEXT_EXTENSIONS = [".txt", ".md", ".markdown", ".csv", ".json", ".log"];
+
+  function isReadableTextFile(file) {
+    if (file.type && (file.type.startsWith("text/") || file.type === "application/json")) return true;
+    const name = file.name.toLowerCase();
+    return READABLE_TEXT_EXTENSIONS.some((ext) => name.endsWith(ext));
+  }
+
+  async function handleFileSelected(event) {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // lets picking the exact same file again still fire "change"
+    if (!file) return;
+    haptic();
+
+    if (!isReadableTextFile(file)) {
+      addSystemNotice(COPY[state.lang].unsupportedFile);
+      return;
+    }
+
+    let text;
+    try {
+      text = await file.text();
+    } catch (err) {
+      console.error(err);
+      addSystemNotice(COPY[state.lang].unreadableFile);
+      return;
+    }
+
+    if (!text.trim()) {
+      addSystemNotice(COPY[state.lang].emptyFile);
+      return;
+    }
+    if (new TextEncoder().encode(text).length > MAX_UPLOAD_BYTES) {
+      addSystemNotice(COPY[state.lang].oversizedFile);
+      return;
+    }
+
+    const utterance = `Please summarize this document (${file.name}):\n\n${text}`;
+    await submitUtterance(utterance, false, `📎 ${file.name}`);
   }
 
   // ---- Dynamic result widgets ------------------------------------------------------------
@@ -1430,8 +1480,8 @@
   }
 
   // A turn is "in flight" for every state between UNDERSTANDING and the SPEAKING reply —
-  // shared by submitUtterance()'s own re-entrancy guard and the recognition "end" handler's
-  // restart guard, so the two can never disagree about whether it's safe to touch the mic.
+  // used by the composer's Send/Stop toggle (updateComposerMode) and cancelCurrentTurn's
+  // Escape-key guard, both via isBusy() below.
   const BUSY_STATES = ["UNDERSTANDING", "EXECUTING", "SUCCESS", "SPEAKING"];
   function isBusy() {
     return BUSY_STATES.includes(el.orb.dataset.state);
@@ -1462,121 +1512,64 @@
     if (!SpeechRecognition) {
       el.micBtn.disabled = true;
       el.micBtn.title = "Voice input isn't supported in this browser — use text instead.";
-      el.settingsHandsFreeToggle.disabled = true;
-      el.settingsHandsFreeToggle.title = "Voice input isn't supported in this browser.";
       return;
     }
     recognition = new SpeechRecognition();
     recognition.interimResults = false;
+    // Always a single bounded utterance — never a continuous/auto-restarting session. No
+    // wake-word loop: voice input only ever runs for the span between an explicit press
+    // (mic button or orb) and either a result, an explicit Stop, or the browser's own
+    // silence timeout.
+    recognition.continuous = false;
 
     recognition.addEventListener("result", (event) => {
-      // In continuous mode (see startListening()) `event.results` accumulates every phrase
-      // recognized since this session started, not just the latest one — always reading
-      // index 0 here would keep re-processing the very first phrase forever. The last entry
-      // is always the newest, since interimResults is off and every entry is therefore final.
-      // Only SPEAKING is actually guarded: a manual mic tap during UNDERSTANDING/EXECUTING
-      // is a deliberate voice interruption (submitUtterance() cancels the running turn, the
-      // same as tapping Send with new text would), but during SPEAKING the mic could pick
-      // up Zarvis's own audio output as if it were a new command — hands-free mode never
-      // reaches here while SPEAKING anyway (its mic is stopped for the whole turn), so this
-      // guard only ever matters for a manual tap.
+      // A manual mic tap during UNDERSTANDING/EXECUTING is a deliberate voice interruption
+      // (submitUtterance() cancels the running turn, same as tapping Send with new text
+      // would) — but during SPEAKING the mic could pick up Zarvis's own audio output as if
+      // it were a new command, so that phase alone is guarded.
       if (el.orb.dataset.state === "SPEAKING") return;
-      const results = event.results;
-      const transcript = results[results.length - 1][0].transcript;
-      if (state.autoListen) {
-        const command = extractCommandAfterWakeWord(transcript);
-        if (command === undefined) return; // no wake word at all — ignore background speech
-        if (command === "") {
-          acknowledgeWakeWord(); // just "Zarvis" alone — confirm we heard it, keep listening
-          return;
-        }
-        submitUtterance(command, true);
-        return;
-      }
+      const transcript = event.results[event.results.length - 1][0].transcript;
       submitUtterance(transcript, true);
     });
 
     recognition.addEventListener("end", () => {
-      if (state.autoListen) {
-        // A turn already in flight (including the brief SUCCESS flash) restarts listening
-        // itself once it's actually done — via submitUtterance's `finally` or
-        // acknowledgeWakeWord — so restarting here too would race it and risk the mic
-        // picking up ZARVIS's own reply. isBusy() is the same check submitUtterance() itself
-        // uses, so the two can never disagree about whether a turn is running.
-        if (!isBusy()) setTimeout(startListening, 300);
-        return;
-      }
       el.micBtn.setAttribute("aria-pressed", "false");
+      el.orb.setAttribute("aria-pressed", "false");
       if (el.orb.dataset.state === "LISTENING") setOrbState("IDLE");
     });
 
-    recognition.addEventListener("error", (event) => {
-      // "no-speech" (silence) and "aborted" (we called .stop(), or a restart raced an old
-      // session) are routine while always-on — don't drop out of hands-free mode for those.
-      if (state.autoListen && (event.error === "no-speech" || event.error === "aborted")) return;
-      if (state.autoListen) toggleAutoListen();
+    recognition.addEventListener("error", () => {
       el.micBtn.setAttribute("aria-pressed", "false");
+      el.orb.setAttribute("aria-pressed", "false");
       setOrbState("IDLE");
     });
 
-    el.micBtn.addEventListener("click", () => {
-      if (state.autoListen) return; // the mic is already armed by hands-free mode
-      haptic();
-      startListening();
-    });
-
-    el.orb.addEventListener("click", () => {
-      haptic();
-      toggleAutoListen();
-    });
+    el.micBtn.addEventListener("click", toggleListening);
+    el.orb.addEventListener("click", toggleListening);
     el.orb.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        haptic();
-        toggleAutoListen();
+        toggleListening();
       }
     });
   }
 
-  // Deliberately quiet: no "mode ON" banner every time this arms (on load, or on an orb
-  // tap) — per explicit product feedback, it should just listen for "Zarvis" in the
-  // background without announcing itself, the same way a phone's real wake word doesn't
-  // pop up a notification every time it starts listening. The only visible cues are the
-  // subtle cyan ring (so it's still discoverable/inspectable, not literally secret — see
-  // §15) and the LISTENING orb animation; the first *audible/visible reply* only happens
-  // once "Zarvis" is actually heard (acknowledgeWakeWord() / submitUtterance()).
-  function toggleAutoListen() {
-    if (!recognition) return;
-    state.autoListen = !state.autoListen;
-    el.orb.setAttribute("aria-pressed", String(state.autoListen));
-    el.orbWrap.classList.toggle("auto-listen", state.autoListen);
-    applyHandsFreeToggleState();
-    if (state.autoListen) {
-      startListening();
-    } else {
-      stopListening();
-      setOrbState("IDLE");
-    }
+  /** Shared by the mic button and the orb (just a second, larger microphone target — not a
+   * separate mode): a press starts one bounded voice turn, a press while already listening
+   * stops it early. This is the only way voice input ever starts — never automatically, and
+   * never a repeating/continuous loop. */
+  function toggleListening() {
+    haptic();
+    if (el.orb.dataset.state === "LISTENING") stopListening();
+    else startListening();
   }
 
   function startListening() {
     if (!recognition) return;
     recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
-    // Ambient wake-word listening stays continuous, so the browser keeps one recognition
-    // session open for minutes at a time instead of ending after every short pause — with
-    // continuous=false (the old setting, used for both modes) each pause ended the session,
-    // the "end" handler restarted it ~300ms later, and every restart re-triggered the
-    // LISTENING pulse below, which is what actually looked like constant on/off flicker. A
-    // manual mic tap still stops after one phrase, matching a normal "say one thing" tap.
-    recognition.continuous = state.autoListen;
     el.micBtn.setAttribute("aria-pressed", "true");
-    // Only pulse the orb for a manual tap. While armed for the wake word, Zarvis should
-    // look idle/off until it's actually spoken to — restarting this same recognition
-    // session every time it briefly pauses (see the "end" handler) would otherwise flip the
-    // orb to LISTENING and back on every restart, which is the on/off flicker being fixed
-    // here; the ring already visible on the orb (see .auto-listen in styles.css) is enough
-    // to show it's armed at all.
-    if (!state.autoListen) setOrbState("LISTENING");
+    el.orb.setAttribute("aria-pressed", "true");
+    setOrbState("LISTENING");
     try {
       recognition.start();
     } catch {
@@ -1592,54 +1585,7 @@
       // Not running — nothing to stop.
     }
     el.micBtn.setAttribute("aria-pressed", "false");
-  }
-
-  /** Returns the text after the wake word, or `null` if no wake word was heard at all. */
-  /**
-   * Returns the command text after the wake word, `""` if the wake word was said alone
-   * (nothing after it), or `undefined` if no wake word was heard at all — three genuinely
-   * different outcomes the caller needs to tell apart (submit / acknowledge / ignore),
-   * unlike a single `null` for both "nothing to do" cases.
-   */
-  function extractCommandAfterWakeWord(transcript) {
-    const lower = transcript.toLowerCase();
-    for (const word of WAKE_WORDS) {
-      const idx = lower.indexOf(word);
-      if (idx === -1) continue;
-      return transcript.slice(idx + word.length).replace(/^[\s,.:!।-]+/, "").trim();
-    }
-    return undefined;
-  }
-
-  /** An acknowledgment when the user says just "Zarvis"/"Hey Zarvis" with no command yet —
-   * mirrors how a real voice assistant confirms it heard the wake word, rather than
-   * silently doing nothing. The first time this happens in a session it gives a real
-   * self-introduction (what Zarvis is, what it can do); later ones get a short "listening"
-   * reply instead, so repeating the wake word doesn't replay the same intro every time.
-   * Restarts listening itself once done speaking, same as a normal turn (see
-   * submitUtterance). */
-  async function acknowledgeWakeWord() {
-    // A bare "Zarvis" heard while a real turn is still running (reachable now that a manual
-    // mic tap can interrupt mid-turn, see setupSpeechRecognition's result handler) must not
-    // let that turn's reply speak over this acknowledgment — interrupt it the same way a new
-    // utterance would.
-    if (currentTurnController) {
-      currentTurnController.abort();
-      stopSpeaking();
-    }
-    const reply = state.introduced ? COPY[state.lang].wakeAck : COPY[state.lang].wakeIntro;
-    state.introduced = true;
-    // Same pause-before-speaking pattern as submitUtterance: mark the orb busy first so the
-    // "end" event stopListening() triggers doesn't race its own restart, then actually pause
-    // the still-open continuous session so it can't pick this reply's own audio back up.
-    setOrbState("UNDERSTANDING");
-    if (state.autoListen) stopListening();
-    addBubble("assistant", reply);
-    try {
-      await speak(reply);
-    } finally {
-      if (state.autoListen) startListening();
-    }
+    el.orb.setAttribute("aria-pressed", "false");
   }
 
   // The browser's voice list loads asynchronously (often empty until `voiceschanged`

@@ -472,23 +472,16 @@ just wants to try the agent from a link.
   browsers) — never a dead end (Product Principle #4). Voice output tries Gemini's native
   audio voice first (`POST /api/v1/tts/synthesize`) before falling back to
   `speechSynthesis` — see above and AI_ARCHITECTURE.md "Native audio voice".
-- **Hands-free wake word (web only, differs from §11's Android orb-tap behavior):** never
-  arms itself automatically — only an explicit tap (the orb, or the Settings "Voice mode"
-  toggle, both call the same `toggleAutoListen()`) turns it on, matching the product's "no
-  automatic microphone" rule; tapping the orb again mutes it instead of cancelling the
-  current turn like Android's orb does. Once armed, say "Zarvis" (or a common mishearing
-  like "Jarvis") followed by a command. This is a software approximation of a wake word
-  (continuous `SpeechRecognition` with auto-restart), not a true low-power OS wake-word
-  detector — it only works while the tab is foregrounded. The armed choice is never
-  persisted across a reload — it always resets to off rather than remembering an armed
-  state indefinitely. Deliberately quiet by design: arming/muting shows no bubble or toast
-  (explicit product feedback — it should listen in the background without announcing
-  itself); the subtle cyan ring around the orb is the transparency trade-off (§15 "never
-  secretly monitor the device"), and the first visible/audible reaction happens only once
-  "Zarvis" is actually heard. TTS is likewise off by default (`state.speak`, Settings'
-  "Spoken replies" toggle) and, even once turned on, only ever speaks a reply to a
-  voice-originated turn — a typed message's reply always stays text-only. See
-  DEVELOPMENT.md "Hands-free 'wake word' mode".
+- **Push-to-talk only — no wake-word/hands-free loop (web only, differs from the wake-word
+  mode this client shipped in an earlier pass):** every voice turn starts from one explicit
+  press (the mic button or the orb — the orb is just a second, larger microphone target, not
+  a separate mode) and is a single bounded `SpeechRecognition` session (`continuous: false`),
+  never a continuously-listening/auto-restarting loop. Pressing again while listening stops
+  it early. Nothing ever arms itself automatically, on load or otherwise, matching the
+  product's "no automatic microphone, no wake-word loop" rule. TTS is likewise off by
+  default (`state.speak`, Settings' "Spoken replies" toggle) and, even once turned on, only
+  ever speaks a reply to a voice-originated turn — a typed message's reply always stays
+  text-only. See DEVELOPMENT.md "Voice input (push-to-talk)".
 - **Personalization:** the client sends an optional `userName` with every orchestrator
   turn (`localStorage["zarvis.userName"]`, no settings UI yet — see §32) so replies can
   address the user by name; a display label only, never an identity/auth claim.
@@ -966,8 +959,9 @@ LOW-risk skills.
   zero horizontal overflow from 390px to 1280px wide, and the auth self-heal path (§25/§32
   "No login screen yet") recovering from corrupted/orphaned localStorage tokens without
   getting stuck. Real device/OS speech recognition and TTS quality are still unverified —
-  that sandbox had no microphone hardware at all (`SpeechRecognition` failed immediately
-  with an `audio-capture` error), so only the wake-word arm/acknowledge/recover logic was
+  no sandbox this has been built in has had microphone hardware, so only the push-to-talk
+  start/stop/single-turn state machine (mic press starts one bounded, non-continuous
+  `SpeechRecognition` session; a press while listening stops it early; no auto-restart) was
   exercised with a mocked `SpeechRecognition`, not real recognition accuracy. Test voice
   input/output on a real device before relying on it.
 - **Voice quality depends on Android OS engines at MVP** — acceptable for Hindi/English
