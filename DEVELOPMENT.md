@@ -215,8 +215,7 @@ picking its best available network voice for the current language, with a manual
 picker in Settings' "Spoken replies" card once more than one is available (persisted in
 `localStorage`) — so voice output never silently goes dead, per Product Principle #4.
 Spoken replies are off by default and, even once turned on, only ever play for a
-voice-originated turn (mic tap or wake word) — a typed message's reply always stays
-text-only.
+voice-originated turn (a mic/orb press) — a typed message's reply always stays text-only.
 
 `GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE` (`.env.example`) configure the model and one of
 Gemini's fixed prebuilt voice names (e.g. `Kore`, `Puck`, `Charon`, `Aoede`, `Fenrir`).
@@ -229,36 +228,52 @@ code.
 Gemini's prebuilt voices aren't sufficient later; it needs its own Cloud project and
 credential, unlike the native-audio route actually wired in here.
 
-### Hands-free "wake word" mode
+### Voice input (push-to-talk)
 
-Never arms itself automatically — no automatic microphone, per the product's voice-behavior
-rules. Only an explicit tap turns it on: the orb on Workspace, or the "Hands-free listening"
-button in Settings' Voice mode card (both call the same `toggleAutoListen()`). Once armed,
-say "Zarvis" (or a close mishearing like "Jarvis" — most speech recognizers have never seen
-the actual word and fall back to the much more common one) followed by a command, e.g.
-*"Zarvis, find the best phone under 20000"*. Tapping the orb again mutes it. This is a
-software approximation of a wake word built on the Web Speech API's `continuous`/
-auto-restart pattern (`setupSpeechRecognition()` in `app.js`), **not** a true low-power OS
-wake-word detector: it only works while the tab is open and in the foreground, and every
-second of "armed" audio is sent to the browser's speech-recognition service exactly like a
-manual mic tap would be — stated honestly rather than oversold. The armed/muted choice
-itself is intentionally never persisted across a reload — it always resets to off rather
-than remembering an armed state indefinitely, so it can't end up silently listening in a
-way the person in front of the screen forgot was ever turned on.
+Never arms itself automatically — no automatic microphone, no wake-word loop, per the
+product's voice-behavior rules. Every voice turn starts from one explicit press: the mic
+button in the composer, or the orb on Workspace (the orb is just a second, larger
+microphone target — not a separate hands-free mode). Both call the same
+`toggleListening()` (`app.js`): a press starts a single, bounded `SpeechRecognition`
+session (`continuous: false` — it captures one utterance and stops, never re-arming
+itself), and a press while already listening stops it early. There is no wake word, no
+"say Zarvis" background listening, and no continuously-open microphone session — an
+earlier pass shipped exactly that (arms itself on an orb tap, stays open, restarts itself
+after every pause) and it was removed in favor of this simpler, fully explicit model.
 
-Deliberately quiet by design (explicit product feedback: it should listen for "Zarvis" in
-the background without announcing itself, the same way a phone's real wake word doesn't
-pop up a notification every time it starts listening) — arming or muting shows no bubble
-or toast. The transparency trade-off is the subtle cyan ring around the orb whenever armed
-(so it stays inspectable, not literally secret — MASTER_SPEC.md §15) plus the fact that
-the very first visible/audible reaction only happens once "Zarvis" is actually heard
-(`acknowledgeWakeWord()`/`submitUtterance()` in `app.js`), not before.
-
-Not testable end-to-end in this environment — the sandbox this was built in has no
-microphone hardware at all (Chrome's Web Speech API failed immediately with an
+Not testable end-to-end in this environment — no sandbox this has been built in has had
+microphone hardware at all (Chrome's Web Speech API fails immediately with an
 `audio-capture` error even with WebRTC fake-device flags, which don't extend to
-`SpeechRecognition`), so only the arm/error/recovery logic was verified, not real
-wake-word detection accuracy. Test on a real device before relying on it.
+`SpeechRecognition`; with fake-device flags plus a granted mic permission it instead hangs
+indefinitely, likely because this sandbox's network egress policy blocks the real
+recognition backend Chrome talks to). The start/stop/single-turn state machine itself was
+verified with a mocked `SpeechRecognition` (constructed once, `continuous: false`
+confirmed, mic press → LISTENING, second press → stops and returns to IDLE, a simulated
+result submits a real voice-originated turn end-to-end and returns to IDLE with no
+auto-restart) — not real recognition accuracy. Test on a real device before relying on it.
+
+### Document upload
+
+The composer's paperclip button (`#upload-btn`/`#file-input` in `index.html`,
+`handleFileSelected()` in `app.js`) is a client-only feature — no new backend endpoint, no
+new capability beyond what already existed. It reads a local file's text in the browser
+(`File.text()`), then submits it through the exact same `POST /api/v1/orchestrator/turn`
+every typed message uses, as an instruction like `Please summarize this document
+(<filename>):\n\n<text>` — the model picks `docs.summarize` itself
+(`backend/src/skills/docsSummarize.ts`), exactly as it would for pasted text. The chat
+bubble shows a short `📎 <filename>` label rather than the file's full contents
+(`submitUtterance`'s `displayText` parameter).
+
+Deliberately does **not** attempt PDF/DOCX/binary extraction — no client-side parser is
+wired in this pass, and the backend has never had a real file-upload/parsing capability
+either (only the text-based `docs.summarize` tool-call flow). Accepted types are plain-text
+ones the browser can read directly: `.txt`, `.md`, `.csv`, `.json`, `.log`, or any
+`text/*`/`application/json` MIME type. Anything else gets an honest "can't read this file
+type yet" notice instead of silently mangling a binary file into garbled text (Product
+Principle #4, "Never fake success") — inventing a fake PDF-parsing capability would be
+exactly that. Text is capped at 60,000 bytes client-side (`MAX_UPLOAD_BYTES`) to stay safely
+under Express's default 100kb JSON body limit (`server.ts`'s `express.json()`) after
+JSON-escaping overhead; an oversized file gets a clear error rather than a raw 413/500.
 
 ### Personalizing replies with a name
 

@@ -66,10 +66,19 @@ translation layer:
   `GET /health` reported `provider: "google"`, and real turns correctly answered a direct
   question and picked the right skill (`web.search` / `docs.summarize`) via genuine
   Gemini function-calling rather than the mock's keyword heuristic. That same live call
-  also caught two real bugs, both since fixed: `gemini-2.0-flash` (the adapter's original
-  default) has been retired by Google — the default is now `gemini-3.6-flash`
-  (`config/env.ts`, `.env.example`) — and the resulting API error crashed the whole backend
-  process (see "Route safety" below), not just the one request.
+  also caught two real bugs: `gemini-2.0-flash` (the adapter's original default) failed,
+  and the resulting API error crashed the whole backend process (see "Route safety"
+  below), not just the one request — the crash is fixed (`asyncHandler`, below).
+  **The model-name half of that fix was not actually verified**: the default was changed
+  to `gemini-3.6-flash` without a live call confirming that model id exists, it does not
+  match Google's real versioning (`gemini-<major>.<0 or 5>-flash`), and it caused every
+  production orchestrator turn to 500 (404 from Gemini, surfaced only in server-side logs
+  as "Gemini generateContent failed: 404 ..."). Fixed by defaulting to `gemini-2.5-flash`
+  instead (`config/env.ts`, `.env.example`) — Google's documented stable/GA fast model at
+  the time of that live verification. This default has **not** been re-verified with a
+  real key in this pass either (no credential was available) — confirm it with one real
+  `POST /api/v1/orchestrator/turn` call after deploying, and override via the `GEMINI_MODEL`
+  env var (no code change needed) if a different model should be pinned instead.
 
 ## Native audio voice (Gemini TTS)
 

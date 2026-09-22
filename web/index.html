@@ -80,8 +80,8 @@
                 role="button"
                 tabindex="0"
                 aria-pressed="false"
-                aria-label="Toggle hands-free wake-word listening"
-                title="Tap to toggle hands-free mode — say &quot;Zarvis&quot; + your command"
+                aria-label="Speak to Zarvis"
+                title="Tap to speak — tap again to stop"
               ></div>
             </div>
             <p class="hero-greeting" id="hero-greeting">Hey, I'm Zarvis. 👋</p>
@@ -172,14 +172,8 @@
           </div>
 
           <div class="zarvis-card">
-            <h3 class="card-title">Voice mode</h3>
-            <p class="card-desc">Hands-free listening for the "Zarvis" wake word — off by default; the mic never activates on its own. Same toggle as tapping the orb on Workspace.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-handsfree-toggle" aria-pressed="false">Hands-free listening: Off</button>
-          </div>
-
-          <div class="zarvis-card">
             <h3 class="card-title">Spoken replies</h3>
-            <p class="card-desc">Off by default. Turn on for Zarvis to speak its replies out loud (Gemini voice, falling back to your browser's voice).</p>
+            <p class="card-desc">Off by default; only ever speaks a reply to voice input (never a typed message). Turn on for Zarvis to speak voice replies out loud (Gemini voice, falling back to your browser's voice). Press the mic on Workspace to speak — it starts and stops only when you press it.</p>
             <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
             <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
           </div>
@@ -208,6 +202,10 @@
           <button id="mic-btn" class="mic-btn" type="button" title="Speak">
             <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
           </button>
+          <button id="upload-btn" class="mic-btn" type="button" title="Attach a document">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+          </button>
+          <input id="file-input" type="file" accept=".txt,.md,.markdown,.csv,.json,.log,text/plain,text/markdown,text/csv,application/json" hidden />
           <input id="text-input" class="text-input" type="text" placeholder="Ask Zarvis…" autocomplete="off" />
           <button id="send-btn" class="send-btn" type="button" title="Send">
             <span class="send-label">Send</span>

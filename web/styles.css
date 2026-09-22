@@ -513,12 +513,6 @@ body {
   width: 44px; height: 44px;
 }
 .orb:focus-visible { outline: 2px solid var(--zarvis-accent-cyan); outline-offset: 6px; }
-/* Hands-free ("say Zarvis") mode armed — a persistent cyan ring distinct from the default
-   idle indigo one, so it's visible even while the orb itself isn't actively LISTENING. */
-.orb-wrap.auto-listen .orb-ring {
-  border-color: #00f0ff77;
-  animation: ring-pulse 2.2s ease-in-out infinite;
-}
 .orb::after {
   content: "";
   position: absolute;
@@ -1007,6 +1001,11 @@ body {
 
 .text-input {
   flex: 1;
+  /* Plain <input> elements have a non-zero intrinsic min-width in the flexbox algorithm —
+     without overriding it, `flex: 1` can't shrink this below that browser default, so a
+     narrow viewport (with mic + upload + send also in this bar) pushes Send past the
+     command-bar's own edge instead of letting this input shrink to fit. */
+  min-width: 0;
   background: transparent;
   border: none;
   color: var(--zarvis-text-primary);
