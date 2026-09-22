@@ -73,7 +73,19 @@ export class PostgresStore implements Store {
 
   private ensureSchema(): Promise<void> {
     if (!this.schemaReady) {
-      this.schemaReady = this.pool.query(SCHEMA).then(() => undefined);
+      // On failure, clear the cached promise so the *next* call retries schema creation from
+      // scratch instead of forever re-awaiting this same rejected promise. Without this, one
+      // transient failure (a cold-start connection blip, the database briefly unreachable) on
+      // this warm serverless instance's very first query would permanently poison every
+      // request it ever serves afterward — e.g. every guest signup failing with a 500 for as
+      // long as Vercel keeps reusing this instance, even once the underlying issue clears.
+      this.schemaReady = this.pool.query(SCHEMA).then(
+        () => undefined,
+        (err) => {
+          this.schemaReady = undefined;
+          throw err;
+        },
+      );
     }
     return this.schemaReady;
   }
