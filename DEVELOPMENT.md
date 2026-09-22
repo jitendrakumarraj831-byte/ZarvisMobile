@@ -302,19 +302,29 @@ needs a real Vercel account this environment doesn't have.
    not optional: without it the backend falls back to the in-memory `Store` (see "Known
    limitation" below), which breaks refresh tokens and every authenticated endpoint soon
    after signup/login on a serverless deployment.
-3. Project Settings → Environment Variables → add `GEMINI_API_KEY` (from
+3. Project Settings → Environment Variables → add `JWT_SECRET`, scoped to the **Production**
+   environment, set to a long random value you generate yourself (e.g. `openssl rand -base64
+   48`) and don't commit anywhere. This one is **not optional**: `backend/src/config/env.ts`
+   deliberately refuses to start (fails closed) whenever `NODE_ENV=production` — which
+   Vercel's Production environment sets automatically — and `JWT_SECRET` is unset, rather than
+   silently signing tokens with the publicly-known dev fallback secret. Every route, including
+   `/health`, goes down with this until it's set, because `api/index.ts` builds the whole
+   Express app (and therefore `/health`) lazily on first request. See `HANDOFF.md` §D.
+4. Project Settings → Environment Variables → add `GEMINI_API_KEY` (from
    [aistudio.google.com/apikey](https://aistudio.google.com/apikey)) so the deployed
    backend uses live Gemini instead of the mock — same variable as `backend/.env.example`,
    just set through Vercel's dashboard instead of a local file. `PUBLIC_APP_URL` and
    `CORS_ORIGINS` (see `.env.example`) already default to `zarvismobile.com`; only override
    them if deploying under a different domain.
-4. Project Settings → Domains → add `zarvismobile.com` (and `www.zarvismobile.com`), then
+5. Project Settings → Domains → add `zarvismobile.com` (and `www.zarvismobile.com`), then
    update the domain's DNS at the registrar (GoDaddy) to the records Vercel's dashboard
    shows for it (typically an `A` record to Vercel's IP for the apex domain and a `CNAME`
    to `cname.vercel-dns.com` for `www`) — Vercel's domain settings page shows the exact
    values to use once the domain is added there.
-5. Deploy (Vercel redeploys automatically on every push to `main` once the project is
-   imported).
+6. Deploy (Vercel redeploys automatically on every push to `main` once the project is
+   imported). Adding or changing an environment variable does **not** redeploy existing
+   builds — after setting `JWT_SECRET` (or any other var) on an already-imported project, go
+   to Deployments and Redeploy the latest Production deployment for it to take effect.
 
 Or from the CLI, once logged in (`npx vercel login`) and with a project token:
 `npx vercel --prod --token=<token>`.
