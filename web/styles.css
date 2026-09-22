@@ -174,8 +174,6 @@ body {
   flex-shrink: 0;
 }
 
-/* Tightened from the original 8px so a full row of controls (Settings, EN/HI, voice,
-   provider) reads as one organized cluster rather than loosely scattered chips. */
 .topbar-actions { display: flex; gap: 5px; align-items: center; }
 
 .chip-btn {
@@ -196,56 +194,13 @@ body {
 .chip-btn:hover { border-color: #00f0ff88; transform: translateY(-1px); }
 .chip-btn:active { transform: translateY(0); }
 .icon-btn { padding: 6px; width: 30px; height: 30px; justify-content: center; position: relative; }
-.chip-static { cursor: default; color: var(--zarvis-text-secondary); }
-.chip-static:hover { transform: none; border-color: var(--zarvis-border-soft); }
 .chip-btn[aria-pressed="false"] { opacity: 0.4; }
 
-/* Groups the topbar into two legible clusters instead of one undifferentiated row: Settings
-   + language + voice (things you tap) on the left of this divider, the provider status
-   (something you only glance at) on the right — no new markup, just a border on the chip
-   that already sits at that seam. */
-#lang-toggle { margin-left: 8px; position: relative; }
-#lang-toggle::before {
-  content: "";
-  position: absolute;
-  left: -8px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 1px;
-  height: 18px;
-  background: var(--zarvis-border-soft);
-}
-
-.voice-select {
-  max-width: 84px;
-  color-scheme: dark;
-  padding: 7px 8px;
-  font-size: 11px;
-}
+/* Browser TTS voice picker — moved into Settings' "Spoken replies" card (was a cramped
+   header chip); shares .text-input-block's full-width block styling instead of a bespoke
+   compact chip. */
+.voice-select { color-scheme: dark; }
 .voice-select[hidden] { display: none; }
-
-/* A second divider ahead of the provider badge — separates "things you tap" (Settings,
-   language, voice toggle) from "status you glance at" (which AI provider answered you). */
-#provider-badge { margin-left: 8px; position: relative; }
-#provider-badge::before {
-  content: "";
-  position: absolute;
-  left: -8px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 1px;
-  height: 18px;
-  background: var(--zarvis-border-soft);
-}
-
-.status-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--zarvis-text-secondary);
-  box-shadow: 0 0 6px 1px currentColor;
-  flex-shrink: 0;
-}
-.status-dot.live { background: var(--zarvis-success); color: var(--zarvis-success); }
-.status-dot.mock { background: var(--zarvis-warning); color: var(--zarvis-warning); }
 
 /* Groups .views + .composer as one flex column and takes their old place as .app's direct
    flex child — see the ≥1024px rule above for why (a single grid-area target for the
@@ -298,11 +253,6 @@ body {
     position: static;
     margin-left: auto;
     border: none;
-  }
-  .sidebar-nav-divider {
-    height: 1px;
-    margin: 10px 6px;
-    background: var(--zarvis-border-soft);
   }
 }
 
@@ -457,15 +407,15 @@ body {
 .text-input-block::placeholder { color: var(--zarvis-text-secondary); }
 .text-input-block:focus { outline: none; border-color: #00f0ff66; }
 
-/* ---- Workspace → Developer discovery link — mirrors Android Home's plain TextButton
-   entry point into the dedicated Developer screen (feature-home/HomeScreen.kt), rather than
-   a 5th/6th category chip in the already-full chip rail. ---- */
+/* ---- Capabilities → Developer discovery link — a plain TextButton-style entry point into
+   the dedicated Developer screen, living on the Capabilities tab (not Home/Workspace, which
+   stays limited to hero + quick actions + composer per the IA). ---- */
 .developer-link {
   display: flex;
   align-items: center;
   gap: 8px;
   align-self: center;
-  margin-top: -4px;
+  margin: 2px 0 4px;
   padding: 9px 16px;
   border: 1px dashed var(--zarvis-border-soft);
   border-radius: 999px;
@@ -991,13 +941,11 @@ body {
 }
 .quick-action:hover svg { opacity: 1; }
 
-/* Once a reply has landed, the welcome affordances (quick actions + the Developer entry
-   link below them) give way entirely to the conversation itself — the "clean chat-focused
-   layout" the workspace transitions into, rather than leaving a static menu permanently
-   competing with the transcript for space. */
+/* Once a reply has landed, the welcome affordances (the quick actions) give way entirely to
+   the conversation itself — the "clean chat-focused layout" the workspace transitions into,
+   rather than leaving a static menu permanently competing with the transcript for space. */
 #view-workspace:has(#conversation:not(:empty)) .quick-actions-lead,
-#view-workspace:has(#conversation:not(:empty)) .categories,
-#view-workspace:has(#conversation:not(:empty)) .developer-link {
+#view-workspace:has(#conversation:not(:empty)) .categories {
   opacity: 0;
   max-height: 0;
   margin: 0;

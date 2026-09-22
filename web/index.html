@@ -33,22 +33,16 @@
         <button id="settings-btn" class="chip-btn icon-btn" type="button" title="Settings">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
-        <button id="lang-toggle" class="chip-btn" type="button" title="Switch language / भाषा बदलें">EN</button>
-        <button id="voice-out-toggle" class="chip-btn icon-btn" type="button" title="Toggle spoken replies" aria-pressed="true">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
-        </button>
-        <select id="voice-select" class="chip-btn voice-select" hidden title="Choose voice"></select>
-        <span id="provider-badge" class="chip-btn chip-static" title="Active AI provider">
-          <span class="status-dot" aria-hidden="true"></span>
-        </span>
       </div>
     </header>
 
     <!-- Desktop-only sidebar (≥1024px, see styles.css) — mirrors .bottom-nav's items via the
          same shared .nav-item class/data-view attributes, so app.js's existing generic
-         querySelectorAll(".nav-item") wiring drives both without any script changes; also
-         carries Settings/Developer, which stay reachable on mobile via the topbar gear icon
-         and the Workspace "Developer" link instead of a 6th bottom-nav tab. -->
+         querySelectorAll(".nav-item") wiring drives both without any script changes. Only the
+         same 4 primary destinations as the mobile bottom nav — Settings stays reachable only
+         via the topbar gear icon (not a 5th sidebar item), and Developer is an entry point
+         inside Capabilities rather than its own primary destination, so this never turns into
+         a second, crowded nav surface. -->
     <nav class="sidebar-nav" id="sidebar-nav" aria-label="Main">
       <button type="button" class="nav-item active" data-view="workspace">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
@@ -66,15 +60,6 @@
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
         <span>Metrics</span>
         <span class="nav-badge" id="metrics-badge-sidebar" hidden></span>
-      </button>
-      <div class="sidebar-nav-divider" aria-hidden="true"></div>
-      <button type="button" class="nav-item" data-view="developer">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-        <span>Developer</span>
-      </button>
-      <button type="button" class="nav-item" data-view="settings">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-        <span>Settings</span>
       </button>
     </nav>
 
@@ -112,11 +97,6 @@
 
           <p class="quick-actions-lead" id="quick-actions-lead">Ask anything. Start anywhere.</p>
           <section class="categories" id="categories" aria-label="Quick actions"></section>
-
-          <button type="button" class="developer-link" id="developer-entry-link">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-            Developer Agent — analyze a GitHub repo
-          </button>
         </section>
 
         <section class="stage" id="view-capabilities" hidden>
@@ -124,6 +104,10 @@
             <h2>Capabilities</h2>
             <p>Everything Zarvis can do right now, grouped by category.</p>
           </div>
+          <button type="button" class="developer-link" id="developer-entry-link">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            Developer Agent — analyze a GitHub repo
+          </button>
           <div class="capabilities-list" id="capabilities-list"></div>
         </section>
 
@@ -155,7 +139,7 @@
 
         <section class="stage" id="view-developer" hidden>
           <div class="view-header">
-            <button type="button" class="back-btn" id="developer-back-btn" aria-label="Back to Workspace">
+            <button type="button" class="back-btn" id="developer-back-btn" aria-label="Back to Capabilities">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
             <h2>Developer</h2>
@@ -188,9 +172,16 @@
           </div>
 
           <div class="zarvis-card">
+            <h3 class="card-title">Voice mode</h3>
+            <p class="card-desc">Hands-free listening for the "Zarvis" wake word — off by default; the mic never activates on its own. Same toggle as tapping the orb on Workspace.</p>
+            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-handsfree-toggle" aria-pressed="false">Hands-free listening: Off</button>
+          </div>
+
+          <div class="zarvis-card">
             <h3 class="card-title">Spoken replies</h3>
-            <p class="card-desc">Toggle whether Zarvis speaks its replies out loud (Gemini voice, falling back to your browser's voice).</p>
-            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="true">Spoken replies: On</button>
+            <p class="card-desc">Off by default. Turn on for Zarvis to speak its replies out loud (Gemini voice, falling back to your browser's voice).</p>
+            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
+            <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
           </div>
 
           <div class="zarvis-card">
