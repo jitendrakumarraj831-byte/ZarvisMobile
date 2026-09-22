@@ -32,7 +32,17 @@ export const env = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
-  geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
+  /** `gemini-3.6-flash` was the default here until this bug: that model id was never
+   * actually live-verified against the real Generative Language API (only the *previous*
+   * default, `gemini-2.0-flash`, was — see AI_ARCHITECTURE.md), doesn't match Google's real
+   * versioning ("gemini-<major>.<0 or 5>-flash", never ".6"), and produced a 404 from
+   * Gemini on every single orchestrator turn in production — surfaced to callers as a
+   * generic 500 (server.ts's error middleware logs the real "Gemini generateContent
+   * failed: 404 ..." message but never echoes it to the client, so this was invisible
+   * without reading server-side logs). `gemini-2.5-flash` is Google's documented stable/GA
+   * fast model as of this fix; override with `GEMINI_MODEL` if a newer model should be
+   * used instead — no code change needed either way. */
+  geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
   /** Gemini's native-audio-output model — the same underlying voice technology behind the
    * Gemini app's voice mode, called via a plain generateContent request (see
    * ai/geminiTts.ts and AI_ARCHITECTURE.md "Native audio voice"), not the separate Google

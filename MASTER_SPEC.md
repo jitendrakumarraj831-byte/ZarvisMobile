@@ -942,10 +942,15 @@ LOW-risk skills.
   is wired — only the *AI provider* step of the pipeline is real. **No live billing
   credential exists at all** — that remains a config-only change pending a Play Console
   listing (§19). Note also: the live call surfaced that `gemini-2.0-flash` (this adapter's
-  original default) has been retired by Google in favor of `gemini-3.6-flash` — the default
-  in `config/env.ts`/`.env.example` was corrected accordingly; a deployment should still
-  confirm the current recommended model at integration time rather than trusting any
-  hardcoded default indefinitely.
+  original default) failed against the real API; the default was changed to
+  `gemini-3.6-flash` at the time, **but that replacement was never itself live-verified**
+  — it does not match Google's real model-naming pattern and caused a production
+  regression (every `/orchestrator/turn` call 500ing — see AI_ARCHITECTURE.md "Gemini
+  adapter"). Corrected to `gemini-2.5-flash`, still without a live re-verification (no
+  credential available in that pass either). The lesson stands, now proven the hard way:
+  **a deployment must confirm the current recommended model with one real call at
+  integration/deploy time — never trust a hardcoded default indefinitely**, and prefer
+  setting `GEMINI_MODEL` explicitly once a model has actually been confirmed working.
 - **A live-triggered bug was found and fixed in the same session:** the same Gemini error
   (before the model-name fix) crashed the *entire* backend process, because Express 4 does
   not catch a rejected promise thrown inside an `async` route handler — it becomes an
