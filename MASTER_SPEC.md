@@ -472,18 +472,22 @@ just wants to try the agent from a link.
   browsers) — never a dead end (Product Principle #4). Voice output tries Gemini's native
   audio voice first (`POST /api/v1/tts/synthesize`) before falling back to
   `speechSynthesis` — see above and AI_ARCHITECTURE.md "Native audio voice".
-- **Hands-free wake word (web only, differs from §11's Android orb-tap behavior):** arms
-  itself automatically on page load (explicit product request — no tap needed); tapping
-  the orb here mutes/unmutes it instead of cancelling the current turn like Android's orb
-  does. Say "Zarvis" (or a common mishearing like "Jarvis") followed by a command. This is
-  a software approximation of a wake word (continuous `SpeechRecognition` with
-  auto-restart), not a true low-power OS wake-word detector — it only works while the tab
-  is foregrounded. The muted/armed choice is never persisted across a reload — it always
-  re-arms fresh rather than remembering a muted state indefinitely. Deliberately quiet by
-  design: arming/muting shows no bubble or toast (explicit product feedback — it should
-  listen in the background without announcing itself); the subtle cyan ring around the orb
-  is the transparency trade-off (§15 "never secretly monitor the device"), and the first
-  visible/audible reaction happens only once "Zarvis" is actually heard. See
+- **Hands-free wake word (web only, differs from §11's Android orb-tap behavior):** never
+  arms itself automatically — only an explicit tap (the orb, or the Settings "Voice mode"
+  toggle, both call the same `toggleAutoListen()`) turns it on, matching the product's "no
+  automatic microphone" rule; tapping the orb again mutes it instead of cancelling the
+  current turn like Android's orb does. Once armed, say "Zarvis" (or a common mishearing
+  like "Jarvis") followed by a command. This is a software approximation of a wake word
+  (continuous `SpeechRecognition` with auto-restart), not a true low-power OS wake-word
+  detector — it only works while the tab is foregrounded. The armed choice is never
+  persisted across a reload — it always resets to off rather than remembering an armed
+  state indefinitely. Deliberately quiet by design: arming/muting shows no bubble or toast
+  (explicit product feedback — it should listen in the background without announcing
+  itself); the subtle cyan ring around the orb is the transparency trade-off (§15 "never
+  secretly monitor the device"), and the first visible/audible reaction happens only once
+  "Zarvis" is actually heard. TTS is likewise off by default (`state.speak`, Settings'
+  "Spoken replies" toggle) and, even once turned on, only ever speaks a reply to a
+  voice-originated turn — a typed message's reply always stays text-only. See
   DEVELOPMENT.md "Hands-free 'wake word' mode".
 - **Personalization:** the client sends an optional `userName` with every orchestrator
   turn (`localStorage["zarvis.userName"]`, no settings UI yet — see §32) so replies can
@@ -532,7 +536,13 @@ just wants to try the agent from a link.
   `performance.now()` wrapped around the same `/orchestrator/turn` fetch already being made,
   not a new endpoint — plus the task log). This replaced an earlier single "Status &
   Workflows" bottom-sheet drawer, which duplicated what these three dedicated tabs now cover
-  more legibly and consistently with Android's own navigation shape.
+  more legibly and consistently with Android's own navigation shape. Settings (language,
+  voice mode, spoken replies, session/account controls) and Developer (the Repository
+  Agent's read-only analysis) are deliberately *not* a 5th/6th primary destination here —
+  Settings opens only from the topbar gear icon (mobile and desktop alike, never a sidebar
+  item, so it can't crowd the primary nav), and Developer is a discovery link on the
+  Capabilities tab instead, keeping Home/Workspace itself limited to hero + quick actions +
+  composer.
 
 ## 13. Developer Agent Architecture
 

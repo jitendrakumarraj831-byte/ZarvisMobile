@@ -133,10 +133,7 @@
     sendBtn: document.getElementById("send-btn"),
     sendLabel: document.querySelector("#send-btn .send-label"),
     micBtn: document.getElementById("mic-btn"),
-    langToggle: document.getElementById("lang-toggle"),
-    voiceOutToggle: document.getElementById("voice-out-toggle"),
     voiceSelect: document.getElementById("voice-select"),
-    providerBadge: document.getElementById("provider-badge"),
     composer: document.getElementById("composer"),
     navItems: Array.from(document.querySelectorAll(".nav-item")),
     // Two badges (bottom-nav + desktop sidebar) share one dot of state — see fetchTasks().
@@ -158,6 +155,7 @@
     settingsBtn: document.getElementById("settings-btn"),
     settingsBackBtn: document.getElementById("settings-back-btn"),
     settingsLangOptions: document.getElementById("settings-lang-options"),
+    settingsHandsFreeToggle: document.getElementById("settings-handsfree-toggle"),
     settingsVoiceToggle: document.getElementById("settings-voice-toggle"),
     settingsDeleteBtn: document.getElementById("settings-delete-btn"),
     settingsDeleteError: document.getElementById("settings-delete-error"),
@@ -176,18 +174,22 @@
 
   const state = {
     lang: localStorage.getItem(STORAGE_KEYS.lang) || "en",
-    speak: localStorage.getItem(STORAGE_KEYS.speak) !== "off",
+    // Off by default in the browser — spoken replies (and the mic, below) only ever turn on
+    // from an explicit tap (the orb, the composer mic button, or this Settings toggle), never
+    // automatically on load.
+    speak: localStorage.getItem(STORAGE_KEYS.speak) === "on",
     // Which of the 4 bottom-nav views is currently showing — see setActiveView().
     activeView: "workspace",
     // The live skill catalogue, fetched once and reused by both the Workspace category
     // chips and the full Capabilities Hub cards, instead of fetching /skills twice.
     skills: [],
     billing: "monthly",
-    // Hands-free "wake word" mode arms itself automatically on load (see init()) but this
-    // flag is intentionally session-only (never persisted to localStorage) — the mute/armed
-    // choice always resets fresh on the next reload rather than remembering a muted state
-    // indefinitely, so it can't end up silently listening in a way nobody remembers
-    // enabling (MASTER_SPEC.md §15, "never secretly monitor the device").
+    // Hands-free "wake word" mode — never armed automatically; only an explicit tap (the orb,
+    // or the Settings "Hands-free listening" toggle, both call toggleAutoListen()) turns it
+    // on. Intentionally session-only (never persisted to localStorage) — the armed choice
+    // always resets fresh on the next reload rather than remembering a listening state
+    // indefinitely, so it can't end up silently listening in a way nobody remembers enabling
+    // (MASTER_SPEC.md §15, "never secretly monitor the device").
     autoListen: false,
     // True only for the very first turn of a session — lets the system prompt ask Gemini
     // for a warmer, more "attractive" welcome-style reply once, without every later message
@@ -232,6 +234,7 @@
     setupSpeechSynthesis();
     applyLanguage();
     applyVoiceToggleState();
+    applyHandsFreeToggleState();
     setupSpeechRecognition();
     registerServiceWorker();
     setupBottomNav();
@@ -252,22 +255,15 @@
       if (e.key === "Enter") submitUtterance(el.input.value);
       if (e.key === "Escape" && isBusy()) cancelCurrentTurn();
     });
-    el.langToggle.addEventListener("click", () => {
-      setLanguage(state.lang === "en" ? "hi" : "en");
-    });
-    el.voiceOutToggle.addEventListener("click", toggleSpeak);
 
     await ensureSession();
-    await Promise.all([loadHealth(), loadSkills(), fetchTasks()]);
+    await Promise.all([loadSkills(), fetchTasks()]);
     setOrbState("IDLE");
 
-    // Hands-free mode arms itself automatically on load — no tap needed, per explicit
-    // request. The orb remains a manual mute/unmute toggle for whenever it isn't wanted.
-    // The browser still owns the actual permission gate: on a first-ever visit this
-    // triggers its native "allow microphone" prompt (SpeechRecognition doesn't require a
-    // preceding click the way getUserMedia's autoplay-style policies do); once granted, it
-    // stays silent on every later visit.
-    toggleAutoListen();
+    // No auto-arm here: hands-free listening only ever turns on from an explicit tap (the
+    // orb, or the Settings "Hands-free listening" toggle), never on load. The browser's
+    // native "allow microphone" prompt therefore only appears once someone actually asks for
+    // voice input, not on every first visit.
   }
 
   function resolveApiBase() {
@@ -279,7 +275,6 @@
 
   function applyLanguage() {
     const copy = COPY[state.lang];
-    el.langToggle.textContent = state.lang.toUpperCase();
     el.heroGreeting.textContent = copy.greeting;
     el.heroTitle.textContent = copy.hero;
     el.heroSubtitle.textContent = copy.subtitle;
@@ -304,16 +299,14 @@
     }
   }
 
-  /** Shared by the topbar's quick toggle and the Settings screen's language pills — both
-   * read/write the same `state.lang`/localStorage key, so either one always reflects what
-   * the other just changed. */
+  /** Settings screen's language pills read/write the same `state.lang`/localStorage key. */
   function setLanguage(lang) {
     state.lang = lang;
     localStorage.setItem(STORAGE_KEYS.lang, state.lang);
     applyLanguage();
   }
 
-  /** Shared by the topbar's speaker icon and the Settings screen's "Spoken replies" button. */
+  /** Settings screen's "Spoken replies" button — off by default (see `state.speak`'s init). */
   function toggleSpeak() {
     state.speak = !state.speak;
     localStorage.setItem(STORAGE_KEYS.speak, state.speak ? "on" : "off");
@@ -321,9 +314,15 @@
   }
 
   function applyVoiceToggleState() {
-    el.voiceOutToggle.setAttribute("aria-pressed", String(state.speak));
     el.settingsVoiceToggle.setAttribute("aria-pressed", String(state.speak));
     el.settingsVoiceToggle.textContent = state.speak ? "Spoken replies: On" : "Spoken replies: Off";
+  }
+
+  /** Settings screen's "Hands-free listening" button — mirrors the orb's own toggle so both
+   * controls (quick access on Workspace, organized preference in Settings) always agree. */
+  function applyHandsFreeToggleState() {
+    el.settingsHandsFreeToggle.setAttribute("aria-pressed", String(state.autoListen));
+    el.settingsHandsFreeToggle.textContent = state.autoListen ? "Hands-free listening: On" : "Hands-free listening: Off";
   }
 
   // ---- Session (guest account bootstrap + refresh) -------------------------------------
@@ -397,21 +396,9 @@
     return true;
   }
 
-  // ---- Health / skill catalogue ---------------------------------------------------------
-
-  async function loadHealth() {
-    try {
-      const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
-      const body = await res.json();
-      const live = body.provider === "google";
-      el.providerBadge.innerHTML = `<span class="status-dot ${live ? "live" : "mock"}" aria-hidden="true"></span>${live ? "Gemini" : "Mock"}`;
-      el.providerBadge.title = live
-        ? "Live Google Gemini calls (GEMINI_API_KEY is set)"
-        : "Deterministic MockAIProvider — set GEMINI_API_KEY on the backend for live Gemini";
-    } catch {
-      el.providerBadge.innerHTML = `<span class="status-dot" aria-hidden="true"></span>Offline`;
-    }
-  }
+  // ---- Skill catalogue -------------------------------------------------------------------
+  // AI provider status lives only in the Metrics tab now (refreshMetricsHealth, below) — no
+  // duplicate header badge making the same live/mock call on every load.
 
   const CATEGORY_LABELS = { SEO: "SEO", GITHUB: "GitHub" };
 
@@ -618,7 +605,7 @@
       setActiveView("settings");
     });
     el.settingsBackBtn.addEventListener("click", () => setActiveView("workspace"));
-    el.developerBackBtn.addEventListener("click", () => setActiveView("workspace"));
+    el.developerBackBtn.addEventListener("click", () => setActiveView("capabilities"));
   }
 
   function setActiveView(view) {
@@ -721,6 +708,10 @@
     el.settingsVoiceToggle.addEventListener("click", () => {
       haptic();
       toggleSpeak();
+    });
+    el.settingsHandsFreeToggle.addEventListener("click", () => {
+      haptic();
+      toggleAutoListen();
     });
     el.settingsClearSessionBtn.addEventListener("click", () => {
       haptic();
@@ -1119,19 +1110,24 @@
   // until the old one finishes. `null` when idle.
   let currentTurnController = null;
 
-  async function submitUtterance(rawText) {
+  /** `isVoice` is true only for the speech-recognition result handler (mic tap or wake word)
+   * — every other caller (Send, Enter, a quick-action/capability card) is a typed submission.
+   * Threaded through to runTurn() so a typed message's reply always stays text-only, even
+   * with Spoken replies on: only a voice-originated turn is ever a candidate to speak back. */
+  async function submitUtterance(rawText, isVoice = false) {
     const utterance = rawText.trim();
     if (!utterance) return;
     el.input.value = "";
     addBubble("user", utterance);
-    await runTurn(utterance);
+    await runTurn(utterance, isVoice);
   }
 
   /** The actual orchestrator round trip, shared by a fresh submission (submitUtterance,
    * which first echoes the utterance as a user bubble) and Retry (addErrorBubble, which
    * deliberately does not — the failed attempt's own user bubble is still on screen, so
-   * retrying the exact same text would otherwise show it twice). */
-  async function runTurn(utterance) {
+   * retrying the exact same text would otherwise show it twice; a retry is always treated as
+   * typed/text-only, regardless of how the original turn started). */
+  async function runTurn(utterance, isVoice = false) {
     // A turn already running gets interrupted, not queued behind — cancels its network
     // request (the AbortError branch below exits quietly, exactly like Android's
     // `catch (t: CancellationException) { throw t }`: not a failure to report) and stops
@@ -1204,7 +1200,9 @@
       // matters beyond cosmetics: auto-listen mode (see startListening()) uses the orb
       // state to know when ZARVIS has actually finished talking before re-arming the mic —
       // starting to listen while still speaking would pick up its own voice.
-      await speak(result.message, node);
+      // Typed messages stay text-only — only a voice-originated turn ever speaks back (and
+      // even then, only with Spoken replies on; see speak()'s own state.speak check).
+      if (isVoice) await speak(result.message, node);
       if (controller.signal.aborted) return;
       setOrbState("IDLE");
     } catch (err) {
@@ -1464,6 +1462,8 @@
     if (!SpeechRecognition) {
       el.micBtn.disabled = true;
       el.micBtn.title = "Voice input isn't supported in this browser — use text instead.";
+      el.settingsHandsFreeToggle.disabled = true;
+      el.settingsHandsFreeToggle.title = "Voice input isn't supported in this browser.";
       return;
     }
     recognition = new SpeechRecognition();
@@ -1490,10 +1490,10 @@
           acknowledgeWakeWord(); // just "Zarvis" alone — confirm we heard it, keep listening
           return;
         }
-        submitUtterance(command);
+        submitUtterance(command, true);
         return;
       }
-      submitUtterance(transcript);
+      submitUtterance(transcript, true);
     });
 
     recognition.addEventListener("end", () => {
@@ -1550,6 +1550,7 @@
     state.autoListen = !state.autoListen;
     el.orb.setAttribute("aria-pressed", String(state.autoListen));
     el.orbWrap.classList.toggle("auto-listen", state.autoListen);
+    applyHandsFreeToggleState();
     if (state.autoListen) {
       startListening();
     } else {

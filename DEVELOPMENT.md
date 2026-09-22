@@ -212,8 +212,11 @@ technology behind the Gemini app's voice mode, using the same `GEMINI_API_KEY` a
 configured (no separate credential). If that call fails for any reason (not configured,
 offline, rate-limited), it falls back to the browser's built-in `speechSynthesis` —
 picking its best available network voice for the current language, with a manual voice
-picker in the topbar once more than one is available (persisted in `localStorage`) — so
-voice output never silently goes dead, per Product Principle #4.
+picker in Settings' "Spoken replies" card once more than one is available (persisted in
+`localStorage`) — so voice output never silently goes dead, per Product Principle #4.
+Spoken replies are off by default and, even once turned on, only ever play for a
+voice-originated turn (mic tap or wake word) — a typed message's reply always stays
+text-only.
 
 `GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE` (`.env.example`) configure the model and one of
 Gemini's fixed prebuilt voice names (e.g. `Kore`, `Puck`, `Charon`, `Aoede`, `Fenrir`).
@@ -228,18 +231,20 @@ credential, unlike the native-audio route actually wired in here.
 
 ### Hands-free "wake word" mode
 
-Arms itself automatically on every page load (per explicit product request — no tap
-needed): say "Zarvis" (or a close mishearing like "Jarvis" — most speech recognizers have
-never seen the actual word and fall back to the much more common one) followed by a
-command, e.g. *"Zarvis, find the best phone under 20000"*. Tapping the orb mutes/unmutes it
-manually. This is a software approximation of a wake word built on the Web Speech API's
-`continuous`/auto-restart pattern (`setupSpeechRecognition()` in `app.js`), **not** a true
-low-power OS wake-word detector: it only works while the tab is open and in the
-foreground, and every second of "armed" audio is sent to the browser's speech-recognition
-service exactly like a manual mic tap would be — stated honestly rather than oversold. The
-armed/muted choice itself is intentionally never persisted across a reload — it always
-re-arms fresh rather than remembering a muted state indefinitely, so it can't end up
-silently listening in a way the person in front of the screen forgot was ever turned on.
+Never arms itself automatically — no automatic microphone, per the product's voice-behavior
+rules. Only an explicit tap turns it on: the orb on Workspace, or the "Hands-free listening"
+button in Settings' Voice mode card (both call the same `toggleAutoListen()`). Once armed,
+say "Zarvis" (or a close mishearing like "Jarvis" — most speech recognizers have never seen
+the actual word and fall back to the much more common one) followed by a command, e.g.
+*"Zarvis, find the best phone under 20000"*. Tapping the orb again mutes it. This is a
+software approximation of a wake word built on the Web Speech API's `continuous`/
+auto-restart pattern (`setupSpeechRecognition()` in `app.js`), **not** a true low-power OS
+wake-word detector: it only works while the tab is open and in the foreground, and every
+second of "armed" audio is sent to the browser's speech-recognition service exactly like a
+manual mic tap would be — stated honestly rather than oversold. The armed/muted choice
+itself is intentionally never persisted across a reload — it always resets to off rather
+than remembering an armed state indefinitely, so it can't end up silently listening in a
+way the person in front of the screen forgot was ever turned on.
 
 Deliberately quiet by design (explicit product feedback: it should listen for "Zarvis" in
 the background without announcing itself, the same way a phone's real wake word doesn't
