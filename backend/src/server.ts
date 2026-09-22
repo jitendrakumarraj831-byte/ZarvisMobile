@@ -7,6 +7,7 @@ import { accountRouter } from "./api/routes/account.js";
 import { authRouter } from "./api/routes/auth.js";
 import { billingRouter } from "./api/routes/billing.js";
 import { developerRouter } from "./api/routes/developer.js";
+import { documentsRouter } from "./api/routes/documents.js";
 import { entitlementsRouter } from "./api/routes/entitlements.js";
 import { orchestratorRouter } from "./api/routes/orchestrator.js";
 import { skillsRouter } from "./api/routes/skills.js";
@@ -56,6 +57,7 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/developer", developerRouter(container.pipeline));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
+  app.use("/api/v1/documents", documentsRouter());
 
   // Serves the browser web client (see MASTER_SPEC.md §12a "Web Client Architecture") from
   // the same origin/domain as the API — no separate static host needed for
