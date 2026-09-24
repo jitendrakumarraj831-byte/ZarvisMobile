@@ -59,6 +59,12 @@ function classifyStartupError(err: unknown): string {
   if (/JWT_SECRET/.test(message)) return "jwt_secret_missing_or_invalid";
   if (/PLAY_BILLING_SERVICE_ACCOUNT_JSON|is not valid JSON/.test(message)) return "play_billing_config_invalid";
   if (err instanceof TypeError && /invalid url/i.test(message)) return "postgres_url_invalid";
+  // Keep dependency/module failures distinguishable without exposing arbitrary startup
+  // exception text or environment-variable values to unauthenticated callers.
+  if (/Cannot find package|Cannot find module|ERR_MODULE_NOT_FOUND/i.test(message)) return "module_dependency_missing";
+  if (/does not provide an export|has no exported member/i.test(message)) return "module_export_mismatch";
+  if (/Unexpected token|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_FILE_EXTENSION/i.test(message)) return "module_load_error";
+  if (/No AIProvider registered/i.test(message)) return "ai_provider_config_invalid";
   return "unknown_startup_error";
 }
 
