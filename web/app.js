@@ -224,6 +224,8 @@
     // shown as the "📄 filename / Ready to analyze" chip, and consumed (cleared) the moment
     // it rides along with the next submitted turn (submitComposerInput()).
     pendingAttachment: null,
+    // Bounded client-side conversation context for natural follow-up questions.
+    history: [],
   };
 
   // Declared here (not near their setup functions below) because init() runs synchronously
@@ -1190,6 +1192,7 @@
             locale: state.lang,
             userName: localStorage.getItem(STORAGE_KEYS.userName),
             isFirstTurn,
+            history: state.history.slice(-12),
           }),
           signal: controller.signal,
         },
@@ -1206,6 +1209,11 @@
         return;
       }
       const result = await res.json();
+      state.history.push({ role: "user", content: utterance });
+      if (typeof result.message === "string" && result.message.trim()) {
+        state.history.push({ role: "assistant", content: result.message.trim() });
+      }
+      state.history = state.history.slice(-12);
       recordLatency(utterance, Math.round(performance.now() - startedAt), true);
       // A brief emerald "done" flash before speaking — MASTER_SPEC.md §22 "Success = Emerald
       // Green Glow", mirroring the Android orb's SUCCESS state exactly (same 450ms flash).
