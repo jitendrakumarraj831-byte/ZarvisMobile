@@ -68,7 +68,7 @@ function classifyStartupError(err: unknown): string {
   return "unknown_startup_error";
 }
 
-function buildFallbackApp(err: unknown): Express {
+function buildFallbackApp(err: unknown, stage = "startup"): Express {
   const reason = classifyStartupError(err);
   logger.error("Server failed to start; serving a minimal health-only fallback", {
     reason,
@@ -79,7 +79,7 @@ function buildFallbackApp(err: unknown): Express {
   // helper: that module also imports config/env.ts, the very thing that may have just thrown,
   // and Node caches a module's evaluation failure — a second import of it fails the same way.
   const provider = process.env.GEMINI_API_KEY ? "google" : "mock";
-  app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider, reason }));
+  app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider, reason, stage }));
   app.use((_req, res) => res.status(500).json({ error: "Server is misconfigured; check environment variables." }));
   return app;
 }
@@ -87,15 +87,25 @@ function buildFallbackApp(err: unknown): Express {
 function getApp(): Promise<Express> {
   if (!appPromise) {
     appPromise = (async () => {
+      let stage = "bootstrap_env";
       try {
         // `bootstrapEnv` must load `.env` (local/`vercel dev` only — a no-op in real Vercel
-        // deployments, see above) before anything below reads `process.env.*`.
+        // deployments) before anything below reads `process.env.*`.
         await import("../backend/src/bootstrapEnv.js");
+
+        stage = "container_import";
         const { buildContainer } = await import("../backend/src/container.js");
+
+        stage = "container_build";
+        const container = buildContainer();
+
+        stage = "server_import";
         const { buildServer } = await import("../backend/src/server.js");
-        return buildServer(buildContainer());
+
+        stage = "server_build";
+        return buildServer(container);
       } catch (err) {
-        return buildFallbackApp(err);
+        return buildFallbackApp(err, stage);
       }
     })();
   }
