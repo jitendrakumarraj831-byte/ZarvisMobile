@@ -1041,6 +1041,23 @@ body {
   width: 44px; height: 44px; flex-shrink: 0; /* >=44px meets the standard touch-target size */
   display: flex; align-items: center; justify-content: center;
 }
+.file-input-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.mic-btn.is-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 .mic-btn[aria-pressed="true"] {
   background: linear-gradient(135deg, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
   box-shadow: 0 0 16px 2px var(--glow-cyan-soft);
