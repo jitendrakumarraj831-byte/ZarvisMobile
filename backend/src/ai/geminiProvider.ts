@@ -30,17 +30,36 @@ export class GeminiProvider implements AIProvider {
   ) {}
 
   async generate(request: AIRequest): Promise<AIResponse> {
-    const body = toGeminiRequestBody(request);
-    const res = await fetch(
-      `${this.baseUrl}/models/${encodeURIComponent(request.modelConfig.model)}:generateContent?key=${this.apiKey}`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+    const models = [request.modelConfig.model, "gemini-3.7-flash"].filter(
+      (model, index, all) => model && all.indexOf(model) === index,
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Gemini generateContent failed: ${res.status} ${res.statusText} ${text}`.trim());
+    let lastError: Error | undefined;
+
+    // 503/429 are transient Gemini capacity/rate-limit failures. Retry with jitter first,
+    // then move to a stable fallback model so one busy model does not take ZARVIS offline.
+    for (const model of models) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const body = toGeminiRequestBody(request);
+        const res = await fetch(
+          `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${this.apiKey}`,
+          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+        );
+        if (res.ok) {
+          const json = (await res.json()) as GeminiGenerateResponse;
+          return fromGeminiResponse(json);
+        }
+
+        const text = await res.text().catch(() => "");
+        lastError = new Error(
+          `Gemini generateContent failed: ${res.status} ${res.statusText} ${text}`.trim(),
+        );
+
+        if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
+        if (attempt < 2) await sleepWithJitter(attempt);
+      }
     }
-    const json = (await res.json()) as GeminiGenerateResponse;
-    return fromGeminiResponse(json);
+
+    throw lastError ?? new Error("Gemini generateContent failed without a response");
   }
 
   async *streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk> {
@@ -191,4 +210,11 @@ function fromGeminiResponse(json: GeminiGenerateResponse): AIResponse {
 function extractText(chunk: GeminiGenerateResponse): string {
   const parts = chunk.candidates?.[0]?.content?.parts ?? [];
   return parts.map((p) => p.text ?? "").join("");
+}
+
+
+function sleepWithJitter(attempt: number): Promise<void> {
+  const baseMs = 1000 * 2 ** attempt;
+  const jitterMs = Math.floor(Math.random() * 400);
+  return new Promise((resolve) => setTimeout(resolve, baseMs + jitterMs));
 }
