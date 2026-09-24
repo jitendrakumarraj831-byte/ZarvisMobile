@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import express, { type Express } from "express";
+import express, { type Express, type Router } from "express";
 import type { Container } from "./container.js";
 import { accountRouter } from "./api/routes/account.js";
 import { authRouter } from "./api/routes/auth.js";
@@ -20,6 +20,26 @@ import { logger } from "./security/redact.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /** ../../web from dist/server.js (or ../web from src/server.ts) — see MASTER_SPEC.md §12a. */
 const webRoot = [join(__dirname, "../../web"), join(__dirname, "../web")].find((candidate) => existsSync(candidate));
+
+/**
+ * Document upload is intentionally lazy-loaded. PDF/DOCX parser dependencies must not be part
+ * of the server's startup-critical import graph: if one optional document dependency is missing
+ * or incompatible in a deployment, /health, auth, and the orchestrator must still start.
+ */
+let documentsRouterPromise: Promise<Router | null> | undefined;
+function getDocumentsRouter(): Promise<Router | null> {
+  if (!documentsRouterPromise) {
+    documentsRouterPromise = import("./api/routes/documents.js")
+      .then(({ documentsRouter }) => documentsRouter())
+      .catch((err) => {
+        logger.error("Document upload route failed to load", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
+  }
+  return documentsRouterPromise;
+}
 
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
@@ -56,6 +76,18 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/developer", developerRouter(container.pipeline));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
+  // Keep document parsing isolated from the startup-critical API. If its dependencies cannot
+  // load in a particular deployment, document upload returns 503 instead of taking the entire
+  // application down.
+  app.use("/api/v1/documents", (req, res, next) => {
+    void getDocumentsRouter().then((router) => {
+      if (!router) {
+        res.status(503).json({ error: "Document upload is temporarily unavailable" });
+        return;
+      }
+      router(req, res, next);
+    });
+  });
 
   // Serves the browser web client (see MASTER_SPEC.md §12a "Web Client Architecture") from
   // the same origin/domain as the API — no separate static host needed for

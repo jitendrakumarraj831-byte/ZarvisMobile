@@ -44,6 +44,7 @@
       send: "Send",
       stop: "Stop",
       mic: "Speak",
+      uploadTitle: "Attach a document",
       thinking: "Thinking…",
       retry: "Retry",
       // Deliberately generic and non-technical — shown for every connection/server failure
@@ -53,14 +54,17 @@
       bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
       unsupportedFile: {
         title: "Can't read this file type yet.",
-        subtitle: "Zarvis can read plain text (.txt, .md, .csv, .json) — PDF/Word extraction isn't wired up. Paste the text instead.",
+        subtitle: "Zarvis can read .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
       },
-      unreadableFile: { title: "Couldn't read that file.", subtitle: "Please try again or paste the text directly." },
+      unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
       oversizedFile: {
         title: "That file is too long to send in one go.",
         subtitle: "Try a shorter excerpt or paste the most relevant part directly.",
       },
+      extracting: "Reading document…",
+      attachmentReady: "Ready to analyze",
+      attachmentRemove: "Remove attachment",
       stateLabels: {
         IDLE: "Ready",
         LISTENING: "Listening",
@@ -88,19 +92,23 @@
       send: "भेजें",
       stop: "रोकें",
       mic: "बोलें",
+      uploadTitle: "डॉक्यूमेंट अटैच करें",
       thinking: "सोच रहा हूँ…",
       retry: "फिर कोशिश करें",
       bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
       unsupportedFile: {
         title: "यह फ़ाइल प्रकार अभी पढ़ा नहीं जा सकता।",
-        subtitle: "Zarvis सिर्फ़ प्लेन टेक्स्ट (.txt, .md, .csv, .json) पढ़ सकता है — PDF/Word अभी सपोर्टेड नहीं है। कृपया टेक्स्ट सीधे पेस्ट करें।",
+        subtitle: "Zarvis .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें पढ़ सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
       },
-      unreadableFile: { title: "यह फ़ाइल पढ़ी नहीं जा सकी।", subtitle: "कृपया फिर कोशिश करें या टेक्स्ट सीधे पेस्ट करें।" },
+      unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
       oversizedFile: {
         title: "यह फ़ाइल एक बार में भेजने के लिए बहुत बड़ी है।",
         subtitle: "छोटा हिस्सा आज़माएं या सबसे ज़रूरी टेक्स्ट सीधे पेस्ट करें।",
       },
+      extracting: "डॉक्यूमेंट पढ़ा जा रहा है…",
+      attachmentReady: "विश्लेषण के लिए तैयार",
+      attachmentRemove: "अटैचमेंट हटाएं",
       stateLabels: {
         IDLE: "तैयार",
         LISTENING: "सुन रहा हूँ",
@@ -148,6 +156,10 @@
     micBtn: document.getElementById("mic-btn"),
     uploadBtn: document.getElementById("upload-btn"),
     fileInput: document.getElementById("file-input"),
+    attachmentChip: document.getElementById("attachment-chip"),
+    attachmentName: document.getElementById("attachment-name"),
+    attachmentStatus: document.getElementById("attachment-status"),
+    attachmentRemoveBtn: document.getElementById("attachment-remove"),
     voiceSelect: document.getElementById("voice-select"),
     composer: document.getElementById("composer"),
     navItems: Array.from(document.querySelectorAll(".nav-item")),
@@ -202,6 +214,12 @@
     // for a warmer, more "attractive" welcome-style reply once, without every later message
     // paying that same introductory tax.
     firstTurn: true,
+    // A successfully-read/extracted document waiting to be asked about — { filename, text }
+    // or null. Set by handleFileSelected() once text is available (immediately for a local
+    // text file, after a server round trip for PDF/DOCX — see documents/extractText.ts),
+    // shown as the "📄 filename / Ready to analyze" chip, and consumed (cleared) the moment
+    // it rides along with the next submitted turn (submitComposerInput()).
+    pendingAttachment: null,
   };
 
   // Declared here (not near their setup functions below) because init() runs synchronously
@@ -238,14 +256,15 @@
     el.sendBtn.addEventListener("click", () => {
       haptic();
       // While a turn is running the same button reads "Stop" (see updateComposerMode). With
-      // new text typed, clicking it still means "send this" — submitUtterance() itself
-      // interrupts the running turn and starts this one instead of queuing behind it. Only
-      // an empty input turns the click into a pure Stop (nothing to interrupt *with*).
-      if (isBusy() && !el.input.value.trim()) cancelCurrentTurn();
-      else submitUtterance(el.input.value);
+      // new text typed (or a document attached), clicking it still means "send this" —
+      // submitUtterance() itself interrupts the running turn and starts this one instead of
+      // queuing behind it. Only an empty input with nothing attached turns the click into a
+      // pure Stop (nothing to interrupt *with*).
+      if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) cancelCurrentTurn();
+      else submitComposerInput(el.input.value);
     });
     el.input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submitUtterance(el.input.value);
+      if (e.key === "Enter") submitComposerInput(el.input.value);
       if (e.key === "Escape" && isBusy()) cancelCurrentTurn();
     });
     el.uploadBtn.addEventListener("click", () => {
@@ -253,6 +272,10 @@
       el.fileInput.click();
     });
     el.fileInput.addEventListener("change", handleFileSelected);
+    el.attachmentRemoveBtn.addEventListener("click", () => {
+      haptic();
+      clearPendingAttachment();
+    });
 
     await ensureSession();
     await Promise.all([loadSkills(), fetchTasks()]);
@@ -280,6 +303,9 @@
     // icon that el.sendBtn.textContent = ... would silently wipe out.
     el.sendLabel.textContent = copy.send;
     el.micBtn.title = copy.mic;
+    if (!el.uploadBtn.disabled) el.uploadBtn.title = copy.uploadTitle; // don't clobber "Reading document…"
+    if (state.pendingAttachment) el.attachmentStatus.textContent = copy.attachmentReady;
+    el.attachmentRemoveBtn.title = copy.attachmentRemove;
     // Re-render the status pill and quick-action tiles in the new language — both build
     // their own text at render time (setOrbState, renderQuickActions) rather than reading it
     // lazily, so switching languages mid-session needs both refreshed explicitly here. Not
@@ -351,10 +377,14 @@
   // stored at all, not when the stored one has gone stale.
   async function apiFetch(path, options = {}, attempt = 0) {
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
+    // A FormData body (the document-upload flow) must NOT get a manual content-type — the
+    // browser sets its own multipart boundary automatically, and overriding it here would
+    // break the upload. Every other caller still sends plain JSON, unchanged.
+    const isFormData = options.body instanceof FormData;
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
-        "content-type": "application/json",
+        ...(isFormData ? {} : { "content-type": "application/json" }),
         authorization: `Bearer ${accessToken}`,
         ...(options.headers || {}),
       },
@@ -1296,21 +1326,35 @@
   }
 
   // ---- File upload (document summarization via the existing docs.summarize skill) --------
-  // No new backend capability: this reads a local text file in the browser and submits it
-  // as a normal chat utterance through the same POST /api/v1/orchestrator/turn every other
-  // message uses — the model picks docs.summarize itself, exactly as it would for pasted
-  // text (see backend/src/skills/docsSummarize.ts). Deliberately does NOT attempt PDF/DOCX
-  // extraction — no client-side parser is wired in this pass, and an honest "can't read
-  // this yet" beats silently mangling a binary file into garbled text and pretending it
-  // worked (Product Principle #4, "Never fake success").
+  // Plain-text formats (.txt/.md/.csv/.json/.log) are read directly in the browser
+  // (File.text(), zero network round trip) — unchanged from before. PDF/DOCX need a real
+  // parser neither a browser nor this backend previously had: POST
+  // /api/v1/documents/extract (backend/src/api/routes/documents.ts, new) runs actual
+  // extraction (unpdf/mammoth — never a byte-for-byte passthrough pretending a binary file
+  // is plain text, Product Principle #4) and returns plain text. Either path ends the same
+  // way: a "ready to analyze" attachment chip, not an immediate auto-submit — the user then
+  // asks a question (or just hits Send) and the extracted text rides along with that turn
+  // (submitComposerInput(), below), matching a normal attach-then-ask flow.
 
-  const MAX_UPLOAD_BYTES = 60000; // safely under Express's default 100kb JSON body limit
+  const MAX_TEXT_UPLOAD_BYTES = 60_000; // matches the backend's own extracted-text cap
+  const MAX_BINARY_UPLOAD_BYTES = 4 * 1024 * 1024; // matches documents.ts's multer limit
   const READABLE_TEXT_EXTENSIONS = [".txt", ".md", ".markdown", ".csv", ".json", ".log"];
+  const PDF_EXTENSIONS = [".pdf"];
+  const DOCX_EXTENSIONS = [".docx"];
+  const PDF_MIME = "application/pdf";
+  const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-  function isReadableTextFile(file) {
-    if (file.type && (file.type.startsWith("text/") || file.type === "application/json")) return true;
+  /** `null` means genuinely unsupported (an image, a zip, ...) — mirrors
+   * backend/src/documents/extractText.ts's classifyDocumentType() plus the "text" case that
+   * function deliberately has no opinion on, since text never reaches the backend at all. */
+  function classifyLocalFile(file) {
     const name = file.name.toLowerCase();
-    return READABLE_TEXT_EXTENSIONS.some((ext) => name.endsWith(ext));
+    if (file.type === PDF_MIME || PDF_EXTENSIONS.some((ext) => name.endsWith(ext))) return "pdf";
+    if (file.type === DOCX_MIME || DOCX_EXTENSIONS.some((ext) => name.endsWith(ext))) return "docx";
+    if ((file.type && (file.type.startsWith("text/") || file.type === "application/json")) || READABLE_TEXT_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+      return "text";
+    }
+    return null;
   }
 
   async function handleFileSelected(event) {
@@ -1319,31 +1363,100 @@
     if (!file) return;
     haptic();
 
-    if (!isReadableTextFile(file)) {
+    const kind = classifyLocalFile(file);
+    if (!kind) {
       addSystemNotice(COPY[state.lang].unsupportedFile);
       return;
     }
 
-    let text;
-    try {
-      text = await file.text();
-    } catch (err) {
-      console.error(err);
-      addSystemNotice(COPY[state.lang].unreadableFile);
+    if (kind === "text") {
+      if (file.size > MAX_TEXT_UPLOAD_BYTES) {
+        addSystemNotice(COPY[state.lang].oversizedFile);
+        return;
+      }
+      let text;
+      try {
+        text = await file.text();
+      } catch (err) {
+        console.error(err);
+        addSystemNotice(COPY[state.lang].unreadableFile);
+        return;
+      }
+      if (!text.trim()) {
+        addSystemNotice(COPY[state.lang].emptyFile);
+        return;
+      }
+      if (new TextEncoder().encode(text).length > MAX_TEXT_UPLOAD_BYTES) {
+        addSystemNotice(COPY[state.lang].oversizedFile);
+        return;
+      }
+      setPendingAttachment(file.name, text);
       return;
     }
 
-    if (!text.trim()) {
-      addSystemNotice(COPY[state.lang].emptyFile);
-      return;
-    }
-    if (new TextEncoder().encode(text).length > MAX_UPLOAD_BYTES) {
+    // pdf / docx — real extraction happens server-side (see the section doc comment above).
+    if (file.size > MAX_BINARY_UPLOAD_BYTES) {
       addSystemNotice(COPY[state.lang].oversizedFile);
       return;
     }
+    setExtractingState(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      const res = await apiFetch("/documents/extract", { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.error(`Document extraction failed (${res.status}):`, body.error);
+        if (body.error === "unsupported_file_type") addSystemNotice(COPY[state.lang].unsupportedFile);
+        else if (body.error === "document_too_long") addSystemNotice(COPY[state.lang].oversizedFile);
+        else addSystemNotice(COPY[state.lang].unreadableFile);
+        return;
+      }
+      const { text } = await res.json();
+      setPendingAttachment(file.name, text);
+    } catch (err) {
+      console.error(err);
+      addSystemNotice(COPY[state.lang].unreadableFile);
+    } finally {
+      setExtractingState(false);
+    }
+  }
 
-    const utterance = `Please summarize this document (${file.name}):\n\n${text}`;
-    await submitUtterance(utterance, false, `📎 ${file.name}`);
+  function setExtractingState(isExtracting) {
+    el.uploadBtn.disabled = isExtracting;
+    el.uploadBtn.title = isExtracting ? COPY[state.lang].extracting : COPY[state.lang].uploadTitle;
+  }
+
+  /** Shows the "📄 filename / Ready to analyze" chip above the composer — the attachment
+   * itself (extracted text) lives only in `state.pendingAttachment`, never rendered into
+   * the DOM or a chat bubble, so a long document never shows up verbatim in the transcript. */
+  function setPendingAttachment(filename, text) {
+    state.pendingAttachment = { filename, text };
+    el.attachmentName.textContent = filename;
+    el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
+    el.attachmentChip.hidden = false;
+    el.input.focus();
+  }
+
+  function clearPendingAttachment() {
+    state.pendingAttachment = null;
+    el.attachmentChip.hidden = true;
+  }
+
+  /** The composer's single entry point for a user-authored turn (typed Send/Enter, or a
+   * recognized voice transcript) — folds in a pending attachment if there is one, so
+   * "attach a document, then ask a question" and "attach, then just hit Send" both work
+   * from the exact same code path `submitUtterance()` itself doesn't need to know about. */
+  function submitComposerInput(rawText, isVoice = false) {
+    const attachment = state.pendingAttachment;
+    if (!attachment) return submitUtterance(rawText, isVoice);
+
+    const instruction = rawText.trim();
+    const task = instruction || `Please summarize this document (${attachment.filename}).`;
+    const utterance = `${task}\n\n[Attached document: ${attachment.filename}]\n${attachment.text}`;
+    const displayText = instruction ? `📎 ${attachment.filename}\n${instruction}` : `📎 ${attachment.filename}`;
+    clearPendingAttachment();
+    return submitUtterance(utterance, isVoice, displayText);
   }
 
   // ---- Dynamic result widgets ------------------------------------------------------------
@@ -1529,7 +1642,7 @@
       // it were a new command, so that phase alone is guarded.
       if (el.orb.dataset.state === "SPEAKING") return;
       const transcript = event.results[event.results.length - 1][0].transcript;
-      submitUtterance(transcript, true);
+      submitComposerInput(transcript, true);
     });
 
     recognition.addEventListener("end", () => {

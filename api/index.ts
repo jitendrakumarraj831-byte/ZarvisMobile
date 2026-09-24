@@ -59,10 +59,16 @@ function classifyStartupError(err: unknown): string {
   if (/JWT_SECRET/.test(message)) return "jwt_secret_missing_or_invalid";
   if (/PLAY_BILLING_SERVICE_ACCOUNT_JSON|is not valid JSON/.test(message)) return "play_billing_config_invalid";
   if (err instanceof TypeError && /invalid url/i.test(message)) return "postgres_url_invalid";
+  // Keep dependency/module failures distinguishable without exposing arbitrary startup
+  // exception text or environment-variable values to unauthenticated callers.
+  if (/Cannot find package|Cannot find module|ERR_MODULE_NOT_FOUND/i.test(message)) return "module_dependency_missing";
+  if (/does not provide an export|has no exported member/i.test(message)) return "module_export_mismatch";
+  if (/Unexpected token|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_FILE_EXTENSION/i.test(message)) return "module_load_error";
+  if (/No AIProvider registered/i.test(message)) return "ai_provider_config_invalid";
   return "unknown_startup_error";
 }
 
-function buildFallbackApp(err: unknown): Express {
+function buildFallbackApp(err: unknown, stage = "startup"): Express {
   const reason = classifyStartupError(err);
   logger.error("Server failed to start; serving a minimal health-only fallback", {
     reason,
@@ -73,7 +79,7 @@ function buildFallbackApp(err: unknown): Express {
   // helper: that module also imports config/env.ts, the very thing that may have just thrown,
   // and Node caches a module's evaluation failure — a second import of it fails the same way.
   const provider = process.env.GEMINI_API_KEY ? "google" : "mock";
-  app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider, reason }));
+  app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider, reason, stage }));
   app.use((_req, res) => res.status(500).json({ error: "Server is misconfigured; check environment variables." }));
   return app;
 }
@@ -81,15 +87,25 @@ function buildFallbackApp(err: unknown): Express {
 function getApp(): Promise<Express> {
   if (!appPromise) {
     appPromise = (async () => {
+      let stage = "bootstrap_env";
       try {
         // `bootstrapEnv` must load `.env` (local/`vercel dev` only — a no-op in real Vercel
-        // deployments, see above) before anything below reads `process.env.*`.
+        // deployments) before anything below reads `process.env.*`.
         await import("../backend/src/bootstrapEnv.js");
+
+        stage = "container_import";
         const { buildContainer } = await import("../backend/src/container.js");
+
+        stage = "container_build";
+        const container = buildContainer();
+
+        stage = "server_import";
         const { buildServer } = await import("../backend/src/server.js");
-        return buildServer(buildContainer());
+
+        stage = "server_build";
+        return buildServer(container);
       } catch (err) {
-        return buildFallbackApp(err);
+        return buildFallbackApp(err, stage);
       }
     })();
   }

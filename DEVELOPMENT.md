@@ -255,25 +255,45 @@ auto-restart) — not real recognition accuracy. Test on a real device before re
 ### Document upload
 
 The composer's paperclip button (`#upload-btn`/`#file-input` in `index.html`,
-`handleFileSelected()` in `app.js`) is a client-only feature — no new backend endpoint, no
-new capability beyond what already existed. It reads a local file's text in the browser
-(`File.text()`), then submits it through the exact same `POST /api/v1/orchestrator/turn`
-every typed message uses, as an instruction like `Please summarize this document
-(<filename>):\n\n<text>` — the model picks `docs.summarize` itself
+`handleFileSelected()` in `app.js`) supports six real formats: `.txt`, `.md`, `.csv`,
+`.json`, `.log` (any `text/*`/`application/json` MIME type too), plus `.pdf` and `.docx`.
+A successful upload doesn't auto-submit — it becomes a "📄 filename / Ready to analyze"
+attachment chip above the composer (`state.pendingAttachment`), and rides along with
+whatever the user asks next (or with a default "summarize this" instruction if they just
+hit Send with nothing typed) — `submitComposerInput()` in `app.js`. Either way, once text
+is in hand, it's submitted through the exact same `POST /api/v1/orchestrator/turn` every
+typed message uses — the model picks `docs.summarize` itself
 (`backend/src/skills/docsSummarize.ts`), exactly as it would for pasted text. The chat
-bubble shows a short `📎 <filename>` label rather than the file's full contents
-(`submitUtterance`'s `displayText` parameter).
+bubble shows a short `📎 filename` (+ the typed instruction, if any) label rather than the
+file's full contents.
 
-Deliberately does **not** attempt PDF/DOCX/binary extraction — no client-side parser is
-wired in this pass, and the backend has never had a real file-upload/parsing capability
-either (only the text-based `docs.summarize` tool-call flow). Accepted types are plain-text
-ones the browser can read directly: `.txt`, `.md`, `.csv`, `.json`, `.log`, or any
-`text/*`/`application/json` MIME type. Anything else gets an honest "can't read this file
-type yet" notice instead of silently mangling a binary file into garbled text (Product
-Principle #4, "Never fake success") — inventing a fake PDF-parsing capability would be
-exactly that. Text is capped at 60,000 bytes client-side (`MAX_UPLOAD_BYTES`) to stay safely
-under Express's default 100kb JSON body limit (`server.ts`'s `express.json()`) after
-JSON-escaping overhead; an oversized file gets a clear error rather than a raw 413/500.
+**Plain-text formats** are read directly in the browser (`File.text()`, zero network round
+trip), capped at 60,000 bytes client-side (`MAX_TEXT_UPLOAD_BYTES`) to stay safely under
+Express's default 100kb JSON body limit (`server.ts`'s `express.json()`) after
+JSON-escaping overhead.
+
+**PDF/DOCX** need a real parser neither a browser nor this backend previously had —
+`POST /api/v1/documents/extract` (`backend/src/api/routes/documents.ts`, new; wired
+straight into `server.ts`, no `container.ts` dependency since extraction is stateless) runs
+actual extraction server-side: `unpdf` for PDF (a modern, ESM-native wrapper around
+Mozilla's own pdf.js, built for serverless/Node — `pdf-parse@1.1.1` was tried first and
+dropped, see `backend/src/documents/extractText.ts`'s doc comment for why), `mammoth` for
+DOCX. Uploaded via `multer` (memory storage, capped at 4MB — Vercel's default serverless
+request-body ceiling is ~4.5MB and `vercel.json` doesn't override it) as `multipart/form-data`,
+authenticated the same way every other route is (`requireAuth`). Returns `{ text }` on
+success; the client then continues through the exact same orchestrator flow as a
+plain-text upload — nothing about `docs.summarize` or the orchestrator itself changed.
+Live-verified end-to-end with real files (`pdfkit`/`docx`-generated fixtures, not hand-rolled
+byte streams) — see `backend/test/documents/extractText.test.ts` and
+`backend/test/api/documents.test.ts`.
+
+Anything else (an image, a zip, ...) gets an honest "can't read this file type yet" notice;
+a corrupt/unparseable PDF or DOCX gets "Zarvis couldn't read this document" — never a raw
+error, stack trace, or the file's own bytes (`documents.ts` logs only `{type, sizeBytes,
+error}` server-side, never file content, and the client-visible error is always one of a
+small fixed set of reason codes). Inventing a fake PDF-parsing capability, or passing raw
+binary bytes to Gemini as if they were plain text, would be exactly the kind of "fake
+success" Product Principle #4 rules out — this is real extraction, not a placeholder.
 
 ### Personalizing replies with a name
 

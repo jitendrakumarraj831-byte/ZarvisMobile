@@ -960,6 +960,57 @@ body {
 }
 .composer[hidden] { display: none; }
 
+/* ---- Attachment chip — the "📄 filename / Ready to analyze" state a successful upload
+   (text read locally, or PDF/DOCX extracted server-side) leaves above the command bar
+   until the user asks something and it rides along with that turn (submitComposerInput in
+   app.js). Never renders the extracted text itself — only the filename + status. ---- */
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+  background: var(--zarvis-surface-elevated);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--zarvis-border-soft);
+  animation: rise 0.2s ease;
+}
+.attachment-chip[hidden] { display: none; }
+.attachment-icon { font-size: 18px; flex-shrink: 0; }
+.attachment-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.attachment-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--zarvis-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-status {
+  font-size: 11.5px;
+  color: var(--zarvis-success);
+}
+.attachment-remove {
+  flex-shrink: 0;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--zarvis-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.attachment-remove:hover { color: var(--zarvis-error); background: #ff5c7214; }
+
 .command-bar {
   display: flex;
   align-items: center;
