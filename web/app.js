@@ -273,10 +273,8 @@
       if (e.key === "Enter") submitComposerInput(el.input.value);
       if (e.key === "Escape" && isBusy()) cancelCurrentTurn();
     });
-    el.uploadBtn.addEventListener("click", () => {
-      haptic();
-      el.fileInput.click();
-    });
+    // The upload control is a real <label for="file-input">. Native label activation
+    // opens Android Chrome's file picker directly, avoiding hidden-input click quirks.
     el.fileInput.addEventListener("change", handleFileSelected);
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
@@ -309,7 +307,7 @@
     // icon that el.sendBtn.textContent = ... would silently wipe out.
     el.sendLabel.textContent = copy.send;
     el.micBtn.title = copy.mic;
-    if (!el.uploadBtn.disabled) el.uploadBtn.title = copy.uploadTitle; // don't clobber "Reading document…"
+    if (el.uploadBtn.getAttribute("aria-disabled") !== "true") el.uploadBtn.title = copy.uploadTitle; // don't clobber "Reading document…"
     if (state.pendingAttachment) el.attachmentStatus.textContent = copy.attachmentReady;
     el.attachmentRemoveBtn.title = copy.attachmentRemove;
     // Re-render the status pill and quick-action tiles in the new language — both build
@@ -1500,7 +1498,9 @@
   }
 
   function setExtractingState(isExtracting) {
-    el.uploadBtn.disabled = isExtracting;
+    el.uploadBtn.setAttribute("aria-disabled", String(isExtracting));
+    el.uploadBtn.classList.toggle("is-disabled", isExtracting);
+    el.fileInput.disabled = isExtracting;
     el.uploadBtn.title = isExtracting ? COPY[state.lang].extracting : COPY[state.lang].uploadTitle;
   }
 
