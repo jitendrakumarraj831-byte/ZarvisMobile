@@ -4,6 +4,7 @@ import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { classifyDocumentType, extractDocumentText, DocumentExtractionError } from "../../documents/extractText.js";
 import { logger } from "../../security/redact.js";
+import { env } from "../../config/env.js";
 
 /** Kept at or under Vercel's default ~4.5MB serverless request-body ceiling (no override in
  * vercel.json) — a larger cap here would just get rejected by the platform first with a
@@ -29,6 +30,47 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX
  * corrupt-PDF or malformed-DOCX exception can embed byte-stream fragments in its own
  * message) — every failure path returns one of a small set of honest, generic reasons.
  */
+
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
+
+async function analyzeImageWithGemini(buffer: Buffer, mimeType: string): Promise<string> {
+  if (!env.geminiApiKey) throw new DocumentExtractionError("Image analysis requires Gemini", "missing_api_key");
+  const body = {
+    systemInstruction: {
+      parts: [{ text: "You analyze user-uploaded images. Describe what is visible, read important text, identify tables or objects, and answer as a useful assistant. Be factual and concise. Do not invent details that are not visible." }],
+    },
+    contents: [{
+      role: "user",
+      parts: [
+        { text: "Analyze this uploaded image so another assistant can answer the user's questions about it. Include visible text and important visual details." },
+        { inlineData: { mimeType, data: buffer.toString("base64") } },
+      ],
+    }],
+    generationConfig: { maxOutputTokens: 4096 },
+  };
+  const models = [env.geminiModel, "gemini-3.7-flash"].filter((m, i, all) => m && all.indexOf(m) === i);
+  let lastError: Error | undefined;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + env.geminiApiKey,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      );
+      if (response.ok) {
+        const json = (await response.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
+        if (text) return text;
+        throw new Error("Gemini returned an empty image analysis");
+      }
+      const details = await response.text().catch(() => "");
+      lastError = new Error(("Gemini image analysis failed: " + response.status + " " + response.statusText + " " + details).trim());
+      if (![408, 429, 500, 502, 503, 504].includes(response.status)) throw lastError;
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+  }
+  throw lastError ?? new Error("Gemini image analysis failed");
+}
+
 export function documentsRouter(): Router {
   const router = Router();
 
@@ -49,6 +91,22 @@ export function documentsRouter(): Router {
       const file = req.file;
       if (!file) {
         res.status(400).json({ error: "no_file" });
+        return;
+      }
+
+      if (IMAGE_MIME_TYPES.has(file.mimetype)) {
+        try {
+          const text = await analyzeImageWithGemini(file.buffer, file.mimetype);
+          if (!text) { res.status(422).json({ error: "empty_document" }); return; }
+          res.json({ text: text.slice(0, MAX_EXTRACTED_CHARS), kind: "image" });
+        } catch (err) {
+          logger.error("Image analysis failed", {
+            mimeType: file.mimetype,
+            sizeBytes: file.size,
+            error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
+          });
+          res.status(422).json({ error: "extraction_failed" });
+        }
         return;
       }
 

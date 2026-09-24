@@ -54,7 +54,7 @@
       bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
       unsupportedFile: {
         title: "Can't read this file type yet.",
-        subtitle: "Zarvis can read .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
+        subtitle: "Zarvis can analyze images, .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
       },
       unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
@@ -100,7 +100,7 @@
       bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
       unsupportedFile: {
         title: "यह फ़ाइल प्रकार अभी पढ़ा नहीं जा सकता।",
-        subtitle: "Zarvis .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें पढ़ सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
+        subtitle: "Zarvis इमेज, .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें analyze कर सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
       },
       unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
@@ -1392,12 +1392,13 @@
   const DOCX_EXTENSIONS = [".docx"];
   const PDF_MIME = "application/pdf";
   const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
+  const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
 
-  /** `null` means genuinely unsupported (an image, a zip, ...) — mirrors
-   * backend/src/documents/extractText.ts's classifyDocumentType() plus the "text" case that
-   * function deliberately has no opinion on, since text never reaches the backend at all. */
+  /** `null` means genuinely unsupported (for example a ZIP or executable). */
   function classifyLocalFile(file) {
     const name = file.name.toLowerCase();
+    if (IMAGE_MIME_TYPES.has(file.type) || /\.(png|jpe?g|webp|heic|heif)$/.test(name)) return "image";
     if (file.type === PDF_MIME || PDF_EXTENSIONS.some((ext) => name.endsWith(ext))) return "pdf";
     if (file.type === DOCX_MIME || DOCX_EXTENSIONS.some((ext) => name.endsWith(ext))) return "docx";
     if ((file.type && (file.type.startsWith("text/") || file.type === "application/json")) || READABLE_TEXT_EXTENSIONS.some((ext) => name.endsWith(ext))) {
@@ -1415,6 +1416,33 @@
     const kind = classifyLocalFile(file);
     if (!kind) {
       addSystemNotice(COPY[state.lang].unsupportedFile);
+      return;
+    }
+
+    if (kind === "image") {
+      if (file.size > MAX_BINARY_UPLOAD_BYTES) {
+        addSystemNotice(COPY[state.lang].oversizedFile);
+        return;
+      }
+      setExtractingState(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file, file.name);
+        const res = await apiFetch("/documents/extract", { method: "POST", body: formData });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          console.error(`Image analysis failed (${res.status}):`, body.error);
+          addSystemNotice(COPY[state.lang].unreadableFile);
+          return;
+        }
+        const { text } = await res.json();
+        setPendingAttachment(file.name, text);
+      } catch (err) {
+        console.error(err);
+        addSystemNotice(COPY[state.lang].unreadableFile);
+      } finally {
+        setExtractingState(false);
+      }
       return;
     }
 
