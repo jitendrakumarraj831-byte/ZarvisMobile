@@ -834,7 +834,7 @@
 
     const body = document.createElement("div");
     body.className = "widget-body";
-    body.textContent = message;
+    renderFormattedText(body, message);
     widget.appendChild(body);
 
     el.developerResult.appendChild(widget);
@@ -1262,10 +1262,43 @@
   function addBubble(role, text) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
-    bubble.textContent = text;
+    if (role === "assistant") renderFormattedText(bubble, text);
+    else bubble.textContent = text;
     el.conversation.appendChild(bubble);
     el.conversation.scrollTop = el.conversation.scrollHeight;
     return bubble;
+  }
+
+  /** Render a safe subset of Markdown used by ZARVIS replies without exposing arbitrary HTML. */
+  function renderFormattedText(container, text) {
+    const escaped = String(text ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/\x27/g, "&#39;");
+    const lines = escaped.split(/\r?\n/);
+    const html = [];
+    let inList = false;
+    for (const line of lines) {
+      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+      if (bullet) {
+        if (!inList) { html.push("<ul class=\"reply-list\">"); inList = true; }
+        html.push(`<li>${formatInlineMarkdown(bullet[1])}</li>`);
+        continue;
+      }
+      if (inList) { html.push("</ul>"); inList = false; }
+      if (!line.trim()) html.push('<div class="reply-spacer" aria-hidden="true"></div>');
+      else html.push(`<div class="reply-line">${formatInlineMarkdown(line)}</div>`);
+    }
+    if (inList) html.push("</ul>");
+    container.innerHTML = html.join("");
+  }
+
+  function formatInlineMarkdown(line) {
+    return line
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
   }
 
   /** A transient "thinking" placeholder shown for the UNDERSTANDING/EXECUTING span of a
