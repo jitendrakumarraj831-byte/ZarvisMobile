@@ -15,7 +15,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
     "/turn",
     requireAuth,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
-      const { utterance, confirmed, locale, userName, isFirstTurn } = req.body ?? {};
+      const { utterance, confirmed, locale, userName, isFirstTurn, history } = req.body ?? {};
       if (typeof utterance !== "string" || utterance.trim().length === 0) {
         res.status(400).json({ error: "utterance is required" });
         return;
@@ -30,10 +30,28 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         // into the system prompt under the guise of a "name".
         userName: typeof userName === "string" && userName.trim() ? userName.trim().slice(0, 60) : undefined,
         isFirstTurn: isFirstTurn === true,
+        history: sanitizeHistory(history),
       });
       res.json(result);
     }),
   );
 
   return router;
+}
+
+function sanitizeHistory(value: unknown): Array<{ role: "user" | "assistant"; content: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is { role: string; content: string } =>
+      !!item && typeof item === "object" &&
+      typeof (item as any).role === "string" &&
+      typeof (item as any).content === "string",
+    )
+    .filter((item) => item.role === "user" || item.role === "assistant")
+    .map((item) => ({
+      role: item.role as "user" | "assistant",
+      content: item.content.trim().slice(0, 1500),
+    }))
+    .filter((item) => item.content.length > 0)
+    .slice(-12);
 }
