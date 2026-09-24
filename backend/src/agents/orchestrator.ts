@@ -99,18 +99,23 @@ function buildSystemPrompt(request: TurnRequest): string {
     "accomplishes the user's request, or reply directly if no tool applies.";
   if (request.userName) {
     prompt +=
-      ` The user's name is ${request.userName} — address them by name when it feels ` +
-      "natural (e.g. an opening greeting), not in every single reply.";
+      ` The user's name is ${request.userName}, but do not reveal or use their name in the ` +
+      "automatic first-turn welcome unless they explicitly introduce themselves or ask you to use their name. " +
+      "Keep the opening focused on the ZARVIS experience, not the user's identity.";
   }
   if (request.isFirstTurn) {
     prompt +=
-      " This is the very first message of a new conversation session: open with one " +
-      "short, warm, energetic welcome/introduction as ZARVIS before addressing what they " +
-      "asked — not a generic template, and never longer than a sentence or two. This " +
-      "applies even when you also select a tool to fulfill the request: always include " +
-      "that short greeting as your own text response alongside the tool call, never a " +
-      "tool call with no accompanying text on this first turn. Every later reply in this " +
-      "session should be direct and concise, without repeating the introduction.";
+      " This is the very first message of a new conversation session. If the user's " +
+      "message is only a casual greeting such as hi, hello, hey, namaste, or similar, " +
+      "do not mention the user's name. Instead, give a polished, attractive ZARVIS welcome " +
+      "that feels like a premium AI agent: one short headline-style sentence plus one " +
+      "short line inviting the user to ask for something. You may naturally mention " +
+      "examples such as writing, research, planning, coding, documents, or everyday tasks, " +
+      "but do not dump a long feature list. Make it feel conversational, confident, and " +
+      "modern rather than like a chatbot template. For a non-greeting first message, " +
+      "answer the request directly with a brief warm opening when appropriate. This " +
+      "applies even when you also select a tool to fulfill the request. Every later reply " +
+      "in this session should be direct and concise, without repeating the introduction.";
   }
   return prompt;
 }
