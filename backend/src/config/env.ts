@@ -51,6 +51,8 @@ export const env = {
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
   githubAppId: process.env.GITHUB_APP_ID,
   githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+  /** Optional GitHub token for private repositories and higher API rate limits. */
+  githubToken: process.env.GITHUB_TOKEN,
   playBillingServiceAccountJson: process.env.PLAY_BILLING_SERVICE_ACCOUNT_JSON,
   /** Must match the Android app's applicationId — see android/app/build.gradle.kts. */
   playBillingPackageName: process.env.PLAY_BILLING_PACKAGE_NAME || "com.zarvismobile.app",

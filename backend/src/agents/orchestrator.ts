@@ -18,6 +18,8 @@ export interface TurnRequest {
   /** True only for the first turn of a client session — asks for a warmer, one-time
    * welcome-style reply instead of the terser tone every later turn uses. */
   isFirstTurn?: boolean;
+  /** Recent user/assistant turns supplied by the client and capped by the API route. */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
 export interface TurnResult {
@@ -50,7 +52,10 @@ export class Orchestrator {
 
     const aiResponse = await this.provider.generate({
       systemPrompt: buildSystemPrompt(request),
-      messages: [{ role: "user", content: request.utterance }],
+      messages: [
+        ...(request.history ?? []),
+        { role: "user" as const, content: request.utterance },
+      ],
       tools: availableSkills.map((skill) => ({
         name: skill.id,
         description: skill.description,
@@ -77,14 +82,42 @@ export class Orchestrator {
       results.push({ skillId: call.skillId, outcome });
     }
 
-    // Gemini frequently returns conversational text *alongside* a tool call (e.g. an
-    // opening greeting, or "let me check that for you") — discarding it here would also
-    // silently drop the first-turn welcome instruction above whenever the model reasonably
-    // combined the greeting with actually doing the work, which is the common case, not an
-    // edge case.
-    const toolMessage = results.map((r) => explainOutcome(r.outcome)).join("\n");
-    const message = aiResponse.message.content ? `${aiResponse.message.content}\n\n${toolMessage}` : toolMessage;
-    return { message, toolCalls: results };
+    // Complete the agent loop with a final synthesis pass. The first model call decides
+    // which skill to run; this second call turns the real execution result into one polished
+    // user-facing answer. Tools are intentionally omitted on this pass so the model cannot
+    // accidentally repeat the same action. This is the missing step in the original
+    // one-shot implementation and makes the product feel like an agent rather than a
+    // classifier followed by a raw tool result.
+    const toolMessage = results
+      .map((r) => `${r.skillId}: ${explainOutcome(r.outcome)}`)
+      .join("\n");
+    const synthesisPrompt =
+      "The requested action has now been executed. Write the final answer to the user. " +
+      "Use the execution result below as the source of truth. Do not claim anything beyond it. " +
+      "Be concise, natural, and helpful. Do not mention internal tools, pipelines, skills, " +
+      "credits, or implementation details. If the action failed, explain what happened and " +
+      "what the user can do next.\n\nExecution result:\n" + toolMessage.slice(0, 8000);
+
+    try {
+      const finalResponse = await this.provider.generate({
+        systemPrompt: buildSystemPrompt({ ...request, isFirstTurn: false }),
+        messages: [
+          ...(request.history ?? []),
+          { role: "user", content: request.utterance },
+          { role: "assistant", content: aiResponse.message.content || "" },
+          { role: "user", content: synthesisPrompt },
+        ],
+        modelConfig: this.modelConfig,
+      });
+      const message = finalResponse.message.content?.trim() || explainOutcome(results[0].outcome);
+      return { message, toolCalls: results };
+    } catch {
+      // Tool execution already happened successfully/failed honestly. If the final AI
+      // polish pass is unavailable, never turn a completed action into a generic error:
+      // fall back to the authoritative pipeline explanation.
+      const fallback = results.map((r) => explainOutcome(r.outcome)).join("\n");
+      return { message: fallback, toolCalls: results };
+    }
   }
 }
 

@@ -149,11 +149,14 @@ failure is not swallowed. No `dotenv` dependency is needed (Node 22+, see `packa
 2. `AIProvider.generate()` is called with the conversation + tool definitions.
 3. If the model returns `toolCalls`, each one is run through the Tool pipeline
    (`domain`/`backend/src/tooling`) — never executed directly from the model's output.
-4. Tool results are appended to the conversation as tool-result messages and, for
-   multi-turn tool use, sent back to the provider until it returns a final natural-language
-   message with no further tool calls.
-5. The final message (plus a structured summary of what was done) is returned to the
-   client for display/TTS.
+4. Tool results are passed into a dedicated final synthesis call after execution. The final
+   call has no tool definitions, so it cannot accidentally repeat the action; it uses the
+   authoritative pipeline outcome as the source of truth.
+5. The web client now sends a bounded recent user/assistant history (12 messages) with each
+   turn, giving ZARVIS short-term multi-turn context without exposing arbitrary roles or
+   unbounded prompt content. Long-term server-side conversation state is still a planned
+   upgrade; Google recommends `previous_interaction_id` through the Interactions API for that.
+6. The final message (plus a structured summary of what was done) is returned to the client.
 
 **Where the current `Orchestrator.runTurn` actually is versus step 4 above, stated
 honestly:** it does not yet send tool results back to the provider for a wrap-up pass — it
