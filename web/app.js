@@ -249,23 +249,10 @@
   });
 
   async function init() {
-    setupSpeechSynthesis();
-    applyLanguage();
-    applyVoiceToggleState();
-    setupSpeechRecognition();
-    registerServiceWorker();
-    setupBottomNav();
-    setupPlans();
-    setupSettings();
-    setupDeveloper();
-
+    // Wire the core composer controls first. These must remain usable even if an optional
+    // startup subsystem (voice, settings, plans, or service-worker registration) fails.
     el.sendBtn.addEventListener("click", () => {
       haptic();
-      // While a turn is running the same button reads "Stop" (see updateComposerMode). With
-      // new text typed (or a document attached), clicking it still means "send this" —
-      // submitUtterance() itself interrupts the running turn and starts this one instead of
-      // queuing behind it. Only an empty input with nothing attached turns the click into a
-      // pure Stop (nothing to interrupt *with*).
       if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) cancelCurrentTurn();
       else submitComposerInput(el.input.value);
     });
@@ -273,22 +260,40 @@
       if (e.key === "Enter") submitComposerInput(el.input.value);
       if (e.key === "Escape" && isBusy()) cancelCurrentTurn();
     });
-    el.uploadBtn.addEventListener("click", () => {
-      haptic();
-      el.fileInput.click();
-    });
     el.fileInput.addEventListener("change", handleFileSelected);
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
       clearPendingAttachment();
     });
 
-    await ensureSession();
-    await Promise.all([loadSkills(), fetchTasks()]);
+    // Secondary UI initialization follows the core controls so one non-critical setup error
+    // cannot make the Send/attachment controls appear dead.
+    try {
+      setupSpeechSynthesis();
+      applyLanguage();
+      applyVoiceToggleState();
+      setupSpeechRecognition();
+      registerServiceWorker();
+      setupBottomNav();
+      setupPlans();
+      setupSettings();
+      setupDeveloper();
+    } catch (err) {
+      console.error("Optional UI initialization failed:", err);
+    }
+
+    try {
+      await ensureSession();
+      await Promise.all([loadSkills(), fetchTasks()]);
+    } catch (err) {
+      console.error("Zarvis startup data failed:", err);
+      addErrorBubble(COPY[state.lang].bootError, () => location.reload());
+      setOrbState("ERROR");
+      return;
+    }
+
     setOrbState("IDLE");
-    // No auto-arm: voice input only ever starts from an explicit mic/orb press, never on
-    // load — the browser's native "allow microphone" prompt therefore only appears once
-    // someone actually asks for voice input, not on every first visit.
+    // No auto-arm: voice input only ever starts from an explicit mic/orb press.
   }
 
   function resolveApiBase() {
@@ -309,7 +314,7 @@
     // icon that el.sendBtn.textContent = ... would silently wipe out.
     el.sendLabel.textContent = copy.send;
     el.micBtn.title = copy.mic;
-    if (!el.uploadBtn.disabled) el.uploadBtn.title = copy.uploadTitle; // don't clobber "Reading document…"
+    if (el.uploadBtn.getAttribute("aria-disabled") !== "true") el.uploadBtn.title = copy.uploadTitle; // don't clobber "Reading document…"
     if (state.pendingAttachment) el.attachmentStatus.textContent = copy.attachmentReady;
     el.attachmentRemoveBtn.title = copy.attachmentRemove;
     // Re-render the status pill and quick-action tiles in the new language — both build
@@ -1500,7 +1505,9 @@
   }
 
   function setExtractingState(isExtracting) {
-    el.uploadBtn.disabled = isExtracting;
+    el.uploadBtn.setAttribute("aria-disabled", String(isExtracting));
+    el.uploadBtn.classList.toggle("is-disabled", isExtracting);
+    el.fileInput.disabled = isExtracting;
     el.uploadBtn.title = isExtracting ? COPY[state.lang].extracting : COPY[state.lang].uploadTitle;
   }
 
