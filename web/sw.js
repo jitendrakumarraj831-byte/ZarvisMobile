@@ -11,7 +11,7 @@
  * MASTER_SPEC.md Product Principle #4 forbids; a real network failure there should surface
  * as the honest error app.js already shows, not a stale cache hit.
  */
-const CACHE_NAME = "zarvis-shell-v2";
+const CACHE_NAME = "zarvis-shell-v3";
 const SHELL_FILES = ["/", "/index.html", "/app.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -31,7 +31,17 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/") || url.pathname === "/health") {
     return; // network-only — never intercept API calls, see the note above.
   }
+  // Prefer the live deployment for the static shell so a new Vercel deploy is
+  // visible immediately. Fall back to the cached shell only when offline.
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request)),
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request)),
   );
 });
