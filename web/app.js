@@ -76,11 +76,13 @@
         ERROR: "Something went wrong",
       },
       quickActions: {
-        ask: "Ask Zarvis",
-        write: "Write something",
-        research: "Search & Research",
-        plan: "Plan a task",
-        analyze: "Analyze something",
+        ask: "Ask anything",
+        write: "Write",
+        research: "Research",
+        code: "Code",
+        analyze: "Analyze",
+        plan: "Plan",
+        create: "Create",
       },
     },
     hi: {
@@ -120,11 +122,13 @@
         ERROR: "समस्या हुई",
       },
       quickActions: {
-        ask: "Zarvis से पूछें",
-        write: "कुछ लिखें",
-        research: "खोजें और रिसर्च करें",
-        plan: "काम की योजना बनाएं",
-        analyze: "कुछ एनालाइज़ करें",
+        ask: "कुछ भी पूछें",
+        write: "लिखें",
+        research: "रिसर्च",
+        code: "कोड",
+        analyze: "एनालाइज़",
+        plan: "प्लान",
+        create: "बनाएं",
       },
     },
   };
@@ -477,15 +481,19 @@
     { key: "ask", categories: [] },
     { key: "write", categories: ["CREATIVE", "BUSINESS"] },
     { key: "research", categories: ["WEB", "RESEARCH"] },
-    { key: "plan", categories: ["AUTOMATION"] },
+    { key: "code", categories: ["DEVELOPER"] },
     { key: "analyze", categories: ["DOCUMENTS", "DEVELOPER"] },
+    { key: "plan", categories: ["AUTOMATION"] },
+    { key: "create", categories: ["CREATIVE", "BUSINESS"] },
   ];
   const QUICK_ACTION_ICON_PATHS = {
     ask: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
     write: CATEGORY_ICON_PATHS.CREATIVE,
     research: CATEGORY_ICON_PATHS.RESEARCH,
-    plan: CATEGORY_ICON_PATHS.AUTOMATION,
+    code: CATEGORY_ICON_PATHS.DEVELOPER,
     analyze: CATEGORY_ICON_PATHS.DOCUMENTS,
+    plan: CATEGORY_ICON_PATHS.AUTOMATION,
+    create: CATEGORY_ICON_PATHS.CREATIVE,
   };
 
   function quickActionIconSvg(key) {
