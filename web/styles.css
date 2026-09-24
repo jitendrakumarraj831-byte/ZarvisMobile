@@ -1597,3 +1597,11 @@ body {
 }
 .latency-row[data-success="true"] .latency-row-ms { color: var(--zarvis-success); }
 .latency-row[data-success="false"] .latency-row-ms { color: var(--zarvis-error); }
+
+/* Assistant rich text */
+.widget-body .reply-line, .bubble.assistant .reply-line { line-height: 1.6; }
+.widget-body .reply-spacer, .bubble.assistant .reply-spacer { height: .55rem; }
+.widget-body .reply-list, .bubble.assistant .reply-list { margin: .25rem 0 .65rem 1.15rem; padding: 0; }
+.widget-body .reply-list li { margin: .25rem 0; padding-left: .15rem; }
+.widget-body code, .bubble.assistant code { padding: .1rem .35rem; border-radius: .35rem; background: rgba(255,255,255,.07); font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size: .92em; }
+.widget-body strong, .bubble.assistant strong { font-weight: 700; }
