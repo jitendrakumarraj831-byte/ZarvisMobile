@@ -54,7 +54,7 @@
       bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
       unsupportedFile: {
         title: "Can't read this file type yet.",
-        subtitle: "Zarvis can read .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
+        subtitle: "Zarvis can analyze images, .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
       },
       unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
@@ -100,7 +100,7 @@
       bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
       unsupportedFile: {
         title: "यह फ़ाइल प्रकार अभी पढ़ा नहीं जा सकता।",
-        subtitle: "Zarvis .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें पढ़ सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
+        subtitle: "Zarvis इमेज, .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें analyze कर सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
       },
       unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
