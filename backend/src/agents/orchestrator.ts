@@ -18,6 +18,8 @@ export interface TurnRequest {
   /** True only for the first turn of a client session — asks for a warmer, one-time
    * welcome-style reply instead of the terser tone every later turn uses. */
   isFirstTurn?: boolean;
+  /** Recent user/assistant turns supplied by the client and capped by the API route. */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
 export interface TurnResult {
@@ -50,7 +52,10 @@ export class Orchestrator {
 
     const aiResponse = await this.provider.generate({
       systemPrompt: buildSystemPrompt(request),
-      messages: [{ role: "user", content: request.utterance }],
+      messages: [
+        ...(request.history ?? []),
+        { role: "user" as const, content: request.utterance },
+      ],
       tools: availableSkills.map((skill) => ({
         name: skill.id,
         description: skill.description,
@@ -97,6 +102,7 @@ export class Orchestrator {
       const finalResponse = await this.provider.generate({
         systemPrompt: buildSystemPrompt({ ...request, isFirstTurn: false }),
         messages: [
+          ...(request.history ?? []),
           { role: "user", content: request.utterance },
           { role: "assistant", content: aiResponse.message.content || "" },
           { role: "user", content: synthesisPrompt },
