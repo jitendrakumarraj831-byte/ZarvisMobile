@@ -1393,6 +1393,7 @@
   const PDF_MIME = "application/pdf";
   const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
+  const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
 
   /** `null` means genuinely unsupported (for example a ZIP or executable). */
   function classifyLocalFile(file) {
