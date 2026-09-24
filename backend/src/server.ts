@@ -103,8 +103,24 @@ export function buildServer(container: Container): Express {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    logger.error("Unhandled request error", { error: err instanceof Error ? err.message : String(err) });
-    res.status(500).json({ error: "Internal error" });
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Unhandled request error", { error: message });
+
+    // Return only a safe category to the client. Never expose connection strings, JWTs,
+    // provider credentials, SQL, or upstream response bodies. This makes production
+    // failures actionable while keeping the real error only in Vercel logs.
+    let code = "internal_error";
+    if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|self-signed certificate|certificate/i.test(message)) {
+      code = "database_connection_error";
+    } else if (/password authentication failed|SASL|authentication failed|database .* does not exist|no pg_hba/i.test(message)) {
+      code = "database_configuration_error";
+    } else if (/Gemini (generateContent|streamGenerateContent) failed/i.test(message)) {
+      code = "gemini_api_error";
+    } else if (/Unknown account|Invalid or expired refresh token|Not a refresh token/i.test(message)) {
+      code = "auth_session_invalid";
+    }
+
+    res.status(500).json({ error: "Internal error", code });
   });
 
   return app;
