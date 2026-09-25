@@ -111,7 +111,7 @@ export function buildServer(container: Container): Express {
     // failures actionable while keeping the real error only in Vercel logs.
     let code = "internal_error";
     let status = 500;
-    if (/Gemini (generateContent|streamGenerateContent) failed|OmniRoute (chat completion|streaming chat completion) failed/i.test(message)) {
+    if (/Gemini (generateContent|streamGenerateContent) failed/i.test(message)) {
       code = "ai_service_unavailable";
       if (/(?:^|\\D)(408|429|500|502|503|504)(?:\\D|$)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(message)) {
         status = 503;
