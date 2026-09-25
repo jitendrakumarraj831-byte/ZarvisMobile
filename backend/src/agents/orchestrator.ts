@@ -130,10 +130,12 @@ export class Orchestrator {
           await this.persistAssistantMessage(activeConversation.id, message);
           return { message, toolCalls: results, conversationId: activeConversation.id };
         }
+        const fallbackMessage = results.length > 0
+          ? results.map((r) => explainOutcome(r.outcome)).join("\n")
+          : "I couldn't produce a response. Please try again.";
+        await this.persistAssistantMessage(activeConversation.id, fallbackMessage);
         return {
-          message: results.length > 0
-            ? results.map((r) => explainOutcome(r.outcome)).join("\n")
-            : "I couldn't produce a response. Please try again.",
+          message: fallbackMessage,
           toolCalls: results,
           conversationId: activeConversation.id,
         };
@@ -174,10 +176,12 @@ export class Orchestrator {
 
       // If the provider repeatedly returns only duplicate calls, stop rather than spinning.
       if (!executedAny) {
+        const fallbackMessage = results.length > 0
+          ? results.map((r) => explainOutcome(r.outcome)).join("\n")
+          : "I couldn't determine the next action. Please try again.";
+        await this.persistAssistantMessage(activeConversation.id, fallbackMessage);
         return {
-          message: results.length > 0
-            ? results.map((r) => explainOutcome(r.outcome)).join("\n")
-            : "I couldn't determine the next action. Please try again.",
+          message: fallbackMessage,
           toolCalls: results,
           conversationId: activeConversation.id,
         };
