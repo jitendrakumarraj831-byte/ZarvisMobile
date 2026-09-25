@@ -111,7 +111,8 @@ object AppModule {
         registry: SkillRegistry,
         pipeline: ToolPipeline,
         api: ZarvisApi,
-    ): AndroidOrchestrator = AndroidOrchestrator(registry, pipeline, api)
+        confirmationPort: ComposeConfirmationPort,
+    ): AndroidOrchestrator = AndroidOrchestrator(registry, pipeline, api, confirmationPort)
 
     @Provides
     @Singleton
