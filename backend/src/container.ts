@@ -36,7 +36,14 @@ export function buildContainer(store: Store = defaultStore()) {
 
   const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationPort);
   const provider = getProvider(defaultModelConfig);
-  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider, defaultModelConfig);
+  const orchestrator = new Orchestrator(
+    registry,
+    entitlementPort,
+    pipeline,
+    provider,
+    defaultModelConfig,
+    store,
+  );
   const authService = new AuthService(store);
   const taskService = new TaskService(store);
   const billingVerifier = env.playBillingServiceAccountJson

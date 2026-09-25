@@ -30,6 +30,24 @@ export interface UsageEntry {
   createdAt: Date;
 }
 
+export type ConversationRole = "user" | "assistant" | "tool";
+
+export interface Conversation {
+  id: string;
+  accountId: string;
+  title?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  role: ConversationRole;
+  content: string;
+  createdAt: Date;
+}
+
 /**
  * Storage boundary. Two implementations ship against this interface: InMemoryStore
  * (local dev/tests only — its state does not survive a process restart or serverless cold
@@ -61,6 +79,12 @@ export interface Store {
   /** Deducts entry.cost from the account balance and appends to the append-only ledger. */
   recordUsage(entry: UsageEntry): Promise<number>;
   listUsage(accountId: string): Promise<UsageEntry[]>;
+
+  createConversation(accountId: string, title?: string): Promise<Conversation>;
+  getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined>;
+  listConversations(accountId: string): Promise<Conversation[]>;
+  appendConversationMessages(messages: ConversationMessage[]): Promise<void>;
+  listConversationMessages(accountId: string, conversationId: string, limit?: number): Promise<ConversationMessage[]>;
 
   grantedPermissions(accountId: string): Promise<Set<PermissionType>>;
   grantPermission(accountId: string, permission: PermissionType): Promise<void>;

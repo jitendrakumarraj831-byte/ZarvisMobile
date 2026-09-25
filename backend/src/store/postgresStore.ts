@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type QueryResultRow } from "pg";
 import type { PermissionType, Task } from "../domain/types.js";
-import type { Account, Store, TrialRecord, UsageEntry, User } from "./store.js";
+import type {
+  Account, Conversation, ConversationMessage, Store, TrialRecord, UsageEntry, User
+} from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
 const TRIAL_INCLUDED_CREDITS = 50;
@@ -51,6 +53,24 @@ const SCHEMA = `
     risk_level TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS conversations (
+    id UUID PRIMARY KEY,
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    title TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS conversation_messages (
+    id UUID PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS conversation_messages_conversation_created_idx
+    ON conversation_messages (conversation_id, created_at);
+  CREATE INDEX IF NOT EXISTS conversations_account_updated_idx
+    ON conversations (account_id, updated_at DESC);
 `;
 
 /**
@@ -183,6 +203,7 @@ export class PostgresStore implements Store {
       await client.query("DELETE FROM trials WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM credit_balances WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM tasks WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM conversations WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM accounts WHERE id = $1", [accountId]);
       await client.query("DELETE FROM users WHERE id = $1", [account.user_id]);
       await client.query("COMMIT");
@@ -241,6 +262,66 @@ export class PostgresStore implements Store {
       taskId: row.task_id ?? undefined,
       createdAt: row.created_at,
     }));
+  }
+
+  async createConversation(accountId: string, title?: string): Promise<Conversation> {
+    const id = randomUUID();
+    const now = new Date();
+    const { rows } = await this.query<ConversationRow>(
+      "INSERT INTO conversations (id, account_id, title, created_at, updated_at) VALUES ($1, $2, $3, $4, $4) RETURNING *",
+      [id, accountId, title?.trim().slice(0, 120) || null, now],
+    );
+    return toConversation(rows[0]!);
+  }
+
+  async getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined> {
+    const { rows } = await this.query<ConversationRow>(
+      "SELECT * FROM conversations WHERE id = $1 AND account_id = $2",
+      [conversationId, accountId],
+    );
+    return rows[0] ? toConversation(rows[0]) : undefined;
+  }
+
+  async listConversations(accountId: string): Promise<Conversation[]> {
+    const { rows } = await this.query<ConversationRow>(
+      "SELECT * FROM conversations WHERE account_id = $1 ORDER BY updated_at DESC",
+      [accountId],
+    );
+    return rows.map(toConversation);
+  }
+
+  async appendConversationMessages(messages: ConversationMessage[]): Promise<void> {
+    if (messages.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await this.ensureSchema();
+      await client.query("BEGIN");
+      for (const message of messages) {
+        await client.query(
+          "INSERT INTO conversation_messages (id, conversation_id, role, content, created_at) VALUES ($1, $2, $3, $4, $5)",
+          [message.id, message.conversationId, message.role, message.content, message.createdAt],
+        );
+      }
+      const latest = messages.reduce((max, message) => message.createdAt > max ? message.createdAt : max, messages[0]!.createdAt);
+      await client.query("UPDATE conversations SET updated_at = $2 WHERE id = $1", [messages[0]!.conversationId, latest]);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listConversationMessages(accountId: string, conversationId: string, limit = 40): Promise<ConversationMessage[]> {
+    const conversation = await this.getConversation(accountId, conversationId);
+    if (!conversation) return [];
+    const safeLimit = Math.max(1, Math.min(limit, 100));
+    const { rows } = await this.query<ConversationMessageRow>(
+      "SELECT * FROM conversation_messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2",
+      [conversationId, safeLimit],
+    );
+    return rows.reverse().map(toConversationMessage);
   }
 
   async grantedPermissions(accountId: string): Promise<Set<PermissionType>> {
@@ -331,12 +412,48 @@ interface TaskRow {
   created_at: Date;
 }
 
+interface ConversationRow {
+  id: string;
+  account_id: string;
+  title: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface ConversationMessageRow {
+  id: string;
+  conversation_id: string;
+  role: ConversationMessage["role"];
+  content: string;
+  created_at: Date;
+}
+
 function toUser(row: UserRow): User {
   return { id: row.id, email: row.email, passwordHash: row.password_hash, createdAt: row.created_at };
 }
 
 function toAccount(row: AccountRow): Account {
   return { id: row.id, userId: row.user_id, plan: row.plan, createdAt: row.created_at };
+}
+
+function toConversation(row: ConversationRow): Conversation {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    title: row.title ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toConversationMessage(row: ConversationMessageRow): ConversationMessage {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    role: row.role,
+    content: row.content,
+    createdAt: row.created_at,
+  };
 }
 
 function toTask(row: TaskRow): Task {

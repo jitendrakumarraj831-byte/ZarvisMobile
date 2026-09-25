@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { PermissionType, Task } from "../domain/types.js";
-import type { Account, Store, TrialRecord, UsageEntry, User } from "./store.js";
+import type {
+  Account, Conversation, ConversationMessage, Store, TrialRecord, UsageEntry, User
+} from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
 const TRIAL_INCLUDED_CREDITS = 50;
@@ -20,6 +22,8 @@ export class InMemoryStore implements Store {
   private readonly usageLedger: UsageEntry[] = [];
   private readonly permissions = new Map<string, Set<PermissionType>>();
   private readonly tasks = new Map<string, Task>();
+  private readonly conversations = new Map<string, Conversation>();
+  private readonly conversationMessages = new Map<string, ConversationMessage[]>();
 
   async createUser(email: string, passwordHash: string): Promise<User> {
     if (this.usersByEmail.has(email)) {
@@ -84,6 +88,12 @@ export class InMemoryStore implements Store {
     this.trials.delete(accountId);
     this.creditBalances.delete(accountId);
     this.permissions.delete(accountId);
+    for (const [conversationId, conversation] of this.conversations) {
+      if (conversation.accountId === accountId) {
+        this.conversations.delete(conversationId);
+        this.conversationMessages.delete(conversationId);
+      }
+    }
     for (const [taskId, task] of this.tasks) {
       if (task.accountId === accountId) this.tasks.delete(taskId);
     }
@@ -114,6 +124,51 @@ export class InMemoryStore implements Store {
 
   async listUsage(accountId: string): Promise<UsageEntry[]> {
     return this.usageLedger.filter((entry) => entry.accountId === accountId);
+  }
+
+  async createConversation(accountId: string, title?: string): Promise<Conversation> {
+    const now = new Date();
+    const conversation: Conversation = {
+      id: randomUUID(),
+      accountId,
+      title: title?.trim().slice(0, 120) || undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.conversations.set(conversation.id, conversation);
+    this.conversationMessages.set(conversation.id, []);
+    return conversation;
+  }
+
+  async getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined> {
+    const conversation = this.conversations.get(conversationId);
+    return conversation?.accountId === accountId ? conversation : undefined;
+  }
+
+  async listConversations(accountId: string): Promise<Conversation[]> {
+    return [...this.conversations.values()]
+      .filter((conversation) => conversation.accountId === accountId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  }
+
+  async appendConversationMessages(messages: ConversationMessage[]): Promise<void> {
+    for (const message of messages) {
+      const conversation = this.conversations.get(message.conversationId);
+      if (!conversation) {
+        throw new Error("Conversation not found");
+      }
+      const list = this.conversationMessages.get(message.conversationId) ?? [];
+      list.push(message);
+      this.conversationMessages.set(message.conversationId, list);
+      conversation.updatedAt = message.createdAt;
+    }
+  }
+
+  async listConversationMessages(accountId: string, conversationId: string, limit = 40): Promise<ConversationMessage[]> {
+    const conversation = await this.getConversation(accountId, conversationId);
+    if (!conversation) return [];
+    const list = this.conversationMessages.get(conversationId) ?? [];
+    return list.slice(-Math.max(1, Math.min(limit, 100)));
   }
 
   async grantedPermissions(accountId: string): Promise<Set<PermissionType>> {

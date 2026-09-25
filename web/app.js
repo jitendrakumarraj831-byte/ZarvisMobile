@@ -20,6 +20,7 @@
     speak: "zarvis.speak",
     voiceURI: "zarvis.voiceURI",
     userName: "zarvis.userName",
+    conversationId: "zarvis.conversationId",
   };
 
   const API_BASE = resolveApiBase();
@@ -226,6 +227,9 @@
     pendingAttachment: null,
     // Bounded client-side conversation context for natural follow-up questions.
     history: [],
+    // Server-side durable conversation id. The browser keeps only this pointer; the
+    // conversation messages themselves live in the backend/Postgres store.
+    conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
   };
 
   // Declared here (not near their setup functions below) because init() runs synchronously
@@ -778,6 +782,9 @@
   function clearLocalSession() {
     localStorage.removeItem(STORAGE_KEYS.accessToken);
     localStorage.removeItem(STORAGE_KEYS.refreshToken);
+    localStorage.removeItem(STORAGE_KEYS.conversationId);
+    state.conversationId = null;
+    state.history = [];
     location.reload();
   }
 
@@ -1210,6 +1217,9 @@
             locale: state.lang,
             userName: localStorage.getItem(STORAGE_KEYS.userName),
             isFirstTurn,
+            conversationId: state.conversationId,
+            // Kept as a compatibility bridge for the first request after upgrading from
+            // client-only history. The backend seeds it once, then uses durable history.
             history: state.history.slice(-12),
           }),
           signal: controller.signal,
@@ -1227,6 +1237,10 @@
         return;
       }
       const result = await res.json();
+      if (typeof result.conversationId === "string" && result.conversationId.trim()) {
+        state.conversationId = result.conversationId.trim();
+        localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
+      }
       state.history.push({ role: "user", content: utterance });
       if (typeof result.message === "string" && result.message.trim()) {
         state.history.push({ role: "assistant", content: result.message.trim() });
