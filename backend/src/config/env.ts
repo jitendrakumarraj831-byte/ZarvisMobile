@@ -7,7 +7,7 @@ const DEV_ONLY_JWT_SECRET = "dev-only-insecure-secret-do-not-use-in-production";
  * set it would still "work" — every token it issues would just be forgeable by anyone who
  * has read this source file. Refusing to start is the only safe behavior once
  * `NODE_ENV=production` (what Vercel's serverless runtime, and any conventional prod
- * deployment, sets); local dev and `vitest run` (`NODE_ENV` unset or `"test"`) keep the
+ * deployment, sets); local dev and `vitest run` (`NODE_ENV` unset or "test") keep the
  * fallback so `npm run dev`/`npm test` need no setup, per .env.example.
  */
 function resolveJwtSecret(): string {
@@ -29,13 +29,10 @@ export const env = {
   /** Postgres connection string. Leave unset to use the in-memory store (local dev/tests only —
    * see store/inMemoryStore.ts; it does not survive process restarts or serverless cold starts). */
   databaseUrl: process.env.POSTGRES_URL || process.env.DATABASE_URL,
+  /** Direct provider credentials. Never expose these to the mobile/web clients. */
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
-  /** Optional OmniRoute gateway used as a resilience fallback for transient Gemini failures. */
-  omniRouteApiKey: process.env.OMNIROUTE_API_KEY,
-  omniRouteBaseUrl: process.env.OMNIROUTE_BASE_URL || "http://127.0.0.1:20128/v1",
-  omniRouteModel: process.env.OMNIROUTE_MODEL || "auto",
   /** Google has retired `gemini-2.5-flash` for new API users. The production logs showed
    * a 404 for that model, with Google's API explicitly directing new users to
    * `gemini-3.6-flash`. Keep `GEMINI_MODEL` configurable, but automatically replace the
