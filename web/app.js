@@ -1558,6 +1558,15 @@
    * "attach a document, then ask a question" and "attach, then just hit Send" both work
    * from the exact same code path `submitUtterance()` itself doesn't need to know about. */
   function submitComposerInput(rawText, isVoice = false) {
+    // A spoken command should produce a spoken reply automatically. This keeps typed chat
+    // silent by default while making voice interaction feel like a real two-way conversation.
+    // The user can still turn spoken replies off from Settings after the voice turn.
+    if (isVoice && !state.speak) {
+      state.speak = true;
+      localStorage.setItem(STORAGE_KEYS.speak, "on");
+      applyVoiceToggleState();
+    }
+
     const attachment = state.pendingAttachment;
     if (!attachment) return submitUtterance(rawText, isVoice);
 
