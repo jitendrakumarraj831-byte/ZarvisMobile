@@ -120,7 +120,7 @@ export class OmniRouteProvider implements AIProvider {
   }
 
   private request(path: string, body: Record<string, unknown>): Promise<Response> {
-    return fetch(`${this.baseUrl.replace(/\\/+$/, "")}${path}`, {
+    return fetch(`${this.baseUrl.replace(/\/+$/, "")}${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
