@@ -48,24 +48,53 @@ async function analyzeImageWithGemini(buffer: Buffer, mimeType: string): Promise
     }],
     generationConfig: { maxOutputTokens: 4096 },
   };
-  const models = [env.geminiModel, "gemini-3.7-flash"].filter((m, i, all) => m && all.indexOf(m) === i);
+  // Keep the configured model first, then use current multimodal fallbacks.
+  // 503/429 are transient capacity/rate-limit errors; 404 means a model is unavailable
+  // for this API project, so either case should move on to the next model.
+  const models = [
+    env.geminiModel,
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+  ].filter((m, i, all) => m && all.indexOf(m) === i);
+
   let lastError: Error | undefined;
   for (const model of models) {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const response = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + env.geminiApiKey,
-        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
-      );
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let response: Response;
+      try {
+        response = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + env.geminiApiKey,
+          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+        );
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt === 2) break;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(8_000, 1_000 * 2 ** attempt) + Math.floor(Math.random() * 500)));
+        continue;
+      }
+
       if (response.ok) {
         const json = (await response.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
         const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
         if (text) return text;
-        throw new Error("Gemini returned an empty image analysis");
+        lastError = new Error("Gemini returned an empty image analysis");
+        break;
       }
+
       const details = await response.text().catch(() => "");
       lastError = new Error(("Gemini image analysis failed: " + response.status + " " + response.statusText + " " + details).trim());
+
+      // 404/model-not-found is not worth retrying on the same model.
+      if (response.status === 404) break;
       if (![408, 429, 500, 502, 503, 504].includes(response.status)) throw lastError;
-      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 900));
+      if (attempt === 2) break;
+
+      // Honor Retry-After when supplied; otherwise use exponential backoff + jitter.
+      const retryAfter = Number(response.headers.get("retry-after"));
+      const retryMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(30_000, retryAfter * 1_000)
+        : Math.min(8_000, 1_000 * 2 ** attempt) + Math.floor(Math.random() * 500);
+      await new Promise((resolve) => setTimeout(resolve, retryMs));
     }
   }
   throw lastError ?? new Error("Gemini image analysis failed");
