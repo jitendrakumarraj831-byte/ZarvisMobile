@@ -110,17 +110,25 @@ export function buildServer(container: Container): Express {
     // provider credentials, SQL, or upstream response bodies. This makes production
     // failures actionable while keeping the real error only in Vercel logs.
     let code = "internal_error";
-    if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|self-signed certificate|certificate/i.test(message)) {
+    let status = 500;
+    if (/Gemini (generateContent|streamGenerateContent) failed|OmniRoute (chat completion|streaming chat completion) failed/i.test(message)) {
+      code = "ai_service_unavailable";
+      if (/(?:^|\\D)(408|429|500|502|503|504)(?:\\D|$)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(message)) {
+        status = 503;
+      }
+    } else if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|self-signed certificate|certificate/i.test(message)) {
       code = "database_connection_error";
     } else if (/password authentication failed|SASL|authentication failed|database .* does not exist|no pg_hba/i.test(message)) {
       code = "database_configuration_error";
-    } else if (/Gemini (generateContent|streamGenerateContent) failed/i.test(message)) {
-      code = "gemini_api_error";
     } else if (/Unknown account|Invalid or expired refresh token|Not a refresh token/i.test(message)) {
       code = "auth_session_invalid";
     }
 
-    res.status(500).json({ error: "Internal error", code });
+    res.status(status).json({
+      error: status === 503 ? "AI service temporarily unavailable" : "Internal error",
+      code,
+      ...(status === 503 ? { retryable: true } : {}),
+    });
   });
 
   return app;

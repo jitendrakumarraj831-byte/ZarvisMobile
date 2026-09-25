@@ -32,6 +32,10 @@ export const env = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
+  /** Optional OmniRoute gateway used as a resilience fallback for transient Gemini failures. */
+  omniRouteApiKey: process.env.OMNIROUTE_API_KEY,
+  omniRouteBaseUrl: process.env.OMNIROUTE_BASE_URL || "http://127.0.0.1:20128/v1",
+  omniRouteModel: process.env.OMNIROUTE_MODEL || "auto",
   /** Google has retired `gemini-2.5-flash` for new API users. The production logs showed
    * a 404 for that model, with Google's API explicitly directing new users to
    * `gemini-3.6-flash`. Keep `GEMINI_MODEL` configurable, but automatically replace the
