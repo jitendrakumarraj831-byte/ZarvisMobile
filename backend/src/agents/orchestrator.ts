@@ -126,7 +126,10 @@ export class Orchestrator {
       const toolCalls = aiResponse.toolCalls ?? [];
       if (toolCalls.length === 0) {
         const message = aiResponse.message.content?.trim();
-        if (message) return { message, toolCalls: results };
+        if (message) {
+          await this.persistAssistantMessage(activeConversation.id, message);
+          return { message, toolCalls: results, conversationId: activeConversation.id };
+        }
         return {
           message: results.length > 0
             ? results.map((r) => explainOutcome(r.outcome)).join("\n")
