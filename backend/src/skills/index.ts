@@ -15,6 +15,7 @@ import { CREATIVE_BRAINSTORM_SYSTEM_PROMPT, createCreativeBrainstormSkill } from
 import { CREATIVE_WRITE_MESSAGE_SYSTEM_PROMPT, createCreativeWriteMessageSkill } from "./creativeWriteMessage.js";
 import { CREATIVE_WRITE_POEM_SYSTEM_PROMPT, createCreativeWritePoemSkill } from "./creativeWritePoem.js";
 import { createDeveloperAnalyzeRepoSkill } from "./developerAnalyzeRepo.js";
+import { createDeveloperImplementSkill, DEVELOPER_IMPLEMENT_SYSTEM_PROMPT } from "./developerImplement.js";
 import { AIContentSummarizer, createDocsSummarizeSkill, DOCS_SUMMARIZE_SYSTEM_PROMPT } from "./docsSummarize.js";
 import { RESEARCH_COMPARE_SYSTEM_PROMPT, createResearchCompareSkill } from "./researchCompare.js";
 import { RESEARCH_OUTLINE_SYSTEM_PROMPT, createResearchOutlineSkill } from "./researchOutline.js";
@@ -47,7 +48,9 @@ export function buildSkillRegistry(store: Store): SkillRegistry {
   registry.register(
     createDocsSummarizeSkill(new AIContentSummarizer(contentGenerator("document summary", DOCS_SUMMARIZE_SYSTEM_PROMPT))),
   );
-  registry.register(createDeveloperAnalyzeRepoSkill(new RealGitHubClient(env.githubToken)));
+  const githubClient = new RealGitHubClient(env.githubToken);
+  registry.register(createDeveloperAnalyzeRepoSkill(githubClient));
+  registry.register(createDeveloperImplementSkill(githubClient, contentGenerator("developer implementation", DEVELOPER_IMPLEMENT_SYSTEM_PROMPT)));
   registry.register(
     createBusinessSocialPostSkill(contentGenerator("social media post", BUSINESS_SOCIAL_POST_SYSTEM_PROMPT)),
   );
