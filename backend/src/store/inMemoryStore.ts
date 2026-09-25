@@ -154,7 +154,7 @@ export class InMemoryStore implements Store {
   async appendConversationMessages(messages: ConversationMessage[]): Promise<void> {
     for (const message of messages) {
       const conversation = this.conversations.get(message.conversationId);
-      if (!conversation || conversation.accountId !== (await this.getConversationAccountId(message.conversationId))) {
+      if (!conversation) {
         throw new Error("Conversation not found");
       }
       const list = this.conversationMessages.get(message.conversationId) ?? [];
@@ -169,10 +169,6 @@ export class InMemoryStore implements Store {
     if (!conversation) return [];
     const list = this.conversationMessages.get(conversationId) ?? [];
     return list.slice(-Math.max(1, Math.min(limit, 100)));
-  }
-
-  private async getConversationAccountId(conversationId: string): Promise<string | undefined> {
-    return this.conversations.get(conversationId)?.accountId;
   }
 
   async grantedPermissions(accountId: string): Promise<Set<PermissionType>> {
