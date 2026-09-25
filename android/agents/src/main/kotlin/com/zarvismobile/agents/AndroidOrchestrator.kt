@@ -2,6 +2,9 @@ package com.zarvismobile.agents
 
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.OrchestratorTurnRequest
+import com.zarvismobile.core.tooling.ComposeConfirmationPort
+import com.zarvismobile.domain.entity.ConfirmationRequest
+import com.zarvismobile.domain.entity.RiskLevel
 import com.zarvismobile.domain.entity.SkillExecutionContext
 import com.zarvismobile.domain.entity.ToolCall
 import com.zarvismobile.domain.entity.ToolExecutionOutcome
@@ -11,23 +14,15 @@ import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 
 /**
- * The Android half of the request lifecycle described in ARCHITECTURE.md: try an on-device
- * skill first (fast, works offline for skills like `personal.reminder`); otherwise delegate
- * to the backend Orchestrator, which runs its own AI-driven tool-calling loop against the
- * entitlement-filtered backend skill catalogue (AI_ARCHITECTURE.md).
- *
- * On-device confirmation (MEDIUM/HIGH risk) is fully wired: `onDevicePipeline` blocks on
- * [com.zarvismobile.core.tooling.ComposeConfirmationPort], which the app's root composable
- * renders as a dialog (see `app/MainActivity.kt`). Backend-side confirmation is not yet
- * looped back through this client — `runTurn` never resubmits with `confirmed = true` after
- * a `confirmation_declined` outcome — because every currently-registered backend skill is
- * LOW risk (SKILLS.md), so the path is unreachable today. This is planned, not implemented,
- * for whenever the first MEDIUM/HIGH risk backend skill ships (MASTER_SPEC.md §29).
+ * The Android half of the request lifecycle. Backend high-risk actions are confirmation-gated
+ * too: the server returns confirmation_declined, this client shows the same Compose dialog,
+ * and only an explicit approval causes one retry with confirmed=true.
  */
 class AndroidOrchestrator(
     private val onDeviceRegistry: SkillRegistry,
     private val onDevicePipeline: ToolPipeline,
     private val api: ZarvisApi,
+    private val confirmationPort: ComposeConfirmationPort,
 ) {
     private val onDeviceMatcher = KeywordSkillMatcher(onDeviceRegistry)
 
@@ -47,6 +42,22 @@ class AndroidOrchestrator(
         }
 
         val response = api.runTurn(OrchestratorTurnRequest(utterance = utterance, locale = locale))
+        val confirmation = response.toolCalls.firstOrNull { it.outcome.kind == "confirmation_declined" }
+        if (confirmation != null) {
+            val approved = confirmationPort.confirm(
+                ConfirmationRequest(
+                    skillId = confirmation.skillId,
+                    summary = "ZARVIS wants to perform a higher-risk action for your request.",
+                    riskLevel = RiskLevel.HIGH,
+                ),
+            )
+            if (approved) {
+                val confirmedResponse = api.runTurn(
+                    OrchestratorTurnRequest(utterance = utterance, confirmed = true, locale = locale),
+                )
+                return TurnOutcome(message = confirmedResponse.message)
+            }
+        }
         return TurnOutcome(message = response.message)
     }
 }

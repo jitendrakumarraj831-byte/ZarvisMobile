@@ -67,3 +67,16 @@ write-capable stages (Coding/Testing/Debugging/Security/Deployment agents, real 
 wiring, PR creation) are architected (interfaces + routing exist) and scheduled for Phases
 7–8 of [MASTER_SPEC.md §28](./MASTER_SPEC.md#28-development-phases) — see
 [MASTER_SPEC.md §29](./MASTER_SPEC.md#29-mvp-scope) for the exact boundary.
+
+
+## Current write-capable workflow
+
+`developer.implement` is HIGH risk and requires an explicit client confirmation plus PRO entitlement. It:
+1. reads a bounded set of relevant text files;
+2. asks the configured content generator for a strict JSON change plan;
+3. rejects malformed, oversized, unsafe, binary, generated, or path-traversal changes;
+4. creates a dedicated branch;
+5. writes the approved bounded files;
+6. opens a pull request against the repository default branch.
+
+It never auto-merges or deploys. A GitHub token is required for write operations.

@@ -57,6 +57,8 @@ data class SkillDefinition(
 | `web.search` | Web | Backend | LOW (search, per the rubric above) | 2 credits (real infra cost) | **Implemented** — mocked search provider, real pipeline |
 | `docs.summarize` | Documents | Backend | LOW | 1 credit | **Implemented** — mocked summarizer, real pipeline |
 | `developer.analyze_repo` | Developer | Backend | LOW (read-only) | 3 credits | **Implemented** — mocked repo analysis, real pipeline |
+| `developer.implement` | Developer | Backend | HIGH | Pro | **Implemented** — confirmation-gated bounded code generation, GitHub branch/file writes, and pull-request creation; never auto-merges |
+
 | `phone.open_app` | Phone | On-device (Android `domain`) | LOW | Free | **Implemented** — resolves an installed app by name and launches it, unit-tested |
 | `phone.find_contact` | Phone | On-device (Android `domain`) | MEDIUM (rounded up — personal data about a third party) | Free | **Implemented** — `ContactsContract` lookup by name, unit-tested against a fake port |
 | `phone.call` | Phone | On-device (Android `domain`) | MEDIUM | Free | **Implemented** — resolves a contact name or accepts a raw number, places a real call via `Intent.ACTION_CALL`, unit-tested against a fake port |
