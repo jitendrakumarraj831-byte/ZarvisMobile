@@ -16,6 +16,14 @@ export interface RepoStructure {
 
 export interface GitHubClient {
   analyzeRepository(repoUrl: string): Promise<RepoStructure>;
+  getImplementationContext(repoUrl: string, maxFiles?: number, maxBytes?: number): Promise<{
+    repoUrl: string;
+    defaultBranch: string;
+    files: Array<{ path: string; content: string; sha: string }>;
+  }>;
+  createImplementationBranch(repoUrl: string, branch: string): Promise<{ branch: string }>;
+  applyImplementationFiles(repoUrl: string, branch: string, files: Array<{ path: string; content: string }>, message: string): Promise<{ commitShas: string[] }>;
+  createPullRequest(repoUrl: string, branch: string, title: string, body: string): Promise<{ number: number; url: string }>;
 }
 
 interface GitHubRepo {
@@ -76,6 +84,106 @@ export class RealGitHubClient implements GitHubClient {
     };
   }
 
+  async getImplementationContext(repoUrl: string, maxFiles = 24, maxBytes = 70000) {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    const repoData = await this.request<GitHubRepo>(`/repos/${owner}/${repo}`);
+    const tree = await this.request<GitHubTree>(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(repoData.default_branch)}?recursive=1`);
+    const candidates = (tree.tree ?? [])
+      .filter((item) => item.type === "blob")
+      .map((item) => item.path)
+      .filter((path) => !/(^|\\/)(node_modules|dist|build|\.git|coverage|\.gradle)(\\/|$)/i.test(path))
+      .filter((path) => /\\.(ts|tsx|js|jsx|json|md|yml|yaml|html|css|kt|java|py|go|rs|toml)$/i.test(path))
+      .sort((a, b) => scoreSourcePath(a) - scoreSourcePath(b))
+      .slice(0, maxFiles);
+    const files: Array<{ path: string; content: string; sha: string }> = [];
+    let total = 0;
+    for (const path of candidates) {
+      if (total >= maxBytes) break;
+      try {
+        const data = await this.request<{ content?: string; encoding?: string; sha: string }>(
+          `/repos/${owner}/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, "/")}?ref=${encodeURIComponent(repoData.default_branch)}`,
+        );
+        if (!data.content || data.encoding !== "base64") continue;
+        const content = Buffer.from(data.content.replace(/\\s/g, ""), "base64").toString("utf8");
+        if (!content) continue;
+        const remaining = maxBytes - total;
+        const clipped = content.slice(0, remaining);
+        files.push({ path, content: clipped, sha: data.sha });
+        total += Buffer.byteLength(clipped, "utf8");
+      } catch {
+        // A single unreadable/generated file must not abort the whole planning pass.
+      }
+    }
+    return { repoUrl, defaultBranch: repoData.default_branch, files };
+  }
+
+  async createImplementationBranch(repoUrl: string, branch: string) {
+    if (!this.token) throw new Error("GITHUB_TOKEN is required for write-capable Developer Agent actions.");
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    const repoData = await this.request<GitHubRepo & { default_branch: string }>(`/repos/${owner}/${repo}`);
+    const ref = await this.request<{ object: { sha: string } }>(`/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(repoData.default_branch)}`);
+    await this.requestRaw(`/repos/${owner}/${repo}/git/refs`, "POST", { ref: `refs/heads/${branch}`, sha: ref.object.sha });
+    return { branch };
+  }
+
+  async applyImplementationFiles(repoUrl: string, branch: string, files: Array<{ path: string; content: string }>, message: string) {
+    if (!this.token) throw new Error("GITHUB_TOKEN is required for write-capable Developer Agent actions.");
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    const commitShas: string[] = [];
+    for (const file of files) {
+      const encodedPath = file.path.split("/").map(encodeURIComponent).join("/");
+      let existingSha: string | undefined;
+      try {
+        const existing = await this.request<{ sha: string }>(
+          `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`,
+        );
+        existingSha = existing.sha;
+      } catch (error) {
+        if (!String(error).includes("(404)")) throw error;
+      }
+      const payload: Record<string, unknown> = {
+        message,
+        content: Buffer.from(file.content, "utf8").toString("base64"),
+        branch,
+      };
+      if (existingSha) payload.sha = existingSha;
+      const result = await this.requestRaw<{ commit?: { sha?: string } }>(
+        `/repos/${owner}/${repo}/contents/${encodedPath}`, "PUT", payload,
+      );
+      if (result.commit?.sha) commitShas.push(result.commit.sha);
+    }
+    return { commitShas };
+  }
+
+  async createPullRequest(repoUrl: string, branch: string, title: string, body: string) {
+    if (!this.token) throw new Error("GITHUB_TOKEN is required for write-capable Developer Agent actions.");
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    const pr = await this.requestRaw<{ number: number; html_url: string }>(
+      `/repos/${owner}/${repo}/pulls`, "POST", { title, body, head: branch, base: (await this.request<GitHubRepo>(`/repos/${owner}/${repo}`)).default_branch },
+    );
+    return { number: pr.number, url: pr.html_url };
+  }
+
+  private async requestRaw<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const headers: Record<string, string> = {
+      accept: "application/vnd.github+json",
+      "content-type": "application/json",
+      "user-agent": "ZarvisMobile-Developer-Agent",
+      "x-github-api-version": "2022-11-28",
+    };
+    if (this.token) headers.authorization = `Bearer ${this.token}`;
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`GitHub write failed (${response.status}) ${detail}`.trim());
+    }
+    return (await response.json()) as T;
+  }
+
   private async request<T>(path: string): Promise<T> {
     const headers: Record<string, string> = {
       accept: "application/vnd.github+json",
@@ -124,4 +232,13 @@ function detectBuildSystem(paths: string[], language: string): string {
   ];
   for (const [pattern, name] of markers) if (paths.some((path) => pattern.test(path))) return name;
   return language === "Unknown" ? "Unknown" : `${language} project`;
+}
+
+
+function scoreSourcePath(path: string): number {
+  const p = path.toLowerCase();
+  if (/^(package.json|readme.md|tsconfig.json|vite.config|next.config)/.test(p)) return 0;
+  if (/(^|\/)(src|app|backend|server|api)(\/|$)/.test(p)) return 1;
+  if (/(test|spec)/.test(p)) return 2;
+  return 3;
 }
