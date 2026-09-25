@@ -80,6 +80,12 @@ export interface Store {
   recordUsage(entry: UsageEntry): Promise<number>;
   listUsage(accountId: string): Promise<UsageEntry[]>;
 
+  createConversation(accountId: string, title?: string): Promise<Conversation>;
+  getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined>;
+  listConversations(accountId: string): Promise<Conversation[]>;
+  appendConversationMessages(messages: ConversationMessage[]): Promise<void>;
+  listConversationMessages(accountId: string, conversationId: string, limit?: number): Promise<ConversationMessage[]>;
+
   grantedPermissions(accountId: string): Promise<Set<PermissionType>>;
   grantPermission(accountId: string, permission: PermissionType): Promise<void>;
 
