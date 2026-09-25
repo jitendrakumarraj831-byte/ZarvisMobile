@@ -11,7 +11,7 @@
  * MASTER_SPEC.md Product Principle #4 forbids; a real network failure there should surface
  * as the honest error app.js already shows, not a stale cache hit.
  */
-const CACHE_NAME = "zarvis-shell-v3";
+const CACHE_NAME = "zarvis-shell-v4";
 const SHELL_FILES = ["/", "/index.html", "/app.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -31,10 +31,14 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/") || url.pathname === "/health") {
     return; // network-only — never intercept API calls, see the note above.
   }
-  // Prefer the live deployment for the static shell so a new Vercel deploy is
-  // visible immediately. Fall back to the cached shell only when offline.
+  // Prefer the live deployment for every shell request. JavaScript is fetched with
+  // cache:"no-store" so an old HTTP cache entry cannot win after a new deployment; the
+  // current successful response is still copied into the service-worker cache for offline
+  // fallback. The SW itself is registered with updateViaCache:"none" in app.js.
+  const isJavaScript = url.pathname === "/app.js";
+  const request = isJavaScript ? new Request(event.request, { cache: "no-store" }) : event.request;
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then((response) => {
         if (response && response.ok) {
           const copy = response.clone();

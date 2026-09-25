@@ -266,27 +266,40 @@
       clearPendingAttachment();
     });
 
-    // Secondary UI initialization follows the core controls so one non-critical setup error
-    // cannot make the Send/attachment controls appear dead.
-    try {
-      setupSpeechSynthesis();
-      applyLanguage();
-      applyVoiceToggleState();
-      setupSpeechRecognition();
-      registerServiceWorker();
-      setupBottomNav();
-      setupPlans();
-      setupSettings();
-      setupDeveloper();
-    } catch (err) {
-      console.error("Optional UI initialization failed:", err);
+    // Secondary UI initialization is isolated per feature. One optional browser API or
+    // non-critical screen must never prevent the other buttons from receiving handlers.
+    const optionalInitializers = [
+      ["speech synthesis", setupSpeechSynthesis],
+      ["language UI", applyLanguage],
+      ["voice toggle", applyVoiceToggleState],
+      ["speech recognition", setupSpeechRecognition],
+      ["service worker", registerServiceWorker],
+      ["navigation", setupBottomNav],
+      ["plans", setupPlans],
+      ["settings", setupSettings],
+      ["developer", setupDeveloper],
+    ];
+    for (const [name, initialize] of optionalInitializers) {
+      try {
+        initialize();
+      } catch (err) {
+        console.error("Zarvis optional UI initialization failed (" + name + "):", err);
+      }
     }
 
     try {
       await ensureSession();
-      await Promise.all([loadSkills(), fetchTasks()]);
+      const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
+      for (const result of results) {
+        if (result.status === "rejected") console.error("Zarvis startup data failed:", result.reason);
+      }
+      if (results.every((result) => result.status === "rejected")) {
+        addErrorBubble(COPY[state.lang].bootError, () => location.reload());
+        setOrbState("ERROR");
+        return;
+      }
     } catch (err) {
-      console.error("Zarvis startup data failed:", err);
+      console.error("Zarvis session bootstrap failed:", err);
       addErrorBubble(COPY[state.lang].bootError, () => location.reload());
       setOrbState("ERROR");
       return;
@@ -1398,7 +1411,6 @@
   const PDF_MIME = "application/pdf";
   const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
-  const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
 
   /** `null` means genuinely unsupported (for example a ZIP or executable). */
   function classifyLocalFile(file) {
@@ -1696,7 +1708,10 @@
   // -> Add to Home Screen).
   function registerServiceWorker() {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js").catch((err) => console.error("Service worker registration failed:", err));
+      navigator.serviceWorker
+        .register("./sw.js", { updateViaCache: "none" })
+        .then((registration) => registration.update())
+        .catch((err) => console.error("Service worker registration failed:", err));
     }
   }
 
