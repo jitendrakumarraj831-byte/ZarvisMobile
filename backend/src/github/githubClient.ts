@@ -91,8 +91,8 @@ export class RealGitHubClient implements GitHubClient {
     const candidates = (tree.tree ?? [])
       .filter((item) => item.type === "blob")
       .map((item) => item.path)
-      .filter((path) => !/(^|\\/)(node_modules|dist|build|\.git|coverage|\.gradle)(\\/|$)/i.test(path))
-      .filter((path) => /\\.(ts|tsx|js|jsx|json|md|yml|yaml|html|css|kt|java|py|go|rs|toml)$/i.test(path))
+      .filter((path) => !/(^|\/)(node_modules|dist|build|\.git|coverage|\.gradle)(\/|$)/i.test(path))
+      .filter((path) => /\.(ts|tsx|js|jsx|json|md|yml|yaml|html|css|kt|java|py|go|rs|toml)$/i.test(path))
       .sort((a, b) => scoreSourcePath(a) - scoreSourcePath(b))
       .slice(0, maxFiles);
     const files: Array<{ path: string; content: string; sha: string }> = [];
