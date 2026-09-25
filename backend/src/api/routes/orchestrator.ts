@@ -15,7 +15,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
     "/turn",
     requireAuth,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
-      const { utterance, confirmed, locale, userName, isFirstTurn, history } = req.body ?? {};
+      const { utterance, confirmed, locale, userName, isFirstTurn, history, conversationId } = req.body ?? {};
       if (typeof utterance !== "string" || utterance.trim().length === 0) {
         res.status(400).json({ error: "utterance is required" });
         return;
@@ -31,6 +31,9 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         userName: typeof userName === "string" && userName.trim() ? userName.trim().slice(0, 60) : undefined,
         isFirstTurn: isFirstTurn === true,
         history: sanitizeHistory(history),
+        conversationId: typeof conversationId === "string" && conversationId.trim()
+          ? conversationId.trim().slice(0, 100)
+          : undefined,
       });
       res.json(result);
     }),
