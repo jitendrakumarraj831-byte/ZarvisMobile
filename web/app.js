@@ -195,6 +195,8 @@
     developerBackBtn: document.getElementById("developer-back-btn"),
     developerRepoInput: document.getElementById("developer-repo-input"),
     developerAnalyzeBtn: document.getElementById("developer-analyze-btn"),
+    developerRequirementInput: document.getElementById("developer-requirement-input"),
+    developerImplementBtn: document.getElementById("developer-implement-btn"),
     developerResult: document.getElementById("developer-result"),
     confirmModal: document.getElementById("confirm-modal"),
     confirmModalTitle: document.getElementById("confirm-modal-title"),
@@ -817,11 +819,52 @@
       haptic();
       analyzeRepo();
     });
+    el.developerImplementBtn.addEventListener("click", () => {
+      haptic();
+      implementRepo();
+    });
     el.developerRepoInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") analyzeRepo();
     });
   }
 
+  async function implementRepo() {
+    const repoUrl = el.developerRepoInput.value.trim();
+    const requirement = el.developerRequirementInput.value.trim();
+    if (!repoUrl || !requirement) {
+      renderDeveloperMessage("Repository URL and implementation requirement are both required.", "error");
+      return;
+    }
+    const approved = window.confirm("ZARVIS will create a new branch, modify only bounded text files, and open a GitHub pull request. It will not merge the PR. Continue?");
+    if (!approved) return;
+    el.developerImplementBtn.disabled = true;
+    el.developerImplementBtn.textContent = "Implementing…";
+    try {
+      const res = await apiFetch("/developer/implement", { method: "POST", body: JSON.stringify({ repoUrl, requirement, confirmed: true }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.kind !== "success") {
+        renderDeveloperMessage(body.error || body.result?.userMessage || body.userMessage || "Implementation failed; no change was reported as committed.", "error");
+        return;
+      }
+      const output = body.result?.output || {};
+      renderDeveloperMessage(body.result?.summary || "Implementation complete.", "success");
+      if (output.pullRequest?.url) {
+        const link = document.createElement("a");
+        link.className = "zarvis-btn zarvis-btn-secondary";
+        link.href = output.pullRequest.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Open PR #" + output.pullRequest.number;
+        el.developerResult.appendChild(link);
+      }
+    } catch (err) {
+      console.error(err);
+      renderDeveloperMessage("Developer Agent could not reach the backend.", "error");
+    } finally {
+      el.developerImplementBtn.disabled = false;
+      el.developerImplementBtn.textContent = "Implement & Open PR";
+    }
+  }
   async function analyzeRepo() {
     const repoUrl = el.developerRepoInput.value.trim();
     el.developerResult.innerHTML = "";
