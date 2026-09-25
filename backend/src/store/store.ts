@@ -30,6 +30,24 @@ export interface UsageEntry {
   createdAt: Date;
 }
 
+export type ConversationRole = "user" | "assistant" | "tool";
+
+export interface Conversation {
+  id: string;
+  accountId: string;
+  title?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  role: ConversationRole;
+  content: string;
+  createdAt: Date;
+}
+
 /**
  * Storage boundary. Two implementations ship against this interface: InMemoryStore
  * (local dev/tests only — its state does not survive a process restart or serverless cold
