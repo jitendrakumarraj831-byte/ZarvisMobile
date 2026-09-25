@@ -67,6 +67,7 @@ export class Orchestrator {
     };
 
     const results: Array<{ skillId: string; outcome: ToolExecutionOutcome }> = [];
+    const executedToolRequests = new Set<string>();
     const messages: ConversationMessage[] = [
       ...(request.history ?? []),
       { role: "user", content: request.utterance },
@@ -102,12 +103,9 @@ export class Orchestrator {
       for (const call of toolCalls) {
         // Prevent accidental duplicate execution of the exact same request inside one run.
         // A later step may still call the same skill with different arguments.
-        const duplicate = results.some(
-          (previous) =>
-            previous.skillId === call.skillId &&
-            stableJson(previous.outcome) === stableJson(call.input),
-        );
-        if (duplicate) continue;
+        const requestKey = call.skillId + ":" + stableJson(call.input);
+        if (executedToolRequests.has(requestKey)) continue;
+        executedToolRequests.add(requestKey);
 
         const toolCall: ToolCall = {
           id: randomUUID(),
@@ -221,7 +219,8 @@ function explainEntitlementDenial(
  * JSON-compatible shapes used by the domain without depending on object identity.
  */
 function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
   if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
   const record = value as Record<string, unknown>;
   return "{" + Object.keys(record).sort().map((key) => JSON.stringify(key) + ":" + stableJson(record[key])).join(",") + "}";
