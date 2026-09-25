@@ -26,5 +26,6 @@ dependencies {
     // and ZarvisApi (data-remote), and app's di/AppModule calls it directly.
     api(project(":domain"))
     api(project(":data:data-remote"))
+    api(project(":core:core-tooling"))
     implementation(libs.coroutines.core)
 }
