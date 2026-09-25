@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
+import type { ConversationMessage as StoredConversationMessage, Store } from "../store/store.js";
 import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
@@ -15,13 +16,16 @@ export interface TurnRequest {
   userName?: string;
   /** True only for the first turn of a client session. */
   isFirstTurn?: boolean;
-  /** Recent user/assistant turns supplied by the client and capped by the API route. */
+  /** Client fallback history used only when no server conversation exists yet. */
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** Durable server-side conversation id. */
+  conversationId?: string;
 }
 
 export interface TurnResult {
   message: string;
   toolCalls: Array<{ skillId: string; outcome: ToolExecutionOutcome }>;
+  conversationId: string;
 }
 
 const MAX_AGENT_STEPS = 5;
@@ -43,9 +47,44 @@ export class Orchestrator {
     private readonly pipeline: ToolPipeline,
     private readonly provider: AIProvider,
     private readonly modelConfig: ModelConfiguration,
+    private readonly store: Store,
   ) {}
 
   async runTurn(request: TurnRequest): Promise<TurnResult> {
+    const conversation = request.conversationId
+      ? await this.store.getConversation(request.accountId, request.conversationId)
+      : undefined;
+    const activeConversation = conversation ?? await this.store.createConversation(
+      request.accountId,
+      request.utterance.trim().slice(0, 80),
+    );
+    const persistedMessages = await this.store.listConversationMessages(
+      request.accountId,
+      activeConversation.id,
+      40,
+    );
+    if (!conversation && persistedMessages.length === 0 && request.history?.length) {
+      // Compatibility bridge for an existing browser session: seed only the bounded,
+      // user/assistant history once, then all subsequent turns come from the server.
+      const seed = request.history.map((message) => ({
+        id: randomUUID(),
+        conversationId: activeConversation.id,
+        role: message.role,
+        content: message.content,
+        createdAt: new Date(),
+      } satisfies StoredConversationMessage));
+      await this.store.appendConversationMessages(seed);
+      persistedMessages.push(...seed);
+    }
+
+    await this.store.appendConversationMessages([{
+      id: randomUUID(),
+      conversationId: activeConversation.id,
+      role: "user",
+      content: request.utterance.trim().slice(0, 12000),
+      createdAt: new Date(),
+    }]);
+
     const snapshot = await this.entitlementPort.snapshot(request.accountId);
     const now = new Date();
     const availableSkills = this.registry
@@ -69,7 +108,10 @@ export class Orchestrator {
     const results: Array<{ skillId: string; outcome: ToolExecutionOutcome }> = [];
     const executedToolRequests = new Set<string>();
     const messages: ConversationMessage[] = [
-      ...(request.history ?? []),
+      ...persistedMessages.map((message) => ({
+        role: message.role === "tool" ? "user" as const : message.role,
+        content: message.role === "tool" ? "[Previous tool result] " + message.content : message.content,
+      })),
       { role: "user", content: request.utterance },
     ];
 
@@ -90,6 +132,7 @@ export class Orchestrator {
             ? results.map((r) => explainOutcome(r.outcome)).join("\n")
             : "I couldn't produce a response. Please try again.",
           toolCalls: results,
+          conversationId: activeConversation.id,
         };
       }
 
@@ -133,6 +176,7 @@ export class Orchestrator {
             ? results.map((r) => explainOutcome(r.outcome)).join("\n")
             : "I couldn't determine the next action. Please try again.",
           toolCalls: results,
+          conversationId: activeConversation.id,
         };
       }
     }
@@ -142,7 +186,18 @@ export class Orchestrator {
     const fallback = results.length > 0
       ? results.map((r) => explainOutcome(r.outcome)).join("\n")
       : "I reached the maximum number of agent steps without completing the request.";
-    return { message: fallback, toolCalls: results };
+    await this.persistAssistantMessage(activeConversation.id, fallback);
+    return { message: fallback, toolCalls: results, conversationId: activeConversation.id };
+  }
+
+  private async persistAssistantMessage(conversationId: string, message: string): Promise<void> {
+    await this.store.appendConversationMessages([{
+      id: randomUUID(),
+      conversationId,
+      role: "assistant",
+      content: message.slice(0, 12000),
+      createdAt: new Date(),
+    }]);
   }
 }
 
