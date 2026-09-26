@@ -225,7 +225,7 @@ export class Orchestrator {
 
 function shouldAnalyzeRepository(utterance: string): boolean {
   const normalized = utterance.trim().toLocaleLowerCase();
-  const hasGithubUrl = /https?:\/\/github\\.com\/\S+/i.test(normalized);
+  const hasGithubUrl = /https?:\/\/github\.com\/\S+/i.test(normalized);
   if (hasGithubUrl) return true;
 
   // Require an explicit repository/developer action in the current turn. A vague follow-up
