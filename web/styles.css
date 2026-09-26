@@ -2724,3 +2724,120 @@ body { background: var(--zarvis-space-black); }
   .home-feature-card { padding:11px; }
   .home-feature-card small { font-size:10.5px; }
 }
+
+/* ==========================================================================
+   ZARVIS SIGNATURE BRAND LOCKUP
+   Final visual layer for the header logo: geometric monogram + premium wordmark.
+   ========================================================================== */
+.topbar .brand {
+  gap: 11px;
+  min-width: 0;
+}
+.topbar .brand-mark {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  overflow: visible;
+  transform: none;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.96), rgba(242,247,255,.78));
+  border: 1px solid rgba(71,114,255,.16);
+  box-shadow:
+    0 10px 26px rgba(71,114,255,.17),
+    0 0 0 5px rgba(71,114,255,.045),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+.topbar .brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(0,216,255,.20), transparent 42%),
+    linear-gradient(145deg, rgba(255,255,255,.96), rgba(235,241,255,.76));
+}
+.topbar .brand-mark::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  right: -3px;
+  top: -3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,.72),
+    0 0 13px rgba(138,92,246,.72);
+}
+.topbar .brand-mark svg {
+  position: relative;
+  z-index: 2;
+  width: 37px;
+  height: 37px;
+  overflow: visible;
+}
+.topbar .zarvis-logo-z {
+  filter: drop-shadow(0 4px 8px rgba(71,114,255,.25));
+}
+.topbar .zarvis-logo-star {
+  transform-origin: 35.8px 9.4px;
+  animation: zarvis-logo-twinkle 2.8s ease-in-out infinite;
+}
+@keyframes zarvis-logo-twinkle {
+  0%, 100% { opacity: .82; transform: scale(.92); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+.topbar .brand-lockup {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  line-height: 1;
+}
+.topbar .brand-name {
+  font-family: var(--font-display);
+  font-size: 19px;
+  line-height: .95;
+  font-weight: 800;
+  letter-spacing: .045em;
+  color: #18233d;
+  background: linear-gradient(105deg, #159ed6 0%, #4169ff 38%, #8b4dff 70%, #e34fa8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.topbar .brand-sub {
+  margin-top: 5px;
+  padding-left: 2px;
+  font-family: var(--font-display);
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: .52em;
+  color: #78839c;
+}
+.topbar .brand-sub::after {
+  content: "";
+  display: inline-block;
+  width: 24px;
+  height: 2px;
+  margin: 0 0 1px 5px;
+  border-radius: 99px;
+  vertical-align: middle;
+  background: linear-gradient(90deg, #00c9ed, #4772ff, #a855f7, #ed55a8);
+}
+@media (max-width: 420px) {
+  .topbar .brand-mark {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+    border-radius: 13px;
+  }
+  .topbar .brand-mark svg { width: 35px; height: 35px; }
+  .topbar .brand-name { font-size: 17px; }
+  .topbar .brand-sub { font-size: 7px; letter-spacing: .45em; }
+}
