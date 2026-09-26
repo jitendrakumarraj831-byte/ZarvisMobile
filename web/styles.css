@@ -154,24 +154,70 @@ body {
   flex-shrink: 0;
 }
 
-.brand { display: flex; align-items: center; gap: 10px; }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.brand-lockup {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1;
+  min-width: 0;
+}
 .brand-name {
   font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-}
-.brand-name b {
-  background: linear-gradient(120deg, var(--zarvis-accent-cyan), var(--zarvis-accent-indigo));
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.045em;
+  background: linear-gradient(105deg, #08b8ff 0%, #4169ff 38%, #8b4dff 68%, #ed4fc3 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  text-shadow: 0 0 18px #6c6bff20;
+}
+.brand-sub {
+  margin-top: 3px;
+  padding-left: 2px;
+  font-family: var(--font-display);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.48em;
+  color: var(--zarvis-text-secondary);
 }
 .brand-mark {
-  width: 12px; height: 12px; border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, var(--zarvis-accent-cyan), var(--zarvis-accent-blue));
-  box-shadow: 0 0 16px 2px var(--glow-cyan);
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
   flex-shrink: 0;
+  background:
+    linear-gradient(145deg, #08c8ff, #4b58ff 48%, #c642ff 78%, #ff55bc);
+  box-shadow: 0 7px 20px -7px #4b58ff99, 0 0 22px #08c8ff38;
+  transform: skew(-4deg);
+  overflow: hidden;
+}
+.brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #ffffff24, transparent 55%);
+}
+.brand-mark span {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  letter-spacing: -0.08em;
+  transform: skew(4deg);
 }
 
 .topbar-actions { display: flex; gap: 5px; align-items: center; }
