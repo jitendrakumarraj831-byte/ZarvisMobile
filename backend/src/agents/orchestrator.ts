@@ -246,16 +246,23 @@ function shouldAnalyzeRepository(utterance: string): boolean {
 
 function getZarvisProfileResponse(utterance: string, locale?: string): string | undefined {
   const normalized = utterance.trim().toLocaleLowerCase();
+
+  // Creator questions are stable product facts. Cover common English/Hinglish/Hindi
+  // phrasings such as "who designed you?", "aapko kisne design kiya?", and
+  // "aapke creator kaun hain?" so these never fall through to a generic model answer.
   const creatorQuestion =
-    /\b(who\s+(created|made|built|developed)\s+(you|zarvis)|who(['’]?s| is)\s+your\s+(creator|developer)|who\s+is\s+behind\s+zarvis|who\s+made\s+zarvis|who\s+developed\s+zarvis|your\s+creator|your\s+developer)\b/.test(normalized) ||
-    /किसने\s+(आपको|तुम्हें|जार्विस|ज़ार्विस|जारविस)\s*(बनाया|बनाई|बनाया है|डेवलप|develop)/.test(normalized) ||
-    /आपको\s+किसने\s+(बनाया|डेवलप|develop)/.test(normalized) ||
-    /जार्विस\s*(को|आपको)\s+किसने\s+(बनाया|डेवलप|develop)/.test(normalized) ||
-    /आपके\s+(creator|developer|निर्माता|डेवलपर)\s+कौन/.test(normalized);
+    /\b(who\s+(created|made|built|developed|designed)\s+(you|zarvis)|who(['’]?s| is)\s+your\s+(creator|developer|designer)|who\s+is\s+behind\s+zarvis|who\s+(made|developed|designed)\s+zarvis|your\s+(creator|developer|designer))\b/.test(normalized) ||
+    /\b(aapko|tumhe|tumhein|aapko)\s+(kisne|kis\s+ne)\s+(banaya|banai|design|designed|develop|developed|create|created|build|built)\b/.test(normalized) ||
+    /\b(aapke|apke)\s+(creator|developer|designer)\s+(kaun|kon|koun)\b/.test(normalized) ||
+    /किसने\s+(आपको|तुम्हें|जार्विस|ज़ार्विस|जारविस)\s*(बनाया|बनाई|बनाया है|डिज़ाइन|डिजाइन|डिजाइन किया|डेवलप|डेवलप किया|विकसित|विकसित किया|बनाया है)/.test(normalized) ||
+    /आपको\s+किसने\s+(बनाया|बनाया है|डिज़ाइन|डिजाइन|डिजाइन किया|डेवलप|डेवलप किया|विकसित|विकसित किया)/.test(normalized) ||
+    /आपके\s+(क्रिएटर|डेवलपर|डिज़ाइनर|डिजाइनर|निर्माता)\s+(कौन|कौन हैं|कौन है)/.test(normalized);
+
   const aboutQuestion =
     /\b(what\s+is\s+zarvis|tell\s+me\s+about\s+zarvis|about\s+zarvis|what\s+can\s+you\s+do|what\s+are\s+you)\b/.test(normalized) ||
     /जार्विस\s*(क्या\s+है|के\s+बारे\s+में|क्या\s+कर\s+सकते)/.test(normalized) ||
     /आप\s*(क्या\s+हैं|क्या\s+कर\s+सकते)/.test(normalized);
+
   if (!creatorQuestion && !aboutQuestion) return undefined;
   const hindi = locale?.toLowerCase().startsWith("hi") || /[\u0900-\u097f]/.test(normalized);
   if (creatorQuestion) return hindi ? ZARVIS_CREATOR_RESPONSE_HI : ZARVIS_CREATOR_RESPONSE_EN;

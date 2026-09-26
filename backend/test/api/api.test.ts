@@ -170,6 +170,28 @@ describe("API integration", () => {
     const login = await request(app).post("/api/v1/auth/login").send({ email, password: "password123" });
     expect(login.status).toBe(401);
   });
+  it("recognizes common creator question variants", async () => {
+    const token = await signupAndGetToken("creator-variants@example.com");
+    const variants = [
+      "aapko Kisne design Kiya Hai",
+      "आपको किसने डिज़ाइन किया है?",
+      "Who designed you?",
+      "aapke creator kaun hain?",
+    ];
+
+    for (const utterance of variants) {
+      const res = await request(app)
+        .post("/api/v1/orchestrator/turn")
+        .set("Authorization", "Bearer " + token)
+        .send({ utterance, locale: "hi" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.toolCalls).toEqual([]);
+      expect(res.body.message).toContain("Jitendra Kumar");
+      expect(res.body.message).toContain("Forbesganj, Araria, Bihar");
+    }
+  });
+
   it("answers creator and about questions deterministically", async () => {
     const token = await signupAndGetToken("creator-profile@example.com");
     const creator = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", "Bearer " + token).send({ utterance: "Who created you?", locale: "en" });
