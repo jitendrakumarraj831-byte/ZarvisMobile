@@ -688,7 +688,7 @@
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
     el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
     el.openChatBtn.addEventListener("click", () => setActiveView("chat"));
-    el.homeDeveloperCard.addEventListener("click", () => setActiveView("developer"));
+    el.homeDeveloperCard?.addEventListener("click", () => setActiveView("developer"));
   }
 
   function setActiveView(view) {
@@ -896,7 +896,11 @@
   // routing the same request through the orchestrator's natural-language turn.
 
   function setupDeveloper() {
-    el.developerEntryLink.addEventListener("click", () => {
+    // Developer Agent is intentionally not part of the public web navigation.
+    // Keep its implementation available for owner/developer builds without exposing
+    // technical controls or wiring errors in the public product UI.
+    if (!el.developerAnalyzeBtn || !el.developerImplementBtn || !el.developerRepoInput) return;
+    el.developerEntryLink?.addEventListener("click", () => {
       haptic();
       setActiveView("developer");
     });
