@@ -1248,8 +1248,8 @@
     // performance.now() wrapped around the exact fetch already being made for this turn.
     const startedAt = performance.now();
     try {
-      await delay(250);
-      if (controller.signal.aborted) return;
+      // Start the request immediately. The old 250ms UX delay made every turn slower,
+      // including fast deterministic responses and cached/local network paths.
       setOrbState("EXECUTING");
       const res = await apiFetch(
         "/orchestrator/turn",
@@ -1290,11 +1290,10 @@
       }
       state.history = state.history.slice(-12);
       recordLatency(utterance, Math.round(performance.now() - startedAt), true);
-      // A brief emerald "done" flash before speaking — MASTER_SPEC.md §22 "Success = Emerald
-      // Green Glow", mirroring the Android orb's SUCCESS state exactly (same 450ms flash).
+      // Render immediately after the backend responds. The old 450ms success animation
+      // blocked the actual answer from appearing; keep the visual success state but never
+      // make the user wait for it.
       setOrbState("SUCCESS");
-      await delay(450);
-      if (controller.signal.aborted) return;
       const node = renderAssistantResult(result);
       // Awaited so the orb actually stays SPEAKING for the duration of playback — without
       // this, the fire-and-forget call returns almost immediately (it only runs
