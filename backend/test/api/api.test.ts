@@ -170,4 +170,21 @@ describe("API integration", () => {
     const login = await request(app).post("/api/v1/auth/login").send({ email, password: "password123" });
     expect(login.status).toBe(401);
   });
+  it("answers creator and about questions deterministically", async () => {
+    const token = await signupAndGetToken("creator-profile@example.com");
+    const creator = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", "Bearer " + token).send({ utterance: "Who created you?", locale: "en" });
+    expect(creator.status).toBe(200);
+    expect(creator.body.toolCalls).toEqual([]);
+    expect(creator.body.message).toContain("Jitendra Kumar");
+    expect(creator.body.message).toContain("Forbesganj, Araria, Bihar, India");
+    const hindi = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", "Bearer " + token).send({ utterance: "आपको किसने बनाया?", locale: "hi" });
+    expect(hindi.status).toBe(200);
+    expect(hindi.body.toolCalls).toEqual([]);
+    expect(hindi.body.message).toContain("Jitendra Kumar");
+    const about = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", "Bearer " + token).send({ utterance: "ZARVIS क्या कर सकता है?", locale: "hi" });
+    expect(about.status).toBe(200);
+    expect(about.body.toolCalls).toEqual([]);
+    expect(about.body.message).toContain("ZARVIS Mobile");
+    expect(about.body.message).toContain("Jitendra Kumar");
+  });
 });
