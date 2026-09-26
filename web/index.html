@@ -36,45 +36,16 @@
       </div>
     </header>
 
-    <!-- Desktop-only sidebar (≥1024px, see styles.css) — mirrors .bottom-nav's items via the
-         same shared .nav-item class/data-view attributes, so app.js's existing generic
-         querySelectorAll(".nav-item") wiring drives both without any script changes. Only the
-         same 4 primary destinations as the mobile bottom nav — Settings stays reachable only
-         via the topbar gear icon (not a 5th sidebar item), and Developer is an entry point
-         inside Capabilities rather than its own primary destination, so this never turns into
-         a second, crowded nav surface. -->
+    <!-- Desktop primary navigation: all core pages stay one click away. -->
     <nav class="sidebar-nav" id="sidebar-nav" aria-label="Main">
-      <button type="button" class="nav-item active" data-view="home">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-        <span>Home</span>
-      </button>
-      <button type="button" class="nav-item" data-view="chat">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9.1 9.1 0 0 1-4.2-1L3 21l1.8-4.3A8.2 8.2 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5Z"></path><path d="M8 11h.01M12 11h.01M16 11h.01"></path></svg>
-        <span>Chat</span>
-      </button>
-      <button type="button" class="nav-item" data-view="capabilities">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
-        <span>Capabilities</span>
-      </button>
-      <button type="button" class="nav-item" data-view="activity">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M7 16v-3M12 16V8M17 16v-6"></path></svg>
-        <span>Activity</span>
-        <span class="nav-badge" id="activity-badge" hidden></span>
-      </button>
-      <button type="button" class="nav-item" data-view="activity">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M7 16v-3M12 16V8M17 16v-6"></path></svg>
-        <span>Activity</span>
-        <span class="nav-badge" id="activity-badge" hidden></span>
-      </button>
-      <button type="button" class="nav-item" data-view="plans">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-        <span>Plans</span>
-      </button>
-      <button type="button" class="nav-item" data-view="metrics">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-        <span>Metrics</span>
-        <span class="nav-badge" id="metrics-badge-sidebar" hidden></span>
-      </button>
+      <button type="button" class="nav-item active" data-view="home"><span>⌂</span><span>Home</span></button>
+      <button type="button" class="nav-item" data-view="chat"><span>◌</span><span>Chat</span></button>
+      <button type="button" class="nav-item" data-view="capabilities"><span>✦</span><span>Capabilities</span></button>
+      <button type="button" class="nav-item" data-view="activity"><span>▤</span><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
+      <button type="button" class="nav-item" data-view="metrics"><span>⌁</span><span>Metrics</span></button>
+      <button type="button" class="nav-item" data-view="plans"><span>◇</span><span>Plans</span></button>
+      <button type="button" class="nav-item" data-view="developer"><span>&lt;/&gt;</span><span>Developer</span></button>
+      <button type="button" class="nav-item" data-view="settings"><span>⚙</span><span>Settings</span></button>
     </nav>
 
     <!-- Groups the switchable views + composer as one flex column, so the desktop grid
@@ -336,27 +307,11 @@
     </div>
 
     <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
-      <button type="button" class="nav-item active" data-view="home">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-        <span>Home</span>
-      </button>
-      <button type="button" class="nav-item" data-view="chat">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9.1 9.1 0 0 1-4.2-1L3 21l1.8-4.3A8.2 8.2 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5Z"></path><path d="M8 11h.01M12 11h.01M16 11h.01"></path></svg>
-        <span>Chat</span>
-      </button>
-      <button type="button" class="nav-item" data-view="capabilities">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
-        <span>Capabilities</span>
-      </button>
-      <button type="button" class="nav-item" data-view="plans">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-        <span>Plans</span>
-      </button>
-      <button type="button" class="nav-item" data-view="metrics">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-        <span>Metrics</span>
-        <span class="nav-badge" id="metrics-badge" hidden></span>
-      </button>
+      <button type="button" class="nav-item active" data-view="home"><span>⌂</span><span>Home</span></button>
+      <button type="button" class="nav-item" data-view="chat"><span>◌</span><span>Chat</span></button>
+      <button type="button" class="nav-item" data-view="capabilities"><span>✦</span><span>Features</span></button>
+      <button type="button" class="nav-item" data-view="activity"><span>▤</span><span>Activity</span><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
+      <button type="button" class="nav-item" data-view="settings"><span>⚙</span><span>Settings</span></button>
     </nav>
   </div>
 
