@@ -5,6 +5,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 
 private val DarkColors = darkColorScheme(
     primary = ZarvisAccentCyan,
@@ -42,7 +43,7 @@ private val LightColors = lightColorScheme(
     onError = Color.White,
 )
 
-/** Aurora Glass app theme. Light mode is the default and remains user-switchable. */
+/** Aurora Glass app theme. Light mode is the default. */
 @Composable
 fun ZarvisTheme(
     darkTheme: Boolean = false,
@@ -56,7 +57,6 @@ fun ZarvisTheme(
     )
 }
 
-/** Reusable aurora gradient for highlights and icon surfaces. */
 fun zarvisAuroraBrush() = Brush.linearGradient(
     colors = listOf(ZarvisAccentCyan, ZarvisAccentIndigo, ZarvisAccentViolet, ZarvisAccentPink),
 )
