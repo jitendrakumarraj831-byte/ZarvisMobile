@@ -307,6 +307,7 @@ function getSimpleGreetingResponse(utterance: string, locale?: string): string |
 }
 
 function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools: boolean): string {
+  const replyLanguage = detectReplyLanguage(request.utterance, request.locale);
   let prompt =
     "You are ZARVIS, a general-purpose AI agent. Your job is to complete the user's goal, " +
     "not merely classify the request. You have access to tools and may use multiple tools " +
@@ -320,6 +321,9 @@ function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools:
     "reply rather than an English-only reply. If the user mixes Hindi and English, preserve that " +
     "natural mix. Do not switch languages just because the browser locale is English.";
 
+  prompt +=
+    ` Respond in ${replyLanguage === "hi" ? "Hindi/Hinglish" : "English"} based on the current user message. ` +
+    "Do not let an English UI locale override a Hindi/Hinglish current message.";
   prompt += ` This is agent step ${step + 1} of a maximum of ${MAX_AGENT_STEPS}.`;
   if (hasExecutedTools) {
     prompt +=
