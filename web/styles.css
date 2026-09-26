@@ -3062,3 +3062,69 @@ body { background: var(--zarvis-space-black); }
     animation: none !important;
   }
 }
+
+
+/* HOME-ONLY BRAND HEADER -------------------------------------------------------------
+   The large ZARVIS MOBILE lockup belongs only to Home. Chat/replies use the compact
+   Z assistant mark inside assistant messages, keeping the conversation screen clean. */
+.topbar[data-home-only-header] {
+  transition: opacity .18s ease, transform .18s ease, max-height .22s ease, margin .22s ease;
+}
+body[data-active-view="home"] .topbar[data-home-only-header] {
+  opacity: 1;
+  transform: translateY(0);
+  max-height: 90px;
+  overflow: visible;
+}
+body:not([data-active-view="home"]) .topbar[data-home-only-header] {
+  opacity: 0;
+  transform: translateY(-12px);
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* When the top brand disappears, let the active page breathe from the top instead of
+   leaving an invisible header-sized gap. */
+body:not([data-active-view="home"]) .stage {
+  padding-top: 18px;
+}
+
+/* Compact ZARVIS identity for assistant replies. */
+.bubble.assistant::before {
+  content: "Z";
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  border-radius: 9px;
+  background:
+    linear-gradient(145deg, #00d9ff, #4772ff 48%, #9a55f5 78%, #f05aae);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.72);
+  box-shadow:
+    0 4px 12px rgba(71,114,255,.20),
+    0 0 14px rgba(0,191,232,.13);
+  font: 800 11px/1 var(--font-display);
+  text-shadow: 0 1px 3px rgba(32,49,110,.28);
+}
+.bubble.assistant::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 0 0 1px;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: #22c98b;
+  box-shadow: 0 0 0 3px rgba(34,201,139,.10), 0 0 9px rgba(34,201,139,.45);
+}
+@media (max-width: 639px) {
+  body:not([data-active-view="home"]) .stage {
+    padding-top: 12px;
+  }
+}
