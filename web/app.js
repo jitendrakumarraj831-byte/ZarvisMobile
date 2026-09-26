@@ -653,14 +653,15 @@
   // keeps the composer visible — the other three are read-only/showcase surfaces reached one
   // tap away, replacing the old single "Status & Workflows" drawer.
 
+  // Public navigation surface. Internal developer/diagnostic screens are deliberately
+  // excluded from the consumer web app; their implementation remains available for private
+  // owner/developer builds without exposing technical details in normal navigation.
   const VIEWS = {
     home: el.viewHome,
     chat: el.viewWorkspace,
     capabilities: el.viewCapabilities,
     plans: el.viewPlans,
-    metrics: el.viewMetrics,
     activity: el.viewActivity,
-    developer: el.viewDeveloper,
     settings: el.viewSettings,
   };
 
@@ -680,7 +681,7 @@
       setActiveView("settings");
     });
     el.settingsBackBtn.addEventListener("click", () => setActiveView("home"));
-    el.developerBackBtn.addEventListener("click", () => setActiveView("capabilities"));
+    el.developerBackBtn?.addEventListener("click", () => setActiveView("capabilities"));
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
     for (const btn of document.querySelectorAll("[data-home-view]")) {
       btn.addEventListener("click", () => setActiveView(btn.dataset.homeView));
