@@ -45,22 +45,21 @@ private fun ZarvisRoot(
     startupViewModel: AppStartupViewModel = hiltViewModel(),
     confirmationViewModel: ConfirmationViewModel = hiltViewModel(),
 ) {
-    val state by startupViewModel.state.collectAsState()
+    val startupState by startupViewModel.state.collectAsState()
+    val darkTheme by startupViewModel.darkTheme.collectAsState(initial = false)
 
-    when (val current = state) {
-        is AppStartupState.Loading -> ZarvisTheme { StartupLoading() }
-        is AppStartupState.Failed -> ZarvisTheme { StartupError(message = current.message, onRetry = startupViewModel::retry) }
-        is AppStartupState.Ready -> ZarvisTheme(
-            darkTheme = false,
-        ) {
-            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                ZarvisNavGraph(startAtOnboarding = !current.onboardingComplete)
+    ZarvisTheme(darkTheme = darkTheme) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            when (val current = startupState) {
+                is AppStartupState.Loading -> StartupLoading()
+                is AppStartupState.Failed -> StartupError(message = current.message, onRetry = startupViewModel::retry)
+                is AppStartupState.Ready -> ZarvisNavGraph(startAtOnboarding = !current.onboardingComplete)
             }
         }
-    }
 
-    val pending by confirmationViewModel.pending.collectAsState()
-    pending?.let { ZarvisTheme { RiskConfirmationDialog(it) } }
+        val pending by confirmationViewModel.pending.collectAsState()
+        pending?.let { RiskConfirmationDialog(it) }
+    }
 }
 
 @Composable
@@ -95,10 +94,7 @@ private fun StartupLoading() {
 @Composable
 private fun StartupError(message: String, onRetry: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(text = message, style = MaterialTheme.typography.bodyLarge)
             ZarvisPrimaryButton(text = "Retry", onClick = onRetry)
         }
