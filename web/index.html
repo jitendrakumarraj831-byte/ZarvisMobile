@@ -152,20 +152,7 @@
           <div class="plan-cards" id="plan-cards"></div>
         </section>
 
-        <section class="stage" id="view-metrics" hidden>
-          <div class="view-header">
-            <h2>System Metrics</h2>
-            <p>Latency measured live in this browser, and your current task log.</p>
-          </div>
-          <div class="status-grid" id="metrics-health-grid"></div>
-          <h3 class="section-label">Live API Latency</h3>
-          <div class="stat-row" id="latency-stats"></div>
-          <div class="latency-log" id="latency-log"></div>
-          <h3 class="section-label">Task Log</h3>
-          <div class="task-list" id="task-list"></div>
-        </section>
-
-        <section class="stage" id="view-activity" hidden>
+                <section class="stage" id="view-activity" hidden>
           <div class="view-header">
             <h2>Activity</h2>
             <p>Live task activity from the existing ZARVIS backend.</p>
@@ -176,29 +163,7 @@
           <div class="task-list" id="activity-task-list"></div>
         </section>
 
-        <section class="stage" id="view-developer" hidden>
-          <div class="view-header">
-            <button type="button" class="back-btn" id="developer-back-btn" aria-label="Back to Capabilities">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-            </button>
-            <h2>Developer</h2>
-            <p>Analyze a GitHub repository, then generate a bounded change on a new branch and open a PR for your review.</p>
-          </div>
-          <div class="zarvis-card">
-            <label class="card-title" for="developer-repo-input">Repository URL</label>
-            <input id="developer-repo-input" class="text-input-block" type="text" placeholder="https://github.com/owner/repo" autocomplete="off" />
-            <button type="button" class="zarvis-btn zarvis-btn-primary" id="developer-analyze-btn">Analyze</button>
-          </div>
-          <div class="zarvis-card">
-            <label class="card-title" for="developer-requirement-input">What should ZARVIS implement?</label>
-            <textarea id="developer-requirement-input" class="text-input-block" rows="4" placeholder="Example: Fix the failing image upload flow and add regression tests."></textarea>
-            <p class="card-desc">Implementation is confirmation-gated, limited to small text-file changes, creates a separate branch, and opens a pull request. It never auto-merges.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-danger" id="developer-implement-btn">Implement &amp; Open PR</button>
-          </div>
-          <div id="developer-result"></div>
-        </section>
-
-        <section class="stage" id="view-settings" hidden>
+                <section class="stage" id="view-settings" hidden>
           <div class="view-header">
             <button type="button" class="back-btn" id="settings-back-btn" aria-label="Back to Home">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
