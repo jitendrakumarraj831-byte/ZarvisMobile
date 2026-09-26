@@ -82,6 +82,45 @@ describe("GeminiProvider.generate", () => {
 });
 
 describe("GeminiProvider.streamGenerate", () => {
+  it("retries transient stream failures and falls back to the next model", async () => {
+    const sse = `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: "Recovered" }] } }] })}\n\n`;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(sse));
+        controller.close();
+      },
+    });
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls += 1;
+        if (calls === 1) {
+          expect(url).toContain("models/gemini-2.0-flash:streamGenerateContent");
+          return new Response("quota", { status: 429, statusText: "Too Many Requests" });
+        }
+        if (calls === 2) {
+          expect(url).toContain("models/gemini-2.0-flash:streamGenerateContent");
+          return new Response("still busy", { status: 503, statusText: "Service Unavailable" });
+        }
+        expect(url).toContain("models/gemini-3.7-flash:streamGenerateContent");
+        return new Response(stream, { status: 200 });
+      }),
+    );
+
+    const provider = new GeminiProvider("test-key");
+    const chunks = [];
+    for await (const chunk of provider.streamGenerate(baseRequest)) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { delta: "Recovered", done: false },
+      { delta: "", done: true },
+    ]);
+    expect(calls).toBe(3);
+  });
+
   it("yields incremental text deltas parsed from the SSE stream", async () => {
     const sse =
       `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: "Hello " }] } }] })}\n\n` +
