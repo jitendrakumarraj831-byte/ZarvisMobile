@@ -16,7 +16,7 @@ private object Keys {
     val DARK_THEME = booleanPreferencesKey("dark_theme_override")
 }
 
-/** Non-sensitive local preferences (onboarding state, language, theme). See MASTER_SPEC.md §22, §16. */
+/** Local app preferences only. No backend/API behavior is changed here. */
 class AppPreferences(private val context: Context) {
     val onboardingComplete: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.ONBOARDING_COMPLETE] ?: false }
@@ -24,11 +24,18 @@ class AppPreferences(private val context: Context) {
     val locale: Flow<String> =
         context.dataStore.data.map { it[Keys.LOCALE] ?: "en" }
 
+    val darkTheme: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.DARK_THEME] ?: false }
+
     suspend fun setOnboardingComplete(complete: Boolean) {
         context.dataStore.edit { it[Keys.ONBOARDING_COMPLETE] = complete }
     }
 
     suspend fun setLocale(locale: String) {
         context.dataStore.edit { it[Keys.LOCALE] = locale }
+    }
+
+    suspend fun setDarkTheme(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.DARK_THEME] = enabled }
     }
 }
