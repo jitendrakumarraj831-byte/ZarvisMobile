@@ -2075,3 +2075,297 @@ body {
     transform: none;
   }
 }
+
+
+/* ==========================================================================
+   ZARVIS COLORFUL MODERN LAYER
+   Brighter "aurora glass" direction: more color, lighter surfaces, modern AI UI.
+   ========================================================================== */
+
+:root {
+  --zarvis-space-black: #0b1020;
+  --zarvis-bg-soft: #f4f7ff;
+  --zarvis-surface: rgba(255,255,255,.78);
+  --zarvis-surface-elevated: rgba(255,255,255,.82);
+  --zarvis-surface-strong: rgba(255,255,255,.88);
+  --zarvis-accent-cyan: #00bfe8;
+  --zarvis-accent-blue: #4772ff;
+  --zarvis-accent-violet: #8a5cf6;
+  --zarvis-text-primary: #17213b;
+  --zarvis-text-secondary: #68738d;
+  --zarvis-border-soft: rgba(74, 91, 140, .16);
+  --zarvis-border: rgba(74, 91, 140, .18);
+  --glow-cyan: rgba(0,191,232,.42);
+  --radius: 20px;
+  --radius-lg: 28px;
+}
+
+body {
+  color: var(--zarvis-text-primary);
+  background:
+    radial-gradient(700px 500px at 8% 5%, rgba(255, 115, 184, .24), transparent 66%),
+    radial-gradient(700px 520px at 92% 8%, rgba(79, 124, 255, .25), transparent 65%),
+    radial-gradient(700px 520px at 52% 100%, rgba(0, 207, 255, .20), transparent 68%),
+    linear-gradient(135deg, #f8fbff 0%, #eef3ff 48%, #f8f0ff 100%);
+}
+
+.bg-glow {
+  opacity: 1;
+  background:
+    radial-gradient(42% 34% at 5% 8%, rgba(255, 89, 171, .25), transparent 72%),
+    radial-gradient(40% 35% at 96% 10%, rgba(83, 111, 255, .25), transparent 70%),
+    radial-gradient(50% 38% at 55% 105%, rgba(0, 206, 255, .22), transparent 72%);
+  filter: blur(1px);
+}
+
+.app {
+  color: var(--zarvis-text-primary);
+}
+
+.app::before {
+  opacity: .10;
+  background-image:
+    linear-gradient(rgba(72, 91, 145, .10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(72, 91, 145, .10) 1px, transparent 1px);
+  mask-image: linear-gradient(to bottom, black, transparent 78%);
+}
+
+/* Header: clean white glass with a colorful status mark. */
+.topbar {
+  background: rgba(255,255,255,.70);
+  border-color: rgba(80,96,150,.14);
+  box-shadow: 0 18px 50px rgba(71, 88, 145, .13);
+}
+.brand-mark {
+  background: linear-gradient(135deg, #00d8ff, #4772ff 55%, #a855f7);
+  box-shadow: 0 0 22px rgba(71,114,255,.38);
+}
+.brand-name {
+  color: #18233d;
+}
+.brand-name b {
+  background: linear-gradient(90deg, #00a9df, #536dff 55%, #a34ff2);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.topbar-actions .icon-btn {
+  color: #56627d;
+  background: rgba(255,255,255,.68);
+  border-color: rgba(80,96,150,.13);
+}
+
+/* Hero: colorful aurora focal point instead of a black void. */
+.hero-greeting {
+  color: #68728a;
+}
+.hero-title {
+  background: linear-gradient(90deg, #1d2d55 0%, #3f62e9 36%, #8c4eea 68%, #e14d9b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-subtitle {
+  color: #69758f;
+}
+
+.orb-wrap {
+  filter: drop-shadow(0 20px 34px rgba(76, 94, 190, .15));
+}
+.orb-ring {
+  border-color: rgba(71,114,255,.24);
+  box-shadow:
+    0 0 0 7px rgba(255,255,255,.35),
+    0 0 44px rgba(0,191,232,.20);
+}
+.orb {
+  background:
+    radial-gradient(circle at 28% 20%, #ffffff 0 5%, #b9f8ff 13%, #42e7ff 31%, #4d7cff 59%, #8b5cf6 79%, #ef5db8 100%);
+  box-shadow:
+    0 0 34px rgba(0, 199, 239, .30),
+    0 0 76px rgba(124, 92, 246, .22),
+    inset 0 0 20px rgba(255,255,255,.48);
+}
+.orb::before {
+  border-color: rgba(138,92,246,.24);
+}
+
+/* Status pill gets a fresh gradient tint. */
+.hero-status {
+  color: #596681;
+  background: rgba(255,255,255,.64);
+  border-color: rgba(71,114,255,.15);
+  box-shadow: 0 8px 24px rgba(71,88,145,.08);
+}
+
+/* Conversation surfaces: light glass with colorful accents. */
+.bubble {
+  color: #1c2741;
+  box-shadow: 0 10px 28px rgba(71,88,145,.10);
+}
+.bubble.user {
+  color: #fff;
+  background: linear-gradient(135deg, #4772ff 0%, #765eea 52%, #a855f7 100%);
+  border-color: rgba(255,255,255,.40);
+  box-shadow: 0 13px 30px rgba(91,89,224,.20);
+}
+.bubble.assistant {
+  background: rgba(255,255,255,.78);
+  border-color: rgba(71,114,255,.14);
+  box-shadow: 0 10px 28px rgba(71,88,145,.09);
+}
+.bubble.assistant::before {
+  background: linear-gradient(135deg, #d9fbff, #e9ddff);
+  color: #4772ff;
+  border: 1px solid rgba(71,114,255,.12);
+}
+
+/* AI result cards become colorful glass panels. */
+.result-widget {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.88), rgba(246,248,255,.78));
+  border-color: rgba(71,114,255,.15);
+  box-shadow: 0 16px 42px rgba(71,88,145,.11);
+  color: #1b2743;
+}
+
+/* Quick action chips: every chip feels tappable and colorful. */
+.quick-actions-lead {
+  color: #78839b;
+}
+.quick-action {
+  color: #4f5c78;
+  background: rgba(255,255,255,.72);
+  border-color: rgba(71,114,255,.14);
+  box-shadow: 0 7px 22px rgba(71,88,145,.09);
+}
+.quick-action:nth-child(3n+1) {
+  border-color: rgba(0,191,232,.24);
+}
+.quick-action:nth-child(3n+2) {
+  border-color: rgba(138,92,246,.22);
+}
+.quick-action:nth-child(3n+3) {
+  border-color: rgba(225,77,155,.22);
+}
+.quick-action:hover {
+  color: #24304b;
+  background: linear-gradient(135deg, rgba(0,208,255,.12), rgba(139,92,246,.10));
+  border-color: rgba(71,114,255,.35);
+  box-shadow: 0 10px 26px rgba(71,114,255,.12);
+}
+
+/* Command bar: white glass, rainbow edge, strong primary Send. */
+.composer {
+  background: linear-gradient(to top, rgba(238,243,255,.94) 64%, rgba(238,243,255,0));
+}
+.command-bar {
+  background: rgba(255,255,255,.88);
+  border: 1px solid rgba(71,114,255,.17);
+  box-shadow:
+    0 20px 50px rgba(71,88,145,.16),
+    inset 0 1px 0 rgba(255,255,255,.9);
+}
+.command-bar:focus-within {
+  border-color: rgba(71,114,255,.40);
+  box-shadow:
+    0 20px 50px rgba(71,88,145,.16),
+    0 0 32px rgba(0,191,232,.12);
+}
+.text-input {
+  color: #1b2743;
+}
+.text-input::placeholder {
+  color: #8792a8;
+}
+.mic-btn {
+  color: #596681;
+  background: linear-gradient(135deg, rgba(0,191,232,.09), rgba(71,114,255,.08));
+}
+.mic-btn:hover:not(:disabled) {
+  color: #4772ff;
+  background: linear-gradient(135deg, rgba(0,191,232,.16), rgba(71,114,255,.13));
+}
+.send-btn {
+  color: #fff;
+  background: linear-gradient(135deg, #00c9ed 0%, #4772ff 52%, #9258f4 100%);
+  box-shadow: 0 9px 22px rgba(71,114,255,.24);
+}
+
+/* Navigation: light floating dock with a colorful active pill. */
+.bottom-nav {
+  background: rgba(255,255,255,.82);
+  border-color: rgba(71,114,255,.14);
+  box-shadow: 0 18px 48px rgba(71,88,145,.15);
+}
+.nav-item {
+  color: #7a859d;
+}
+.nav-item.active {
+  color: #3e61dc;
+  background: linear-gradient(135deg, rgba(0,201,237,.13), rgba(71,114,255,.13), rgba(146,88,244,.11));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.85),
+    0 5px 18px rgba(71,114,255,.08);
+}
+.nav-item.active svg {
+  color: #4772ff;
+}
+
+/* Capability / plans / metrics cards: bright modern dashboard surfaces. */
+.view-header h2 {
+  color: #18233d;
+}
+.view-header p {
+  color: #69758f;
+}
+.zarvis-card,
+.capability-card,
+.plan-card,
+.stat-tile,
+.task-card,
+.latency-row,
+.latency-empty {
+  color: #1c2741;
+  background: linear-gradient(145deg, rgba(255,255,255,.84), rgba(244,247,255,.76));
+  border-color: rgba(71,114,255,.13);
+  box-shadow: 0 12px 34px rgba(71,88,145,.09);
+}
+.capability-icon {
+  background: linear-gradient(135deg, rgba(0,201,237,.14), rgba(71,114,255,.13), rgba(146,88,244,.12));
+  border-color: rgba(71,114,255,.14);
+}
+
+/* Color-coded active states without making the UI noisy. */
+.orb[data-state="SUCCESS"] {
+  background: radial-gradient(circle at 30% 22%, #ffffff, #a7ffd9 18%, #20d6a0 52%, #4772ff 100%);
+  box-shadow: 0 0 42px rgba(32,214,160,.30), 0 0 82px rgba(71,114,255,.18);
+}
+
+/* Desktop workspace gets a soft white glass canvas instead of a dark wall. */
+@media (min-width: 1024px) {
+  .sidebar-nav {
+    background: rgba(255,255,255,.30);
+    border-right-color: rgba(71,114,255,.11);
+  }
+  .sidebar-nav .nav-item {
+    color: #69758f;
+  }
+  .sidebar-nav .nav-item.active {
+    color: #3e61dc;
+    background: linear-gradient(135deg, rgba(0,201,237,.12), rgba(71,114,255,.12), rgba(146,88,244,.10));
+  }
+}
+
+/* Tiny phones: retain color and contrast without visual crowding. */
+@media (max-width: 420px) {
+  .topbar {
+    background: rgba(255,255,255,.76);
+  }
+  .hero-title {
+    font-size: 23px;
+  }
+  .command-bar {
+    background: rgba(255,255,255,.92);
+  }
+}
