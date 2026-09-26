@@ -1622,3 +1622,456 @@ body {
 .widget-body .reply-list li { margin: .25rem 0; padding-left: .15rem; }
 .widget-body code, .bubble.assistant code { padding: .1rem .35rem; border-radius: .35rem; background: rgba(255,255,255,.07); font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size: .92em; }
 .widget-body strong, .bubble.assistant strong { font-weight: 700; }
+
+/* ==========================================================================
+   ZARVIS PREMIUM UI REFRESH
+   Visual direction: cinematic AI cockpit + modern mobile messenger.
+   No markup or JS dependency changes; this layer intentionally overrides the
+   existing theme so interaction logic remains untouched.
+   ========================================================================== */
+
+:root {
+  --zarvis-space-black: #05070d;
+  --zarvis-bg-soft: #080c14;
+  --zarvis-surface: #0b111d;
+  --zarvis-surface-elevated: rgba(15, 23, 38, 0.78);
+  --zarvis-surface-strong: rgba(9, 15, 27, 0.88);
+  --zarvis-accent-cyan: #38e8ff;
+  --zarvis-accent-blue: #4f7cff;
+  --zarvis-accent-violet: #8b6cff;
+  --zarvis-text-primary: #f7f9ff;
+  --zarvis-text-secondary: #8f9bb2;
+  --zarvis-border-soft: rgba(148, 174, 220, 0.14);
+  --glow-cyan-soft: rgba(56, 232, 255, 0.18);
+  --radius: 20px;
+  --radius-lg: 28px;
+}
+
+/* A quieter background makes the orb and messages feel intentional rather than busy. */
+body {
+  background:
+    radial-gradient(900px 520px at 50% -120px, rgba(79, 124, 255, 0.14), transparent 68%),
+    radial-gradient(620px 480px at 100% 35%, rgba(56, 232, 255, 0.07), transparent 72%),
+    #05070d;
+}
+
+.bg-glow {
+  opacity: .72;
+  background:
+    radial-gradient(55% 38% at 15% 0%, rgba(79,124,255,.18), transparent 70%),
+    radial-gradient(48% 36% at 100% 12%, rgba(56,232,255,.12), transparent 70%),
+    radial-gradient(65% 45% at 50% 110%, rgba(139,108,255,.09), transparent 72%);
+}
+
+/* Subtle HUD grid, visible only as texture. */
+.app::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: .16;
+  background-image:
+    linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+/* Topbar becomes a floating product header. */
+.topbar {
+  height: 66px;
+  padding: 0 18px;
+  margin: 10px 12px 0;
+  border: 1px solid rgba(148,174,220,.12);
+  border-radius: 22px;
+  background: rgba(9,15,27,.62);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 16px 45px rgba(0,0,0,.22);
+}
+.brand {
+  gap: 11px;
+}
+.brand-mark {
+  width: 13px;
+  height: 13px;
+  box-shadow: 0 0 22px 3px rgba(56,232,255,.7);
+}
+.brand-name {
+  letter-spacing: .07em;
+  font-size: 13px;
+}
+.brand-name b {
+  color: var(--zarvis-accent-cyan);
+}
+.topbar-actions .icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.045);
+  border-color: rgba(148,174,220,.13);
+}
+
+/* Workspace spacing: more breathing room, less "stack of boxes". */
+.stage {
+  padding: 16px 20px 12px;
+  gap: 18px;
+}
+#view-workspace {
+  gap: 20px;
+}
+.hero {
+  padding: 26px 8px 10px;
+}
+.hero-greeting {
+  color: #aab5c9;
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+.hero-title {
+  font-size: clamp(23px, 5.5vw, 31px);
+  line-height: 1.14;
+  letter-spacing: -.035em;
+  font-weight: 700;
+  max-width: 520px;
+  margin: 0 auto 9px;
+}
+.hero-subtitle {
+  max-width: 480px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #8794ab;
+}
+
+/* Orb: premium glass reactor with a stronger center and quieter ring. */
+.orb-wrap {
+  width: 112px;
+  height: 112px;
+  margin: 0 auto 19px;
+}
+.orb-ring {
+  inset: -7px;
+  border-color: rgba(56,232,255,.22);
+  box-shadow: 0 0 0 1px rgba(79,124,255,.08), 0 0 42px rgba(56,232,255,.10);
+}
+.orb {
+  width: 72px;
+  height: 72px;
+  background:
+    radial-gradient(circle at 31% 25%, #e7fcff 0 4%, #6ff1ff 17%, #38dff7 40%, #4f7cff 72%, #7865ff 100%);
+  box-shadow:
+    0 0 42px rgba(56,232,255,.28),
+    0 0 90px rgba(79,124,255,.12),
+    inset 0 0 22px rgba(255,255,255,.25);
+}
+.orb::before {
+  content: "";
+  position: absolute;
+  inset: -13px;
+  border-radius: 50%;
+  border: 1px solid rgba(56,232,255,.12);
+  animation: zarvis-orbit 7s linear infinite;
+}
+@keyframes zarvis-orbit {
+  to { transform: rotate(360deg); }
+}
+
+/* Once chatting, keep a compact "AI status" header instead of a giant hero. */
+#view-workspace:has(#conversation:not(:empty)) .hero {
+  padding: 7px 0 2px;
+}
+#view-workspace:has(#conversation:not(:empty)) .orb-wrap {
+  width: 66px;
+  height: 66px;
+  margin-bottom: 9px;
+}
+#view-workspace:has(#conversation:not(:empty)) .orb {
+  width: 46px;
+  height: 46px;
+}
+
+/* Status indicator gets a glass pill treatment. */
+.hero-status {
+  margin-top: 10px;
+  padding: 6px 11px;
+  border: 1px solid rgba(148,174,220,.12);
+  border-radius: 999px;
+  background: rgba(255,255,255,.035);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Conversation: wider, calmer bubbles with a clear speaker hierarchy. */
+.conversation {
+  gap: 14px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+.bubble {
+  max-width: min(88%, 680px);
+  padding: 13px 16px;
+  border-radius: 20px;
+  line-height: 1.62;
+  box-shadow: 0 10px 30px rgba(0,0,0,.16);
+}
+.bubble.user {
+  background: linear-gradient(135deg, #4f7cff 0%, #5967df 100%);
+  border: 1px solid rgba(255,255,255,.10);
+  border-bottom-right-radius: 7px;
+  box-shadow: 0 12px 30px rgba(55,92,220,.18);
+}
+.bubble.assistant {
+  background: linear-gradient(145deg, rgba(17,26,43,.82), rgba(10,16,29,.78));
+  border: 1px solid rgba(148,174,220,.13);
+  border-bottom-left-radius: 7px;
+}
+.bubble.assistant::before {
+  content: "Z";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 7px 2px 0;
+  vertical-align: middle;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(56,232,255,.22), rgba(79,124,255,.2));
+  color: var(--zarvis-accent-cyan);
+  font: 700 10px/1 var(--font-display);
+}
+
+/* Result cards should feel like an AI workspace, not ordinary chat bubbles. */
+.result-widget {
+  border-radius: 22px;
+  border-color: rgba(148,174,220,.13);
+  background: linear-gradient(145deg, rgba(15,23,38,.84), rgba(8,13,23,.82));
+  box-shadow: 0 16px 42px rgba(0,0,0,.18);
+}
+.widget-body {
+  padding: 17px 18px 19px;
+}
+
+/* Quick actions become a compact "starter deck". */
+.quick-actions-lead {
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: 10px;
+  color: #75839b;
+}
+.categories {
+  gap: 9px;
+  justify-content: center;
+  max-width: 700px;
+  width: 100%;
+  margin: 0 auto;
+}
+.quick-action {
+  padding: 9px 13px;
+  border-radius: 14px;
+  background: rgba(15,23,38,.64);
+  border-color: rgba(148,174,220,.13);
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+}
+.quick-action:hover {
+  transform: translateY(-2px);
+  border-color: rgba(56,232,255,.42);
+  background: rgba(56,232,255,.08);
+}
+
+/* Command bar: the strongest touch target on the screen. */
+.composer {
+  padding: 10px 14px 9px;
+  background: linear-gradient(to top, #05070d 72%, transparent);
+}
+.command-bar {
+  min-height: 58px;
+  padding: 6px 6px 6px 8px;
+  gap: 5px;
+  border-radius: 21px;
+  background: rgba(11,17,29,.88);
+  border: 1px solid rgba(148,174,220,.16);
+  box-shadow:
+    0 18px 48px rgba(0,0,0,.30),
+    inset 0 1px 0 rgba(255,255,255,.035);
+}
+.command-bar:focus-within {
+  border-color: rgba(56,232,255,.38);
+  box-shadow:
+    0 18px 48px rgba(0,0,0,.30),
+    0 0 30px rgba(56,232,255,.08);
+}
+.mic-btn {
+  width: 46px;
+  height: 46px;
+  border-radius: 15px;
+  background: rgba(255,255,255,.045);
+}
+.mic-btn:hover:not(:disabled) {
+  color: var(--zarvis-accent-cyan);
+  background: rgba(56,232,255,.08);
+}
+.mic-btn[aria-pressed="true"] {
+  background: linear-gradient(135deg, #38e8ff, #4f7cff);
+}
+.text-input {
+  height: 46px;
+  font-size: 15px;
+  letter-spacing: -.01em;
+}
+.text-input::placeholder {
+  color: #718099;
+}
+.send-btn {
+  height: 46px;
+  min-width: 46px;
+  padding: 0 16px;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #38e8ff, #4f7cff);
+  box-shadow: 0 7px 20px rgba(56,132,255,.18);
+}
+
+/* Floating bottom navigation with clearer active state. */
+.bottom-nav {
+  margin: 0 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  padding: 5px;
+  background: rgba(9,15,27,.84);
+  border-color: rgba(148,174,220,.14);
+  box-shadow: 0 18px 45px rgba(0,0,0,.32);
+}
+.nav-item {
+  min-height: 45px;
+  border-radius: 15px;
+  font-size: 10px;
+}
+.nav-item.active {
+  background: linear-gradient(135deg, rgba(56,232,255,.13), rgba(79,124,255,.13));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+/* Inner views/cards share one visual language. */
+.view-header {
+  padding: 8px 2px 2px;
+}
+.view-header h2 {
+  font-size: 24px;
+  letter-spacing: -.025em;
+}
+.view-header p {
+  color: #7f8ca4;
+  line-height: 1.55;
+}
+.zarvis-card,
+.capability-card,
+.plan-card,
+.stat-tile,
+.task-card,
+.latency-row,
+.latency-empty {
+  border-color: rgba(148,174,220,.12);
+  background: linear-gradient(145deg, rgba(15,23,38,.76), rgba(9,15,26,.72));
+  box-shadow: 0 12px 34px rgba(0,0,0,.13);
+}
+.capability-card,
+.plan-card {
+  border-radius: 22px;
+}
+.capability-card:hover,
+.plan-card:hover {
+  border-color: rgba(56,232,255,.22);
+  transform: translateY(-1px);
+  transition: border-color .2s ease, transform .2s ease;
+}
+.capability-icon {
+  background: linear-gradient(135deg, rgba(56,232,255,.13), rgba(79,124,255,.14));
+  border: 1px solid rgba(56,232,255,.12);
+}
+.capability-run-btn {
+  min-height: 42px;
+  border-radius: 14px;
+}
+
+/* Desktop: more cinematic proportions and less empty sidebar. */
+@media (min-width: 1024px) {
+  .topbar {
+    margin: 12px 14px 0;
+    height: 68px;
+  }
+  .sidebar-nav {
+    padding: 22px 14px;
+    border-right-color: rgba(148,174,220,.10);
+    background: rgba(5,8,15,.26);
+  }
+  .sidebar-nav .nav-item {
+    min-height: 48px;
+    border-radius: 15px;
+  }
+  .sidebar-nav .nav-item.active {
+    background: linear-gradient(135deg, rgba(56,232,255,.12), rgba(79,124,255,.10));
+  }
+  .stage {
+    padding: 20px 34px 14px;
+  }
+  #view-workspace .hero {
+    padding-top: 30px;
+  }
+  .hero-title {
+    font-size: 32px;
+  }
+}
+
+/* Compact phones: keep the premium look without squeezing the controls. */
+@media (max-width: 420px) {
+  .topbar {
+    margin: 8px 9px 0;
+    height: 60px;
+    border-radius: 19px;
+  }
+  .brand-name {
+    font-size: 12px;
+  }
+  .hero {
+    padding-top: 18px;
+  }
+  .orb-wrap {
+    width: 96px;
+    height: 96px;
+    margin-bottom: 15px;
+  }
+  .orb {
+    width: 64px;
+    height: 64px;
+  }
+  .hero-title {
+    font-size: 23px;
+  }
+  .stage {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .command-bar {
+    min-height: 56px;
+    border-radius: 19px;
+  }
+  .mic-btn, .send-btn, .text-input {
+    height: 44px;
+  }
+  .send-btn {
+    padding: 0 14px;
+  }
+}
+
+/* Respect reduced-motion accessibility while retaining the visual hierarchy. */
+@media (prefers-reduced-motion: reduce) {
+  .orb::before,
+  .orb-ring,
+  .glow-active {
+    animation: none !important;
+  }
+  .capability-card:hover,
+  .plan-card:hover,
+  .quick-action:hover {
+    transform: none;
+  }
+}
