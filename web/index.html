@@ -185,6 +185,18 @@
           <div class="task-list" id="task-list"></div>
         </section>
 
+        <section class="stage" id="view-activity" hidden>
+          <div class="view-header">
+            <h2>Activity</h2>
+            <p>Live task activity from the existing ZARVIS backend.</p>
+          </div>
+          <div class="activity-actions">
+            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="activity-refresh-btn">Refresh activity</button>
+            <button type="button" class="zarvis-btn zarvis-btn-primary" id="activity-metrics-btn">Open Metrics</button>
+          </div>
+          <div class="task-list" id="activity-task-list"></div>
+        </section>
+
         <section class="stage" id="view-developer" hidden>
           <div class="view-header">
             <button type="button" class="back-btn" id="developer-back-btn" aria-label="Back to Capabilities">
@@ -213,40 +225,89 @@
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
             <h2>Settings</h2>
-            <p>Language, voice, and your account data.</p>
+            <p>Organized controls for Voice, Language, Appearance, AI, Notifications, Privacy, Security, Data, Memory and Developer.</p>
           </div>
 
-          <div class="zarvis-card">
-            <h3 class="card-title">Language</h3>
-            <p class="card-desc">Choose English or Hindi for replies and interface text.</p>
-            <div class="option-row" id="settings-lang-options" role="group" aria-label="Language">
-              <button type="button" class="option-btn" data-lang="en">English</button>
-              <button type="button" class="option-btn" data-lang="hi">हिंदी</button>
-            </div>
+          <div class="settings-grid" id="settings-grid">
+            <button type="button" class="settings-entry" data-settings-page="voice"><span class="settings-entry-icon cyan">◉</span><span><strong>Voice</strong><small>Spoken replies and voice selection</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="language"><span class="settings-entry-icon cyan">文</span><span><strong>Language</strong><small>English or हिंदी</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="appearance"><span class="settings-entry-icon violet">◈</span><span><strong>Appearance</strong><small>Aurora Light or subtle Dim theme</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="ai"><span class="settings-entry-icon violet">✦</span><span><strong>AI</strong><small>Current orchestration and model boundary</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="notifications"><span class="settings-entry-icon pink">◌</span><span><strong>Notifications</strong><small>Current browser capability boundary</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="privacy"><span class="settings-entry-icon cyan">✓</span><span><strong>Privacy</strong><small>Account and conversation privacy</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="security"><span class="settings-entry-icon cyan">⌁</span><span><strong>Security</strong><small>Session and authentication tokens</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="data"><span class="settings-entry-icon violet">▣</span><span><strong>Data</strong><small>Server data and deletion</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="memory"><span class="settings-entry-icon pink">♧</span><span><strong>Memory</strong><small>Conversation memory boundary</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="developer"><span class="settings-entry-icon pink">&lt;/&gt;</span><span><strong>Developer options</strong><small>Open the existing Developer Agent</small></span><b>›</b></button>
           </div>
 
-          <div class="zarvis-card">
-            <h3 class="card-title">Spoken replies</h3>
-            <p class="card-desc">Off by default; only ever speaks a reply to voice input (never a typed message). Turn on for Zarvis to speak voice replies out loud (Gemini voice, falling back to your browser's voice). Press the mic on Workspace to speak — it starts and stops only when you press it.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
-            <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
-          </div>
+          <div class="settings-panels" id="settings-panels" hidden>
+            <button type="button" class="back-btn settings-panel-back" data-settings-back aria-label="Back to Settings"></button>
 
-          <div class="zarvis-card">
-            <h3 class="card-title">Memory &amp; Data</h3>
-            <p class="card-desc">
-              Viewing individual memories, clearing a single conversation, and exporting your data are
-              planned — not yet wired to a backend endpoint. Deleting your account below is fully wired: it
-              removes your account, tasks, and usage history from the server.
-            </p>
-            <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button>
-          </div>
+            <section class="settings-panel zarvis-card" data-settings-panel="voice" hidden>
+              <h3 class="card-title">Voice</h3>
+              <p class="card-desc">These controls reuse the existing browser Speech Recognition and TTS pipeline.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
+              <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
+            </section>
 
-          <div class="zarvis-card">
-            <h3 class="card-title">Session</h3>
-            <p class="card-desc">Clears your locally-stored session only. The next visit bootstraps a fresh guest account.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-clear-session-btn">Clear local session</button>
+            <section class="settings-panel zarvis-card" data-settings-panel="language" hidden>
+              <h3 class="card-title">Language</h3>
+              <p class="card-desc">Switch the existing bilingual interface and request locale.</p>
+              <div class="option-row" id="settings-lang-options" role="group" aria-label="Language">
+                <button type="button" class="option-btn" data-lang="en">English</button>
+                <button type="button" class="option-btn" data-lang="hi">हिंदी</button>
+              </div>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="appearance" hidden>
+              <h3 class="card-title">Appearance</h3>
+              <p class="card-desc">Aurora Light is the default. Dim is intentionally soft — it does not replace the colorful UI with a black screen.</p>
+              <div class="option-row">
+                <button type="button" class="option-btn" id="appearance-aurora-btn" data-appearance="aurora">Aurora Light</button>
+                <button type="button" class="option-btn" id="appearance-dim-btn" data-appearance="dim">Dim</button>
+              </div>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="ai" hidden>
+              <h3 class="card-title">AI</h3>
+              <p class="card-desc">The existing backend remains the source of truth for orchestration, model/provider selection, tool permissions and AI business logic. No client-side provider switch is fabricated.</p>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="notifications" hidden>
+              <h3 class="card-title">Notifications</h3>
+              <p class="card-desc">Web push/background notification controls are not exposed by the current web API. Existing task state is available under Activity; no fake notification toggle is added.</p>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="privacy" hidden>
+              <h3 class="card-title">Privacy</h3>
+              <p class="card-desc">The browser uses the existing authenticated guest session and conversation API. Account deletion below is the real backend operation.</p>
+              <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="security" hidden>
+              <h3 class="card-title">Security</h3>
+              <p class="card-desc">The browser keeps its existing access/refresh tokens in localStorage and refreshes them through the current API. No new auth path is introduced.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-clear-session-btn">Clear local session</button>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="data" hidden>
+              <h3 class="card-title">Data</h3>
+              <p class="card-desc">The current backend exposes authenticated account deletion, tasks, usage and entitlements. There is no export endpoint in this build, so no export button is fabricated.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-danger" data-settings-open-privacy>Delete account</button>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="memory" hidden>
+              <h3 class="card-title">Memory</h3>
+              <p class="card-desc">The existing conversationId and bounded local follow-up history are preserved. The backend does not currently expose individual memory browse/delete endpoints, so this page intentionally has no non-functional switches.</p>
+            </section>
+
+            <section class="settings-panel zarvis-card" data-settings-panel="developer" hidden>
+              <h3 class="card-title">Developer options</h3>
+              <p class="card-desc">Open the existing Developer Agent. It continues to use the existing analysis and confirmation-gated implementation APIs.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-primary" id="settings-open-developer">Open Developer Agent</button>
+            </section>
           </div>
         </section>
       </main>
