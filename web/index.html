@@ -24,39 +24,6 @@
   <div class="bg-glow" aria-hidden="true"></div>
 
   <div class="app">
-    <header class="topbar" data-home-only-header>
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 44 44" role="img" aria-hidden="true">
-            <defs>
-              <linearGradient id="zarvis-logo-gradient" x1="5" y1="6" x2="39" y2="39">
-                <stop offset="0" stop-color="#00D9FF"/>
-                <stop offset=".45" stop-color="#4772FF"/>
-                <stop offset=".76" stop-color="#9A55F5"/>
-                <stop offset="1" stop-color="#F05AAE"/>
-              </linearGradient>
-              <linearGradient id="zarvis-logo-shine" x1="10" y1="5" x2="32" y2="36">
-                <stop stop-color="#FFFFFF" stop-opacity=".9"/>
-                <stop offset="1" stop-color="#FFFFFF" stop-opacity=".12"/>
-              </linearGradient>
-            </defs>
-            <path class="zarvis-logo-z" d="M10 9.5H34L13.5 34.5H35" fill="none" stroke="url(#zarvis-logo-gradient)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-            <path class="zarvis-logo-highlight" d="M11 9.5H31" fill="none" stroke="url(#zarvis-logo-shine)" stroke-width="1.8" stroke-linecap="round"/>
-            <path class="zarvis-logo-star" d="M35.8 5.2l1 2.8 2.8 1-2.8 1-1 2.8-1-2.8-2.8-1 2.8-1z" fill="#FFFFFF"/>
-          </svg>
-        </span>
-        <span class="brand-lockup" aria-label="ZARVIS MOBILE">
-          <span class="brand-name">ZARVIS</span>
-          <span class="brand-sub">MOBILE</span>
-        </span>
-      </div>
-      <div class="topbar-actions">
-        <button id="settings-btn" class="chip-btn icon-btn" type="button" title="Settings">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-        </button>
-      </div>
-    </header>
-
     <!-- Desktop primary navigation: all core pages stay one click away. -->
     <nav class="sidebar-nav" id="sidebar-nav" aria-label="Main">
       <button type="button" class="nav-item active" data-view="home"><span>⌂</span><span>Home</span></button>
@@ -75,9 +42,18 @@
       <main class="views">
         <section class="stage home-stage" id="view-home">
           <div class="home-hero">
-            <div class="home-orb" aria-hidden="true"><span></span></div>
-            <p class="home-eyebrow">ZARVIS MOBILE</p>
-            <h1 class="home-title">Your AI assistant,<br><span>ready when you are.</span></h1>
+            <div class="zarvis-reactor" aria-label="ZARVIS MOBILE">
+              <span class="reactor-orbit reactor-orbit-a" aria-hidden="true"></span>
+              <span class="reactor-orbit reactor-orbit-b" aria-hidden="true"></span>
+              <span class="reactor-orbit reactor-orbit-c" aria-hidden="true"></span>
+              <span class="reactor-orbit reactor-orbit-d" aria-hidden="true"></span>
+              <span class="reactor-dot reactor-dot-a" aria-hidden="true"></span>
+              <span class="reactor-dot reactor-dot-b" aria-hidden="true"></span>
+              <span class="reactor-dot reactor-dot-c" aria-hidden="true"></span>
+              <span class="reactor-core" aria-hidden="true"></span>
+              <span class="reactor-brand">ZARVIS <b>MOBILE</b></span>
+            </div>
+            <p class="home-kicker">YOUR INTELLIGENT AI ASSISTANT</p>
             <p class="home-subtitle">Chat, create, research, code, analyze files, and use voice — all from one intelligent workspace.</p>
           </div>
 

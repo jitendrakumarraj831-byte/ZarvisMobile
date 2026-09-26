@@ -3178,3 +3178,289 @@ body:not([data-active-view="home"]) .stage {
     animation: none;
   }
 }
+
+
+/* ==========================================================================
+   ZARVIS HOME REACTOR
+   Full-screen hero inspired by an atomic AI core: luminous center, four
+   intersecting orbit paths and moving particles. The old Home header/logo card
+   is intentionally removed; the reactor is now the primary identity surface.
+   ========================================================================== */
+
+.home-stage {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 24px 18px 34px;
+  overflow: hidden;
+}
+
+.home-hero {
+  width: min(100%, 760px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+}
+
+.zarvis-reactor {
+  --reactor-size: min(76vw, 430px);
+  width: var(--reactor-size);
+  height: var(--reactor-size);
+  position: relative;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+  margin: 0 auto 18px;
+  filter: drop-shadow(0 28px 55px rgba(27,61,151,.22));
+}
+
+/* Deep atmospheric glow behind the core. */
+.zarvis-reactor::before {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(0,205,255,.24) 0 8%, rgba(50,108,255,.16) 28%, rgba(130,78,245,.10) 48%, transparent 72%);
+  filter: blur(24px);
+  animation: zarvis-reactor-breathe 3.6s ease-in-out infinite;
+}
+
+/* Subtle inner halo. */
+.zarvis-reactor::after {
+  content: "";
+  position: absolute;
+  width: 42%;
+  height: 42%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #dfffff 0%, #35d9ff 24%, #1678ff 55%, #713ff0 78%, rgba(113,63,240,.05) 100%);
+  box-shadow:
+    0 0 30px rgba(0,207,255,.78),
+    0 0 72px rgba(56,108,255,.48),
+    0 0 125px rgba(133,78,245,.30),
+    inset 8px 8px 20px rgba(255,255,255,.42);
+  animation: zarvis-core-pulse 2.7s ease-in-out infinite;
+  z-index: 2;
+}
+
+.reactor-core {
+  position: absolute;
+  width: 23%;
+  height: 23%;
+  border-radius: 50%;
+  z-index: 4;
+  background:
+    radial-gradient(circle at 33% 28%, #fff 0 7%, #c8fbff 16%, #26cfff 34%, #2471ff 67%, #713ff0 100%);
+  box-shadow:
+    0 0 22px #00d8ff,
+    0 0 48px rgba(0,168,255,.86),
+    0 0 82px rgba(86,83,255,.62),
+    inset 5px 5px 12px rgba(255,255,255,.75);
+  animation: zarvis-core-pulse 2.7s ease-in-out infinite reverse;
+}
+
+.reactor-core::after {
+  content: "";
+  position: absolute;
+  width: 22%;
+  height: 22%;
+  left: 22%;
+  top: 18%;
+  border-radius: 50%;
+  background: #fff;
+  filter: blur(1px);
+  box-shadow: 0 0 12px 4px rgba(255,255,255,.78);
+}
+
+/* Four thin elliptical orbit paths, each at a different angle. */
+.reactor-orbit {
+  position: absolute;
+  width: 78%;
+  height: 31%;
+  left: 11%;
+  top: 34.5%;
+  border: 2px solid rgba(0,198,255,.92);
+  border-radius: 50%;
+  z-index: 3;
+  transform-origin: center;
+  box-shadow: 0 0 8px rgba(0,198,255,.22);
+  will-change: transform;
+}
+
+.reactor-orbit-a {
+  transform: rotate(0deg);
+  animation: zarvis-orbit-a 7s linear infinite;
+}
+
+.reactor-orbit-b {
+  transform: rotate(58deg);
+  animation: zarvis-orbit-b 8.2s linear infinite;
+  border-color: rgba(52,129,255,.84);
+}
+
+.reactor-orbit-c {
+  transform: rotate(118deg);
+  animation: zarvis-orbit-c 9.4s linear infinite;
+  border-color: rgba(0,179,255,.76);
+}
+
+.reactor-orbit-d {
+  width: 88%;
+  height: 42%;
+  left: 6%;
+  top: 29%;
+  transform: rotate(31deg);
+  animation: zarvis-orbit-d 10.5s linear infinite;
+  border-color: rgba(93,105,255,.66);
+  border-width: 1.6px;
+}
+
+/* Tiny luminous bodies travel around the reactor. */
+.reactor-dot {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  z-index: 5;
+  background: #fff;
+  box-shadow:
+    0 0 8px 2px #fff,
+    0 0 18px 5px rgba(0,198,255,.92),
+    0 0 34px 8px rgba(56,108,255,.42);
+}
+
+.reactor-dot-a { left: 17%; top: 47%; animation: zarvis-dot-a 7s linear infinite; }
+.reactor-dot-b { right: 16%; top: 42%; animation: zarvis-dot-b 8.2s linear infinite; }
+.reactor-dot-c { left: 49%; bottom: 10%; animation: zarvis-dot-c 9.4s linear infinite; }
+
+.reactor-brand {
+  position: relative;
+  z-index: 7;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 1px;
+  font-family: var(--font-display);
+  font-size: clamp(20px, 5vw, 32px);
+  font-weight: 800;
+  letter-spacing: .08em;
+  color: #fff;
+  text-shadow:
+    0 2px 10px rgba(15,53,160,.55),
+    0 0 22px rgba(0,207,255,.52);
+  pointer-events: none;
+  user-select: none;
+}
+
+.reactor-brand b {
+  font-size: .48em;
+  font-weight: 800;
+  letter-spacing: .24em;
+  background: linear-gradient(100deg, #b9ffff, #8ab4ff 45%, #d9a9ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.home-kicker {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .24em;
+  color: #66779e;
+}
+
+.home-subtitle {
+  max-width: 590px;
+  margin: 10px auto 0;
+  color: var(--zarvis-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@keyframes zarvis-reactor-breathe {
+  0%, 100% { transform: scale(.88); opacity: .65; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes zarvis-core-pulse {
+  0%, 100% { transform: scale(.94); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes zarvis-orbit-a {
+  from { transform: rotate(0deg) rotateY(0deg); }
+  to { transform: rotate(360deg) rotateY(0deg); }
+}
+@keyframes zarvis-orbit-b {
+  from { transform: rotate(58deg) rotateY(0deg); }
+  to { transform: rotate(418deg) rotateY(0deg); }
+}
+@keyframes zarvis-orbit-c {
+  from { transform: rotate(118deg) rotateY(0deg); }
+  to { transform: rotate(478deg) rotateY(0deg); }
+}
+@keyframes zarvis-orbit-d {
+  from { transform: rotate(31deg) scaleX(.98); }
+  to { transform: rotate(391deg) scaleX(.98); }
+}
+
+@keyframes zarvis-dot-a {
+  from { transform: translate(0, 0); }
+  25% { transform: translate(24vw, -9vw); }
+  50% { transform: translate(49vw, 1vw); }
+  75% { transform: translate(22vw, 11vw); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes zarvis-dot-b {
+  from { transform: translate(0, 0); }
+  25% { transform: translate(-21vw, 10vw); }
+  50% { transform: translate(-43vw, 0); }
+  75% { transform: translate(-20vw, -12vw); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes zarvis-dot-c {
+  from { transform: translate(0, 0); }
+  25% { transform: translate(-24vw, -8vw); }
+  50% { transform: translate(0, -18vw); }
+  75% { transform: translate(25vw, -8vw); }
+  100% { transform: translate(0, 0); }
+}
+
+@media (max-width: 639px) {
+  .home-stage {
+    min-height: calc(100dvh - 74px);
+    padding: 16px 16px 92px;
+    gap: 16px;
+  }
+  .zarvis-reactor {
+    --reactor-size: min(86vw, 370px);
+    margin-bottom: 8px;
+  }
+  .reactor-orbit { border-width: 1.5px; }
+  .reactor-dot { width: 8px; height: 8px; }
+  .home-kicker { font-size: 8.5px; letter-spacing: .18em; }
+  .home-subtitle { font-size: 12px; margin-top: 8px; }
+}
+
+@media (min-width: 1024px) {
+  .home-stage { min-height: calc(100vh - 36px); }
+  .zarvis-reactor { --reactor-size: min(42vw, 470px); }
+}
+
+/* Keep decorative motion calm for users who request reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .zarvis-reactor::before,
+  .zarvis-reactor::after,
+  .reactor-core,
+  .reactor-orbit,
+  .reactor-dot {
+    animation: none !important;
+  }
+}
