@@ -15,13 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
-/**
- * Glassmorphism surface — the Compose translation of `backdrop-blur-2xl bg-white/[0.03]
- * border border-white/10 shadow-2xl` (MASTER_SPEC.md §22 "Zarvis Cyber Luxury"). True
- * backdrop blur needs a render-effect library this repo doesn't depend on, so this uses a
- * tinted overlay + hairline border instead — the same layered, translucent look without a
- * new dependency.
- */
+/** Bright translucent surface used for cards, panels, nav and dialogs. */
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
