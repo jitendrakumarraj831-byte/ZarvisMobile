@@ -1930,35 +1930,37 @@
     return candidates.find((v) => !v.localService) || candidates[0];
   }
 
-  // Fast browser TTS is the primary web playback path so a reply can start speaking
-  // without waiting for a second network round trip. Gemini native audio remains the
-  // server-side fallback for browsers without a usable speech engine.
+  // Primary web playback uses the same Gemini native TTS path that provides the
+  // product's natural voice. Browser SpeechSynthesis is a compatibility fallback only.
+  // This preserves voice quality while still allowing speech on browsers where the Gemini
+  // TTS endpoint is unavailable.
   async function speak(text, node) {
     if (!state.speak || !text) return;
     setOrbState("SPEAKING");
     if (node) attachWaveform(node);
 
-    // Fast path: browser TTS starts locally without waiting for another network round trip.
-    // Gemini native TTS remains the fallback for browsers without a usable speech engine.
     try {
-      const started = speakWithBrowser(text);
-      if (started) {
-        await started;
-        return;
-      }
+      // Primary: Gemini native TTS — natural/product voice.
+      const geminiStarted = await speakWithGemini(text);
+      if (geminiStarted) return;
     } catch (err) {
       if (err.name === "AbortError") return;
-      console.warn("Browser voice unavailable, trying Gemini voice:", err);
+      console.warn("Gemini voice unavailable, trying browser voice:", err);
     }
 
     try {
-      await speakWithGemini(text);
+      // Fallback only: device/browser TTS. This may sound more robotic depending on
+      // the Android speech engine and installed voices, so it must never replace Gemini
+      // when Gemini TTS is available.
+      const browserStarted = speakWithBrowser(text);
+      if (browserStarted) await browserStarted;
     } catch (err) {
       if (err.name !== "AbortError") {
-        console.warn("Gemini voice unavailable:", err);
+        console.warn("Browser voice unavailable:", err);
       }
     } finally {
       if (node) detachWaveform(node);
+      if (el.orb.dataset.state === "SPEAKING") setOrbState("IDLE");
     }
   }
 
