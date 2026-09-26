@@ -3464,3 +3464,57 @@ body:not([data-active-view="home"]) .stage {
     animation: none !important;
   }
 }
+
+
+/* ==========================================================================
+   CHAT TRANSCRIPT — NO MESSAGE CLIPPING
+   Messages are content-sized items inside a scrolling transcript. Flexbox was
+   allowed to shrink a long result-widget to the remaining viewport height;
+   its rounded-card overflow:hidden then visually cut the reply. Keep each
+   message at its natural height and let the transcript itself scroll.
+   ========================================================================== */
+#view-chat.has-messages .conversation {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  align-items: stretch;
+}
+
+#view-chat.has-messages .conversation > .bubble,
+#view-chat.has-messages .conversation > .result-widget {
+  flex: 0 0 auto;
+  min-height: max-content;
+  width: 100%;
+}
+
+#view-chat.has-messages .conversation > .bubble.user,
+#view-chat.has-messages .conversation > .bubble.assistant {
+  width: auto;
+  max-width: 92%;
+}
+
+#view-chat.has-messages .conversation > .result-widget {
+  height: auto;
+  max-height: none;
+}
+
+#view-chat.has-messages .conversation > * {
+  scroll-margin-bottom: 20px;
+}
+
+@media (max-width: 639px) {
+  #view-chat.has-messages .conversation {
+    padding-bottom: 28px;
+  }
+
+  #view-chat.has-messages .conversation > .result-widget {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #view-chat.has-messages .conversation {
+    scroll-behavior: auto;
+  }
+}
