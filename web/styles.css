@@ -3128,3 +3128,53 @@ body:not([data-active-view="home"]) .stage {
     padding-top: 12px;
   }
 }
+
+
+/* CHAT CONVERSATION MODE ---------------------------------------------------------------
+   The welcome hero is for the empty chat only. Once the first user/reply bubble exists,
+   switch to a clean messenger layout so bubbles, quick actions and composer never compete
+   for the same viewport. */
+#view-chat.has-messages .hero {
+  display: none;
+}
+#view-chat.has-messages .quick-actions-lead,
+#view-chat.has-messages .categories {
+  display: none;
+}
+#view-chat.has-messages {
+  gap: 10px;
+}
+#view-chat.has-messages .chat-page-header {
+  flex-shrink: 0;
+  margin-bottom: 2px;
+}
+#view-chat.has-messages .conversation {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 18px;
+}
+#view-chat.has-messages .conversation .bubble {
+  animation: zarvis-message-in .22s ease-out both;
+}
+@keyframes zarvis-message-in {
+  from { opacity: 0; transform: translateY(7px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Prevent the fixed composer/navigation area from visually swallowing the final message. */
+#view-chat.has-messages {
+  padding-bottom: 4px;
+}
+@media (max-width: 639px) {
+  #view-chat.has-messages .conversation {
+    padding-bottom: 24px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #view-chat.has-messages .conversation .bubble {
+    animation: none;
+  }
+}

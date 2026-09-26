@@ -1423,12 +1423,19 @@
     setOrbState("IDLE");
   }
 
+  function syncChatConversationLayout() {
+    const active = el.conversation.children.length > 0;
+    document.body.classList.toggle("chat-has-messages", active);
+    if (el.viewWorkspace) el.viewWorkspace.classList.toggle("has-messages", active);
+  }
+
   function addBubble(role, text) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
     if (role === "assistant") renderFormattedText(bubble, text);
     else bubble.textContent = text;
     el.conversation.appendChild(bubble);
+    syncChatConversationLayout();
     el.conversation.scrollTop = el.conversation.scrollHeight;
     return bubble;
   }
