@@ -170,7 +170,8 @@
     navItems: Array.from(document.querySelectorAll(".nav-item")),
     // Two badges (bottom-nav + desktop sidebar) share one dot of state — see fetchTasks().
     metricsBadges: Array.from(document.querySelectorAll(".nav-badge")),
-    viewWorkspace: document.getElementById("view-workspace"),
+    viewHome: document.getElementById("view-home"),
+    viewWorkspace: document.getElementById("view-chat"),
     viewCapabilities: document.getElementById("view-capabilities"),
     viewPlans: document.getElementById("view-plans"),
     viewMetrics: document.getElementById("view-metrics"),
@@ -193,6 +194,9 @@
     settingsClearSessionBtn: document.getElementById("settings-clear-session-btn"),
     developerEntryLink: document.getElementById("developer-entry-link"),
     developerBackBtn: document.getElementById("developer-back-btn"),
+    chatBackBtn: document.getElementById("chat-back-btn"),
+    openChatBtn: document.getElementById("open-chat-btn"),
+    homeDeveloperCard: document.getElementById("home-developer-card"),
     developerRepoInput: document.getElementById("developer-repo-input"),
     developerAnalyzeBtn: document.getElementById("developer-analyze-btn"),
     developerRequirementInput: document.getElementById("developer-requirement-input"),
@@ -212,7 +216,7 @@
     // automatically on load.
     speak: localStorage.getItem(STORAGE_KEYS.speak) === "on",
     // Which of the 4 bottom-nav views is currently showing — see setActiveView().
-    activeView: "workspace",
+    activeView: "home",
     // The live skill catalogue, fetched once and reused by both the Workspace category
     // chips and the full Capabilities Hub cards, instead of fetching /skills twice.
     skills: [],
@@ -622,7 +626,7 @@
       runBtn.textContent = "Run Agent";
       runBtn.addEventListener("click", () => {
         haptic();
-        setActiveView("workspace");
+        setActiveView("chat");
         submitUtterance(exampleFor(skill.description));
       });
     }
@@ -638,7 +642,8 @@
   // tap away, replacing the old single "Status & Workflows" drawer.
 
   const VIEWS = {
-    workspace: el.viewWorkspace,
+    home: el.viewHome,
+    chat: el.viewWorkspace,
     capabilities: el.viewCapabilities,
     plans: el.viewPlans,
     metrics: el.viewMetrics,
@@ -657,8 +662,14 @@
       haptic();
       setActiveView("settings");
     });
-    el.settingsBackBtn.addEventListener("click", () => setActiveView("workspace"));
+    el.settingsBackBtn.addEventListener("click", () => setActiveView("home"));
     el.developerBackBtn.addEventListener("click", () => setActiveView("capabilities"));
+    el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
+    el.openChatBtn.addEventListener("click", () => setActiveView("chat"));
+    el.homeDeveloperCard.addEventListener("click", () => setActiveView("developer"));
+    for (const card of document.querySelectorAll("[data-home-view]")) {
+      card.addEventListener("click", () => setActiveView(card.dataset.homeView));
+    }
   }
 
   function setActiveView(view) {
@@ -668,7 +679,7 @@
     state.activeView = view;
     for (const [name, section] of Object.entries(VIEWS)) section.hidden = name !== view;
     for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === view);
-    el.composer.hidden = view !== "workspace";
+    el.composer.hidden = view !== "chat";
 
     if (view === "capabilities") renderCapabilities();
     if (view === "plans") refreshPlans();
