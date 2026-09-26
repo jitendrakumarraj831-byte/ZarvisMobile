@@ -12,13 +12,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentIndigo
-import com.zarvismobile.core.ui.theme.ZarvisSpaceBlack
+import com.zarvismobile.core.ui.theme.ZarvisAccentPink
+import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
+import com.zarvismobile.core.ui.theme.ZarvisSurfaceLight
 
-/**
- * The deep-midnight backdrop shared by every top-level screen — a solid `#030712` base with
- * two soft, out-of-focus radial glows (MASTER_SPEC.md §22 "subtle radial mesh background
- * gradients"). Cheap: two `drawRect` calls on the existing draw pass, no offscreen buffers.
- */
+/** Bright aurora-glass backdrop shared by the app's top-level screens. */
 @Composable
 fun ZarvisBackground(
     modifier: Modifier = Modifier,
@@ -27,20 +25,36 @@ fun ZarvisBackground(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(ZarvisSpaceBlack)
+            .background(ZarvisSurfaceLight)
             .drawBehind {
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(ZarvisAccentCyan.copy(alpha = 0.10f), Color.Transparent),
-                        center = Offset(size.width * 0.18f, size.height * 0.06f),
+                        colors = listOf(ZarvisAccentPink.copy(alpha = 0.18f), Color.Transparent),
+                        center = Offset(size.width * 0.05f, size.height * 0.04f),
+                        radius = size.maxDimension * 0.62f,
+                    ),
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(ZarvisAccentCyan.copy(alpha = 0.15f), Color.Transparent),
+                        center = Offset(size.width * 0.96f, size.height * 0.08f),
                         radius = size.maxDimension * 0.55f,
                     ),
                 )
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(ZarvisAccentIndigo.copy(alpha = 0.14f), Color.Transparent),
-                        center = Offset(size.width * 0.9f, size.height * 0.35f),
-                        radius = size.maxDimension * 0.5f,
+                        colors = listOf(ZarvisAccentViolet.copy(alpha = 0.12f), Color.Transparent),
+                        center = Offset(size.width * 0.62f, size.height * 0.98f),
+                        radius = size.maxDimension * 0.52f,
+                    ),
+                )
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            ZarvisAccentCyan.copy(alpha = 0.035f),
+                            ZarvisAccentIndigo.copy(alpha = 0.035f),
+                            ZarvisAccentPink.copy(alpha = 0.035f),
+                        ),
                     ),
                 )
             },
