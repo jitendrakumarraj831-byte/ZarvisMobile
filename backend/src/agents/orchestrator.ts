@@ -6,6 +6,7 @@ import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { ToolPipeline } from "../tooling/toolPipeline.js";
+import { ZARVIS_ABOUT_RESPONSE_EN, ZARVIS_ABOUT_RESPONSE_HI, ZARVIS_CREATOR_RESPONSE_EN, ZARVIS_CREATOR_RESPONSE_HI } from "../config/zarvisProfile.js";
 
 export interface TurnRequest {
   accountId: string;
@@ -93,6 +94,12 @@ export class Orchestrator {
     if (greeting) {
       await this.persistAssistantMessage(activeConversation.id, greeting);
       return { message: greeting, toolCalls: [], conversationId: activeConversation.id };
+    }
+
+    const profileResponse = getZarvisProfileResponse(request.utterance, request.locale);
+    if (profileResponse) {
+      await this.persistAssistantMessage(activeConversation.id, profileResponse);
+      return { message: profileResponse, toolCalls: [], conversationId: activeConversation.id };
     }
 
     const snapshot = await this.entitlementPort.snapshot(request.accountId);
@@ -237,6 +244,23 @@ function shouldAnalyzeRepository(utterance: string): boolean {
   return repositoryTarget && analysisAction;
 }
 
+function getZarvisProfileResponse(utterance: string, locale?: string): string | undefined {
+  const normalized = utterance.trim().toLocaleLowerCase();
+  const creatorQuestion =
+    /\b(who\s+(created|made|built|developed)\s+(you|zarvis)|who(['’]?s| is)\s+your\s+(creator|developer)|who\s+is\s+behind\s+zarvis|who\s+made\s+zarvis|who\s+developed\s+zarvis|your\s+creator|your\s+developer)\b/.test(normalized) ||
+    /किसने\s+(आपको|तुम्हें|जार्विस|ज़ार्विस|जारविस)\s*(बनाया|बनाई|बनाया है|डेवलप|develop)/.test(normalized) ||
+    /आपको\s+किसने\s+(बनाया|डेवलप|develop)/.test(normalized) ||
+    /जार्विस\s*(को|आपको)\s+किसने\s+(बनाया|डेवलप|develop)/.test(normalized) ||
+    /आपके\s+(creator|developer|निर्माता|डेवलपर)\s+कौन/.test(normalized);
+  const aboutQuestion =
+    /\b(what\s+is\s+zarvis|tell\s+me\s+about\s+zarvis|about\s+zarvis|what\s+can\s+you\s+do|what\s+are\s+you)\b/.test(normalized) ||
+    /जार्विस\s*(क्या\s+है|के\s+बारे\s+में|क्या\s+कर\s+सकते)/.test(normalized) ||
+    /आप\s*(क्या\s+हैं|क्या\s+कर\s+सकते)/.test(normalized);
+  if (!creatorQuestion && !aboutQuestion) return undefined;
+  const hindi = locale?.toLowerCase().startsWith("hi") || /[\u0900-\u097f]/.test(normalized);
+  if (creatorQuestion) return hindi ? ZARVIS_CREATOR_RESPONSE_HI : ZARVIS_CREATOR_RESPONSE_EN;
+  return hindi ? ZARVIS_ABOUT_RESPONSE_HI : ZARVIS_ABOUT_RESPONSE_EN;
+}
 function getSimpleGreetingResponse(utterance: string, locale?: string): string | undefined {
   const normalized = utterance
     .trim()
