@@ -1930,31 +1930,36 @@
     return candidates.find((v) => !v.localService) || candidates[0];
   }
 
-  // Tries Gemini's native audio voice first (POST /api/v1/tts/synthesize — the same voice
-  // technology behind the Gemini app's voice mode, see AI_ARCHITECTURE.md "Native audio
-  // voice"), falling back to the browser's built-in speechSynthesis if that backend call
-  // fails for any reason (not configured, offline, rate-limited, ...) — never a silent dead
-  // end, per Product Principle #4.
+  // Fast browser TTS is the primary web playback path so a reply can start speaking
+  // without waiting for a second network round trip. Gemini native audio remains the
+  // server-side fallback for browsers without a usable speech engine.
   async function speak(text, node) {
     if (!state.speak || !text) return;
     setOrbState("SPEAKING");
     if (node) attachWaveform(node);
-    let playedLive = false;
+
+    // Fast path: browser TTS starts locally without waiting for another network round trip.
+    // Gemini native TTS remains the fallback for browsers without a usable speech engine.
     try {
-      playedLive = await speakWithGemini(text);
-    } catch (err) {
-      // An explicit Stop (waveform button, composer Stop, or a new turn interrupting this
-      // one) must not then fall back to the browser's own voice reading the same reply —
-      // that would ignore the very "stop talking" the user just asked for. A real Gemini
-      // failure (network, no credential, rate limit, ...) still falls back below.
-      if (err.name === "AbortError") {
-        if (node) detachWaveform(node);
+      const started = speakWithBrowser(text);
+      if (started) {
+        await started;
         return;
       }
-      console.warn("Gemini voice unavailable, falling back to the browser's voice:", err);
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      console.warn("Browser voice unavailable, trying Gemini voice:", err);
     }
-    if (!playedLive) await speakWithBrowser(text);
-    if (node) detachWaveform(node);
+
+    try {
+      await speakWithGemini(text);
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        console.warn("Gemini voice unavailable:", err);
+      }
+    } finally {
+      if (node) detachWaveform(node);
+    }
   }
 
   // Tracks whatever is currently producing audio/network activity so stopSpeaking() can
@@ -2011,23 +2016,39 @@
   // "await speak() so the orb/waveform reflect the real playback duration" contract for
   // this fallback path specifically (the Gemini path above already awaited correctly).
   function speakWithBrowser(text) {
-    if (!window.speechSynthesis) {
-      setOrbState("IDLE");
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      const langPrefix = state.lang === "hi" ? "hi" : "en";
-      utterance.lang = state.lang === "hi" ? "hi-IN" : "en-US";
-      const voice = pickVoice(langPrefix);
-      if (voice) utterance.voice = voice;
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return null;
+
+    // Detect from the actual assistant reply. This fixes Roman Hindi/Hinglish when the
+    // browser UI is still set to English.
+    const language = detectSpeechLanguage(text);
+    const langPrefix = language === "hi" ? "hi" : "en";
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = language === "hi" ? "hi-IN" : "en-IN";
+    utterance.rate = language === "hi" ? 0.98 : 1;
+    const voice = pickVoice(langPrefix);
+    if (voice) utterance.voice = voice;
+
+    window.speechSynthesis.cancel();
+    return new Promise((resolve, reject) => {
       const finish = () => {
         setOrbState("IDLE");
         resolve();
       };
       utterance.onend = finish;
-      utterance.onerror = finish;
+      utterance.onerror = (event) => {
+        setOrbState("IDLE");
+        if (event?.error === "canceled" || event?.error === "interrupted") resolve();
+        else reject(new Error("Browser speech synthesis failed"));
+      };
       window.speechSynthesis.speak(utterance);
     });
+  }
+
+  function detectSpeechLanguage(text) {
+    if (/[\u0900-\u097f]/.test(text)) return "hi";
+    const normalized = text.toLocaleLowerCase();
+    const hi =
+      /\b(?:aap|aapko|aapke|aapki|tum|tumhe|mujhe|mera|meri|kya|kaise|kaisa|kaisi|hai|hain|ho|tha|thi|the|raha|rahi|rahe|batao|kisne|kaun|kal|aaj|abhi|bahut|accha|achha|acha|haal|chal|karna|karo|kar)\b/.test(normalized);
+    return hi ? "hi" : "en";
   }
 })();

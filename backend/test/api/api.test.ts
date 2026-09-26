@@ -192,6 +192,21 @@ describe("API integration", () => {
     }
   });
 
+
+
+  it("replies in Hindi for Roman Hindi creator questions even with English locale", async () => {
+    const token = await signupAndGetToken("creator-hinglish@example.com");
+    const res = await request(app)
+      .post("/api/v1/orchestrator/turn")
+      .set("Authorization", "Bearer " + token)
+      .send({ utterance: "aapko kisne banaya", locale: "en" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.toolCalls).toEqual([]);
+    expect(res.body.message).toMatch(/मुझे|बनाया|Jitendra Kumar/);
+    expect(res.body.message).not.toContain("I was created");
+  });
+
   it("answers creator and about questions deterministically", async () => {
     const token = await signupAndGetToken("creator-profile@example.com");
     const creator = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", "Bearer " + token).send({ utterance: "Who created you?", locale: "en" });
