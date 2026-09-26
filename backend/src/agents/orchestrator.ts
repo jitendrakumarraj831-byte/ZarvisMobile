@@ -85,6 +85,16 @@ export class Orchestrator {
       createdAt: new Date(),
     }]);
 
+    // Greetings are conversational turns, not agent tasks. Do not expose the tool catalogue
+    // to the model for a simple greeting: otherwise a model can incorrectly reuse a previous
+    // conversation's developer/search context and execute a tool for "Hi". This fast path is
+    // also provider-independent, so a greeting never consumes AI/tool credits.
+    const greeting = getSimpleGreetingResponse(request.utterance, request.locale);
+    if (greeting) {
+      await this.persistAssistantMessage(activeConversation.id, greeting);
+      return { message: greeting, toolCalls: [], conversationId: activeConversation.id };
+    }
+
     const snapshot = await this.entitlementPort.snapshot(request.accountId);
     const now = new Date();
     const availableSkills = this.registry
@@ -206,6 +216,26 @@ export class Orchestrator {
       createdAt: new Date(),
     }]);
   }
+}
+
+function getSimpleGreetingResponse(utterance: string, locale?: string): string | undefined {
+  const normalized = utterance
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[!,.?。！？]+$/g, "")
+    .replace(/\s+/g, " ");
+
+  const isGreeting =
+    /^(?:hi|hello|hey|hiya|yo|namaste|namaskar|good morning|good afternoon|good evening|नमस्ते|नमस्कार|हाय|हेलो|सुप्रभात)$/.test(
+      normalized,
+    ) ||
+    /^(?:hi|hello|hey|namaste|नमस्ते|हाय|हेलो)\s+(?:zarvis|jarvis|ज़ार्विस|जार्विस)$/.test(normalized);
+
+  if (!isGreeting) return undefined;
+
+  return locale?.toLowerCase().startsWith("hi")
+    ? "नमस्ते! 👋 मैं ZARVIS हूँ। मैं आपकी कैसे मदद कर सकता हूँ?"
+    : "Hi! 👋 I'm ZARVIS. How can I help you today?";
 }
 
 function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools: boolean): string {
