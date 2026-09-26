@@ -666,6 +666,8 @@
 
   function setupBottomNav() {
     applyAppearance();
+    // Home is informational only. The composer belongs exclusively to the Chat workspace.
+    el.composer.hidden = state.activeView !== "chat";
     for (const item of el.navItems) {
       item.addEventListener("click", () => {
         haptic();
