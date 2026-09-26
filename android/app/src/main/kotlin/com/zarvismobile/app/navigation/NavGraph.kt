@@ -117,7 +117,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     },
                 )
             }
-            composable(Routes.ACTIVITY) { MetricsScreen() }
+            composable(Routes.ACTIVITY) { TasksScreen() }
             composable(Routes.METRICS) { MetricsScreen() }
             composable(Routes.TASKS) { TasksScreen() }
             composable(
