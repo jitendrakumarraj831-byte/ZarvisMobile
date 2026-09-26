@@ -63,40 +63,64 @@ export class GeminiProvider implements AIProvider {
   }
 
   async *streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk> {
-    const body = toGeminiRequestBody(request);
-    const res = await fetch(
-      `${this.baseUrl}/models/${encodeURIComponent(request.modelConfig.model)}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+    const models = [request.modelConfig.model, "gemini-3.7-flash"].filter(
+      (model, index, all) => model && all.indexOf(model) === index,
     );
-    if (!res.ok || !res.body) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Gemini streamGenerateContent failed: ${res.status} ${res.statusText} ${text}`.trim());
+    let lastError: Error | undefined;
+
+    // Match generate(): transient capacity/quota failures should not immediately surface to
+    // the user. Retry briefly, then try the fallback model. We only retry before a stream has
+    // produced data, so we never duplicate already-rendered text.
+    for (const model of models) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const body = toGeminiRequestBody(request);
+        const res = await fetch(
+          `${this.baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+
+        if (res.ok && res.body) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith("data:")) continue;
+                const payload = trimmed.slice("data:".length).trim();
+                if (!payload || payload === "[DONE]") continue;
+                const chunk = JSON.parse(payload) as GeminiGenerateResponse;
+                const text = extractText(chunk);
+                if (text) yield { delta: text, done: false };
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+          yield { delta: "", done: true };
+          return;
+        }
+
+        const text = await res.text().catch(() => "");
+        lastError = new Error(
+          `Gemini streamGenerateContent failed: ${res.status} ${res.statusText} ${text}`.trim(),
+        );
+        if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
+        if (attempt < 2) await sleepWithJitter(attempt);
+      }
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data:")) continue;
-          const payload = trimmed.slice("data:".length).trim();
-          if (!payload || payload === "[DONE]") continue;
-          const chunk = JSON.parse(payload) as GeminiGenerateResponse;
-          const text = extractText(chunk);
-          if (text) yield { delta: text, done: false };
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    yield { delta: "", done: true };
+    throw lastError ?? new Error("Gemini streamGenerateContent failed without a response");
   }
 }
 
