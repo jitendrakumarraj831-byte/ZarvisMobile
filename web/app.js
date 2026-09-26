@@ -665,6 +665,7 @@
   };
 
   function setupBottomNav() {
+    document.body.dataset.activeView = state.activeView;
     applyAppearance();
     // Home is informational only. The composer belongs exclusively to the Chat workspace.
     el.composer.hidden = state.activeView !== "chat";
@@ -695,6 +696,7 @@
     if (state.activeView === "metrics") stopMetricsPolling();
 
     state.activeView = view;
+    document.body.dataset.activeView = view;
     for (const [name, section] of Object.entries(VIEWS)) section.hidden = name !== view;
     for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === view);
     el.composer.hidden = view !== "chat";
