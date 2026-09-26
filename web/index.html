@@ -63,9 +63,7 @@
       <button type="button" class="nav-item" data-view="chat"><span>◌</span><span>Chat</span></button>
       <button type="button" class="nav-item" data-view="capabilities"><span>✦</span><span>Capabilities</span></button>
       <button type="button" class="nav-item" data-view="activity"><span>▤</span><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
-      <button type="button" class="nav-item" data-view="metrics"><span>⌁</span><span>Metrics</span></button>
       <button type="button" class="nav-item" data-view="plans"><span>◇</span><span>Plans</span></button>
-      <button type="button" class="nav-item" data-view="developer"><span>&lt;/&gt;</span><span>Developer</span></button>
       <button type="button" class="nav-item" data-view="settings"><span>⚙</span><span>Settings</span></button>
     </nav>
 
@@ -138,10 +136,6 @@
             <h2>Capabilities</h2>
             <p>Everything Zarvis can do right now, grouped by category.</p>
           </div>
-          <button type="button" class="developer-link" id="developer-entry-link">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-            Developer Agent — analyze a GitHub repo
-          </button>
           <div class="capabilities-list" id="capabilities-list"></div>
         </section>
 
@@ -158,73 +152,36 @@
           <div class="plan-cards" id="plan-cards"></div>
         </section>
 
-        <section class="stage" id="view-metrics" hidden>
-          <div class="view-header">
-            <h2>System Metrics</h2>
-            <p>Latency measured live in this browser, and your current task log.</p>
-          </div>
-          <div class="status-grid" id="metrics-health-grid"></div>
-          <h3 class="section-label">Live API Latency</h3>
-          <div class="stat-row" id="latency-stats"></div>
-          <div class="latency-log" id="latency-log"></div>
-          <h3 class="section-label">Task Log</h3>
-          <div class="task-list" id="task-list"></div>
-        </section>
-
-        <section class="stage" id="view-activity" hidden>
+                <section class="stage" id="view-activity" hidden>
           <div class="view-header">
             <h2>Activity</h2>
             <p>Live task activity from the existing ZARVIS backend.</p>
           </div>
           <div class="activity-actions">
             <button type="button" class="zarvis-btn zarvis-btn-secondary" id="activity-refresh-btn">Refresh activity</button>
-            <button type="button" class="zarvis-btn zarvis-btn-primary" id="activity-metrics-btn">Open Metrics</button>
-          </div>
+                      </div>
           <div class="task-list" id="activity-task-list"></div>
         </section>
 
-        <section class="stage" id="view-developer" hidden>
-          <div class="view-header">
-            <button type="button" class="back-btn" id="developer-back-btn" aria-label="Back to Capabilities">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-            </button>
-            <h2>Developer</h2>
-            <p>Analyze a GitHub repository, then generate a bounded change on a new branch and open a PR for your review.</p>
-          </div>
-          <div class="zarvis-card">
-            <label class="card-title" for="developer-repo-input">Repository URL</label>
-            <input id="developer-repo-input" class="text-input-block" type="text" placeholder="https://github.com/owner/repo" autocomplete="off" />
-            <button type="button" class="zarvis-btn zarvis-btn-primary" id="developer-analyze-btn">Analyze</button>
-          </div>
-          <div class="zarvis-card">
-            <label class="card-title" for="developer-requirement-input">What should ZARVIS implement?</label>
-            <textarea id="developer-requirement-input" class="text-input-block" rows="4" placeholder="Example: Fix the failing image upload flow and add regression tests."></textarea>
-            <p class="card-desc">Implementation is confirmation-gated, limited to small text-file changes, creates a separate branch, and opens a pull request. It never auto-merges.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-danger" id="developer-implement-btn">Implement &amp; Open PR</button>
-          </div>
-          <div id="developer-result"></div>
-        </section>
-
-        <section class="stage" id="view-settings" hidden>
+                <section class="stage" id="view-settings" hidden>
           <div class="view-header">
             <button type="button" class="back-btn" id="settings-back-btn" aria-label="Back to Home">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
             <h2>Settings</h2>
-            <p>Organized controls for Voice, Language, Appearance, AI, Notifications, Privacy, Security, Data, Memory and Developer.</p>
+            <p>Organized controls for Voice, Language, Appearance, AI, Notifications, Privacy, Security, Data and Memory.</p>
           </div>
 
           <div class="settings-grid" id="settings-grid">
             <button type="button" class="settings-entry" data-settings-page="voice"><span class="settings-entry-icon cyan">◉</span><span><strong>Voice</strong><small>Spoken replies and voice selection</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="language"><span class="settings-entry-icon cyan">文</span><span><strong>Language</strong><small>English or हिंदी</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="appearance"><span class="settings-entry-icon violet">◈</span><span><strong>Appearance</strong><small>Aurora Light or subtle Dim theme</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="ai"><span class="settings-entry-icon violet">✦</span><span><strong>AI</strong><small>Current orchestration and model boundary</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="notifications"><span class="settings-entry-icon pink">◌</span><span><strong>Notifications</strong><small>Current browser capability boundary</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="ai"><span class="settings-entry-icon violet">✦</span><span><strong>AI</strong><small>AI preferences and assistant behavior</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="notifications"><span class="settings-entry-icon pink">◌</span><span><strong>Notifications</strong><small>Alerts and notification preferences</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="privacy"><span class="settings-entry-icon cyan">✓</span><span><strong>Privacy</strong><small>Account and conversation privacy</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="security"><span class="settings-entry-icon cyan">⌁</span><span><strong>Security</strong><small>Session and authentication tokens</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="data"><span class="settings-entry-icon violet">▣</span><span><strong>Data</strong><small>Server data and deletion</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="memory"><span class="settings-entry-icon pink">♧</span><span><strong>Memory</strong><small>Conversation memory boundary</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="developer"><span class="settings-entry-icon pink">&lt;/&gt;</span><span><strong>Developer options</strong><small>Open the existing Developer Agent</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="security"><span class="settings-entry-icon cyan">⌁</span><span><strong>Security</strong><small>Account session and sign-in protection</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="data"><span class="settings-entry-icon violet">▣</span><span><strong>Data</strong><small>Your data and account deletion</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="memory"><span class="settings-entry-icon pink">♧</span><span><strong>Memory</strong><small>Conversation context and memory</small></span><b>›</b></button>
           </div>
 
           <div class="settings-panels" id="settings-panels" hidden>
@@ -232,7 +189,7 @@
 
             <section class="settings-panel zarvis-card" data-settings-panel="voice" hidden>
               <h3 class="card-title">Voice</h3>
-              <p class="card-desc">These controls reuse the existing browser Speech Recognition and TTS pipeline.</p>
+              <p class="card-desc">Choose how you talk to ZARVIS and whether replies should be spoken aloud.</p>
               <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
               <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
             </section>
@@ -257,43 +214,38 @@
 
             <section class="settings-panel zarvis-card" data-settings-panel="ai" hidden>
               <h3 class="card-title">AI</h3>
-              <p class="card-desc">The existing backend remains the source of truth for orchestration, model/provider selection, tool permissions and AI business logic. No client-side provider switch is fabricated.</p>
+              <p class="card-desc">ZARVIS automatically manages the AI service and tools for you. There is no technical provider switch to configure here.</p>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="notifications" hidden>
               <h3 class="card-title">Notifications</h3>
-              <p class="card-desc">Web push/background notification controls are not exposed by the current web API. Existing task state is available under Activity; no fake notification toggle is added.</p>
+              <p class="card-desc">Notification controls are not available in this web version yet. Your task activity remains available under Activity.</p>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="privacy" hidden>
               <h3 class="card-title">Privacy</h3>
-              <p class="card-desc">The browser uses the existing authenticated guest session and conversation API. Account deletion below is the real backend operation.</p>
+              <p class="card-desc">Your conversations and account are handled through ZARVIS. You can permanently delete your account from here.</p>
               <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="security" hidden>
               <h3 class="card-title">Security</h3>
-              <p class="card-desc">The browser keeps its existing access/refresh tokens in localStorage and refreshes them through the current API. No new auth path is introduced.</p>
+              <p class="card-desc">Your current session is protected by the existing ZARVIS sign-in system. Use Clear local session if you want to sign out on this device.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-clear-session-btn">Clear local session</button>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="data" hidden>
               <h3 class="card-title">Data</h3>
-              <p class="card-desc">The current backend exposes authenticated account deletion, tasks, usage and entitlements. There is no export endpoint in this build, so no export button is fabricated.</p>
+              <p class="card-desc">You can permanently delete your account and its associated data. Data export is not available in this version.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" data-settings-open-privacy>Delete account</button>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="memory" hidden>
               <h3 class="card-title">Memory</h3>
-              <p class="card-desc">The existing conversationId and bounded local follow-up history are preserved. The backend does not currently expose individual memory browse/delete endpoints, so this page intentionally has no non-functional switches.</p>
+              <p class="card-desc">ZARVIS keeps the conversation context needed for your current chat. No separate memory controls are exposed in this version.</p>
             </section>
 
-            <section class="settings-panel zarvis-card" data-settings-panel="developer" hidden>
-              <h3 class="card-title">Developer options</h3>
-              <p class="card-desc">Open the existing Developer Agent. It continues to use the existing analysis and confirmation-gated implementation APIs.</p>
-              <button type="button" class="zarvis-btn zarvis-btn-primary" id="settings-open-developer">Open Developer Agent</button>
-            </section>
           </div>
         </section>
       </main>

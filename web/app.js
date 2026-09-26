@@ -653,14 +653,15 @@
   // keeps the composer visible — the other three are read-only/showcase surfaces reached one
   // tap away, replacing the old single "Status & Workflows" drawer.
 
+  // Public navigation surface. Internal developer/diagnostic screens are deliberately
+  // excluded from the consumer web app; their implementation remains available for private
+  // owner/developer builds without exposing technical details in normal navigation.
   const VIEWS = {
     home: el.viewHome,
     chat: el.viewWorkspace,
     capabilities: el.viewCapabilities,
     plans: el.viewPlans,
-    metrics: el.viewMetrics,
     activity: el.viewActivity,
-    developer: el.viewDeveloper,
     settings: el.viewSettings,
   };
 
@@ -680,7 +681,7 @@
       setActiveView("settings");
     });
     el.settingsBackBtn.addEventListener("click", () => setActiveView("home"));
-    el.developerBackBtn.addEventListener("click", () => setActiveView("capabilities"));
+    el.developerBackBtn?.addEventListener("click", () => setActiveView("capabilities"));
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
     for (const btn of document.querySelectorAll("[data-home-view]")) {
       btn.addEventListener("click", () => setActiveView(btn.dataset.homeView));
@@ -688,7 +689,7 @@
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
     el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
     el.openChatBtn.addEventListener("click", () => setActiveView("chat"));
-    el.homeDeveloperCard.addEventListener("click", () => setActiveView("developer"));
+    el.homeDeveloperCard?.addEventListener("click", () => setActiveView("developer"));
   }
 
   function setActiveView(view) {
@@ -896,7 +897,11 @@
   // routing the same request through the orchestrator's natural-language turn.
 
   function setupDeveloper() {
-    el.developerEntryLink.addEventListener("click", () => {
+    // Developer Agent is intentionally not part of the public web navigation.
+    // Keep its implementation available for owner/developer builds without exposing
+    // technical controls or wiring errors in the public product UI.
+    if (!el.developerAnalyzeBtn || !el.developerImplementBtn || !el.developerRepoInput) return;
+    el.developerEntryLink?.addEventListener("click", () => {
       haptic();
       setActiveView("developer");
     });
