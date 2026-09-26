@@ -224,7 +224,7 @@
 
             <section class="settings-panel zarvis-card" data-settings-panel="voice" hidden>
               <h3 class="card-title">Voice</h3>
-              <p class="card-desc">These controls reuse the existing browser Speech Recognition and TTS pipeline.</p>
+              <p class="card-desc">Choose how you talk to ZARVIS and whether replies should be spoken aloud.</p>
               <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
               <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
             </section>
@@ -249,36 +249,36 @@
 
             <section class="settings-panel zarvis-card" data-settings-panel="ai" hidden>
               <h3 class="card-title">AI</h3>
-              <p class="card-desc">The existing backend remains the source of truth for orchestration, model/provider selection, tool permissions and AI business logic. No client-side provider switch is fabricated.</p>
+              <p class="card-desc">ZARVIS automatically manages the AI service and tools for you. There is no technical provider switch to configure here.</p>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="notifications" hidden>
               <h3 class="card-title">Notifications</h3>
-              <p class="card-desc">Web push/background notification controls are not exposed by the current web API. Existing task state is available under Activity; no fake notification toggle is added.</p>
+              <p class="card-desc">Notification controls are not available in this web version yet. Your task activity remains available under Activity.</p>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="privacy" hidden>
               <h3 class="card-title">Privacy</h3>
-              <p class="card-desc">The browser uses the existing authenticated guest session and conversation API. Account deletion below is the real backend operation.</p>
+              <p class="card-desc">Your conversations and account are handled through ZARVIS. You can permanently delete your account from here.</p>
               <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="security" hidden>
               <h3 class="card-title">Security</h3>
-              <p class="card-desc">The browser keeps its existing access/refresh tokens in localStorage and refreshes them through the current API. No new auth path is introduced.</p>
+              <p class="card-desc">Your current session is protected by the existing ZARVIS sign-in system. Use Clear local session if you want to sign out on this device.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-clear-session-btn">Clear local session</button>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="data" hidden>
               <h3 class="card-title">Data</h3>
-              <p class="card-desc">The current backend exposes authenticated account deletion, tasks, usage and entitlements. There is no export endpoint in this build, so no export button is fabricated.</p>
+              <p class="card-desc">You can permanently delete your account and its associated data. Data export is not available in this version.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" data-settings-open-privacy>Delete account</button>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="memory" hidden>
               <h3 class="card-title">Memory</h3>
-              <p class="card-desc">The existing conversationId and bounded local follow-up history are preserved. The backend does not currently expose individual memory browse/delete endpoints, so this page intentionally has no non-functional switches.</p>
+              <p class="card-desc">ZARVIS keeps the conversation context needed for your current chat. No separate memory controls are exposed in this version.</p>
             </section>
 
           </div>
