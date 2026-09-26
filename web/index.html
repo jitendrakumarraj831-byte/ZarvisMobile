@@ -207,46 +207,27 @@
           <div id="developer-result"></div>
         </section>
 
-        <section class="stage" id="view-settings" hidden>
-          <div class="view-header">
+        <section class="stage settings-stage" id="view-settings" hidden>
+          <div class="view-header settings-header">
             <button type="button" class="back-btn" id="settings-back-btn" aria-label="Back to Home">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
-            <h2>Settings</h2>
-            <p>Language, voice, and your account data.</p>
+            <div><span class="eyebrow">CONTROL CENTER</span><h2>Settings</h2><p>Shape your Zarvis experience.</p></div>
           </div>
-
-          <div class="zarvis-card">
-            <h3 class="card-title">Language</h3>
-            <p class="card-desc">Choose English or Hindi for replies and interface text.</p>
-            <div class="option-row" id="settings-lang-options" role="group" aria-label="Language">
-              <button type="button" class="option-btn" data-lang="en">English</button>
-              <button type="button" class="option-btn" data-lang="hi">हिंदी</button>
+          <div class="settings-layout">
+            <div class="settings-menu" role="list" aria-label="Settings categories">
+              <button class="settings-menu-item active" type="button" data-settings-page="voice"><span class="settings-icon cyan">◉</span><span><strong>Voice</strong><small>Spoken replies &amp; voice</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="language"><span class="settings-icon blue">文</span><span><strong>Language</strong><small>English or Hindi</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="appearance"><span class="settings-icon violet">✦</span><span><strong>Appearance</strong><small>Visual preferences</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="ai"><span class="settings-icon pink">✧</span><span><strong>AI preferences</strong><small>Assistant behavior</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="notifications"><span class="settings-icon blue">⌁</span><span><strong>Notifications</strong><small>Coming with alerts</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="privacy"><span class="settings-icon cyan">◌</span><span><strong>Privacy</strong><small>Data boundaries</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="security"><span class="settings-icon violet">◇</span><span><strong>Security</strong><small>Account protection</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="data"><span class="settings-icon pink">▣</span><span><strong>Data</strong><small>Session &amp; account</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="memory"><span class="settings-icon cyan">◎</span><span><strong>Memory</strong><small>Conversation context</small></span><b>›</b></button>
+              <button class="settings-menu-item" type="button" data-settings-page="developer"><span class="settings-icon blue">&lt;/&gt;</span><span><strong>Developer</strong><small>Advanced tools</small></span><b>›</b></button>
             </div>
-          </div>
-
-          <div class="zarvis-card">
-            <h3 class="card-title">Spoken replies</h3>
-            <p class="card-desc">Off by default; only ever speaks a reply to voice input (never a typed message). Turn on for Zarvis to speak voice replies out loud (Gemini voice, falling back to your browser's voice). Press the mic on Workspace to speak — it starts and stops only when you press it.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
-            <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
-          </div>
-
-          <div class="zarvis-card">
-            <h3 class="card-title">Memory &amp; Data</h3>
-            <p class="card-desc">
-              Viewing individual memories, clearing a single conversation, and exporting your data are
-              planned — not yet wired to a backend endpoint. Deleting your account below is fully wired: it
-              removes your account, tasks, and usage history from the server.
-            </p>
-            <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button>
-          </div>
-
-          <div class="zarvis-card">
-            <h3 class="card-title">Session</h3>
-            <p class="card-desc">Clears your locally-stored session only. The next visit bootstraps a fresh guest account.</p>
-            <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-clear-session-btn">Clear local session</button>
+            <div class="settings-detail" id="settings-detail"></div>
           </div>
         </section>
       </main>

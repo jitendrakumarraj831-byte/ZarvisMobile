@@ -187,8 +187,10 @@
     taskList: document.getElementById("task-list"),
     settingsBtn: document.getElementById("settings-btn"),
     settingsBackBtn: document.getElementById("settings-back-btn"),
-    settingsLangOptions: document.getElementById("settings-lang-options"),
-    settingsVoiceToggle: document.getElementById("settings-voice-toggle"),
+    settingsDetail: document.getElementById("settings-detail"),
+    settingsMenu: Array.from(document.querySelectorAll("[data-settings-page]")),
+    settingsLangOptions: null,
+    settingsVoiceToggle: null,
     settingsDeleteBtn: document.getElementById("settings-delete-btn"),
     settingsDeleteError: document.getElementById("settings-delete-error"),
     settingsClearSessionBtn: document.getElementById("settings-clear-session-btn"),
@@ -762,31 +764,39 @@
   // screen's own sections (feature-settings/SettingsScreen.kt) and, for account deletion,
   // its exact backend call (DELETE /api/v1/account, already wired server-side).
 
+  function renderSettingsPage(page = "voice") {
+    const pages = {
+      voice: { title: "Voice", copy: "Choose how Zarvis listens and speaks.", body: `<div class="settings-control"><h3>Spoken replies</h3><p>Speak replies after voice conversations. Voice input remains manual and privacy-friendly.</p><button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="${state.speak}">${state.speak ? "Spoken replies: On" : "Spoken replies: Off"}</button><select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select></div>` },
+      language: { title: "Language", copy: "Choose the language used by the interface and replies.", body: `<div class="settings-control"><h3>Interface language</h3><div class="option-row" id="settings-lang-options"><button type="button" class="option-btn ${state.lang === "en" ? "active" : ""}" data-lang="en">English</button><button type="button" class="option-btn ${state.lang === "hi" ? "active" : ""}" data-lang="hi">हिंदी</button></div></div>` },
+      appearance: { title: "Appearance", copy: "The aurora glass theme is always on to keep Zarvis bright and readable.", body: `<div class="settings-control"><h3>Aurora glass</h3><p>Color, contrast and responsive layout are tuned for comfortable day and night use.</p><span class="settings-status"><i></i> Active</span></div>` },
+      ai: { title: "AI preferences", copy: "Zarvis uses the existing orchestrator and shipped skills.", body: `<div class="settings-control"><h3>Assistant behavior</h3><p>Risk confirmation, tools, memory boundaries and response logic are managed by the connected backend.</p><span class="settings-status"><i></i> Connected to Zarvis API</span></div>` },
+      notifications: { title: "Notifications", copy: "Notifications will appear here when the backend exposes alert preferences.", body: `<div class="settings-control"><h3>Alerts</h3><p>No notification controls are enabled yet, so nothing is stored or simulated.</p><span class="settings-status muted">Not configured</span></div>` },
+      privacy: { title: "Privacy", copy: "Your assistant session stays scoped to the authenticated Zarvis account.", body: `<div class="settings-control"><h3>Privacy boundaries</h3><p>File analysis and conversations use the existing authenticated APIs. No new tracking is added by this interface.</p></div>` },
+      security: { title: "Security", copy: "Account and API protection remain managed by the existing authentication layer.", body: `<div class="settings-control"><h3>Session security</h3><p>Bearer tokens and server-side authorization are unchanged.</p></div>` },
+      data: { title: "Data", copy: "Manage the local session or permanently remove your account.", body: `<div class="settings-control"><h3>Account data</h3><p>Clear local session to bootstrap a fresh guest account, or delete the account and server history.</p><p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p><button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button><button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-clear-session-btn">Clear local session</button></div>` },
+      memory: { title: "Memory", copy: "Conversation context is handled by the existing conversation API.", body: `<div class="settings-control"><h3>Conversation context</h3><p>Zarvis keeps the active conversation pointer locally and sends context through the existing orchestrator. Individual memory management is not exposed by the backend yet.</p></div>` },
+      developer: { title: "Developer options", copy: "Advanced work stays in the dedicated Developer Agent.", body: `<div class="settings-control"><h3>Developer Agent</h3><p>Use the Developer Agent screen to analyze repositories and create confirmation-gated pull requests.</p><button type="button" class="zarvis-btn zarvis-btn-primary" id="settings-open-developer">Open Developer Agent</button></div>` },
+    };
+    const config = pages[page] || pages.voice;
+    el.settingsDetail.innerHTML = `<div class="settings-detail-header"><span class="eyebrow">PREFERENCES</span><h2>${config.title}</h2><p>${config.copy}</p></div>${config.body}`;
+    el.settingsMenu.forEach((item) => item.classList.toggle("active", item.dataset.settingsPage === page));
+    el.settingsLangOptions = document.getElementById("settings-lang-options");
+    el.settingsVoiceToggle = document.getElementById("settings-voice-toggle");
+    if (el.settingsLangOptions) el.settingsLangOptions.querySelectorAll(".option-btn").forEach((btn) => btn.addEventListener("click", () => { haptic(); setLanguage(btn.dataset.lang); renderSettingsPage("language"); }));
+    if (el.settingsVoiceToggle) el.settingsVoiceToggle.addEventListener("click", () => { haptic(); toggleSpeak(); renderSettingsPage("voice"); });
+    const deleteBtn = document.getElementById("settings-delete-btn");
+    const clearBtn = document.getElementById("settings-clear-session-btn");
+    if (clearBtn) clearBtn.addEventListener("click", () => { haptic(); clearLocalSession(); });
+    if (deleteBtn) deleteBtn.addEventListener("click", () => { haptic(); const error = document.getElementById("settings-delete-error"); if (error) error.hidden = true; showConfirmModal({ title: "Delete your account?", body: "This permanently deletes your account, tasks, and usage history from the server. This cannot be undone.", confirmLabel: "Delete", onConfirm: deleteAccount }); });
+    const devBtn = document.getElementById("settings-open-developer");
+    if (devBtn) devBtn.addEventListener("click", () => setActiveView("developer"));
+    populateVoiceSelect();
+  }
+
   function setupSettings() {
-    for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
-      btn.addEventListener("click", () => {
-        haptic();
-        setLanguage(btn.dataset.lang);
-      });
-    }
-    el.settingsVoiceToggle.addEventListener("click", () => {
-      haptic();
-      toggleSpeak();
-    });
-    el.settingsClearSessionBtn.addEventListener("click", () => {
-      haptic();
-      clearLocalSession();
-    });
-    el.settingsDeleteBtn.addEventListener("click", () => {
-      haptic();
-      el.settingsDeleteError.hidden = true;
-      showConfirmModal({
-        title: "Delete your account?",
-        body: "This permanently deletes your account, tasks, and usage history from the server. This cannot be undone.",
-        confirmLabel: "Delete",
-        onConfirm: deleteAccount,
-      });
-    });
+    renderSettingsPage("voice");
+    el.settingsMenu.forEach((item) => item.addEventListener("click", () => renderSettingsPage(item.dataset.settingsPage)));
+
   }
 
   /** Clears only the session tokens (keeps language/voice preferences) so the next reload
@@ -802,17 +812,20 @@
   }
 
   async function deleteAccount() {
-    el.settingsDeleteBtn.disabled = true;
-    el.settingsDeleteBtn.textContent = "Deleting…";
+    const deleteBtn = document.getElementById("settings-delete-btn");
+    const deleteError = document.getElementById("settings-delete-error");
+    if (!deleteBtn) return;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = "Deleting…";
     try {
       const res = await apiFetch("/account", { method: "DELETE" });
       if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
       clearLocalSession(); // reloads — a fresh guest session bootstraps on the next load
     } catch (err) {
       console.error(err);
-      el.settingsDeleteBtn.disabled = false;
-      el.settingsDeleteBtn.textContent = "Delete account";
-      el.settingsDeleteError.hidden = false;
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = "Delete account";
+      if (deleteError) deleteError.hidden = false;
     }
   }
 
