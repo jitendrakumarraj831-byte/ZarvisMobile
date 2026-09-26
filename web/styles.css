@@ -2841,3 +2841,224 @@ body { background: var(--zarvis-space-black); }
   .topbar .brand-name { font-size: 17px; }
   .topbar .brand-sub { font-size: 7px; letter-spacing: .45em; }
 }
+
+
+/* ==========================================================================
+   ZARVIS HOME SIGNATURE EFFECTS
+   Premium assistant-reactor animation + luminous Chat CTA.
+   Pure CSS: no API/state/functionality changes.
+   ========================================================================== */
+
+/* Center assistant logo: layered aurora reactor with breathing light, orbit ring,
+   and a tiny moving highlight so the home screen feels alive without being noisy. */
+.home-orb {
+  isolation: isolate;
+  transform: rotate(-5deg);
+  animation: zarvis-home-float 5s ease-in-out infinite;
+  will-change: transform, box-shadow;
+  box-shadow:
+    0 18px 48px rgba(71,114,255,.25),
+    0 0 36px rgba(0,191,232,.20),
+    0 0 78px rgba(138,92,246,.12);
+}
+.home-orb::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -12px;
+  border-radius: 38px;
+  padding: 2px;
+  background: conic-gradient(
+    from 0deg,
+    #00d8ff,
+    #4772ff,
+    #9a55f5,
+    #ef55a8,
+    #00d8ff
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: .72;
+  filter: blur(.2px);
+  animation: zarvis-orbit-ring 5.5s linear infinite;
+}
+.home-orb::before {
+  z-index: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+}
+.home-orb span {
+  width: 38px;
+  height: 38px;
+  box-shadow:
+    0 0 20px rgba(0,191,232,.55),
+    0 0 42px rgba(71,114,255,.35),
+    inset 0 2px 7px rgba(255,255,255,.8);
+  animation: zarvis-core-breathe 2.8s ease-in-out infinite;
+}
+.home-orb span::before {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  left: 8px;
+  top: 7px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.9);
+  filter: blur(1px);
+  box-shadow: 0 0 12px rgba(255,255,255,.9);
+  animation: zarvis-core-glint 2.8s ease-in-out infinite;
+}
+@keyframes zarvis-home-float {
+  0%, 100% {
+    transform: translateY(0) rotate(-5deg) scale(1);
+  }
+  50% {
+    transform: translateY(-7px) rotate(-3deg) scale(1.025);
+  }
+}
+@keyframes zarvis-orbit-ring {
+  to { transform: rotate(360deg); }
+}
+@keyframes zarvis-core-breathe {
+  0%, 100% {
+    transform: scale(.96);
+    box-shadow: 0 0 20px rgba(0,191,232,.50), 0 0 38px rgba(71,114,255,.30), inset 0 2px 7px rgba(255,255,255,.8);
+  }
+  50% {
+    transform: scale(1.10);
+    box-shadow: 0 0 28px rgba(0,191,232,.78), 0 0 58px rgba(138,92,246,.42), inset 0 2px 9px rgba(255,255,255,.95);
+  }
+}
+@keyframes zarvis-core-glint {
+  0%, 100% { opacity: .65; transform: translate(0,0) scale(.85); }
+  50% { opacity: 1; transform: translate(5px,3px) scale(1.15); }
+}
+
+/* Chat with ZARVIS CTA: animated gradient edge + soft moving sheen + breathing arrow. */
+.chat-launch-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: rgba(71,114,255,.22);
+  box-shadow:
+    0 18px 50px rgba(54,74,130,.12),
+    0 0 0 1px rgba(255,255,255,.52) inset;
+}
+.chat-launch-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    105deg,
+    rgba(0,216,255,.72),
+    rgba(71,114,255,.62),
+    rgba(154,85,245,.62),
+    rgba(239,85,168,.62),
+    rgba(0,216,255,.72)
+  );
+  background-size: 260% 100%;
+  animation: zarvis-cta-border 5s linear infinite;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.chat-launch-card::after {
+  content: "";
+  position: absolute;
+  top: -80%;
+  left: -35%;
+  width: 34%;
+  height: 260%;
+  transform: rotate(20deg);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255,255,255,.62),
+    transparent
+  );
+  filter: blur(2px);
+  opacity: 0;
+  animation: zarvis-cta-sheen 4.8s ease-in-out infinite;
+  pointer-events: none;
+}
+.chat-launch-icon {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 10px 25px rgba(71,114,255,.22),
+    0 0 25px rgba(0,191,232,.13);
+}
+.chat-launch-icon::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255,255,255,.28), transparent 48%);
+  pointer-events: none;
+}
+.chat-launch-arrow {
+  display: inline-block;
+  animation: zarvis-arrow-pulse 1.9s ease-in-out infinite;
+}
+@keyframes zarvis-cta-border {
+  to { background-position: 260% 0; }
+}
+@keyframes zarvis-cta-sheen {
+  0%, 30% { left: -35%; opacity: 0; }
+  42% { opacity: .7; }
+  58%, 100% { left: 125%; opacity: 0; }
+}
+@keyframes zarvis-arrow-pulse {
+  0%, 100% { transform: translateX(0); opacity: .78; }
+  50% { transform: translateX(5px); opacity: 1; }
+}
+.chat-launch-card:hover .chat-launch-icon,
+.chat-launch-card:focus-visible .chat-launch-icon {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 12px 30px rgba(71,114,255,.30), 0 0 30px rgba(0,191,232,.20);
+}
+.chat-launch-card:active {
+  transform: translateY(1px) scale(.992);
+}
+
+/* The whole home focal area gets a very subtle breathing aurora. */
+.home-hero {
+  position: relative;
+}
+.home-hero::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 260px;
+  height: 150px;
+  left: 50%;
+  top: 20px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(71,114,255,.12), rgba(0,216,255,.05) 42%, transparent 72%);
+  filter: blur(18px);
+  animation: zarvis-hero-aura 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes zarvis-hero-aura {
+  0%, 100% { opacity: .55; transform: translateX(-50%) scale(.92); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.08); }
+}
+
+/* Accessibility: honor reduced-motion without removing the visual design. */
+@media (prefers-reduced-motion: reduce) {
+  .home-orb,
+  .home-orb::after,
+  .home-orb span,
+  .home-orb span::before,
+  .chat-launch-card::before,
+  .chat-launch-card::after,
+  .chat-launch-arrow,
+  .home-hero::after {
+    animation: none !important;
+  }
+}
