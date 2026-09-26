@@ -68,4 +68,30 @@ describe("orchestrator conversational greetings", () => {
     expect(second.body.toolCalls).toEqual([]);
     expect(second.body.message).toBe("Hi! 👋 I'm ZARVIS. How can I help you today?");
   });
+  it("does not repeat repository analysis for a vague follow-up", async () => {
+    const token = await signupAndGetToken();
+
+    const first = await request(app)
+      .post("/api/v1/orchestrator/turn")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        utterance: "analyze https://github.com/example/demo",
+        isFirstTurn: true,
+      });
+
+    expect(first.status).toBe(200);
+    expect(first.body.toolCalls[0]?.skillId).toBe("developer.analyze_repo");
+
+    const second = await request(app)
+      .post("/api/v1/orchestrator/turn")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        utterance: "Koi error hai kya",
+        conversationId: first.body.conversationId,
+      });
+
+    expect(second.status).toBe(200);
+    expect(second.body.toolCalls).toEqual([]);
+  });
+
 });
