@@ -1,19 +1,18 @@
 package com.zarvismobile.core.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 
 private val DarkColors = darkColorScheme(
     primary = ZarvisAccentCyan,
     onPrimary = ZarvisSpaceBlack,
-    secondary = ZarvisAccentIndigo,
+    secondary = ZarvisAccentViolet,
     onSecondary = Color.White,
-    tertiary = ZarvisSuccessDark,
-    onTertiary = ZarvisSpaceBlack,
+    tertiary = ZarvisAccentPink,
+    onTertiary = Color.White,
     background = ZarvisSpaceBlack,
     surface = ZarvisSurfaceDark,
     surfaceVariant = ZarvisSurfaceDarkElevated,
@@ -27,33 +26,37 @@ private val DarkColors = darkColorScheme(
 
 private val LightColors = lightColorScheme(
     primary = ZarvisAccentIndigoLight,
+    onPrimary = Color.White,
     secondary = ZarvisAccentCyan,
-    tertiary = ZarvisSuccessLight,
+    onSecondary = ZarvisSpaceBlack,
+    tertiary = ZarvisAccentPink,
+    onTertiary = Color.White,
     background = ZarvisSurfaceLight,
-    surface = ZarvisSurfaceLight,
-    surfaceVariant = ZarvisSurfaceLightElevated,
+    surface = ZarvisSurfaceLightElevated,
+    surfaceVariant = Color(0xFFF0F4FF),
     onBackground = ZarvisTextPrimaryLight,
     onSurface = ZarvisTextPrimaryLight,
     onSurfaceVariant = ZarvisTextSecondaryLight,
     outline = ZarvisBorderLight,
     error = ZarvisErrorLight,
+    onError = Color.White,
 )
 
-/**
- * App-wide theme. Supports dark (default, "Zarvis Cyber Luxury") and light per
- * MASTER_SPEC.md §22; `darkTheme` defaults to the system setting rather than forcing dark,
- * so users who prefer light mode get it automatically.
- */
+/** Aurora Glass app theme. Light mode is the default and remains user-switchable. */
 @Composable
 fun ZarvisTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = if (darkTheme) DarkColors else LightColors
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = ZarvisTypography,
         shapes = ZarvisShapes,
         content = content,
     )
 }
+
+/** Reusable aurora gradient for highlights and icon surfaces. */
+fun zarvisAuroraBrush() = Brush.linearGradient(
+    colors = listOf(ZarvisAccentCyan, ZarvisAccentIndigo, ZarvisAccentViolet, ZarvisAccentPink),
+)
