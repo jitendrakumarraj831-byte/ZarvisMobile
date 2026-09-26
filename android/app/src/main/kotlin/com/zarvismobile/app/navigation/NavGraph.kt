@@ -3,10 +3,10 @@ package com.zarvismobile.app.navigation
 import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,6 +35,7 @@ object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val CAPABILITIES = "capabilities"
+    const val ACTIVITY = "activity"
     const val METRICS = "metrics"
     const val CONVERSATION = "conversation"
     const val CONVERSATION_ARG_INITIAL_TEXT = "initialText"
@@ -44,12 +45,12 @@ object Routes {
     const val SETTINGS = "settings"
 }
 
-/** The 4 tabs of the floating glass bottom nav (MASTER_SPEC.md §22): Workspace / Capabilities / Plans & Quotas / System Metrics. */
+/** Primary product navigation: Home is intentionally separate from the full Chat workspace. */
 private val BOTTOM_NAV_ITEMS = listOf(
-    ZarvisNavItem(route = Routes.HOME, label = "Workspace", icon = Icons.Filled.FlashOn),
-    ZarvisNavItem(route = Routes.CAPABILITIES, label = "Capabilities", icon = Icons.Filled.Explore),
-    ZarvisNavItem(route = Routes.SUBSCRIPTION, label = "Plans", icon = Icons.Filled.Star),
-    ZarvisNavItem(route = Routes.METRICS, label = "Metrics", icon = Icons.Filled.BarChart),
+    ZarvisNavItem(route = Routes.HOME, label = "Home", icon = Icons.Filled.FlashOn),
+    ZarvisNavItem(route = Routes.CONVERSATION, label = "Chat", icon = Icons.Filled.ChatBubble),
+    ZarvisNavItem(route = Routes.CAPABILITIES, label = "Features", icon = Icons.Filled.Explore),
+    ZarvisNavItem(route = Routes.ACTIVITY, label = "Activity", icon = Icons.Filled.History),
 )
 
 @Composable
@@ -57,7 +58,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = BOTTOM_NAV_ITEMS.any { it.route == currentRoute }
+    val showBottomBar = BOTTOM_NAV_ITEMS.any { item -> currentRoute == item.route || currentRoute?.startsWith("${item.route}?") == true }
 
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -116,6 +117,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
             }
 
             composable(Routes.METRICS) { MetricsScreen() }
+            composable(Routes.ACTIVITY) { TasksScreen() }
 
             composable(
                 route = "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}={${Routes.CONVERSATION_ARG_INITIAL_TEXT}}",
