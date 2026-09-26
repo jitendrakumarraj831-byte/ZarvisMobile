@@ -1434,6 +1434,14 @@
     if (el.viewWorkspace) el.viewWorkspace.classList.toggle("has-messages", active);
   }
 
+  function scrollConversationToBottom() {
+    if (!el.conversation) return;
+    el.conversation.scrollTop = el.conversation.scrollHeight;
+    requestAnimationFrame(() => {
+      el.conversation.scrollTop = el.conversation.scrollHeight;
+    });
+  }
+
   function addBubble(role, text) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
@@ -1441,7 +1449,7 @@
     else bubble.textContent = text;
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     return bubble;
   }
 
@@ -1797,7 +1805,7 @@
     widget.appendChild(body);
 
     el.conversation.appendChild(widget);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     return widget;
   }
 
