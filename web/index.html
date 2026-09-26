@@ -63,9 +63,7 @@
       <button type="button" class="nav-item" data-view="chat"><span>◌</span><span>Chat</span></button>
       <button type="button" class="nav-item" data-view="capabilities"><span>✦</span><span>Capabilities</span></button>
       <button type="button" class="nav-item" data-view="activity"><span>▤</span><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
-      <button type="button" class="nav-item" data-view="metrics"><span>⌁</span><span>Metrics</span></button>
       <button type="button" class="nav-item" data-view="plans"><span>◇</span><span>Plans</span></button>
-      <button type="button" class="nav-item" data-view="developer"><span>&lt;/&gt;</span><span>Developer</span></button>
       <button type="button" class="nav-item" data-view="settings"><span>⚙</span><span>Settings</span></button>
     </nav>
 
@@ -138,10 +136,6 @@
             <h2>Capabilities</h2>
             <p>Everything Zarvis can do right now, grouped by category.</p>
           </div>
-          <button type="button" class="developer-link" id="developer-entry-link">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-            Developer Agent — analyze a GitHub repo
-          </button>
           <div class="capabilities-list" id="capabilities-list"></div>
         </section>
 
@@ -178,8 +172,7 @@
           </div>
           <div class="activity-actions">
             <button type="button" class="zarvis-btn zarvis-btn-secondary" id="activity-refresh-btn">Refresh activity</button>
-            <button type="button" class="zarvis-btn zarvis-btn-primary" id="activity-metrics-btn">Open Metrics</button>
-          </div>
+                      </div>
           <div class="task-list" id="activity-task-list"></div>
         </section>
 
@@ -211,7 +204,7 @@
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
             <h2>Settings</h2>
-            <p>Organized controls for Voice, Language, Appearance, AI, Notifications, Privacy, Security, Data, Memory and Developer.</p>
+            <p>Organized controls for Voice, Language, Appearance, AI, Notifications, Privacy, Security, Data and Memory.</p>
           </div>
 
           <div class="settings-grid" id="settings-grid">
@@ -224,7 +217,6 @@
             <button type="button" class="settings-entry" data-settings-page="security"><span class="settings-entry-icon cyan">⌁</span><span><strong>Security</strong><small>Session and authentication tokens</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="data"><span class="settings-entry-icon violet">▣</span><span><strong>Data</strong><small>Server data and deletion</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="memory"><span class="settings-entry-icon pink">♧</span><span><strong>Memory</strong><small>Conversation memory boundary</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="developer"><span class="settings-entry-icon pink">&lt;/&gt;</span><span><strong>Developer options</strong><small>Open the existing Developer Agent</small></span><b>›</b></button>
           </div>
 
           <div class="settings-panels" id="settings-panels" hidden>
@@ -289,11 +281,6 @@
               <p class="card-desc">The existing conversationId and bounded local follow-up history are preserved. The backend does not currently expose individual memory browse/delete endpoints, so this page intentionally has no non-functional switches.</p>
             </section>
 
-            <section class="settings-panel zarvis-card" data-settings-panel="developer" hidden>
-              <h3 class="card-title">Developer options</h3>
-              <p class="card-desc">Open the existing Developer Agent. It continues to use the existing analysis and confirmation-gated implementation APIs.</p>
-              <button type="button" class="zarvis-btn zarvis-btn-primary" id="settings-open-developer">Open Developer Agent</button>
-            </section>
           </div>
         </section>
       </main>
