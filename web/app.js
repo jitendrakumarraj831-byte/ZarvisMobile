@@ -695,6 +695,7 @@
     if (state.activeView === "metrics") stopMetricsPolling();
 
     state.activeView = view;
+    document.body.dataset.activeView = view;
     for (const [name, section] of Object.entries(VIEWS)) section.hidden = name !== view;
     for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === view);
     el.composer.hidden = view !== "chat";
