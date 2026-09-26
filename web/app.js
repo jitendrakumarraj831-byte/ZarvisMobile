@@ -676,7 +676,7 @@
         setActiveView(item.dataset.view);
       });
     }
-    el.settingsBtn.addEventListener("click", () => {
+    el.settingsBtn?.addEventListener("click", () => {
       haptic();
       setActiveView("settings");
     });
