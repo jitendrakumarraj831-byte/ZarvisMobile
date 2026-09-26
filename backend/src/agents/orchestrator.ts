@@ -264,9 +264,27 @@ function getZarvisProfileResponse(utterance: string, locale?: string): string | 
     /आप\s*(क्या\s+हैं|क्या\s+कर\s+सकते)/.test(normalized);
 
   if (!creatorQuestion && !aboutQuestion) return undefined;
-  const hindi = locale?.toLowerCase().startsWith("hi") || /[\u0900-\u097f]/.test(normalized);
-  if (creatorQuestion) return hindi ? ZARVIS_CREATOR_RESPONSE_HI : ZARVIS_CREATOR_RESPONSE_EN;
-  return hindi ? ZARVIS_ABOUT_RESPONSE_HI : ZARVIS_ABOUT_RESPONSE_EN;
+  const replyLanguage = detectReplyLanguage(normalized, locale);
+  if (creatorQuestion) return replyLanguage === "hi" ? ZARVIS_CREATOR_RESPONSE_HI : ZARVIS_CREATOR_RESPONSE_EN;
+  return replyLanguage === "hi" ? ZARVIS_ABOUT_RESPONSE_HI : ZARVIS_ABOUT_RESPONSE_EN;
+}
+
+function detectReplyLanguage(utterance: string, locale?: string): "hi" | "en" {
+  if (/[\u0900-\u097f]/.test(utterance)) return "hi";
+
+  const normalized = utterance.toLocaleLowerCase();
+  const romanHindiMarkers =
+    /\b(?:aap|ap|aapko|aapke|aapki|aapka|tum|tumhe|tumhein|mujhe|mera|meri|mere|kya|kaise|kaisa|kaisi|kyu|kyon|kyunki|hai|hain|ho|tha|thi|the|raha|rahi|rahe|batao|bataye|banaya|banai|kisne|kaun|kon|kahan|kab|kal|aaj|abhi|bahut|accha|achha|acha|haal|chal|karna|karo|kar|chahiye|hoga|hogi|denge|do|lo|wala|wali|wale)\b/;
+  const englishMarkers =
+    /\b(?:what|why|when|where|who|how|which|can|could|would|should|is|are|was|were|do|does|did|tell|show|find|search|explain|help|please|thanks|thank|weather|today|tomorrow|latest|create|build|design|develop)\b/;
+
+  const romanHindiScore = (normalized.match(romanHindiMarkers) || []).length;
+  const englishScore = (normalized.match(englishMarkers) || []).length;
+
+  if (romanHindiScore > 0 && romanHindiScore >= englishScore) return "hi";
+  if (englishScore > 0) return "en";
+
+  return locale?.toLowerCase().startsWith("hi") ? "hi" : "en";
 }
 function getSimpleGreetingResponse(utterance: string, locale?: string): string | undefined {
   const normalized = utterance
@@ -295,7 +313,12 @@ function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools:
     "across multiple steps when the task requires it. Choose the next useful action, inspect " +
     "the real result, then either continue with another tool or give the final answer. " +
     "Never claim an action happened unless a tool result confirms it. Prefer the smallest " +
-    "number of tool calls that fully completes the goal. Do not invent missing tool results.";
+    "number of tool calls that fully completes the goal. Do not invent missing tool results. " +
+    "Reply in the language of the user's CURRENT message, not merely the UI locale. " +
+    "Treat Roman-script Hindi/Hinglish as Hindi/Hinglish: phrases such as 'aapko kisne banaya', " +
+    "'kya haal hai', and 'kal ka weather kaisa rahega' should receive a natural Hindi/Hinglish " +
+    "reply rather than an English-only reply. If the user mixes Hindi and English, preserve that " +
+    "natural mix. Do not switch languages just because the browser locale is English.";
 
   prompt += ` This is agent step ${step + 1} of a maximum of ${MAX_AGENT_STEPS}.`;
   if (hasExecutedTools) {
