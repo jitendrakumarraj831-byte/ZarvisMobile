@@ -665,6 +665,7 @@
   };
 
   function setupBottomNav() {
+    document.body.dataset.activeView = state.activeView;
     applyAppearance();
     // Home is informational only. The composer belongs exclusively to the Chat workspace.
     el.composer.hidden = state.activeView !== "chat";
