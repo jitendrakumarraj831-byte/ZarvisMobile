@@ -102,11 +102,16 @@ export class Orchestrator {
       .filter((skill) => !skill.executesOnDevice)
       .filter((skill) => resolveEntitlement(snapshot, skill, now).allowed);
 
-    const tools = availableSkills.map((skill) => ({
-      name: skill.id,
-      description: skill.description,
-      inputSchema: skill.inputSchema,
-    }));
+    const tools = availableSkills
+      // A previous developer result is context, not permission to repeat the same action.
+      // Only expose repository analysis when the CURRENT utterance explicitly asks to analyze,
+      // inspect, check, debug, or scan a repository (or includes a GitHub URL).
+      .filter((skill) => skill.id !== "developer.analyze_repo" || shouldAnalyzeRepository(request.utterance))
+      .map((skill) => ({
+        name: skill.id,
+        description: skill.description,
+        inputSchema: skill.inputSchema,
+      }));
 
     const context: SkillExecutionContext = {
       accountId: request.accountId,
@@ -216,6 +221,20 @@ export class Orchestrator {
       createdAt: new Date(),
     }]);
   }
+}
+
+function shouldAnalyzeRepository(utterance: string): boolean {
+  const normalized = utterance.trim().toLocaleLowerCase();
+  const hasGithubUrl = /https?:\/\/github\\.com\/\S+/i.test(normalized);
+  if (hasGithubUrl) return true;
+
+  // Require an explicit repository/developer action in the current turn. A vague follow-up
+  // such as "koi error hai kya?" must not re-run the previous repository-analysis tool.
+  const repositoryTarget = /\b(repo(?:sitory)?|github|project|codebase|source\s*code|code)\b|रिपोजिटरी|रिपॉजिटरी|प्रोजेक्ट|कोड/.test(normalized);
+  const analysisAction =
+    /\b(analy[sz]e|analysis|inspect|review|scan|debug|check|audit|find\s+(?:any\s+)?(?:error|errors|issues|bugs)|look\s+(?:for|into))\b|विश्लेषण|जांच|चेक|स्कैन|डिबग|एरर|बग/.test(normalized);
+
+  return repositoryTarget && analysisAction;
 }
 
 function getSimpleGreetingResponse(utterance: string, locale?: string): string | undefined {
