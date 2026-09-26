@@ -26,8 +26,8 @@ private val DarkColors = darkColorScheme(
 )
 
 private val LightColors = lightColorScheme(
-    primary = ZarvisAccentIndigoLight,
-    secondary = ZarvisAccentCyan,
+    primary = ZarvisAccentBlue,
+    secondary = ZarvisAccentCyanLight,
     tertiary = ZarvisSuccessLight,
     background = ZarvisSurfaceLight,
     surface = ZarvisSurfaceLight,
