@@ -175,6 +175,7 @@
     viewCapabilities: document.getElementById("view-capabilities"),
     viewPlans: document.getElementById("view-plans"),
     viewMetrics: document.getElementById("view-metrics"),
+    viewActivity: document.getElementById("view-activity"),
     viewDeveloper: document.getElementById("view-developer"),
     viewSettings: document.getElementById("view-settings"),
     capabilitiesList: document.getElementById("capabilities-list"),
@@ -192,6 +193,15 @@
     settingsDeleteBtn: document.getElementById("settings-delete-btn"),
     settingsDeleteError: document.getElementById("settings-delete-error"),
     settingsClearSessionBtn: document.getElementById("settings-clear-session-btn"),
+    settingsGrid: document.getElementById("settings-grid"),
+    settingsPanels: document.getElementById("settings-panels"),
+    settingsPanelBack: document.querySelector("[data-settings-back]"),
+    appearanceAuroraBtn: document.getElementById("appearance-aurora-btn"),
+    appearanceDimBtn: document.getElementById("appearance-dim-btn"),
+    settingsOpenDeveloper: document.getElementById("settings-open-developer"),
+    activityTaskList: document.getElementById("activity-task-list"),
+    activityRefreshBtn: document.getElementById("activity-refresh-btn"),
+    activityMetricsBtn: document.getElementById("activity-metrics-btn"),
     developerEntryLink: document.getElementById("developer-entry-link"),
     developerBackBtn: document.getElementById("developer-back-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
@@ -236,6 +246,8 @@
     // Server-side durable conversation id. The browser keeps only this pointer; the
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
+    appearance: localStorage.getItem("zarvis.appearance") || "aurora",
+    settingsPage: null,
   };
 
   // Declared here (not near their setup functions below) because init() runs synchronously
@@ -647,11 +659,13 @@
     capabilities: el.viewCapabilities,
     plans: el.viewPlans,
     metrics: el.viewMetrics,
+    activity: el.viewActivity,
     developer: el.viewDeveloper,
     settings: el.viewSettings,
   };
 
   function setupBottomNav() {
+    applyAppearance();
     for (const item of el.navItems) {
       item.addEventListener("click", () => {
         haptic();
@@ -665,11 +679,13 @@
     el.settingsBackBtn.addEventListener("click", () => setActiveView("home"));
     el.developerBackBtn.addEventListener("click", () => setActiveView("capabilities"));
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
+    for (const btn of document.querySelectorAll("[data-home-view]")) {
+      btn.addEventListener("click", () => setActiveView(btn.dataset.homeView));
+    }
+    el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
+    el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
     el.openChatBtn.addEventListener("click", () => setActiveView("chat"));
     el.homeDeveloperCard.addEventListener("click", () => setActiveView("developer"));
-    for (const card of document.querySelectorAll("[data-home-view]")) {
-      card.addEventListener("click", () => setActiveView(card.dataset.homeView));
-    }
   }
 
   function setActiveView(view) {
@@ -689,6 +705,7 @@
       refreshTasks();
       startMetricsPolling();
     }
+    if (view === "activity") refreshActivity();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
@@ -763,6 +780,16 @@
   // its exact backend call (DELETE /api/v1/account, already wired server-side).
 
   function setupSettings() {
+    for (const btn of document.querySelectorAll("[data-settings-page]")) {
+      btn.addEventListener("click", () => openSettingsPage(btn.dataset.settingsPage));
+    }
+    el.settingsPanelBack?.addEventListener("click", closeSettingsPage);
+    el.appearanceAuroraBtn?.addEventListener("click", () => setAppearance("aurora"));
+    el.appearanceDimBtn?.addEventListener("click", () => setAppearance("dim"));
+    el.settingsOpenDeveloper?.addEventListener("click", () => setActiveView("developer"));
+    for (const btn of document.querySelectorAll("[data-settings-open-privacy]")) {
+      btn.addEventListener("click", () => openSettingsPage("privacy"));
+    }
     for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
       btn.addEventListener("click", () => {
         haptic();
@@ -787,6 +814,49 @@
         onConfirm: deleteAccount,
       });
     });
+  }
+
+  function openSettingsPage(page) {
+    state.settingsPage = page;
+    el.settingsGrid.hidden = true;
+    el.settingsPanels.hidden = false;
+    for (const panel of document.querySelectorAll("[data-settings-panel]")) {
+      panel.hidden = panel.dataset.settingsPanel !== page;
+    }
+    el.settingsPanelBack?.focus?.();
+  }
+
+  function closeSettingsPage() {
+    state.settingsPage = null;
+    el.settingsPanels.hidden = true;
+    el.settingsGrid.hidden = false;
+  }
+
+  function setAppearance(mode) {
+    state.appearance = mode;
+    localStorage.setItem("zarvis.appearance", mode);
+    applyAppearance();
+  }
+
+  function applyAppearance() {
+    document.documentElement.dataset.appearance = state.appearance;
+    for (const btn of document.querySelectorAll("[data-appearance]")) {
+      btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
+    }
+  }
+
+  async function refreshActivity() {
+    if (!el.activityTaskList) return;
+    el.activityTaskList.innerHTML = "";
+    const tasks = await fetchTasks();
+    if (!tasks.length) {
+      const empty = document.createElement("p");
+      empty.className = "task-empty";
+      empty.textContent = "No activity yet — multi-step tasks will appear here.";
+      el.activityTaskList.appendChild(empty);
+      return;
+    }
+    for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
   }
 
   /** Clears only the session tokens (keeps language/voice preferences) so the next reload
@@ -1097,9 +1167,14 @@
       empty.className = "task-empty";
       empty.textContent = "No active workflows yet — multi-step tasks Zarvis runs will appear here.";
       el.taskList.appendChild(empty);
+      if (el.activityTaskList) el.activityTaskList.replaceChildren(empty.cloneNode(true));
       return;
     }
     for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
+    if (el.activityTaskList) {
+      el.activityTaskList.innerHTML = "";
+      for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
+    }
   }
 
   // User-triggerable transitions per status — mirrors backend/src/tasks/taskService.ts's

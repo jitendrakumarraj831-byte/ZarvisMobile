@@ -4,9 +4,9 @@ import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,12 +30,13 @@ import com.zarvismobile.feature.subscription.SubscriptionScreen
 import com.zarvismobile.feature.tasks.MetricsScreen
 import com.zarvismobile.feature.tasks.TasksScreen
 
-/** Top-level navigation graph — MASTER_SPEC.md §23. */
 object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
+    const val CHAT = "chat"
     const val CAPABILITIES = "capabilities"
     const val METRICS = "metrics"
+    const val ACTIVITY = "activity"
     const val CONVERSATION = "conversation"
     const val CONVERSATION_ARG_INITIAL_TEXT = "initialText"
     const val TASKS = "tasks"
@@ -44,12 +45,11 @@ object Routes {
     const val SETTINGS = "settings"
 }
 
-/** The 4 tabs of the floating glass bottom nav (MASTER_SPEC.md §22): Workspace / Capabilities / Plans & Quotas / System Metrics. */
 private val BOTTOM_NAV_ITEMS = listOf(
-    ZarvisNavItem(route = Routes.HOME, label = "Workspace", icon = Icons.Filled.FlashOn),
-    ZarvisNavItem(route = Routes.CAPABILITIES, label = "Capabilities", icon = Icons.Filled.Explore),
-    ZarvisNavItem(route = Routes.SUBSCRIPTION, label = "Plans", icon = Icons.Filled.Star),
-    ZarvisNavItem(route = Routes.METRICS, label = "Metrics", icon = Icons.Filled.BarChart),
+    ZarvisNavItem(Routes.HOME, "Home", Icons.Filled.Home),
+    ZarvisNavItem(Routes.CHAT, "Chat", Icons.Filled.ChatBubble),
+    ZarvisNavItem(Routes.CAPABILITIES, "Features", Icons.Filled.Explore),
+    ZarvisNavItem(Routes.ACTIVITY, "Activity", Icons.Filled.BarChart),
 )
 
 @Composable
@@ -57,7 +57,11 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = BOTTOM_NAV_ITEMS.any { it.route == currentRoute }
+    val selectedRoute = when (currentRoute) {
+        Routes.METRICS, Routes.TASKS -> Routes.ACTIVITY
+        else -> currentRoute ?: Routes.HOME
+    }
+    val showBottomBar = BOTTOM_NAV_ITEMS.any { it.route == selectedRoute }
 
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -65,7 +69,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
             if (showBottomBar) {
                 GlassBottomBar(
                     items = BOTTOM_NAV_ITEMS,
-                    selectedRoute = currentRoute ?: Routes.HOME,
+                    selectedRoute = selectedRoute,
                     onSelect = { route ->
                         navController.navigate(route) {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -91,21 +95,20 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     },
                 )
             }
-
             composable(Routes.HOME) {
                 HomeScreen(
                     onNavigateToConversation = { initialText ->
                         val encoded = Uri.encode(initialText ?: "")
                         navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded")
                     },
-                    onNavigateToTasks = { navController.navigate(Routes.TASKS) },
+                    onNavigateToTasks = { navController.navigate(Routes.ACTIVITY) },
                     onNavigateToSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
                     onNavigateToDeveloper = { navController.navigate(Routes.DEVELOPER) },
                     onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                     onNavigateToCapabilities = { navController.navigate(Routes.CAPABILITIES) },
                 )
             }
-
+            composable(Routes.CHAT) { ConversationScreen(initialText = null) }
             composable(Routes.CAPABILITIES) {
                 CapabilitiesScreen(
                     onRunSkill = { initialText ->
@@ -114,9 +117,9 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     },
                 )
             }
-
+            composable(Routes.ACTIVITY) { TasksScreen() }
             composable(Routes.METRICS) { MetricsScreen() }
-
+            composable(Routes.TASKS) { TasksScreen() }
             composable(
                 route = "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}={${Routes.CONVERSATION_ARG_INITIAL_TEXT}}",
                 arguments = listOf(
@@ -126,22 +129,20 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                         defaultValue = null
                     },
                 ),
-            ) { backStackEntry ->
-                val raw = backStackEntry.arguments?.getString(Routes.CONVERSATION_ARG_INITIAL_TEXT)
+            ) { backStackEntryArg ->
+                val raw = backStackEntryArg.arguments?.getString(Routes.CONVERSATION_ARG_INITIAL_TEXT)
                 ConversationScreen(initialText = raw?.takeIf { it.isNotBlank() })
             }
-
-            composable(Routes.TASKS) { TasksScreen() }
             composable(Routes.DEVELOPER) { DeveloperScreen() }
             composable(Routes.SUBSCRIPTION) { SubscriptionScreen() }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onSessionCleared = {
-                        // Full account switching is planned (MASTER_SPEC.md §29) — clearing the
-                        // local session today just returns to Home, where the next app start
-                        // bootstraps a fresh trial account.
-                        navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } }
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(Routes.HOME) { inclusive = true }
+                        }
                     },
+                    onDeveloper = { navController.navigate(Routes.DEVELOPER) },
                 )
             }
         }

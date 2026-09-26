@@ -12,22 +12,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-data class SettingsUiState(val locale: String = "en")
+data class SettingsUiState(
+    val locale: String = "en",
+    val darkTheme: Boolean = false,
+)
 
 enum class DeleteAccountStatus { IDLE, IN_PROGRESS, FAILED }
 
-/**
- * Privacy/permission/memory controls — MASTER_SPEC.md §16, §17, §27. What's real in this
- * pass: language preference, local sign-out, and account deletion (DELETE /api/v1/account —
- * cascades server-side to tasks/usage/permissions/the account itself, see backend/src/api/
- * routes/account.ts). Server-side memory view/delete-single-item/export have no dedicated
- * endpoints yet — see MASTER_SPEC.md §29. This screen marks those controls as planned rather
- * than faking them.
- */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val preferences: AppPreferences,
@@ -35,9 +30,12 @@ class SettingsViewModel @Inject constructor(
     private val api: ZarvisApi,
 ) : ViewModel() {
 
-    val uiState: StateFlow<SettingsUiState> = preferences.locale
-        .map { SettingsUiState(locale = it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
+    val uiState: StateFlow<SettingsUiState> = combine(
+        preferences.locale,
+        preferences.darkTheme,
+    ) { locale, darkTheme ->
+        SettingsUiState(locale = locale, darkTheme = darkTheme)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
     private val _deleteAccountStatus = MutableStateFlow(DeleteAccountStatus.IDLE)
     val deleteAccountStatus: StateFlow<DeleteAccountStatus> = _deleteAccountStatus.asStateFlow()
@@ -46,15 +44,14 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setLocale(locale) }
     }
 
+    fun setDarkTheme(enabled: Boolean) {
+        viewModelScope.launch { preferences.setDarkTheme(enabled) }
+    }
+
     fun clearLocalSession() {
         secureStorage.clear()
     }
 
-    /**
-     * Deletes the backend account (and everything scoped to it), then clears the local
-     * session so the next launch bootstraps a fresh guest account — the same self-healing
-     * path TokenAuthenticator already relies on (see SessionRepository.ensureSession).
-     */
     fun deleteAccount(onDeleted: () -> Unit) {
         viewModelScope.launch {
             _deleteAccountStatus.value = DeleteAccountStatus.IN_PROGRESS
@@ -69,9 +66,5 @@ class SettingsViewModel @Inject constructor(
                 _deleteAccountStatus.value = DeleteAccountStatus.FAILED
             }
         }
-    }
-
-    fun dismissDeleteAccountError() {
-        _deleteAccountStatus.value = DeleteAccountStatus.IDLE
     }
 }

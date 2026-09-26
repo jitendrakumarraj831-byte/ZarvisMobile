@@ -20,13 +20,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.app.navigation.ZarvisNavGraph
 import com.zarvismobile.core.tooling.PendingConfirmation
-import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
-import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.theme.ZarvisTheme
 import com.zarvismobile.domain.entity.RiskLevel
 import dagger.hilt.android.AndroidEntryPoint
@@ -36,13 +36,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            ZarvisTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    ZarvisRoot()
-                }
-            }
-        }
+        setContent { ZarvisRoot() }
     }
 }
 
@@ -51,17 +45,21 @@ private fun ZarvisRoot(
     startupViewModel: AppStartupViewModel = hiltViewModel(),
     confirmationViewModel: ConfirmationViewModel = hiltViewModel(),
 ) {
-    val state by startupViewModel.state.collectAsState()
-    when (val current = state) {
-        is AppStartupState.Loading -> StartupLoading()
-        is AppStartupState.Failed -> StartupError(message = current.message, onRetry = startupViewModel::retry)
-        is AppStartupState.Ready -> ZarvisNavGraph(startAtOnboarding = !current.onboardingComplete)
-    }
+    val startupState by startupViewModel.state.collectAsState()
+    val darkTheme by startupViewModel.darkTheme.collectAsState(initial = false)
 
-    // Rendered on top of whatever screen is active — see MASTER_SPEC.md §7/§21: a
-    // MEDIUM/HIGH risk skill must always be able to reach the user for confirmation.
-    val pending by confirmationViewModel.pending.collectAsState()
-    pending?.let { RiskConfirmationDialog(it) }
+    ZarvisTheme(darkTheme = darkTheme) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            when (val current = startupState) {
+                is AppStartupState.Loading -> StartupLoading()
+                is AppStartupState.Failed -> StartupError(message = current.message, onRetry = startupViewModel::retry)
+                is AppStartupState.Ready -> ZarvisNavGraph(startAtOnboarding = !current.onboardingComplete)
+            }
+        }
+
+        val pending by confirmationViewModel.pending.collectAsState()
+        pending?.let { RiskConfirmationDialog(it) }
+    }
 }
 
 @Composable
@@ -70,17 +68,13 @@ private fun RiskConfirmationDialog(pending: PendingConfirmation) {
         onDismissRequest = { pending.respond(false) },
         title = { Text("Confirm this action") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 RiskBadge(level = pending.request.riskLevel.toBadgeLevel())
                 Text(pending.request.summary)
             }
         },
-        confirmButton = {
-            TextButton(onClick = { pending.respond(true) }) { Text("Confirm") }
-        },
-        dismissButton = {
-            TextButton(onClick = { pending.respond(false) }) { Text("Cancel") }
-        },
+        confirmButton = { TextButton(onClick = { pending.respond(true) }) { Text("Confirm") } },
+        dismissButton = { TextButton(onClick = { pending.respond(false) }) { Text("Cancel") } },
     )
 }
 
@@ -99,8 +93,8 @@ private fun StartupLoading() {
 
 @Composable
 private fun StartupError(message: String, onRetry: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().padding(ZarvisSpacing.lg), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md)) {
+    Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(text = message, style = MaterialTheme.typography.bodyLarge)
             ZarvisPrimaryButton(text = "Retry", onClick = onRetry)
         }
