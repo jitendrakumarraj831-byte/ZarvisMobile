@@ -1167,9 +1167,14 @@
       empty.className = "task-empty";
       empty.textContent = "No active workflows yet — multi-step tasks Zarvis runs will appear here.";
       el.taskList.appendChild(empty);
+      if (el.activityTaskList) el.activityTaskList.replaceChildren(empty.cloneNode(true));
       return;
     }
     for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
+    if (el.activityTaskList) {
+      el.activityTaskList.innerHTML = "";
+      for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
+    }
   }
 
   // User-triggerable transitions per status — mirrors backend/src/tasks/taskService.ts's
