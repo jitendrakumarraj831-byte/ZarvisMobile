@@ -1371,10 +1371,28 @@
       let assistantNode = null;
       let sentenceBuffer = "";
       const ttsQueue = [];
-      let ttsRunning = false;
+      const ttsTasks = new Set();
       let ttsStartTimer = null;
       let firstTextAt = 0;
       let ttsPrimed = false;
+
+      const drainTts = () => {
+        while (
+          ttsQueue.length &&
+          ttsTasks.size < TTS_MAX_CONCURRENT_STREAMS &&
+          !controller.signal.aborted
+        ) {
+          const next = ttsQueue.shift();
+          const task = speakGeminiStream(next, controller.signal);
+          ttsTasks.add(task);
+          task.catch((err) => {
+            if (err?.name !== "AbortError") console.warn("Gemini TTS segment failed:", err);
+          }).finally(() => {
+            ttsTasks.delete(task);
+            if (ttsQueue.length) drainTts();
+          });
+        }
+      };
 
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
@@ -1382,31 +1400,30 @@
         ttsQueue.push(clean);
         if (immediate || ttsPrimed) {
           ttsPrimed = true;
-          void drainTts();
+          drainTts();
           return;
         }
-        // Give the text stream about 2.3s to accumulate enough context before the
-        // first Gemini TTS request. This avoids dozens of tiny sentence requests.
+        // Keep the initial ~2.3s text accumulation, then prefetch the next segment while
+        // the previous Gemini TTS segment is still playing. This removes the request gap
+        // between sentences that caused audible pauses.
         if (!firstTextAt) firstTextAt = performance.now();
         if (!ttsStartTimer) {
           ttsStartTimer = setTimeout(() => {
             ttsStartTimer = null;
             ttsPrimed = true;
-            void drainTts();
+            drainTts();
           }, 2300);
         }
       };
 
-      const drainTts = async () => {
-        if (ttsRunning) return;
-        ttsRunning = true;
-        try {
-          while (ttsQueue.length && !controller.signal.aborted) {
-            const next = ttsQueue.shift();
-            await speakGeminiStream(next, controller.signal);
-          }
-        } finally {
-          ttsRunning = false;
+      const waitForTtsQueue = async () => {
+        while (
+          !controller.signal.aborted &&
+          (ttsQueue.length || ttsTasks.size)
+        ) {
+          drainTts();
+          if (!ttsQueue.length && !ttsTasks.size) break;
+          await delay(50);
         }
       };
 
@@ -2193,8 +2210,9 @@
   }
 
   const TTS_SAMPLE_RATE = 24000;
-  const TTS_PREROLL_SECONDS = 0.65;
-  const TTS_MIN_START_AHEAD_SECONDS = 0.04;
+  const TTS_PREROLL_SECONDS = 1.2;
+  const TTS_MIN_START_AHEAD_SECONDS = 0.06;
+  const TTS_MAX_CONCURRENT_STREAMS = 2;
 
   async function speakGeminiStream(text, signal) {
     setOrbState("SPEAKING");
@@ -2232,6 +2250,7 @@
       // make the AudioContext timeline catch up and create an audible gap.
       const pendingPcm = [];
       let pendingBytes = 0;
+      let primed = false;
       let scheduledUntil = Math.max(
         audioContext.currentTime + TTS_PREROLL_SECONDS,
         ttsScheduledUntil,
@@ -2306,7 +2325,10 @@
         // Hold roughly 650 ms of PCM before the first schedule operation.
         // Afterwards each network chunk is scheduled contiguously.
         const bufferedSeconds = pendingBytes / 2 / TTS_SAMPLE_RATE;
-        if (bufferedSeconds >= TTS_PREROLL_SECONDS) {
+        if (!primed && bufferedSeconds >= TTS_PREROLL_SECONDS) {
+          flushPending();
+          primed = true;
+        } else if (primed) {
           flushPending();
         }
       }
