@@ -320,7 +320,7 @@ body {
    column is tall and the orb alone no longer fills it the way the old, larger orb did.
    The instant a conversation starts this reverts to normal top-aligned flow. */
 @media (min-width: 1024px) {
-  #view-workspace:not(:has(#conversation:not(:empty))) {
+  #view-chat:not(:has(#conversation:not(:empty))) {
     justify-content: center;
   }
 }
@@ -519,7 +519,7 @@ body {
    the focal point — shrinking it here (a pure state-driven style, no markup/script change:
    :has() reads whether #conversation actually has any children) hands that vertical space
    back to the conversation, which is the point of the whole screen once it's in use. */
-#view-workspace:has(#conversation:not(:empty)) .hero {
+#view-chat:has(#conversation:not(:empty)) .hero {
   padding: 8px 0 4px;
 }
 
@@ -532,7 +532,7 @@ body {
   justify-content: center;
   transition: width 0.3s ease, height 0.3s ease, margin 0.3s ease;
 }
-#view-workspace:has(#conversation:not(:empty)) .orb-wrap {
+#view-chat:has(#conversation:not(:empty)) .orb-wrap {
   width: 56px; height: 56px;
   margin: 0 auto 10px;
 }
@@ -555,7 +555,7 @@ body {
   position: relative;
   cursor: pointer;
 }
-#view-workspace:has(#conversation:not(:empty)) .orb {
+#view-chat:has(#conversation:not(:empty)) .orb {
   width: 44px; height: 44px;
 }
 .orb:focus-visible { outline: 2px solid var(--zarvis-accent-cyan); outline-offset: 6px; }
@@ -629,9 +629,9 @@ body {
   color: var(--zarvis-text-secondary);
   transition: opacity 0.2s ease, max-height 0.2s ease, margin 0.2s ease;
 }
-#view-workspace:has(#conversation:not(:empty)) .hero-title { font-size: 14px; }
-#view-workspace:has(#conversation:not(:empty)) .hero-greeting,
-#view-workspace:has(#conversation:not(:empty)) .hero-subtitle {
+#view-chat:has(#conversation:not(:empty)) .hero-title { font-size: 14px; }
+#view-chat:has(#conversation:not(:empty)) .hero-greeting,
+#view-chat:has(#conversation:not(:empty)) .hero-subtitle {
   opacity: 0;
   max-height: 0;
   margin: 0;
@@ -984,8 +984,8 @@ body {
 /* Once a reply has landed, the welcome affordances (the quick actions) give way entirely to
    the conversation itself — the "clean chat-focused layout" the workspace transitions into,
    rather than leaving a static menu permanently competing with the transcript for space. */
-#view-workspace:has(#conversation:not(:empty)) .quick-actions-lead,
-#view-workspace:has(#conversation:not(:empty)) .categories {
+#view-chat:has(#conversation:not(:empty)) .quick-actions-lead,
+#view-chat:has(#conversation:not(:empty)) .categories {
   opacity: 0;
   max-height: 0;
   margin: 0;
@@ -1764,7 +1764,7 @@ body {
   padding: 16px 20px 12px;
   gap: 18px;
 }
-#view-workspace {
+#view-chat {
   gap: 20px;
 }
 .hero {
@@ -1824,15 +1824,15 @@ body {
 }
 
 /* Once chatting, keep a compact "AI status" header instead of a giant hero. */
-#view-workspace:has(#conversation:not(:empty)) .hero {
+#view-chat:has(#conversation:not(:empty)) .hero {
   padding: 7px 0 2px;
 }
-#view-workspace:has(#conversation:not(:empty)) .orb-wrap {
+#view-chat:has(#conversation:not(:empty)) .orb-wrap {
   width: 66px;
   height: 66px;
   margin-bottom: 9px;
 }
-#view-workspace:has(#conversation:not(:empty)) .orb {
+#view-chat:has(#conversation:not(:empty)) .orb {
   width: 46px;
   height: 46px;
 }
@@ -2059,7 +2059,7 @@ body {
   .stage {
     padding: 20px 34px 14px;
   }
-  #view-workspace .hero {
+  #view-chat .hero {
     padding-top: 30px;
   }
   .hero-title {
@@ -4028,3 +4028,93 @@ body:not([data-active-view="home"]) .stage {
 @media(prefers-reduced-motion:reduce){
   .orb-area > .orb,.orbit,.dot,.particle,.z-logo{animation:none!important}
 }
+
+/* ZARVIS PREMIUM FINAL OVERRIDES */
+:root{
+  --premium-bg:#f4f7ff;
+  --premium-border:rgba(49,70,120,.10);
+  --premium-gradient:linear-gradient(110deg,#0bbde9 0%,#4568ff 40%,#7956ed 72%,#c957dc 100%);
+  --premium-shadow:0 18px 55px rgba(55,76,145,.10);
+}
+html,body{background:radial-gradient(circle at 12% 0%,rgba(31,202,255,.12),transparent 30%),radial-gradient(circle at 100% 8%,rgba(129,91,255,.11),transparent 30%),var(--premium-bg);color:#11182a}
+body{color-scheme:light}
+.bg-glow{background:radial-gradient(45% 35% at 10% 0%,rgba(15,191,238,.12),transparent 70%),radial-gradient(40% 30% at 100% 8%,rgba(117,83,238,.10),transparent 70%)}
+.app{max-width:100%}
+@media(min-width:1024px){
+ .app{width:min(1500px,100%);max-width:1500px;grid-template-columns:238px minmax(0,1fr);grid-template-rows:minmax(0,1fr);grid-template-areas:"sidebar main";background:transparent}
+ .sidebar-nav{grid-area:sidebar;margin:14px 0 14px 14px;padding:16px 11px;border:1px solid rgba(255,255,255,.78);border-radius:28px;background:rgba(255,255,255,.68);box-shadow:var(--premium-shadow);backdrop-filter:blur(26px) saturate(150%)}
+ .main-content{grid-area:main;min-width:0;margin:14px;border:1px solid rgba(255,255,255,.76);border-radius:30px;background:rgba(255,255,255,.42);box-shadow:var(--premium-shadow);backdrop-filter:blur(22px);overflow:hidden}
+ .stage{padding:24px 42px 18px}
+ .stage> *{max-width:900px}
+ .composer{padding:12px 34px 18px}
+ .sidebar-nav::before{content:"ZARVIS";display:block;padding:7px 13px 20px;color:#162044;font-family:var(--font-display);font-size:18px;font-weight:800;letter-spacing:.16em}
+ .sidebar-nav .nav-item{min-height:48px;border-radius:15px;color:#68748d;transition:transform .35s ease,background .35s ease,color .35s ease}
+ .sidebar-nav .nav-item:hover{transform:translateX(2px);color:#17213d;background:rgba(255,255,255,.78)}
+ .sidebar-nav .nav-item.active{color:#fff;background:var(--premium-gradient);box-shadow:0 10px 28px rgba(69,104,255,.20)}
+}
+.home-stage{position:relative;isolation:isolate;min-height:100%;background:radial-gradient(circle at 50% 19%,rgba(82,219,255,.18),transparent 23%),radial-gradient(circle at 12% 12%,rgba(89,153,255,.10),transparent 28%),radial-gradient(circle at 90% 28%,rgba(176,115,255,.10),transparent 28%),linear-gradient(145deg,#fbfdff 0%,#f1f8ff 48%,#f6f2ff 100%)}
+.home-stage::before{width:min(72vw,720px);height:min(72vw,720px);top:5%;background:radial-gradient(circle,rgba(56,211,255,.12),rgba(118,91,238,.06) 40%,transparent 72%);filter:blur(32px);animation:premiumAtmosphere 9s ease-in-out infinite alternate}
+.home-hero{width:min(100%,900px);margin:auto 0 0}
+.orb-area{width:min(92vw,480px);height:min(46vh,430px);min-height:300px;max-height:430px;margin:0 auto}
+.orb-area>.orb{width:clamp(170px,25vw,245px);height:clamp(170px,25vw,245px);box-shadow:inset -18px -22px 48px rgba(93,72,221,.13),inset 20px 18px 46px rgba(255,255,255,.92),0 0 38px rgba(34,199,241,.26),0 0 90px rgba(123,85,238,.13);animation:premiumOrbFloat 8s ease-in-out infinite}
+.orbit{width:min(90vw,410px);height:min(36vw,165px);border-width:2px;opacity:.72;animation-duration:19s}
+.orbit.two{width:min(92vw,430px);height:min(38vw,175px);animation-duration:24s}
+.orbit.three{width:min(84vw,390px);height:min(34vw,150px);animation-duration:28s;opacity:.34}
+.dot{transform:scale(.72);opacity:.72;animation-duration:8s}
+.particle{opacity:.42;animation-duration:7s}
+.logo{top:50%}
+.logo .brand{margin-top:7px;font-family:var(--font-display);font-size:clamp(25px,4vw,38px);font-weight:800;letter-spacing:.10em;color:transparent;background:linear-gradient(100deg,#213b9c,#386ee1 44%,#7657e8 75%,#ba68d1);-webkit-background-clip:text;background-clip:text;text-shadow:none}
+.logo .mobile{color:#50617e;font-family:var(--font-display);font-size:clamp(9px,1.4vw,12px);font-weight:700;letter-spacing:.34em}
+.home-kicker{margin-top:4px;color:#68748d;font-size:10px;font-weight:700;letter-spacing:.22em}
+.home-subtitle{max-width:650px;margin-top:10px;color:#6c7891;font-size:13px;line-height:1.65}
+.home-stage .chat-launch-card{width:min(720px,calc(100% - 20px));min-height:88px;margin:20px auto 22px;padding:14px 16px;border:1px solid rgba(74,116,255,.15);border-radius:22px;background:rgba(255,255,255,.74);box-shadow:0 16px 48px rgba(56,78,144,.10),inset 0 1px 0 rgba(255,255,255,.95);backdrop-filter:blur(18px);transition:transform .4s ease,box-shadow .4s ease}
+.home-stage .chat-launch-card:hover{transform:translateY(-3px);box-shadow:0 28px 80px rgba(55,76,145,.15)}
+.home-stage .chat-launch-icon{width:48px;height:48px;border-radius:15px;background:linear-gradient(145deg,#e8fbff,#eef1ff);box-shadow:inset 0 0 18px rgba(255,255,255,.9)}
+.home-stage .chat-launch-icon svg{width:25px;height:25px;stroke:#2caed7}
+.home-stage .chat-launch-copy{padding-left:14px}
+.home-stage .chat-launch-copy strong{font-family:var(--font-display);font-size:14px;color:#182449}
+.home-stage .chat-launch-copy small{margin-top:3px;color:#748098;font-size:10px;line-height:1.45}
+.home-stage .chat-launch-arrow{font-size:25px;color:#6564e8}
+@keyframes premiumAtmosphere{from{transform:translate(-50%,0) scale(.94);opacity:.55}to{transform:translate(-50%,4px) scale(1.05);opacity:.95}}
+@keyframes premiumOrbFloat{0%,100%{transform:translateY(0) scale(.985)}50%{transform:translateY(-7px) scale(1.02)}}
+.chat-stage{background:linear-gradient(180deg,rgba(255,255,255,.36),rgba(246,249,255,.22))}
+.chat-page-header{background:rgba(255,255,255,.72);border-bottom:1px solid rgba(40,58,100,.07);backdrop-filter:blur(22px)}
+.chat-back-btn,.back-btn{border-color:rgba(48,70,125,.10);background:rgba(255,255,255,.72);color:#59667e}
+.hero-title{background:var(--premium-gradient);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero-greeting,.hero-subtitle{color:#6c7891}
+.hero-status{border-color:rgba(48,70,125,.08);background:rgba(255,255,255,.64);color:#78849a}
+.categories button,.category-card{border-color:rgba(48,70,125,.08);background:rgba(255,255,255,.70);color:#25314c;box-shadow:0 8px 26px rgba(48,66,125,.055)}
+.categories button:hover,.category-card:hover{transform:translateY(-2px);border-color:rgba(65,104,255,.16);box-shadow:0 16px 38px rgba(49,67,128,.10)}
+.capabilities-list>*,.plan-cards>*,.status-grid>*,.task-list>*,.zarvis-card{border-color:rgba(48,70,125,.08);background:rgba(255,255,255,.70);box-shadow:0 10px 34px rgba(49,67,128,.065);backdrop-filter:blur(18px)}
+.view-header h2,.card-title{color:#17213b}
+.view-header p,.card-desc{color:#6b7790}
+.settings-entry{border-color:rgba(48,70,125,.08);background:rgba(255,255,255,.70);box-shadow:0 10px 30px rgba(49,67,128,.055)}
+.settings-entry:hover{transform:translateY(-2px);border-color:rgba(65,104,255,.15);box-shadow:0 16px 42px rgba(49,67,128,.10)}
+.settings-entry strong{color:#17213b}.settings-entry small{color:#7a859a}
+.settings-entry-icon{background:rgba(29,190,232,.09);color:#169fc9}.settings-entry-icon.violet{background:rgba(117,84,236,.09);color:#7454e7}.settings-entry-icon.pink{background:rgba(201,78,205,.09);color:#c04fc8}
+.command-bar{border-color:rgba(255,255,255,.90);background:rgba(255,255,255,.82);box-shadow:0 16px 48px rgba(48,66,128,.12),inset 0 1px 0 rgba(255,255,255,.96);backdrop-filter:blur(22px) saturate(145%)}
+.mic-btn{color:#66738c}.mic-btn:hover{color:#4267e8;background:rgba(66,103,232,.07)}
+.text-input{color:#17213b}.text-input::placeholder{color:#99a3b5}
+.send-btn{background:var(--premium-gradient);box-shadow:0 9px 24px rgba(66,103,232,.22)}
+.attachment-chip{border-color:rgba(65,104,255,.10);background:rgba(255,255,255,.80);box-shadow:0 8px 26px rgba(48,66,128,.07)}
+.bottom-nav{background:rgba(255,255,255,.84);border-color:rgba(255,255,255,.92);box-shadow:0 15px 45px rgba(48,66,128,.15);backdrop-filter:blur(24px) saturate(150%)}
+.bottom-nav .nav-item{color:#758097}.bottom-nav .nav-item.active{color:#fff;background:var(--premium-gradient);box-shadow:0 8px 22px rgba(66,103,232,.18)}
+.modal-overlay{background:rgba(23,31,54,.25);backdrop-filter:blur(14px)}.modal-card{border-color:rgba(255,255,255,.88);background:rgba(255,255,255,.92);color:#17213b;box-shadow:0 30px 90px rgba(36,50,96,.18)}.modal-card h3{color:#17213b}.modal-card p{color:#68748c}
+@media(max-width:639px){
+ .app{max-width:none;height:100dvh}.views{border-radius:24px}
+ .home-stage{min-height:100%;padding:4px 13px 94px}.home-hero{margin-top:auto}
+ .orb-area{width:min(94vw,360px);height:min(47vh,330px);min-height:250px}
+ .orb-area>.orb{width:min(58vw,205px);height:min(58vw,205px)}
+ .orbit{width:min(91vw,330px);height:min(38vw,128px)}.orbit.two{width:min(94vw,350px);height:min(40vw,136px)}.orbit.three{width:min(87vw,320px);height:min(35vw,122px)}
+ .logo .brand{font-size:clamp(23px,7vw,30px);letter-spacing:.075em}.logo .mobile{font-size:8px;letter-spacing:.30em}
+ .home-kicker{font-size:8px;letter-spacing:.16em}.home-subtitle{max-width:350px;font-size:10.5px;line-height:1.55}
+ .home-stage .chat-launch-card{width:100%;min-height:74px;margin-top:15px;margin-bottom:7px;padding:10px 11px;border-radius:17px}
+ .home-stage .chat-launch-icon{width:39px;height:39px;border-radius:12px}.home-stage .chat-launch-icon svg{width:21px;height:21px}
+ .home-stage .chat-launch-copy{padding-left:10px}.home-stage .chat-launch-copy strong{font-size:11px}.home-stage .chat-launch-copy small{font-size:8.5px}.home-stage .chat-launch-arrow{font-size:20px}
+ .chat-page-header{padding:10px 12px}.hero{padding:20px 12px 10px}.hero-title{font-size:clamp(24px,7.5vw,30px)}.hero-subtitle{font-size:10.5px;line-height:1.55}
+ .conversation{width:calc(100% - 20px)}.categories{width:calc(100% - 20px);padding-bottom:12px}
+ .composer{left:8px;right:8px;bottom:calc(70px + env(safe-area-inset-bottom,0px))}
+ .bottom-nav{bottom:max(6px,env(safe-area-inset-bottom,0px));left:7px;right:7px}
+}
+@media(max-width:380px){.orb-area{height:285px;min-height:220px}.home-stage .chat-launch-copy small{display:none}.home-stage .chat-launch-card{min-height:61px}.bottom-nav .nav-item{font-size:7px}}
+@media(prefers-reduced-motion:reduce){.home-stage::before,.orb-area>.orb,.orbit,.dot,.particle{animation:none!important}}
