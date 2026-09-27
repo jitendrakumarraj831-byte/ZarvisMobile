@@ -297,6 +297,7 @@
       ["speech recognition", setupSpeechRecognition],
       ["service worker", registerServiceWorker],
       ["navigation", setupBottomNav],
+      ["home feature links", setupHomeFeatures],
       ["plans", setupPlans],
       ["settings", setupSettings],
       ["developer", setupDeveloper],
@@ -690,6 +691,24 @@
     el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
     el.openChatBtn.addEventListener("click", () => setActiveView("chat"));
     el.homeDeveloperCard?.addEventListener("click", () => setActiveView("developer"));
+  }
+
+  // Home feature cards are real entry points into the same Chat pipeline — no fake
+  // demo pages and no duplicated feature logic. A tap opens Chat, pre-fills a useful
+  // request, and leaves the final wording editable before the user sends it.
+  function setupHomeFeatures() {
+    for (const card of document.querySelectorAll("[data-feature-key][data-feature-prompt]")) {
+      card.addEventListener("click", () => {
+        haptic();
+        const prompt = card.dataset.featurePrompt || "";
+        setActiveView("chat");
+        el.input.value = prompt;
+        el.input.focus();
+        requestAnimationFrame(() => {
+          el.input.setSelectionRange(el.input.value.length, el.input.value.length);
+        });
+      });
+    }
   }
 
   function setActiveView(view) {
