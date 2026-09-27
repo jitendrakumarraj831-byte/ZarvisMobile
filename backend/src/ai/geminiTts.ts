@@ -30,7 +30,7 @@ export class GeminiTtsProvider {
       const url = this.baseUrl + "/models/" + encodeURIComponent(model) + ":generateContent";
       for (let attempt = 0; attempt < 3; attempt += 1) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), 120_000);
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -89,7 +89,7 @@ export class GeminiTtsProvider {
       const url = this.baseUrl + "/models/" + encodeURIComponent(model) + ":streamGenerateContent?alt=sse";
       for (let attempt = 0; attempt < 3; attempt += 1) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), 120_000);
       let started = false;
       try {
         const res = await fetch(url, {
