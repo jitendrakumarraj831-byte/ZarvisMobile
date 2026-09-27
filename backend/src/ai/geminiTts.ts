@@ -1,11 +1,6 @@
 /**
- * Gemini native-audio-output voice — the same underlying voice model family behind the
- * Gemini app's voice mode, called as a plain `generateContent` request (no WebSocket/Live
- * API session needed for a one-shot "speak this reply" use case). This is a distinct
- * capability from `geminiProvider.ts`'s text generation, but the same `GEMINI_API_KEY` and
- * the same Generative Language API — not the separate Google Cloud Text-to-Speech product,
- * which would need its own credential. See AI_ARCHITECTURE.md "Native audio voice" and
- * DEVELOPMENT.md "Voice quality".
+ * Gemini 3.8 Flash TTS provider. Gemini is the ONLY voice provider used by Zarvis.
+ * Transient Google API failures are retried so the UI never silently changes voice engines.
  */
 export class GeminiTtsProvider {
   constructor(
@@ -15,61 +10,55 @@ export class GeminiTtsProvider {
     private readonly baseUrl = "https://generativelanguage.googleapis.com/v1beta",
   ) {}
 
-  /** Returns a playable WAV file (Gemini returns raw PCM; browsers can't play that directly). */
   async synthesize(text: string): Promise<Buffer> {
-    const res = await fetch(`${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent?key=${this.apiKey}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text }] }],
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.voiceName } } },
-        },
-      }),
+    const url = this.baseUrl + "/models/" + encodeURIComponent(this.model) + ":generateContent";
+    const body = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text }] }],
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        speechConfig: { voiceConfig: { voice: this.voiceName } },
+      },
     });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`Gemini TTS failed: ${res.status} ${res.statusText} ${errText}`.trim());
+
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
+          body,
+          signal: controller.signal,
+        });
+
+        if (res.ok) {
+          const json = (await res.json()) as GeminiTtsResponse;
+          const part = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
+          if (!part?.data) throw new Error("Gemini TTS returned no audio data");
+          // Gemini 3.8 Flash TTS unary generation returns audio/wav directly.
+          return Buffer.from(part.data, "base64");
+        }
+
+        const errText = await res.text().catch(() => "");
+        lastError = new Error(("Gemini TTS failed: " + res.status + " " + res.statusText + " " + errText).trim());
+        if (![408, 429, 500, 502, 503, 504].includes(res.status)) break;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (lastError.name === "AbortError") lastError = new Error("Gemini TTS request timed out");
+      } finally {
+        clearTimeout(timer);
+      }
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
     }
-    const json = (await res.json()) as GeminiTtsResponse;
-    const part = json.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-    if (!part?.data) {
-      throw new Error("Gemini TTS returned no audio data");
-    }
-    const pcm = Buffer.from(part.data, "base64");
-    const sampleRate = parseSampleRate(part.mimeType) ?? 24000;
-    return pcmToWav(pcm, sampleRate, 1, 16);
+    throw lastError ?? new Error("Gemini TTS failed");
   }
 }
 
 interface GeminiTtsResponse {
-  candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data: string; mimeType?: string } }> } }>;
-}
-
-/** Gemini reports the real sample rate in the part's mimeType, e.g. "audio/L16;rate=24000". */
-function parseSampleRate(mimeType?: string): number | undefined {
-  const match = mimeType?.match(/rate=(\d+)/);
-  return match?.[1] ? Number(match[1]) : undefined;
-}
-
-/** Node has no built-in WAV encoder; this is just the standard 44-byte PCM WAV header. */
-function pcmToWav(pcm: Buffer, sampleRate: number, channels: number, bitsPerSample: number): Buffer {
-  const byteRate = sampleRate * channels * (bitsPerSample / 8);
-  const blockAlign = channels * (bitsPerSample / 8);
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0, "ascii");
-  header.writeUInt32LE(36 + pcm.length, 4);
-  header.write("WAVE", 8, "ascii");
-  header.write("fmt ", 12, "ascii");
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20); // PCM
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write("data", 36, "ascii");
-  header.writeUInt32LE(pcm.length, 40);
-  return Buffer.concat([header, pcm]);
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ inlineData?: { data: string; mimeType?: string } }>;
+    };
+  }>;
 }
