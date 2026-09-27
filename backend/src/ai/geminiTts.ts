@@ -16,6 +16,16 @@ export class GeminiTtsProvider {
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: {
         responseModalities: ["AUDIO"],
+        // Streaming TTS must stay explicitly on headerless 24 kHz PCM. Gemini's
+        // streaming GenerateContent endpoint returns AUDIO_L16 by default, but
+        // declaring it here prevents a future API/model default from silently
+        // changing the browser playback contract.
+        responseFormat: {
+          audio: {
+            mimeType: "AUDIO_L16",
+            sampleRate: 24000,
+          },
+        },
         speechConfig: { voiceConfig: { voice: this.voiceName } },
       },
     });
@@ -53,7 +63,7 @@ export class GeminiTtsProvider {
     }
     throw lastError ?? new Error("Gemini TTS failed");
   }
-  /** Streams raw 24 kHz mono PCM chunks from Gemini for low-latency browser playback. */
+  /** Streams headerless 24 kHz mono 16-bit little-endian PCM chunks for browser playback. */
   async *streamSynthesize(text: string): AsyncIterable<Buffer> {
     const url = this.baseUrl + "/models/" + encodeURIComponent(this.model) + ":streamGenerateContent?alt=sse";
     const body = JSON.stringify({
