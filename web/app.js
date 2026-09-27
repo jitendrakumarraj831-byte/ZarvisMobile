@@ -1319,105 +1319,165 @@
    * retrying the exact same text would otherwise show it twice; a retry is always treated as
    * typed/text-only, regardless of how the original turn started). */
   async function runTurn(utterance, isVoice = false) {
-    // A turn already running gets interrupted, not queued behind — cancels its network
-    // request (the AbortError branch below exits quietly, exactly like Android's
-    // `catch (t: CancellationException) { throw t }`: not a failure to report) and stops
-    // whatever it was speaking, so the new turn starts from a clean IDLE-equivalent state.
     if (currentTurnController) {
       currentTurnController.abort();
       stopSpeaking();
     }
     const controller = new AbortController();
     currentTurnController = controller;
-
     const thinkingNode = addThinkingBubble();
-
     setOrbState("UNDERSTANDING");
-
     const isFirstTurn = state.firstTurn;
-    state.firstTurn = false; // set before the request, not after — a failed first turn
-    // shouldn't get a second "warm welcome" pass on retry.
-
-    // Real, client-measured round-trip time for this specific call — feeds the System
-    // Metrics tab's "Live API Latency" log (recordLatency()). Not a fabricated number: it's
-    // performance.now() wrapped around the exact fetch already being made for this turn.
+    state.firstTurn = false;
     const startedAt = performance.now();
+
     try {
-      // Start the request immediately. The old 250ms UX delay made every turn slower,
-      // including fast deterministic responses and cached/local network paths.
       setOrbState("EXECUTING");
-      const res = await apiFetch(
-        "/orchestrator/turn",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            utterance,
-            locale: state.lang,
-            userName: localStorage.getItem(STORAGE_KEYS.userName),
-            isFirstTurn,
-            conversationId: state.conversationId,
-            // Kept as a compatibility bridge for the first request after upgrading from
-            // client-only history. The backend seeds it once, then uses durable history.
-            history: state.history.slice(-12),
-          }),
-          signal: controller.signal,
-        },
-      );
-      if (!res.ok) {
+      const res = await apiFetch("/orchestrator/turn-stream", {
+        method: "POST",
+        body: JSON.stringify({
+          utterance,
+          locale: state.lang,
+          userName: localStorage.getItem(STORAGE_KEYS.userName),
+          isFirstTurn,
+          conversationId: state.conversationId,
+          history: state.history.slice(-12),
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
-        // The backend's own `error` string is logged for debugging but never shown — a
-        // caller-facing message here is always the same friendly, translated copy,
-        // regardless of what actually failed server-side.
-        console.error(`Orchestrator turn failed (${res.status}):`, body.error || body.reason);
+        console.error("Realtime orchestrator failed:", res.status, body.error || body.reason);
         addErrorBubble(COPY[state.lang].bootError, utterance);
         setOrbState("ERROR");
         recordLatency(utterance, Math.round(performance.now() - startedAt), false);
         return;
       }
-      const result = await res.json();
-      if (typeof result.conversationId === "string" && result.conversationId.trim()) {
-        state.conversationId = result.conversationId.trim();
-        localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullMessage = "";
+      let assistantNode = null;
+      let sentenceBuffer = "";
+      const ttsQueue = [];
+      let ttsRunning = false;
+
+      const enqueueTts = (text) => {
+        const clean = text.trim();
+        if (!clean || !isVoice || !state.speak) return;
+        ttsQueue.push(clean);
+        void drainTts();
+      };
+
+      const drainTts = async () => {
+        if (ttsRunning) return;
+        ttsRunning = true;
+        try {
+          while (ttsQueue.length && !controller.signal.aborted) {
+            const next = ttsQueue.shift();
+            await speakGeminiStream(next, controller.signal);
+          }
+        } finally {
+          ttsRunning = false;
+        }
+      };
+
+      const consumeEvent = async (event, data) => {
+        if (event === "meta" && data?.conversationId) {
+          state.conversationId = String(data.conversationId);
+          localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
+          return;
+        }
+        if (event === "delta" && typeof data?.text === "string") {
+          fullMessage += data.text;
+          sentenceBuffer += data.text;
+          if (!assistantNode) {
+            thinkingNode.remove();
+            assistantNode = addBubble("assistant", "");
+            setOrbState("SPEAKING");
+          }
+          renderFormattedText(assistantNode, fullMessage);
+          scrollConversationToBottom();
+
+          // Start Gemini TTS as soon as a sentence is available; don't wait for the full reply.
+          const ready = sentenceBuffer.match(/^([\s\S]*?[.!?।！？]+\s*)/);
+          if (ready) {
+            enqueueTts(ready[1]);
+            sentenceBuffer = sentenceBuffer.slice(ready[1].length);
+          } else if (sentenceBuffer.length >= 140) {
+            const cut = sentenceBuffer.lastIndexOf(" ");
+            if (cut > 40) {
+              enqueueTts(sentenceBuffer.slice(0, cut));
+              sentenceBuffer = sentenceBuffer.slice(cut + 1);
+            }
+          }
+          return;
+        }
+        if (event === "done") {
+          if (sentenceBuffer.trim()) enqueueTts(sentenceBuffer);
+          if (typeof data?.message === "string") fullMessage = data.message;
+          state.history.push({ role: "user", content: utterance });
+          if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
+          state.history = state.history.slice(-12);
+          recordLatency(utterance, Math.round(performance.now() - startedAt), true);
+          setOrbState("SUCCESS");
+          if (assistantNode) renderFormattedText(assistantNode, fullMessage);
+          await drainTts();
+          if (!controller.signal.aborted) setOrbState("IDLE");
+        }
+      };
+
+      const processBuffer = async (flush = false) => {
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const raw of events) {
+          let event = "message";
+          let data = "";
+          for (const line of raw.split("\n")) {
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            if (line.startsWith("data:")) data += line.slice(5).trim();
+          }
+          if (data) await consumeEvent(event, JSON.parse(data));
+        }
+        if (flush && buffer.trim()) {
+          let event = "message", data = "";
+          for (const line of buffer.split("\n")) {
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            if (line.startsWith("data:")) data += line.slice(5).trim();
+          }
+          if (data) await consumeEvent(event, JSON.parse(data));
+          buffer = "";
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        await processBuffer();
       }
-      state.history.push({ role: "user", content: utterance });
-      if (typeof result.message === "string" && result.message.trim()) {
-        state.history.push({ role: "assistant", content: result.message.trim() });
+      await processBuffer(true);
+      if (!assistantNode && fullMessage.trim()) {
+        thinkingNode.remove();
+        assistantNode = addBubble("assistant", fullMessage);
       }
-      state.history = state.history.slice(-12);
-      recordLatency(utterance, Math.round(performance.now() - startedAt), true);
-      // Render immediately after the backend responds. The old 450ms success animation
-      // blocked the actual answer from appearing; keep the visual success state but never
-      // make the user wait for it.
-      setOrbState("SUCCESS");
-      const node = renderAssistantResult(result);
-      // Awaited so the orb actually stays SPEAKING for the duration of playback — without
-      // this, the fire-and-forget call returns almost immediately (it only runs
-      // synchronously up to its first internal await) and the setOrbState("IDLE") below
-      // would fire right after, overwriting SPEAKING a fraction of a second in.
-      // Typed messages stay text-only — only a voice-originated turn ever speaks back (and
-      // even then, only with Spoken replies on; see speak()'s own state.speak check).
-      if (isVoice) await speak(result.message, node);
-      if (controller.signal.aborted) return;
-      setOrbState("IDLE");
     } catch (err) {
-      if (err.name === "AbortError") return; // interrupted by a newer turn — not a failure
+      if (err?.name === "AbortError") return;
       console.error(err);
       addErrorBubble(COPY[state.lang].bootError, utterance);
       setOrbState("ERROR");
       recordLatency(utterance, Math.round(performance.now() - startedAt), false);
     } finally {
-      // Runs on every exit path (success, HTTP failure, thrown error, or an early return
-      // from the abort checks above) — removing it here, once, is what guarantees it can
-      // never linger, rather than repeating `thinkingNode.remove()` at each return site
-      // above and risking a path that forgets to.
-      thinkingNode.remove();
-      // Only the still-current call clears the tracked controller — an older,
-      // since-interrupted call's `finally` must not race the newer turn that superseded it.
-      if (currentTurnController === controller) {
-        currentTurnController = null;
+      if (!thinkingNode.isConnected) {
+        // no-op; the real assistant bubble is already rendered
+      } else {
+        thinkingNode.remove();
       }
+      if (currentTurnController === controller) currentTurnController = null;
     }
   }
+
 
   /** Cancels whatever ZARVIS is currently doing (thinking or speaking) without starting a
    * new turn — the composer's Stop action (see updateComposerMode()) and the sole way to
@@ -2057,6 +2117,9 @@
 
   let activeAudio = null;
   let activeTtsController = null;
+  let activeAudioContext = null;
+  let ttsScheduledUntil = 0;
+  const ttsSources = new Set();
 
   async function speakWithGemini(text) {
     const controller = new AbortController();
@@ -2090,9 +2153,54 @@
     }
   }
 
+  async function speakGeminiStream(text, signal) {
+    setOrbState("SPEAKING");
+    const res = await apiFetch("/tts/synthesize-stream", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+      signal,
+    });
+    if (!res.ok || !res.body) throw new Error("Gemini streaming TTS HTTP " + res.status);
+
+    const audioContext = activeAudioContext || new AudioContext({ sampleRate: 24000 });
+    activeAudioContext = audioContext;
+    if (audioContext.state === "suspended") await audioContext.resume();
+
+    const reader = res.body.getReader();
+    const decoder = null;
+    let scheduledUntil = Math.max(audioContext.currentTime + 0.03, ttsScheduledUntil);
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      const pcm = new Int16Array(value.buffer, value.byteOffset, Math.floor(value.byteLength / 2));
+      const buffer = audioContext.createBuffer(1, pcm.length, 24000);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) channel[i] = Math.max(-1, Math.min(1, pcm[i] / 32768));
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      scheduledUntil = Math.max(scheduledUntil, audioContext.currentTime + 0.02);
+      source.start(scheduledUntil);
+      scheduledUntil += buffer.duration;
+      ttsSources.add(source);
+      source.onended = () => ttsSources.delete(source);
+      ttsScheduledUntil = scheduledUntil;
+    }
+    // Keep the next sentence contiguous with the previous one.
+    if (scheduledUntil > audioContext.currentTime) {
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, (scheduledUntil - audioContext.currentTime) * 1000)));
+    }
+  }
+
   function stopSpeaking() {
     if (activeTtsController) activeTtsController.abort();
     if (activeAudio) activeAudio.pause();
+    for (const source of ttsSources) {
+      try { source.stop(); } catch {}
+    }
+    ttsSources.clear();
+    ttsScheduledUntil = 0;
     setOrbState("IDLE");
   }
   function detectSpeechLanguage(text) {
