@@ -8,7 +8,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -27,63 +26,31 @@ import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
-/** One destination in the floating glass bottom nav — see [GlassBottomBar]. */
-data class ZarvisNavItem(
-    val route: String,
-    val label: String,
-    val icon: ImageVector,
-)
+data class ZarvisNavItem(val route: String, val label: String, val icon: ImageVector)
 
-/**
- * The floating "glass" top-level nav bar (MASTER_SPEC.md §22/§23): Workspace / Capabilities /
- * Plans & Quotas / System Metrics. Sits above the Android gesture/nav bar via
- * [Modifier.navigationBarsPadding] so it never collides with edge-to-edge system chrome.
- */
 @Composable
-fun GlassBottomBar(
-    items: List<ZarvisNavItem>,
-    selectedRoute: String,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = ZarvisSpacing.md, vertical = ZarvisSpacing.sm),
-    ) {
+fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(color = GlassColors.surfaceTintElevated, shape = RoundedCornerShape(28.dp))
-                .border(width = 1.dp, color = GlassColors.border, shape = RoundedCornerShape(28.dp))
-                .padding(vertical = ZarvisSpacing.xs),
+            Modifier.fillMaxWidth()
+                .background(GlassColors.surfaceTintElevated, RoundedCornerShape(24.dp))
+                .border(1.dp, GlassColors.borderStrong, RoundedCornerShape(24.dp))
+                .padding(horizontal = 6.dp, vertical = 5.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             items.forEach { item ->
                 val selected = item.route == selectedRoute
-                val tint by animateColorAsState(
-                    targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    label = "nav-item-tint",
-                )
+                val tint by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, label = "nav")
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) { onSelect(item.route) }
-                        .padding(horizontal = ZarvisSpacing.sm, vertical = ZarvisSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() }, indication = null
+                    ) { onSelect(item.route) }.padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = item.label,
-                        tint = tint,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Text(text = item.label, style = MaterialTheme.typography.labelSmall, color = tint)
+                    Icon(item.icon, item.label, tint, Modifier.size(20.dp))
+                    Text(item.label, style = MaterialTheme.typography.labelMedium, color = tint)
                 }
             }
         }
