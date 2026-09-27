@@ -3,10 +3,11 @@ package com.zarvismobile.app.navigation
 import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +26,7 @@ import com.zarvismobile.feature.developer.DeveloperScreen
 import com.zarvismobile.feature.home.CapabilitiesScreen
 import com.zarvismobile.feature.home.FeatureDetailScreen
 import com.zarvismobile.feature.home.HomeScreen
+import com.zarvismobile.feature.home.MoreScreen
 import com.zarvismobile.feature.onboarding.OnboardingScreen
 import com.zarvismobile.feature.settings.SettingsScreen
 import com.zarvismobile.feature.subscription.SubscriptionScreen
@@ -38,6 +40,7 @@ object Routes {
     const val CAPABILITIES = "capabilities"
     const val METRICS = "metrics"
     const val ACTIVITY = "activity"
+    const val MORE = "more"
     const val CONVERSATION = "conversation"
     const val CONVERSATION_ARG_INITIAL_TEXT = "initialText"
     const val TASKS = "tasks"
@@ -52,7 +55,8 @@ private val BOTTOM_NAV_ITEMS = listOf(
     ZarvisNavItem(Routes.HOME, "Home", Icons.Filled.Home),
     ZarvisNavItem(Routes.CHAT, "Chat", Icons.Filled.ChatBubble),
     ZarvisNavItem(Routes.CAPABILITIES, "Capabilities", Icons.Filled.Explore),
-    ZarvisNavItem(Routes.ACTIVITY, "Activity", Icons.Filled.BarChart),
+    ZarvisNavItem(Routes.ACTIVITY, "Tasks", Icons.Filled.List),
+    ZarvisNavItem(Routes.MORE, "Work", Icons.Filled.Apps),
 )
 
 @Composable
@@ -121,6 +125,14 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     },
                     onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
                     onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
+                )
+            }
+            composable(Routes.MORE) {
+                MoreScreen(
+                    onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
+                    onOpenDeveloper = { navController.navigate(Routes.DEVELOPER) },
+                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 )
             }
             composable(Routes.ACTIVITY) {

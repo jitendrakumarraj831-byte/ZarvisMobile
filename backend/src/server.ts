@@ -113,7 +113,7 @@ export function buildServer(container: Container): Express {
     let status = 500;
     if (/Gemini (generateContent|streamGenerateContent) failed/i.test(message)) {
       code = "ai_service_unavailable";
-      if (/(?:^|\\D)(408|429|500|502|503|504)(?:\\D|$)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(message)) {
+      if (/(?:^|\D)(408|429|500|502|503|504)(?:\D|$)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(message)) {
         status = 503;
       }
     } else if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|self-signed certificate|certificate/i.test(message)) {

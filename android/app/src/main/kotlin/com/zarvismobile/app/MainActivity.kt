@@ -2,6 +2,7 @@ package com.zarvismobile.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +34,12 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result -> ActivityRuntimePermissionBroker.deliver(result) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        ActivityRuntimePermissionBroker.launch = { permissionLauncher.launch(it) }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { ZarvisRoot() }

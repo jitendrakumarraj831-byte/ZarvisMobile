@@ -3,7 +3,7 @@ import { getProvider, defaultModelConfig } from "./ai/providerFactory.js";
 import { GeminiTtsProvider } from "./ai/geminiTts.js";
 import { AuthService } from "./auth/authService.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
-import { GooglePlayBillingVerifier, MockPlayBillingVerifier } from "./billing/playBillingVerifier.js";
+import { FailClosedPlayBillingVerifier, GooglePlayBillingVerifier, MockPlayBillingVerifier } from "./billing/playBillingVerifier.js";
 import { env } from "./config/env.js";
 import { RequestFlagConfirmationPort } from "./security/confirmationPort.js";
 import { buildSkillRegistry } from "./skills/index.js";
@@ -48,7 +48,9 @@ export function buildContainer(store: Store = defaultStore()) {
   const taskService = new TaskService(store);
   const billingVerifier = env.playBillingServiceAccountJson
     ? new GooglePlayBillingVerifier(env.playBillingServiceAccountJson, env.playBillingPackageName)
-    : new MockPlayBillingVerifier();
+    : process.env.NODE_ENV === "production"
+      ? new FailClosedPlayBillingVerifier()
+      : new MockPlayBillingVerifier();
   const ttsProvider = env.geminiApiKey ? new GeminiTtsProvider(env.geminiApiKey, env.geminiTtsModel, env.geminiTtsVoice) : null;
 
   return { store, registry, pipeline, orchestrator, authService, entitlementPort, usagePort, taskService, billingVerifier, ttsProvider };

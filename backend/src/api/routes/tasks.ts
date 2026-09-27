@@ -34,7 +34,7 @@ export function tasksRouter(taskService: TaskService): Router {
     requireAuth,
     asyncHandler(async (req, res) => {
       const task = await taskService.get(req.params.id!);
-      if (!task) {
+      if (!task || task.accountId !== (req as AuthenticatedRequest).auth!.accountId) {
         res.status(404).json({ error: "Task not found" });
         return;
       }
@@ -45,6 +45,11 @@ export function tasksRouter(taskService: TaskService): Router {
   for (const action of ["pause", "resume", "cancel", "retry"] as const) {
     router.post(`/:id/${action}`, requireAuth, async (req, res) => {
       try {
+        const existing = await taskService.get(req.params.id!);
+        if (!existing || existing.accountId !== (req as AuthenticatedRequest).auth!.accountId) {
+          res.status(404).json({ error: "Task not found" });
+          return;
+        }
         const task = await taskService[action](req.params.id!);
         res.json(task);
       } catch (err) {

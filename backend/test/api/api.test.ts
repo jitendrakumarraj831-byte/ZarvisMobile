@@ -145,6 +145,47 @@ describe("API integration", () => {
     expect(entitlements.body.plan).toBe("PRO");
   });
 
+  it("does not let a second account replay a consumed purchase token", async () => {
+    const first = await signupAndGetToken("buyer-a@example.com");
+    const second = await signupAndGetToken("buyer-b@example.com");
+    const upgrade = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("Authorization", `Bearer ${first}`)
+      .send({ purchaseToken: "replay-token-1", productId: "zarvis_pro_monthly" });
+    expect(upgrade.status).toBe(200);
+
+    const replay = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("Authorization", `Bearer ${second}`)
+      .send({ purchaseToken: "replay-token-1", productId: "zarvis_pro_monthly" });
+    expect(replay.status).toBe(409);
+
+    const entitlements = await request(app).get("/api/v1/entitlements/me").set("Authorization", `Bearer ${second}`);
+    expect(entitlements.body.plan).not.toBe("PRO");
+  });
+
+  it("hides another account's task", async () => {
+    const owner = await signupAndGetToken("task-owner@example.com");
+    const other = await signupAndGetToken("task-other@example.com");
+    const create = await request(app)
+      .post("/api/v1/tasks")
+      .set("Authorization", `Bearer ${owner}`)
+      .send({ goal: "Private workflow" });
+    const taskId = create.body.id;
+
+    const read = await request(app).get(`/api/v1/tasks/${taskId}`).set("Authorization", `Bearer ${other}`);
+    expect(read.status).toBe(404);
+
+    const cancel = await request(app)
+      .post(`/api/v1/tasks/${taskId}/cancel`)
+      .set("Authorization", `Bearer ${other}`);
+    expect(cancel.status).toBe(404);
+
+    const stillThere = await request(app).get(`/api/v1/tasks/${taskId}`).set("Authorization", `Bearer ${owner}`);
+    expect(stillThere.status).toBe(200);
+    expect(stillThere.body.status).toBe("PENDING");
+  });
+
   it("rejects a billing webhook call for an unrecognized product id", async () => {
     const token = await signupAndGetToken();
     const res = await request(app)

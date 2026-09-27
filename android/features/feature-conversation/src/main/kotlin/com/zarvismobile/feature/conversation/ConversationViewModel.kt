@@ -7,7 +7,11 @@ import com.zarvismobile.core.common.metrics.TurnMetricsStore
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
 import com.zarvismobile.core.ui.components.VoiceState
+import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.repository.SessionRepository
+import com.zarvismobile.domain.entity.PermissionType
+import com.zarvismobile.domain.port.RuntimePermissionBroker
+import kotlinx.coroutines.flow.first
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.measureTimedValue
@@ -43,6 +47,8 @@ class ConversationViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val sttEngine: SpeechToTextEngine,
     private val ttsEngine: TextToSpeechEngine,
+    private val preferences: AppPreferences,
+    private val permissionBroker: RuntimePermissionBroker,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ConversationUiState())
@@ -84,7 +90,13 @@ class ConversationViewModel @Inject constructor(
         _uiState.update { it.copy(voiceState = VoiceState.LISTENING, error = null) }
         viewModelScope.launch {
             try {
-                sttEngine.listen(locale = "en-IN").collect { update ->
+                val granted = permissionBroker.ensure(listOf(PermissionType.MICROPHONE))
+                if (!granted) {
+                    _uiState.update { it.copy(voiceState = VoiceState.ERROR, error = "Microphone permission is required to speak.") }
+                    return@launch
+                }
+                val locale = if (preferences.locale.first() == "hi") "hi-IN" else "en-US"
+                sttEngine.listen(locale = locale).collect { update ->
                     _uiState.update { it.copy(composerText = update.text) }
                     if (update.isFinal) {
                         sttEngine.stop()
@@ -110,10 +122,11 @@ class ConversationViewModel @Inject constructor(
                 it.copy(voiceState = VoiceState.UNDERSTANDING, turns = it.turns + ConversationTurn(utterance, null), error = null)
             }
             try {
-                val accountId = sessionRepository.requireAccountId()
+                val accountId = sessionRepository.ensureSession()
+                val locale = if (preferences.locale.first() == "hi") "hi-IN" else "en-US"
                 _uiState.update { it.copy(voiceState = VoiceState.PLANNING) }
                 _uiState.update { it.copy(voiceState = VoiceState.EXECUTING) }
-                val timedOutcome = measureTimedValue { orchestrator.handleTurn(utterance, accountId) }
+                val timedOutcome = measureTimedValue { orchestrator.handleTurn(utterance, accountId, locale = locale.take(2)) }
                 val outcome = timedOutcome.value
                 TurnMetricsStore.record(utterance, timedOutcome.duration.inWholeMilliseconds, success = true)
 
@@ -122,8 +135,14 @@ class ConversationViewModel @Inject constructor(
                 }
                 delay(SUCCESS_FLASH_MS)
                 _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
-                ttsEngine.speak(outcome.message, locale = "en-IN")
-                _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                try {
+                    ttsEngine.speak(outcome.message, locale = locale)
+                    _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    _uiState.update { it.copy(voiceState = VoiceState.ERROR, error = "The reply is ready, but voice playback failed.") }
+                }
             } catch (t: CancellationException) {
                 // Interrupted by startListening() (or the ViewModel being cleared) — not a
                 // failure to report; the caller is already driving the UI to its next state.

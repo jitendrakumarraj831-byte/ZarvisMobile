@@ -19,6 +19,7 @@
     lang: "zarvis.lang",
     speak: "zarvis.speak",
     voiceURI: "zarvis.voiceURI",
+    ttsVoice: "zarvis.ttsVoice",
     userName: "zarvis.userName",
     conversationId: "zarvis.conversationId",
   };
@@ -679,7 +680,16 @@
     activity: el.viewActivity,
     settings: el.viewSettings,
     feature: el.viewFeature,
+    phone: document.getElementById("view-phone"),
+    files: document.getElementById("view-files"),
+    research: document.getElementById("view-research"),
+    creative: document.getElementById("view-creative"),
+    business: document.getElementById("view-business"),
+    developer: document.getElementById("view-developer"),
+    work: document.getElementById("view-work"),
   };
+  const WORK_VIEWS = new Set(["capabilities", "phone", "files", "research", "creative", "business", "developer", "plans", "feature"]);
+  const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"];
 
   function setupBottomNav() {
     document.body.dataset.activeView = state.activeView;
@@ -704,8 +714,10 @@
     }
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
     el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
-    el.openChatBtn.addEventListener("click", () => setActiveView("chat"));
+    el.openChatBtn?.addEventListener("click", () => setActiveView("chat"));
     el.homeDeveloperCard?.addEventListener("click", () => setActiveView("developer"));
+    setupHomeAsk();
+    setupWorkspacePrompts();
   }
 
   // Home feature cards are real entry points into the same Chat pipeline — no fake
@@ -757,11 +769,8 @@
       el.fileInput.click();
       return;
     }
-    if (feature.action === "phone") {
-      setActiveView("chat");
-      el.input.value = prompt || feature.prompt || "";
-      resizeComposer();
-      el.input.focus();
+    if (feature.action === "phone" || feature.id === "phone") {
+      setActiveView("phone");
       return;
     }
     setActiveView("chat");
@@ -784,9 +793,59 @@
     el.chatAnnouncer.textContent = text;
   }
 
+  function setupHomeAsk() {
+    const input = document.getElementById("home-ask-input");
+    const send = document.getElementById("home-ask-send");
+    if (!input || !send) return;
+    const ask = () => {
+      const text = input.value.trim();
+      if (!text) {
+        setActiveView("chat");
+        el.input.focus();
+        return;
+      }
+      input.value = "";
+      setActiveView("chat");
+      submitComposerInput(text);
+    };
+    send.addEventListener("click", ask);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        ask();
+      }
+    });
+    document.getElementById("home-ask-mic")?.addEventListener("click", () => {
+      setActiveView("chat");
+      startListening();
+    });
+    document.getElementById("home-ask-attach")?.addEventListener("click", () => {
+      setActiveView("chat");
+      el.fileInput.click();
+    });
+    document.getElementById("files-attach-btn")?.addEventListener("click", () => el.fileInput.click());
+  }
+
+  function setupWorkspacePrompts() {
+    document.querySelectorAll("[data-workspace-prompt]").forEach((button) => {
+      button.addEventListener("click", () => {
+        setActiveView("chat");
+        el.input.value = button.dataset.workspacePrompt || "";
+        resizeComposer();
+        el.input.focus();
+      });
+    });
+  }
+
+  function selectedTtsVoice() {
+    return localStorage.getItem(STORAGE_KEYS.ttsVoice) || "Kore";
+  }
+
   function setActiveView(view) {
+    if (view === "tasks") view = "activity";
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
+    if (state.activeView === "settings" && view !== "settings") closeSettingsPage();
 
     state.activeView = view;
     document.body.dataset.activeView = view;
@@ -794,7 +853,13 @@
       if (section) section.hidden = name !== view;
     }
     const navView = view === "feature" ? "capabilities" : view;
-    for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === navView);
+    for (const item of el.navItems) {
+      const target = item.dataset.view;
+      const inBottom = Boolean(item.closest(".bottom-nav"));
+      const active = target === navView || (inBottom && target === "work" && WORK_VIEWS.has(view));
+      item.classList.toggle("active", active);
+      if (item.getAttribute("role") !== "tab") item.setAttribute("aria-current", active ? "page" : "false");
+    }
     el.composer.hidden = view !== "chat";
 
     if (view === "capabilities") renderCapabilities();
@@ -982,7 +1047,7 @@
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#1a2233" : "#f4f7ff");
+    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#101318" : "#f3f4f6");
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -1006,7 +1071,7 @@
     el.activityTaskList.innerHTML = "";
     if (refreshBtn) {
       refreshBtn.disabled = false;
-      refreshBtn.textContent = "Refresh activity";
+      refreshBtn.textContent = "Refresh";
     }
     el.activityTaskList.removeAttribute("aria-busy");
     if (!tasks) {
@@ -1059,9 +1124,6 @@
   // routing the same request through the orchestrator's natural-language turn.
 
   function setupDeveloper() {
-    // Developer Agent is intentionally not part of the public web navigation.
-    // Keep its implementation available for owner/developer builds without exposing
-    // technical controls or wiring errors in the public product UI.
     if (!el.developerAnalyzeBtn || !el.developerImplementBtn || !el.developerRepoInput) return;
     el.developerEntryLink?.addEventListener("click", () => {
       haptic();
@@ -1087,8 +1149,16 @@
       renderDeveloperMessage("Repository URL and implementation requirement are both required.", "error");
       return;
     }
-    const approved = window.confirm("ZARVIS will create a new branch, modify only bounded text files, and open a GitHub pull request. It will not merge the PR. Continue?");
-    if (!approved) return;
+    showConfirmModal({
+      title: "Open a pull request?",
+      body: "ZARVIS will create a branch, change bounded text files, and open a pull request. It will not merge. This needs a PRO plan and a configured GitHub token.",
+      confirmLabel: "Implement",
+      destructive: false,
+      onConfirm: () => { void submitImplementation(repoUrl, requirement); },
+    });
+  }
+
+  async function submitImplementation(repoUrl, requirement) {
     el.developerImplementBtn.disabled = true;
     el.developerImplementBtn.textContent = "Implementing…";
     try {
@@ -1333,9 +1403,15 @@
   }
 
   async function refreshTasks() {
-    el.taskList.innerHTML = "";
+    if (el.taskList) el.taskList.innerHTML = "";
     const tasks = await fetchTasks();
-    if (!tasks) return;
+    if (!tasks || !el.taskList) {
+      if (el.activityTaskList && tasks) {
+        el.activityTaskList.innerHTML = "";
+        for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
+      }
+      return;
+    }
     if (tasks.length === 0) {
       const empty = document.createElement("p");
       empty.className = "task-empty";
@@ -1443,7 +1519,7 @@
       console.error(`Task ${action} failed:`, body.error || res.status);
       return;
     }
-    refreshTasks();
+    refreshActivity();
   }
 
   function formatRelativeTime(dateInput) {
@@ -1483,7 +1559,7 @@
    * deliberately does not — the failed attempt's own user bubble is still on screen, so
    * retrying the exact same text would otherwise show it twice; a retry is always treated as
    * typed/text-only, regardless of how the original turn started). */
-  async function runTurn(utterance, isVoice = false) {
+  async function runTurn(utterance, isVoice = false, options = {}) {
     if (currentTurnController) {
       currentTurnController.abort();
       stopSpeaking();
@@ -1493,7 +1569,6 @@
     const thinkingNode = addThinkingBubble();
     setOrbState("UNDERSTANDING");
     const isFirstTurn = state.firstTurn;
-    state.firstTurn = false;
     const startedAt = performance.now();
 
     try {
@@ -1517,6 +1592,7 @@
           isFirstTurn,
           conversationId: state.conversationId,
           history: state.history.slice(-12),
+          confirmed: options.confirmed === true,
         }),
         signal: controller.signal,
       });
@@ -1603,7 +1679,7 @@
           sentenceBuffer += data.text;
           if (!assistantNode) {
             thinkingNode.remove();
-            assistantNode = addBubble("assistant", "");
+            assistantNode = addBubble("assistant", "", utterance);
             setOrbState("SPEAKING");
           }
           renderFormattedText(assistantNode, fullMessage);
@@ -1636,7 +1712,9 @@
           state.history.push({ role: "user", content: utterance });
           if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
           state.history = state.history.slice(-12);
+          state.firstTurn = false;
           recordLatency(utterance, Math.round(performance.now() - startedAt), true);
+          renderToolActivity(data?.toolCalls, utterance, assistantNode);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           await drainTts();
@@ -1677,7 +1755,7 @@
       await processBuffer(true);
       if (!assistantNode && fullMessage.trim()) {
         thinkingNode.remove();
-        assistantNode = addBubble("assistant", fullMessage);
+        assistantNode = addBubble("assistant", fullMessage, utterance);
       }
     } catch (err) {
       if (err?.name === "AbortError") return;
@@ -1723,16 +1801,90 @@
     });
   }
 
-  function addBubble(role, text) {
+  function addBubble(role, text, utterance) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
-    if (role === "assistant") renderFormattedText(bubble, text);
-    else bubble.textContent = text;
+    bubble.setAttribute("data-role", role);
+    const label = document.createElement("span");
+    label.className = "bubble-role";
+    label.textContent = role === "user" ? "You" : role === "assistant" ? "ZARVIS" : role === "tool" ? "Action" : "Status";
+    bubble.appendChild(label);
+    const body = document.createElement("div");
+    body.className = "bubble-body";
+    if (role === "assistant") renderFormattedText(body, text);
+    else body.textContent = text;
+    bubble.appendChild(body);
+    if (role === "assistant") {
+      const actions = document.createElement("div");
+      actions.className = "bubble-actions";
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(body.innerText || text);
+          copyBtn.textContent = "Copied";
+        } catch {
+          copyBtn.textContent = "Copy failed";
+        }
+      });
+      actions.appendChild(copyBtn);
+      if (utterance) {
+        const again = document.createElement("button");
+        again.type = "button";
+        again.textContent = "Regenerate";
+        again.addEventListener("click", () => {
+          bubble.remove();
+          runTurn(utterance, false);
+        });
+        actions.appendChild(again);
+      }
+      bubble.appendChild(actions);
+    }
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
     scrollConversationToBottom();
     if (role === "assistant") announceChat(text);
-    return bubble;
+    return body;
+  }
+
+  function renderToolActivity(toolCalls, utterance) {
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) return;
+    for (const call of toolCalls) {
+      const kind = call?.outcome?.kind || "unknown";
+      const row = document.createElement("div");
+      row.className = "tool-row";
+      row.dataset.status = kind;
+      const top = document.createElement("div");
+      top.className = "tool-row-top";
+      const title = document.createElement("strong");
+      title.textContent = call.skillId || "Tool";
+      const status = document.createElement("span");
+      status.textContent = kind.replaceAll("_", " ");
+      top.append(title, status);
+      row.appendChild(top);
+      const note = document.createElement("p");
+      note.className = "stage-note";
+      note.textContent = kind === "success"
+        ? "The skill finished. The answer above includes its result."
+        : kind === "confirmation_declined"
+          ? "This action needs confirmation before it can run."
+          : "The skill did not complete.";
+      row.appendChild(note);
+      if (kind === "confirmation_declined" && utterance) {
+        const confirm = document.createElement("button");
+        confirm.type = "button";
+        confirm.className = "zarvis-btn zarvis-btn-primary";
+        confirm.textContent = "Confirm and continue";
+        confirm.addEventListener("click", () => {
+          confirm.disabled = true;
+          runTurn(utterance, false, { confirmed: true });
+        });
+        row.appendChild(confirm);
+      }
+      el.conversation.appendChild(row);
+    }
+    scrollConversationToBottom();
   }
 
   /** Render a safe subset of Markdown used by ZARVIS replies without exposing arbitrary HTML. */
@@ -1899,7 +2051,7 @@
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           console.error(`Image analysis failed (${res.status}):`, body.error);
-          addSystemNotice(COPY[state.lang].unreadableFile);
+          addSystemNotice(noticeForExtractError(body.error));
           return;
         }
         const { text } = await res.json();
@@ -1951,9 +2103,7 @@
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         console.error(`Document extraction failed (${res.status}):`, body.error);
-        if (body.error === "unsupported_file_type") addSystemNotice(COPY[state.lang].unsupportedFile);
-        else if (body.error === "document_too_long") addSystemNotice(COPY[state.lang].oversizedFile);
-        else addSystemNotice(COPY[state.lang].unreadableFile);
+        addSystemNotice(noticeForExtractError(body.error));
         return;
       }
       const { text } = await res.json();
@@ -1966,11 +2116,24 @@
     }
   }
 
+  function noticeForExtractError(code) {
+    if (code === "unsupported_file_type") return COPY[state.lang].unsupportedFile;
+    if (code === "document_too_long") return COPY[state.lang].oversizedFile;
+    if (code === "empty_document") return COPY[state.lang].emptyFile;
+    return COPY[state.lang].unreadableFile;
+  }
+
+  function setFilesState(text) {
+    const node = document.getElementById("files-state");
+    if (node) node.textContent = text;
+  }
+
   function setExtractingState(isExtracting) {
     el.uploadBtn.setAttribute("aria-disabled", String(isExtracting));
     el.uploadBtn.classList.toggle("is-disabled", isExtracting);
     el.fileInput.disabled = isExtracting;
     el.uploadBtn.title = isExtracting ? COPY[state.lang].extracting : COPY[state.lang].uploadTitle;
+    if (isExtracting) setFilesState("Reading the file…");
   }
 
   /** Shows the "📄 filename / Ready to analyze" chip above the composer — the attachment
@@ -1981,12 +2144,14 @@
     el.attachmentName.textContent = filename;
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
+    setFilesState(`${filename} is ready. Ask about it in Chat.`);
     el.input.focus();
   }
 
   function clearPendingAttachment() {
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
+    setFilesState("No file attached.");
   }
 
   /** The composer's single entry point for a user-authored turn (typed Send/Enter, or a
@@ -2153,7 +2318,7 @@
   // Escape-key guard, both via isBusy() below.
   const BUSY_STATES = ["UNDERSTANDING", "EXECUTING", "SUCCESS", "SPEAKING"];
   function isBusy() {
-    return BUSY_STATES.includes(el.orb.dataset.state);
+    return currentTurnController !== null || BUSY_STATES.includes(el.orb.dataset.state);
   }
 
   function delay(ms) {
@@ -2213,7 +2378,7 @@
     recognition.addEventListener("error", () => {
       el.micBtn.setAttribute("aria-pressed", "false");
       el.orb.setAttribute("aria-pressed", "false");
-      setOrbState("IDLE");
+      if (!currentTurnController) setOrbState("ERROR");
     });
 
     el.micBtn.addEventListener("click", toggleListening);
@@ -2238,6 +2403,8 @@
 
   function startListening() {
     if (!recognition) return;
+    if (currentTurnController) cancelCurrentTurn();
+    stopSpeaking();
     recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
     el.micBtn.setAttribute("aria-pressed", "true");
     el.orb.setAttribute("aria-pressed", "true");
@@ -2276,16 +2443,9 @@
   // See DEVELOPMENT.md "Voice quality" for that upgrade path.
 
   function setupSpeechSynthesis() {
-    if (!window.speechSynthesis) return;
-    const loadVoices = () => {
-      cachedVoices = window.speechSynthesis.getVoices();
-      populateVoiceSelect();
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-
-    el.voiceSelect.addEventListener("change", () => {
-      localStorage.setItem(STORAGE_KEYS.voiceURI, el.voiceSelect.value);
+    populateVoiceSelect();
+    el.voiceSelect?.addEventListener("change", () => {
+      localStorage.setItem(STORAGE_KEYS.ttsVoice, el.voiceSelect.value);
     });
   }
 
@@ -2295,21 +2455,16 @@
   }
 
   function populateVoiceSelect() {
-    const candidates = voicesForCurrentLang();
+    if (!el.voiceSelect) return;
     el.voiceSelect.innerHTML = "";
-    if (candidates.length <= 1) {
-      el.voiceSelect.hidden = true;
-      return;
-    }
-    for (const voice of candidates) {
+    for (const voice of GEMINI_VOICES) {
       const option = document.createElement("option");
-      option.value = voice.voiceURI;
-      option.textContent = `${voice.name}${voice.localService ? "" : " ☁"}`;
+      option.value = voice;
+      option.textContent = voice;
       el.voiceSelect.appendChild(option);
     }
-    const saved = localStorage.getItem(STORAGE_KEYS.voiceURI);
-    const defaultVoice = saved && candidates.some((v) => v.voiceURI === saved) ? saved : pickVoice(state.lang === "hi" ? "hi" : "en").voiceURI;
-    el.voiceSelect.value = defaultVoice;
+    const saved = localStorage.getItem(STORAGE_KEYS.ttsVoice);
+    el.voiceSelect.value = GEMINI_VOICES.includes(saved) ? saved : "Kore";
     el.voiceSelect.hidden = false;
   }
 
@@ -2352,7 +2507,7 @@
     try {
       const res = await apiFetch("/tts/synthesize", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice: selectedTtsVoice() }),
         signal: controller.signal,
       });
       if (!res.ok) throw new Error("Gemini TTS HTTP " + res.status);
@@ -2393,7 +2548,7 @@
     try {
       const res = await apiFetch("/tts/synthesize-stream", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice: selectedTtsVoice() }),
         signal,
       });
       if (!res.ok || !res.body) {

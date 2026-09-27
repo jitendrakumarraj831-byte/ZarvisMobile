@@ -1,5 +1,12 @@
 import type { EntitlementLevel, PermissionType, Task } from "../domain/types.js";
 
+export class InsufficientCreditsError extends Error {
+  constructor(accountId: string) {
+    super(`Insufficient credits for account '${accountId}'`);
+    this.name = "InsufficientCreditsError";
+  }
+}
+
 export interface User {
   id: string;
   email: string;
@@ -76,8 +83,16 @@ export interface Store {
 
   getTrial(accountId: string): Promise<TrialRecord | undefined>;
   getCreditBalance(accountId: string): Promise<number>;
-  /** Deducts entry.cost from the account balance and appends to the append-only ledger. */
+  /**
+   * Deducts entry.cost from the account balance and appends to the ledger.
+   * Throws InsufficientCreditsError when the balance cannot cover the cost.
+   */
   recordUsage(entry: UsageEntry): Promise<number>;
+  /**
+   * Records a verified purchase token the first time it is seen.
+   * Returns false when that token was already consumed, including by another account.
+   */
+  claimPurchaseToken(purchaseToken: string, accountId: string, productId: string): Promise<boolean>;
   listUsage(accountId: string): Promise<UsageEntry[]>;
 
   createConversation(accountId: string, title?: string): Promise<Conversation>;

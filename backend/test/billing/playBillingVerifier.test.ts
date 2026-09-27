@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { GooglePlayBillingVerifier, MockPlayBillingVerifier } from "../../src/billing/playBillingVerifier.js";
+import { FailClosedPlayBillingVerifier, GooglePlayBillingVerifier, MockPlayBillingVerifier } from "../../src/billing/playBillingVerifier.js";
 
 describe("MockPlayBillingVerifier", () => {
   it("accepts any non-empty token", async () => {
@@ -12,6 +12,13 @@ describe("MockPlayBillingVerifier", () => {
   it("rejects an empty token", async () => {
     const verifier = new MockPlayBillingVerifier();
     expect(await verifier.verifyPurchaseToken("", "zarvis_pro_monthly")).toEqual({ valid: false });
+  });
+});
+
+describe("FailClosedPlayBillingVerifier", () => {
+  it("rejects every token", async () => {
+    const verifier = new FailClosedPlayBillingVerifier();
+    expect(await verifier.verifyPurchaseToken("token-abc", "zarvis_pro_monthly")).toEqual({ valid: false });
   });
 });
 

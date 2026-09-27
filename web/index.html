@@ -3,134 +3,80 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-  <title>ZARVIS MOBILE</title>
-  <meta name="description" content="ZARVIS MOBILE — your universal AI digital agent for chat, voice, files, research, coding and automation." />
+  <title>ZARVIS</title>
+  <meta name="description" content="ZARVIS is an AI assistant for conversation, research, documents, tasks, and supported phone actions on Android." />
   <link rel="icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#f4f7ff" />
+  <meta name="theme-color" content="#f3f4f6" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap"
-    rel="stylesheet"
-  />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div class="bg-glow" aria-hidden="true"></div>
-
   <div class="app">
-    <!-- Desktop primary navigation: all core pages stay one click away. -->
     <nav class="sidebar-nav" id="sidebar-nav" aria-label="Main">
-      <button type="button" class="nav-item active" data-view="home"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"></path></svg></span><span>Home</span></button>
-      <button type="button" class="nav-item" data-view="chat"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 1 1 18 0z"></path></svg></span><span>Chat</span></button>
-      <button type="button" class="nav-item" data-view="capabilities"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path></svg></span><span>Capabilities</span></button>
-      <button type="button" class="nav-item" data-view="activity"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16"></path><path d="M8 16v-5M12 16V8M16 16v-3"></path></svg></span><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
-      <button type="button" class="nav-item" data-view="plans"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M8 9h8M8 13h5"></path></svg></span><span>Plans</span></button>
-      <button type="button" class="nav-item" data-view="settings"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"></path></svg></span><span>Settings</span></button>
+      <div class="sidebar-brand"><div class="brand-mark">ZARVIS</div></div>
+      <p class="nav-label">Start</p>
+      <button type="button" class="nav-item active" data-view="home"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"></path></svg></span><span>Home</span></button>
+      <button type="button" class="nav-item" data-view="chat"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 1 1 18 0z"></path></svg></span><span>Chat</span></button>
+      <p class="nav-label">Work</p>
+      <button type="button" class="nav-item" data-view="capabilities"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18"></path></svg></span><span>Capabilities</span></button>
+      <button type="button" class="nav-item" data-view="phone"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"></path></svg></span><span>Phone Agent</span></button>
+      <button type="button" class="nav-item" data-view="activity"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span><span>Tasks</span><span class="nav-badge" id="activity-badge" hidden></span></button>
+      <button type="button" class="nav-item" data-view="files"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></span><span>Files</span></button>
+      <button type="button" class="nav-item" data-view="research"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><span>Research</span></button>
+      <button type="button" class="nav-item" data-view="creative"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg></span><span>Creative</span></button>
+      <button type="button" class="nav-item" data-view="business"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></span><span>Business</span></button>
+      <button type="button" class="nav-item" data-view="developer"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"></path></svg></span><span>Developer</span></button>
+      <p class="nav-label">Account</p>
+      <button type="button" class="nav-item" data-view="plans"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M8 9h8M8 13h5"></path></svg></span><span>Plans</span></button>
+      <button type="button" class="nav-item" data-view="settings"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2"></path></svg></span><span>Settings</span></button>
     </nav>
 
-    <!-- Groups the switchable views + composer as one flex column, so the desktop grid
-         (styles.css, ≥1024px) can place them as a single "main" grid-area next to
-         .sidebar-nav without changing their own internal flex layout (unchanged from before
-         this wrapper existed: .views takes remaining height, .composer sticks to the bottom). -->
     <div class="main-content">
       <main class="views">
         <section class="stage home-stage" id="view-home">
-          <div class="home-hero">
-            <section class="orb-area" aria-label="ZARVIS MOBILE">
-              <div class="orbit"></div>
-              <div class="orbit two"></div>
-              <div class="orbit three"></div>
-              <div class="dot d1"></div>
-              <div class="dot d2"></div>
-              <div class="dot d3"></div>
-              <div class="dot d4"></div>
-              <div class="dot d5"></div>
-              <div class="particle p1"></div>
-              <div class="particle p2"></div>
-              <div class="particle p3"></div>
-              <div class="particle p4"></div>
-              <div class="particle p5"></div>
-              <div class="orb"></div>
-              <div class="logo">
-                <div class="brand">ZARVIS</div>
-                <div class="brand-line"><span class="mobile">MOBILE</span></div>
-              </div>
-            </section>
-            <p class="home-kicker">YOUR UNIVERSAL AI DIGITAL AGENT</p>
-            <p class="home-subtitle">Chat, create, research, code, analyze files, use voice, and get tasks done — all from one intelligent workspace.</p>
+          <p class="brand-mark">ZARVIS</p>
+          <p class="home-kicker">AI assistant</p>
+          <h1 class="home-title">Ask once. Get a clear next step.</h1>
+          <p class="home-lead">ZARVIS answers, researches, reads files you attach, drafts writing, and tracks tasks. Phone actions run on the Android app.</p>
+          <div class="ask-panel">
+            <div class="ask-row">
+              <button type="button" class="icon-btn" id="home-ask-mic" aria-label="Speak to ZARVIS">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path><path d="M19 11a7 7 0 0 1-14 0M12 18v3"></path></svg>
+              </button>
+              <button type="button" class="icon-btn" id="home-ask-attach" aria-label="Attach a file">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L13 6a3 3 0 0 1 4 4l-7 7a1 1 0 0 1-1.5-1.5L16 8"></path></svg>
+              </button>
+              <textarea id="home-ask-input" class="text-input" rows="1" placeholder="Ask ZARVIS" autocomplete="off"></textarea>
+              <button type="button" class="send-btn" id="home-ask-send" aria-label="Ask ZARVIS">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+              </button>
+            </div>
           </div>
-          <div class="home-cta-row">
-            <button type="button" class="chat-launch-card" id="open-chat-btn">
-              <span class="chat-launch-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9.1 9.1 0 0 1-4.2-1L3 21l1.8-4.3A8.2 8.2 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5Z"></path><path d="M8 11h.01M12 11h.01M16 11h.01"></path></svg>
-              </span>
-              <span class="chat-launch-copy">
-                <strong>Chat with ZARVIS</strong>
-                <small>Ask anything, talk by voice, attach files and get things done.</small>
-              </span>
-              <span class="chat-launch-arrow" aria-hidden="true">→</span>
-            </button>
-            <button type="button" class="home-link-btn home-secondary-cta" data-home-view="capabilities">Explore Capabilities <span>→</span></button>
+          <div class="suggest-row" aria-label="Suggested actions">
+            <button type="button" class="chip" data-workspace-prompt="Summarize the main points and list open questions.">Summarize a topic</button>
+            <button type="button" class="chip" data-workspace-prompt="Search the web for recent sources and cite the links you use.">Research with sources</button>
+            <button type="button" class="chip" data-home-view="files">Attach a file</button>
+            <button type="button" class="chip" data-home-view="phone">Phone Agent</button>
           </div>
-
-          <section class="home-features" aria-labelledby="home-features-title">
-            <div class="home-section-heading">
-              <div>
-                <span class="home-section-eyebrow">ONE AGENT • MANY OUTCOMES</span>
-                <h2 id="home-features-title">Everything you can do with ZARVIS</h2>
-                <p>Choose a task to see how ZARVIS can help. Every action below opens the real Chat workspace with a ready-to-edit request.</p>
-              </div>
-              <div class="home-header-actions">
-                <button type="button" class="home-link-btn" data-home-view="capabilities">All capabilities <span>→</span></button>
-                <button type="button" class="home-link-btn home-link-btn-soft" data-home-view="plans">Plans &amp; quotas <span>→</span></button>
-              </div>
-            </div>
-
-            <div class="home-feature-grid" id="home-feature-grid">
-              <button type="button" class="home-feature-card" data-feature-page="workspace">
-                <span class="home-feature-icon" aria-hidden="true">✦</span>
-                <span class="home-feature-copy"><strong>AI Workspace</strong><small>Conversation in English, Hindi, or Hinglish, with follow-ups and files.</small></span>
-                <span class="home-feature-arrow" aria-hidden="true">→</span>
-              </button>
-              <button type="button" class="home-feature-card" data-feature-page="voice">
-                <span class="home-feature-icon" aria-hidden="true">◉</span>
-                <span class="home-feature-copy"><strong>Voice Assistant</strong><small>Tap to speak. No wake word and no background listening.</small></span>
-                <span class="home-feature-arrow" aria-hidden="true">→</span>
-              </button>
-              <button type="button" class="home-feature-card" data-feature-page="phone">
-                <span class="home-feature-icon" aria-hidden="true">☎</span>
-                <span class="home-feature-copy"><strong>Phone Agent</strong><small>Open apps, find contacts, and call from the Android app.</small></span>
-                <span class="home-feature-arrow" aria-hidden="true">→</span>
-              </button>
-              <button type="button" class="home-feature-card" data-feature-page="tasks">
-                <span class="home-feature-icon" aria-hidden="true">↻</span>
-                <span class="home-feature-copy"><strong>Tasks &amp; Automation</strong><small>Track a workflow, then pause, resume, cancel, or retry it.</small></span>
-                <span class="home-feature-arrow" aria-hidden="true">→</span>
-              </button>
-            </div>
-
-            <div class="home-trust-row" aria-label="ZARVIS workflow">
-              <span><b>01</b> Tell ZARVIS your goal</span>
-              <i>→</i>
-              <span><b>02</b> ZARVIS selects the right skill</span>
-              <i>→</i>
-              <span><b>03</b> Review the result in Chat or Activity</span>
-            </div>
-          </section>
+          <div class="home-grid">
+            <button type="button" class="home-card" data-feature-page="workspace"><span><strong>AI Workspace</strong><small>Conversation, follow-ups, and skills in one thread.</small></span></button>
+            <button type="button" class="home-card" data-feature-page="voice"><span><strong>Voice</strong><small>Tap to speak. Spoken replies use the configured voice.</small></span></button>
+            <button type="button" class="home-card" data-feature-page="research"><span><strong>Research</strong><small>Live search when the backend can ground an answer.</small></span></button>
+            <button type="button" class="home-card" data-feature-page="tasks"><span><strong>Tasks</strong><small>Track a workflow. Steps are stored, not executed.</small></span></button>
+          </div>
         </section>
 
         <section class="stage chat-stage" id="view-chat" hidden>
           <div class="chat-page-header">
             <button type="button" class="chat-back-btn" id="chat-back-btn" aria-label="Back to Home">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
-            <div><strong>Chat with ZARVIS</strong><span>AI conversation workspace</span></div>
+            <div><strong>Chat</strong><span>AI workspace</span></div>
             <p class="hero-status" id="hero-status" data-state="IDLE">
               <span class="hero-status-dot" aria-hidden="true"></span>
               <span id="hero-status-label">Ready</span>
@@ -138,27 +84,15 @@
           </div>
           <section class="hero" id="hero">
             <div class="orb-wrap">
-              <div class="orb-ring" aria-hidden="true"></div>
-              <div
-                class="orb"
-                id="orb"
-                data-state="IDLE"
-                role="button"
-                tabindex="0"
-                aria-pressed="false"
-                aria-label="Speak to Zarvis"
-                title="Tap to speak — tap again to stop"
-              ></div>
+              <div class="orb" id="orb" data-state="IDLE" role="button" tabindex="0" aria-pressed="false" aria-label="Speak to ZARVIS"></div>
             </div>
-            <p class="hero-greeting" id="hero-greeting">Hey, I'm Zarvis. 👋</p>
-            <h1 class="hero-title" id="hero-title">Think it. Ask it. Get it done.</h1>
-            <p class="hero-subtitle" id="hero-subtitle">Your intelligent AI assistant for conversations, ideas, research, writing, and everyday tasks.</p>
+            <p class="hero-greeting" id="hero-greeting">Ask ZARVIS</p>
+            <h1 class="hero-title" id="hero-title">What should we work on?</h1>
+            <p class="hero-subtitle" id="hero-subtitle">Type, speak, or attach a file. ZARVIS answers in this thread and shows tool results when a skill runs.</p>
           </section>
-
           <div id="chat-announcer" class="sr-only" aria-live="polite"></div>
-          <section class="conversation" id="conversation"></section>
-
-          <p class="quick-actions-lead" id="quick-actions-lead">Ask anything. Start anywhere.</p>
+          <section class="conversation" id="conversation" aria-live="off"></section>
+          <p class="quick-actions-lead" id="quick-actions-lead">Start with a skill</p>
           <section class="categories" id="categories" aria-label="Quick actions"></section>
         </section>
 
@@ -166,23 +100,120 @@
           <div class="view-header view-header-row">
             <div>
               <h2>Capabilities</h2>
-              <p>Open a capability to see what it does, then start it from Chat or the Android app.</p>
+              <p>Each capability opens the real workspace or states the platform limit.</p>
             </div>
-            <button type="button" class="home-link-btn" data-home-view="plans">Plans &amp; quotas <span aria-hidden="true">→</span></button>
+            <button type="button" class="home-link-btn" data-home-view="plans">Plans</button>
           </div>
           <div id="capability-hub"></div>
-          <h3 class="capability-group-label" id="live-skills-label">Skills available right now</h3>
+          <h3 class="capability-group-label" id="live-skills-label">Skills available on this account</h3>
           <div class="capabilities-list" id="capabilities-list"></div>
         </section>
 
-        <section class="stage" id="view-feature" hidden>
-          <div id="feature-root"></div>
+        <section class="stage" id="view-feature" hidden><div id="feature-root"></div></section>
+
+        <section class="stage" id="view-phone" hidden>
+          <div class="view-header">
+            <h2>Phone Agent</h2>
+            <p>Open apps, find contacts, and place calls from the Android app. The browser cannot control your phone.</p>
+          </div>
+          <div class="callout" role="status">Continue on Android. Install or open the ZARVIS Android app, then say the command in Chat after the permission prompt.</div>
+          <div class="home-grid">
+            <article class="work-card"><div><strong>Open apps</strong><small>Available on Android. No runtime permission. Example: Open WhatsApp.</small></div></article>
+            <article class="work-card"><div><strong>Find contacts</strong><small>Requires Contacts. Example: Find Mom's number.</small></div></article>
+            <article class="work-card"><div><strong>Make calls</strong><small>Requires Phone. A raw number does not need Contacts. ZARVIS asks you to confirm before the call.</small></div></article>
+            <article class="work-card"><div><strong>System settings</strong><small>Not supported. Wi-Fi, Bluetooth, and similar controls have no action.</small></div></article>
+          </div>
+        </section>
+
+        <section class="stage" id="view-activity" hidden>
+          <div class="view-header view-header-row">
+            <div>
+              <h2>Tasks</h2>
+              <p>Workflows ZARVIS has recorded. Pause, resume, cancel, and retry change status. They do not execute the steps.</p>
+            </div>
+            <button type="button" class="home-link-btn" data-home-view="plans">Plans</button>
+          </div>
+          <div class="activity-actions">
+            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="activity-refresh-btn">Refresh</button>
+            <button type="button" class="zarvis-btn zarvis-btn-primary" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: ">New tracked task</button>
+          </div>
+          <div class="task-list" id="activity-task-list"></div>
+        </section>
+
+        <section class="stage" id="view-files" hidden>
+          <div class="view-header">
+            <h2>Files</h2>
+            <p>Attach an image, PDF, DOCX, or text file. ZARVIS reads it, then you ask about it in Chat. Analysis is ready only after extraction succeeds.</p>
+          </div>
+          <button type="button" class="zarvis-btn zarvis-btn-primary" id="files-attach-btn">Attach a file</button>
+          <p class="stage-note" id="files-state">No file attached.</p>
+        </section>
+
+        <section class="stage" id="view-research" hidden>
+          <div class="view-header">
+            <h2>Research</h2>
+            <p>Web search returns grounded links when the provider supports it. Compare, report, and outline skills use model knowledge and are labeled as such.</p>
+          </div>
+          <div class="suggest-row">
+            <button type="button" class="chip" data-workspace-prompt="Search the web and cite the sources you use: ">Search and cite</button>
+            <button type="button" class="chip" data-workspace-prompt="Compare these options and say which claims come from live search: ">Compare</button>
+            <button type="button" class="chip" data-workspace-prompt="Write a short research outline of questions to investigate about: ">Outline</button>
+          </div>
+        </section>
+
+        <section class="stage" id="view-creative" hidden>
+          <div class="view-header">
+            <h2>Creative Studio</h2>
+            <p>Writing skills are live. Image generation is not implemented. Attach an image if you want ZARVIS to analyze one you already have.</p>
+          </div>
+          <div class="suggest-row">
+            <button type="button" class="chip" data-workspace-prompt="Write a short message about: ">Write a message</button>
+            <button type="button" class="chip" data-workspace-prompt="Brainstorm five directions for: ">Brainstorm</button>
+            <button type="button" class="chip" data-home-view="files">Analyze an image</button>
+          </div>
+          <p class="stage-note">Image generation: not supported.</p>
+        </section>
+
+        <section class="stage" id="view-business" hidden>
+          <div class="view-header">
+            <h2>Business</h2>
+            <p>Draft a social post, a customer reply, or an invoice. ZARVIS does not publish or send them.</p>
+          </div>
+          <div class="suggest-row">
+            <button type="button" class="chip" data-workspace-prompt="Draft a social post about: ">Social post</button>
+            <button type="button" class="chip" data-workspace-prompt="Draft a polite customer reply to: ">Customer reply</button>
+            <button type="button" class="chip" data-workspace-prompt="Draft an invoice for: ">Draft invoice</button>
+          </div>
+        </section>
+
+        <section class="stage" id="view-developer" hidden>
+          <div class="view-header">
+            <h2>Developer Agent</h2>
+            <p>Analyze is read-only. Implement opens a pull request after you confirm, and only when this account is PRO and the server has a GitHub token. There is no separate verify agent.</p>
+          </div>
+          <div class="dev-stage" aria-label="Developer stages">
+            <span class="live">Analyze</span>
+            <span>Plan — included in implement</span>
+            <span class="live">Implement</span>
+            <span>Verify — not a separate step</span>
+          </div>
+          <label for="developer-repo-input">GitHub repository URL</label>
+          <input id="developer-repo-input" class="text-input-block" type="url" placeholder="https://github.com/owner/repo" autocomplete="off" />
+          <div class="dev-actions">
+            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="developer-analyze-btn">Analyze</button>
+          </div>
+          <label for="developer-requirement-input">Change to implement</label>
+          <textarea id="developer-requirement-input" class="text-input-block" rows="3" placeholder="Describe a bounded text change"></textarea>
+          <div class="dev-actions">
+            <button type="button" class="zarvis-btn zarvis-btn-primary" id="developer-implement-btn">Implement and open PR</button>
+          </div>
+          <div id="developer-result"></div>
         </section>
 
         <section class="stage" id="view-plans" hidden>
           <div class="view-header">
-            <h2>Plans &amp; Quotas</h2>
-            <p>Free vs Pro — compare tiers and see what's on your account today.</p>
+            <h2>Plans</h2>
+            <p>Your current plan and credits come from the account. Prices are not listed because checkout is not connected.</p>
           </div>
           <div id="plans-current" class="status-grid"></div>
           <div class="billing-toggle" id="billing-toggle" role="group" aria-label="Billing period">
@@ -192,190 +223,158 @@
           <div class="plan-cards" id="plan-cards"></div>
         </section>
 
-                <section class="stage" id="view-activity" hidden>
-          <div class="view-header view-header-row">
-            <div>
-              <h2>Activity</h2>
-              <p>Tasks you created. Pause, resume, cancel, or retry them here. Creating a workflow tracks the steps; it does not run them.</p>
-            </div>
-            <button type="button" class="home-link-btn" data-home-view="plans">Plans &amp; quotas <span aria-hidden="true">→</span></button>
+        <section class="stage" id="view-work" hidden>
+          <div class="view-header">
+            <h2>Work</h2>
+            <p>Secondary destinations. Each one opens a real workspace.</p>
           </div>
-          <div class="activity-actions">
-            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="activity-refresh-btn">Refresh activity</button>
-                      </div>
-          <div class="task-list" id="activity-task-list"></div>
+          <div class="work-grid">
+            <button type="button" class="work-card" data-home-view="capabilities"><span><strong>Capabilities</strong><small>What ZARVIS can do, and where it runs.</small></span></button>
+            <button type="button" class="work-card" data-home-view="phone"><span><strong>Phone Agent</strong><small>Android-only phone actions.</small></span></button>
+            <button type="button" class="work-card" data-home-view="files"><span><strong>Files</strong><small>Upload and ask about a document.</small></span></button>
+            <button type="button" class="work-card" data-home-view="research"><span><strong>Research</strong><small>Search and structured questions.</small></span></button>
+            <button type="button" class="work-card" data-home-view="creative"><span><strong>Creative</strong><small>Writing. No image generation.</small></span></button>
+            <button type="button" class="work-card" data-home-view="business"><span><strong>Business</strong><small>Drafts that stay in the chat.</small></span></button>
+            <button type="button" class="work-card" data-home-view="developer"><span><strong>Developer</strong><small>Analyze a repo. Implement with confirmation.</small></span></button>
+            <button type="button" class="work-card" data-home-view="plans"><span><strong>Plans</strong><small>Plan, credits, and limits.</small></span></button>
+          </div>
         </section>
 
-                <section class="stage" id="view-settings" hidden>
+        <section class="stage" id="view-settings" hidden>
           <div class="view-header">
             <h2>Settings</h2>
-            <p>Organized controls for Voice, Language, Appearance, AI, Notifications, Privacy, Security, Data and Memory.</p>
+            <p>Controls that change this device, plus an honest note where a control is not available.</p>
           </div>
-
           <div class="settings-grid" id="settings-grid">
-            <button type="button" class="settings-entry" data-settings-page="voice"><span class="settings-entry-icon cyan">◉</span><span><strong>Voice</strong><small>Spoken replies and voice selection</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="language"><span class="settings-entry-icon cyan">文</span><span><strong>Language</strong><small>English or हिंदी</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="appearance"><span class="settings-entry-icon violet">◈</span><span><strong>Appearance</strong><small>Aurora Light or subtle Dim theme</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="ai"><span class="settings-entry-icon violet">✦</span><span><strong>AI</strong><small>AI preferences and assistant behavior</small></span><b>›</b></button>
-            <button type="button" class="settings-entry protection-entry" data-settings-page="protection"><span class="settings-entry-icon cyan">🛡</span><span><strong>Rules &amp; Protection</strong><small>Safety rules, confirmations and data protection</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="notifications"><span class="settings-entry-icon pink">◌</span><span><strong>Notifications</strong><small>Alerts and notification preferences</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="privacy"><span class="settings-entry-icon cyan">✓</span><span><strong>Privacy</strong><small>Account and conversation privacy</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="security"><span class="settings-entry-icon cyan">⌁</span><span><strong>Security</strong><small>Account session and sign-in protection</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="data"><span class="settings-entry-icon violet">▣</span><span><strong>Data</strong><small>Your data and account deletion</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="memory"><span class="settings-entry-icon pink">♧</span><span><strong>Memory</strong><small>Conversation context and memory</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="account"><span><strong>Account</strong><small>Guest session on this browser</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="voice"><span><strong>AI &amp; Voice</strong><small>Spoken replies and Gemini voice</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="language"><span><strong>Language</strong><small>English or Hindi</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="appearance"><span><strong>Appearance</strong><small>Light or dim</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="notifications"><span><strong>Notifications</strong><small>Not available on the web</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="permissions"><span><strong>Permissions</strong><small>Microphone here. Phone on Android</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="privacy"><span><strong>Privacy</strong><small>Delete this account</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="security"><span><strong>Security</strong><small>Clear this browser session</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="protection"><span><strong>Rules &amp; Protection</strong><small>Confirmations that are actually enforced</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="data"><span><strong>Data</strong><small>Deletion. Export is unavailable</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="developer"><span><strong>Developer</strong><small>Open the developer workspace</small></span><b>›</b></button>
+            <button type="button" class="settings-entry" data-settings-page="subscription"><span><strong>Subscription</strong><small>Open Plans</small></span><b>›</b></button>
           </div>
-
           <div class="settings-panels" id="settings-panels" hidden>
             <div class="settings-subhead">
               <button type="button" class="back-btn settings-panel-back" data-settings-back aria-label="Back to Settings">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
               </button>
               <strong id="settings-subpage-title">Settings</strong>
             </div>
-
-            <section class="settings-panel zarvis-card" data-settings-panel="voice" hidden>
-              <h3 class="card-title">Voice</h3>
-              <p class="card-desc">Choose how you talk to ZARVIS and whether replies should be spoken aloud.</p>
-              <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
-              <select id="voice-select" class="text-input-block voice-select" hidden title="Choose voice"></select>
+            <section class="settings-panel zarvis-card" data-settings-panel="account" hidden>
+              <h3 class="card-title">Account</h3>
+              <p class="card-desc">This browser uses a guest account created automatically. There is no email sign-in screen in this version.</p>
             </section>
-
+            <section class="settings-panel zarvis-card" data-settings-panel="voice" hidden>
+              <h3 class="card-title">AI &amp; Voice</h3>
+              <p class="card-desc">Spoken replies use Gemini TTS. The voice you pick is sent with each synthesis request.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-voice-toggle" aria-pressed="false">Spoken replies: Off</button>
+              <label for="voice-select">Gemini voice</label>
+              <select id="voice-select" class="text-input-block voice-select" aria-label="Gemini voice"></select>
+            </section>
             <section class="settings-panel zarvis-card" data-settings-panel="language" hidden>
               <h3 class="card-title">Language</h3>
-              <p class="card-desc">Switch the existing bilingual interface and request locale.</p>
+              <p class="card-desc">Interface language and the locale sent with each request.</p>
               <div class="option-row" id="settings-lang-options" role="group" aria-label="Language">
                 <button type="button" class="option-btn" data-lang="en">English</button>
                 <button type="button" class="option-btn" data-lang="hi">हिंदी</button>
               </div>
             </section>
-
             <section class="settings-panel zarvis-card" data-settings-panel="appearance" hidden>
               <h3 class="card-title">Appearance</h3>
-              <p class="card-desc">Aurora Light is the default. Dim is intentionally soft — it does not replace the colorful UI with a black screen.</p>
+              <p class="card-desc">Light is the default. Dim keeps the same layout with darker surfaces.</p>
               <div class="option-row">
-                <button type="button" class="option-btn" id="appearance-aurora-btn" data-appearance="aurora">Aurora Light</button>
+                <button type="button" class="option-btn" id="appearance-aurora-btn" data-appearance="aurora">Light</button>
                 <button type="button" class="option-btn" id="appearance-dim-btn" data-appearance="dim">Dim</button>
               </div>
             </section>
-
-            <section class="settings-panel zarvis-card" data-settings-panel="ai" hidden>
-              <h3 class="card-title">AI</h3>
-              <p class="card-desc">ZARVIS automatically manages the AI service and tools for you. There is no technical provider switch to configure here.</p>
-            </section>
-
-            <section class="settings-panel zarvis-card protection-panel" data-settings-panel="protection" hidden>
-              <div class="protection-hero">
-                <span class="protection-status-dot" aria-hidden="true"></span>
-                <div>
-                  <strong>Protection is active</strong>
-                  <small>ZARVIS follows these rules before handling sensitive actions.</small>
-                </div>
-              </div>
-
-              <h3 class="card-title">Rules &amp; Protection</h3>
-              <p class="card-desc">These rules are designed around the web features that are actually available in ZARVIS Mobile. Destructive actions use confirmation instead of silent execution.</p>
-
-              <div class="protection-list">
-                <article class="protection-rule">
-                  <span class="protection-rule-icon">✓</span>
-                  <div><strong>Explicit confirmation</strong><small>Account deletion and other destructive actions must show a confirmation step before execution.</small></div>
-                </article>
-                <article class="protection-rule">
-                  <span class="protection-rule-icon">⌁</span>
-                  <div><strong>Developer protection</strong><small>Repository implementation requires an explicit confirmation and uses the protected developer workflow instead of silently changing code.</small></div>
-                </article>
-                <article class="protection-rule">
-                  <span class="protection-rule-icon">◉</span>
-                  <div><strong>Voice stays user-controlled</strong><small>Microphone input starts only after a deliberate tap. ZARVIS does not keep a wake-word or continuous listening loop running.</small></div>
-                </article>
-                <article class="protection-rule">
-                  <span class="protection-rule-icon">▣</span>
-                  <div><strong>File access is intentional</strong><small>Documents and images are processed only when the user attaches them to the current request.</small></div>
-                </article>
-                <article class="protection-rule">
-                  <span class="protection-rule-icon">◇</span>
-                  <div><strong>Session control</strong><small>Clear local session removes the web session tokens from this device and starts a fresh guest session after reload.</small></div>
-                </article>
-                <article class="protection-rule">
-                  <span class="protection-rule-icon">!</span>
-                  <div><strong>No fake guarantees</strong><small>Unavailable controls are shown as unavailable. ZARVIS should not claim that a protection or capability is active unless the current implementation enforces it.</small></div>
-                </article>
-              </div>
-
-              <div class="protection-note">
-                <strong>Before you approve a sensitive action</strong>
-                <span>Review what ZARVIS is about to do, confirm the target, and cancel if the request is not what you intended.</span>
-              </div>
-            </section>
-
             <section class="settings-panel zarvis-card" data-settings-panel="notifications" hidden>
               <h3 class="card-title">Notifications</h3>
-              <p class="card-desc">Notification controls are not available in this web version yet. Your task activity remains available under Activity.</p>
+              <p class="card-desc">Web notifications are not available. Task status stays in Tasks.</p>
             </section>
-
+            <section class="settings-panel zarvis-card" data-settings-panel="permissions" hidden>
+              <h3 class="card-title">Permissions</h3>
+              <p class="card-desc">The microphone is requested by the browser when you tap Speak. Contacts and phone calls are Android permissions and are not requested here.</p>
+            </section>
             <section class="settings-panel zarvis-card" data-settings-panel="privacy" hidden>
               <h3 class="card-title">Privacy</h3>
-              <p class="card-desc">Your conversations and account are handled through ZARVIS. You can permanently delete your account from here.</p>
-              <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account — check your connection and try again.</p>
+              <p class="card-desc">Delete removes this account and its stored tasks and conversations on the server.</p>
+              <p class="card-error" id="settings-delete-error" hidden>Couldn't delete your account. Check the connection and try again.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" id="settings-delete-btn">Delete account</button>
             </section>
-
             <section class="settings-panel zarvis-card" data-settings-panel="security" hidden>
               <h3 class="card-title">Security</h3>
-              <p class="card-desc">Your current session is protected by the existing ZARVIS sign-in system. Use Clear local session if you want to sign out on this device.</p>
+              <p class="card-desc">Clear local session removes tokens from this browser and starts a new guest session after reload.</p>
               <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-clear-session-btn">Clear local session</button>
             </section>
-
+            <section class="settings-panel zarvis-card protection-panel" data-settings-panel="protection" hidden>
+              <h3 class="card-title">Rules &amp; Protection</h3>
+              <p class="card-desc">These are the checks the current product actually performs.</p>
+              <div class="protection-list">
+                <article class="protection-rule"><div><strong>Account deletion</strong><small>Asks for confirmation in this browser before calling delete.</small></div></article>
+                <article class="protection-rule"><div><strong>Developer implement</strong><small>Requires an explicit confirm and a PRO entitlement. The server uses one configured GitHub token.</small></div></article>
+                <article class="protection-rule"><div><strong>Voice</strong><small>Listening starts from a tap. There is no wake word.</small></div></article>
+                <article class="protection-rule"><div><strong>Files</strong><small>A document is read only after you attach it.</small></div></article>
+              </div>
+            </section>
             <section class="settings-panel zarvis-card" data-settings-panel="data" hidden>
               <h3 class="card-title">Data</h3>
-              <p class="card-desc">You can permanently delete your account and its associated data. Data export is not available in this version.</p>
+              <p class="card-desc">Export is not available. Account deletion is.</p>
               <button type="button" class="zarvis-btn zarvis-btn-danger" data-settings-open-privacy>Delete account</button>
             </section>
-
-            <section class="settings-panel zarvis-card" data-settings-panel="memory" hidden>
-              <h3 class="card-title">Memory</h3>
-              <p class="card-desc">ZARVIS keeps the conversation context needed for your current chat. No separate memory controls are exposed in this version.</p>
+            <section class="settings-panel zarvis-card" data-settings-panel="developer" hidden>
+              <h3 class="card-title">Developer</h3>
+              <p class="card-desc">Open the developer workspace to analyze a repository or request a confirmed implementation.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-open-developer">Open Developer Agent</button>
             </section>
-
+            <section class="settings-panel zarvis-card" data-settings-panel="subscription" hidden>
+              <h3 class="card-title">Subscription</h3>
+              <p class="card-desc">Plan and credits are shown on Plans. Checkout is not connected, so this screen cannot upgrade you.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-secondary" data-home-view="plans">Open Plans</button>
+            </section>
           </div>
         </section>
       </main>
 
-      <footer class="composer" id="composer">
+      <footer class="composer" id="composer" hidden>
         <div class="attachment-chip" id="attachment-chip" hidden>
-          <span class="attachment-icon" aria-hidden="true">📄</span>
           <span class="attachment-text">
             <span class="attachment-name" id="attachment-name"></span>
-            <span class="attachment-status" id="attachment-status">Ready to analyze</span>
+            <span class="attachment-status" id="attachment-status">Ready</span>
           </span>
-          <button type="button" class="attachment-remove" id="attachment-remove" title="Remove attachment">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <button type="button" class="attachment-remove" id="attachment-remove" aria-label="Remove attachment">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"></path></svg>
           </button>
         </div>
         <div class="command-bar" id="command-bar">
           <button id="mic-btn" class="mic-btn" type="button" aria-label="Speak">
-            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path><path d="M19 11a7 7 0 0 1-14 0M12 18v3"></path></svg>
           </button>
-          <label id="upload-btn" class="mic-btn" for="file-input" title="Attach a document" aria-label="Attach a document">
-            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+          <label id="upload-btn" class="mic-btn" for="file-input" aria-label="Attach a document">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L13 6a3 3 0 0 1 4 4l-7 7a1 1 0 0 1-1.5-1.5L16 8"></path></svg>
           </label>
-          <input id="file-input" class="file-input-visually-hidden" type="file" accept="image/*,.txt,.md,.markdown,.csv,.json,.log,.pdf,.docx,image/png,image/jpeg,image/webp,image/heic,image/heif,text/plain,text/markdown,text/csv,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-          <textarea id="text-input" class="text-input" rows="1" placeholder="Ask Zarvis…" autocomplete="off"></textarea>
+          <input id="file-input" class="file-input-visually-hidden" type="file" accept="image/*,.txt,.md,.csv,.json,.pdf,.docx" />
+          <textarea id="text-input" class="text-input" rows="1" placeholder="Ask ZARVIS" autocomplete="off"></textarea>
           <button id="send-btn" class="send-btn" type="button" aria-label="Send">
             <span class="send-label">Send</span>
-            <svg class="send-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-            <svg class="stop-icon" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+            <svg class="send-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+            <svg class="stop-icon" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>
           </button>
         </div>
       </footer>
     </div>
 
     <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
-      <button type="button" class="nav-item active" data-view="home"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"></path></svg></span><span>Home</span></button>
-      <button type="button" class="nav-item" data-view="chat"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 1 1 18 0z"></path></svg></span><span>Chat</span></button>
-      <button type="button" class="nav-item" data-view="capabilities"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path></svg></span><span>Capabilities</span></button>
-      <button type="button" class="nav-item" data-view="activity"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16"></path><path d="M8 16v-5M12 16V8M16 16v-3"></path></svg></span><span>Activity</span><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
-      <button type="button" class="nav-item" data-view="settings"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"></path></svg></span><span>Settings</span></button>
+      <button type="button" class="nav-item active" data-view="home"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"></path></svg></span><span>Home</span></button>
+      <button type="button" class="nav-item" data-view="chat"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 1 1 18 0z"></path></svg></span><span>Chat</span></button>
+      <button type="button" class="nav-item" data-view="work"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg></span><span>Work</span></button>
+      <button type="button" class="nav-item" data-view="activity"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span><span>Tasks</span><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
+      <button type="button" class="nav-item" data-view="settings"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2"></path></svg></span><span>Settings</span></button>
     </nav>
   </div>
 
@@ -385,11 +384,10 @@
       <p id="confirm-modal-body"></p>
       <div class="modal-actions">
         <button type="button" class="zarvis-btn zarvis-btn-secondary" id="confirm-modal-cancel">Cancel</button>
-        <button type="button" class="zarvis-btn zarvis-btn-danger" id="confirm-modal-confirm">Delete</button>
+        <button type="button" class="zarvis-btn zarvis-btn-danger" id="confirm-modal-confirm">Confirm</button>
       </div>
     </div>
   </div>
-
   <script src="./feature-pages.js"></script>
   <script src="./app.js"></script>
 </body>

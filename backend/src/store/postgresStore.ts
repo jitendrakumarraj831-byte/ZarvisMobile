@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type QueryResultRow } from "pg";
 import type { PermissionType, Task } from "../domain/types.js";
-import type {
-  Account, Conversation, ConversationMessage, Store, TrialRecord, UsageEntry, User
+import {
+  InsufficientCreditsError,
+  type Account, type Conversation, type ConversationMessage, type Store, type TrialRecord, type UsageEntry, type User
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -66,6 +67,12 @@ const SCHEMA = `
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS consumed_purchase_tokens (
+    purchase_token TEXT PRIMARY KEY,
+    account_id UUID NOT NULL,
+    product_id TEXT NOT NULL,
+    consumed_at TIMESTAMPTZ NOT NULL
   );
   CREATE INDEX IF NOT EXISTS conversation_messages_conversation_created_idx
     ON conversation_messages (conversation_id, created_at);
@@ -237,16 +244,32 @@ export class PostgresStore implements Store {
 
   async recordUsage(entry: UsageEntry): Promise<number> {
     const { rows } = await this.query<{ balance: string }>(
-      `WITH inserted AS (
+      `WITH updated AS (
+         UPDATE credit_balances
+         SET balance = balance - $4
+         WHERE account_id = $2 AND balance >= $4
+         RETURNING balance
+       ), inserted AS (
          INSERT INTO usage_ledger (id, account_id, skill_id, cost, task_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
-       ), updated AS (
-         UPDATE credit_balances SET balance = balance - $4 WHERE account_id = $2 RETURNING balance
+         SELECT $1, $2, $3, $4, $5, $6
+         WHERE EXISTS (SELECT 1 FROM updated)
        )
        SELECT balance FROM updated`,
       [entry.id, entry.accountId, entry.skillId, entry.cost, entry.taskId ?? null, entry.createdAt],
     );
-    return rows[0] ? Number(rows[0].balance) : -entry.cost;
+    if (!rows[0]) throw new InsufficientCreditsError(entry.accountId);
+    return Number(rows[0].balance);
+  }
+
+  async claimPurchaseToken(purchaseToken: string, accountId: string, productId: string): Promise<boolean> {
+    const { rows } = await this.query<{ purchase_token: string }>(
+      `INSERT INTO consumed_purchase_tokens (purchase_token, account_id, product_id, consumed_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (purchase_token) DO NOTHING
+       RETURNING purchase_token`,
+      [purchaseToken, accountId, productId, new Date()],
+    );
+    return rows.length > 0;
   }
 
   async listUsage(accountId: string): Promise<UsageEntry[]> {

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { PermissionType, Task } from "../domain/types.js";
-import type {
-  Account, Conversation, ConversationMessage, Store, TrialRecord, UsageEntry, User
+import {
+  InsufficientCreditsError,
+  type Account, type Conversation, type ConversationMessage, type Store, type TrialRecord, type UsageEntry, type User
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -24,6 +25,7 @@ export class InMemoryStore implements Store {
   private readonly tasks = new Map<string, Task>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly conversationMessages = new Map<string, ConversationMessage[]>();
+  private readonly purchaseTokens = new Set<string>();
 
   async createUser(email: string, passwordHash: string): Promise<User> {
     if (this.usersByEmail.has(email)) {
@@ -116,10 +118,20 @@ export class InMemoryStore implements Store {
   }
 
   async recordUsage(entry: UsageEntry): Promise<number> {
+    const current = this.creditBalances.get(entry.accountId) ?? 0;
+    if (current < entry.cost) {
+      throw new InsufficientCreditsError(entry.accountId);
+    }
     this.usageLedger.push(entry);
-    const newBalance = (this.creditBalances.get(entry.accountId) ?? 0) - entry.cost;
+    const newBalance = current - entry.cost;
     this.creditBalances.set(entry.accountId, newBalance);
     return newBalance;
+  }
+
+  async claimPurchaseToken(purchaseToken: string, _accountId: string, _productId: string): Promise<boolean> {
+    if (this.purchaseTokens.has(purchaseToken)) return false;
+    this.purchaseTokens.add(purchaseToken);
+    return true;
   }
 
   async listUsage(accountId: string): Promise<UsageEntry[]> {

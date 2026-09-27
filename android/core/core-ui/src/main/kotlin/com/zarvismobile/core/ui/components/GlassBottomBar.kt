@@ -53,7 +53,7 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
                         .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
                         .semantics { role = Role.Tab; selected = isSelected }
                         .clickable { onSelect(item.route) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 2.dp, vertical = 6.dp),
                 ) {
                     Icon(imageVector = item.icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = tint)
                     Text(item.label, style = MaterialTheme.typography.labelMedium, color = tint)

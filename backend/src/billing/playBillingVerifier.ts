@@ -25,6 +25,16 @@ export class MockPlayBillingVerifier implements PlayBillingVerifier {
   }
 }
 
+/**
+ * Used when production has no Play service-account credentials. Any non-empty token must
+ * not upgrade an account. Local tests keep MockPlayBillingVerifier.
+ */
+export class FailClosedPlayBillingVerifier implements PlayBillingVerifier {
+  async verifyPurchaseToken(_purchaseToken: string, _productId: string): Promise<PlayPurchaseVerification> {
+    return { valid: false };
+  }
+}
+
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher";
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { GeminiTtsProvider } from "../../ai/geminiTts.js";
+import { resolveGeminiVoice, type GeminiTtsProvider } from "../../ai/geminiTts.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 
@@ -20,16 +20,17 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
         res.status(503).json({ error: "Live voice synthesis isn't configured on this server (GEMINI_API_KEY missing)." });
         return;
       }
-      const { text } = req.body ?? {};
+      const { text, voice } = req.body ?? {};
       if (typeof text !== "string" || !text.trim()) {
         res.status(400).json({ error: "text is required" });
         return;
       }
+      const selectedVoice = resolveGeminiVoice(voice, provider.defaultVoice);
 
       // Prime the Gemini stream before committing the HTTP response. This is important:
       // if Gemini returns 401/403/429/5xx before producing audio, the browser receives a
       // real HTTP error instead of a mysteriously destroyed/chopped audio stream.
-      const iterator = provider.streamSynthesize(text.slice(0, 1200))[Symbol.asyncIterator]();
+      const iterator = provider.streamSynthesize(text.slice(0, 1200), selectedVoice)[Symbol.asyncIterator]();
       let first: IteratorResult<Buffer>;
       try {
         first = await iterator.next();
@@ -90,14 +91,14 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
         res.status(503).json({ error: "Live voice synthesis isn't configured on this server (GEMINI_API_KEY missing)." });
         return;
       }
-      const { text } = req.body ?? {};
+      const { text, voice } = req.body ?? {};
       if (typeof text !== "string" || text.trim().length === 0) {
         res.status(400).json({ error: "text is required" });
         return;
       }
       // No usage/credit ledger entry is charged for this call yet (see SUBSCRIPTIONS.md) —
       // this length cap is the only cost guard in this pass, not a real entitlement check.
-      const wav = await provider.synthesize(text.slice(0, 2000));
+      const wav = await provider.synthesize(text.slice(0, 2000), resolveGeminiVoice(voice, provider.defaultVoice));
       res.set("Content-Type", "audio/wav");
       res.send(wav);
     }),

@@ -28,7 +28,7 @@
       summary: "Speak a request. ZARVIS transcribes it, responds, and can read the reply aloud.",
       availability: "Available now",
       kind: "now",
-      what: "Voice is a way to start the same chat. Speech-to-text fills the request. Spoken replies are optional and stay off until you turn them on.",
+      what: "Voice is a way to start the same chat. Speech-to-text fills the request. A voice turn turns spoken replies on. You can turn them off in Settings.",
       why: "You can start a task without typing, including in Hindi or English.",
       how: ["Speak", "Understand", "AI decides", "Action or answer", "Voice response"],
       canDo: ["Tap the orb or microphone to start", "Tap again to stop listening", "Cancel a reply in progress with Stop", "See the state: Ready, Listening, Understanding, Speaking, or Error"],
@@ -55,7 +55,7 @@
       permissions: "Calls need the Phone permission. Looking up a contact by name also needs Contacts. Opening an app needs package visibility, not a runtime permission.",
       limits: ["These actions are Android-only.", "The website can show the commands. It cannot run them.", "Unsupported system controls are not presented as working buttons."],
       examples: ["Open WhatsApp", "Find Mom's number", "Call 9876543210"],
-      cta: "Try Phone Agent",
+      cta: "Continue on Android",
       action: "phone",
       prompt: "Open WhatsApp",
       phoneActions: [

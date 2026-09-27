@@ -48,12 +48,14 @@ data class OrchestratorTurnRequest(
     val utterance: String,
     val confirmed: Boolean? = null,
     val locale: String? = null,
+    val conversationId: String? = null,
 )
 
 @Serializable
 data class OrchestratorTurnResponse(
     val message: String,
     val toolCalls: List<ToolCallResultDto> = emptyList(),
+    val conversationId: String? = null,
 )
 
 @Serializable
@@ -100,7 +102,7 @@ data class TasksResponse(val tasks: List<TaskDto>)
 data class DeveloperAnalyzeRequest(val repoUrl: String)
 
 @Serializable
-data class TtsSynthesizeRequest(val text: String)
+data class TtsSynthesizeRequest(val text: String, val voice: String? = null)
 
 /**
  * Only the success shape is fully modeled — other [ToolExecutionOutcome] kinds (permission/
