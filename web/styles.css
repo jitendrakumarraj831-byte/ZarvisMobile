@@ -3440,7 +3440,7 @@ body:not([data-active-view="home"]) .stage {
     gap: 16px;
   }
   .zarvis-reactor {
-    --reactor-size: min(86vw, 370px);
+    --reactor-size: min(76vw, 330px);
     margin-bottom: 8px;
   }
   .reactor-orbit { border-width: 1.5px; }
