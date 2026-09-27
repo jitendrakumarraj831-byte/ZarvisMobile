@@ -2192,52 +2192,135 @@
     }
   }
 
+  const TTS_SAMPLE_RATE = 24000;
+  const TTS_PREROLL_SECONDS = 0.65;
+  const TTS_MIN_START_AHEAD_SECONDS = 0.04;
+
   async function speakGeminiStream(text, signal) {
     setOrbState("SPEAKING");
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
     activeTtsController = controller;
-    const res = await apiFetch("/tts/synthesize-stream", {
-      method: "POST",
-      body: JSON.stringify({ text }),
-      signal,
-    });
-    if (!res.ok || !res.body) {
-      const body = await res.json().catch(() => ({}));
-      const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
-      throw new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
-    }
 
-    const audioContext = activeAudioContext || new AudioContext({ sampleRate: 24000 });
-    activeAudioContext = audioContext;
-    if (audioContext.state === "suspended") await audioContext.resume();
+    try {
+      const res = await apiFetch("/tts/synthesize-stream", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+        signal,
+      });
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({}));
+        const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
+        throw new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
+      }
 
-    const reader = res.body.getReader();
-    let scheduledUntil = Math.max(audioContext.currentTime + 0.03, ttsScheduledUntil);
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (!value?.byteLength) continue;
-      const pcm = new Int16Array(value.buffer, value.byteOffset, Math.floor(value.byteLength / 2));
-      const buffer = audioContext.createBuffer(1, pcm.length, 24000);
-      const channel = buffer.getChannelData(0);
-      for (let i = 0; i < pcm.length; i++) channel[i] = Math.max(-1, Math.min(1, pcm[i] / 32768));
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioContext.destination);
-      scheduledUntil = Math.max(scheduledUntil, audioContext.currentTime + 0.02);
-      source.start(scheduledUntil);
-      scheduledUntil += buffer.duration;
-      ttsSources.add(source);
-      source.onended = () => ttsSources.delete(source);
-      ttsScheduledUntil = scheduledUntil;
+      const audioContext =
+        activeAudioContext || new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
+      activeAudioContext = audioContext;
+      if (audioContext.state === "suspended") await audioContext.resume();
+
+      const reader = res.body.getReader();
+
+      // HTTP fetch chunks are arbitrary byte ranges, not PCM-frame boundaries.
+      // Keep one trailing byte until the next read so Int16 samples never become
+      // misaligned when a network chunk ends on an odd byte.
+      let pendingByte = null;
+
+      // Gemini streaming TTS is raw 16-bit little-endian PCM. Build a small jitter
+      // buffer before scheduling the first samples; otherwise a slow network read can
+      // make the AudioContext timeline catch up and create an audible gap.
+      const pendingPcm = [];
+      let pendingBytes = 0;
+      let scheduledUntil = Math.max(
+        audioContext.currentTime + TTS_PREROLL_SECONDS,
+        ttsScheduledUntil,
+      );
+
+      const schedulePcm = (bytes) => {
+        if (!bytes?.byteLength) return;
+        const usableLength = bytes.byteLength - (bytes.byteLength % 2);
+        if (usableLength <= 0) return;
+
+        const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, usableLength / 2);
+        const buffer = audioContext.createBuffer(1, pcm.length, TTS_SAMPLE_RATE);
+        const channel = buffer.getChannelData(0);
+        for (let i = 0; i < pcm.length; i += 1) {
+          channel[i] = pcm[i] / 32768;
+        }
+
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+
+        // Never schedule into the past. The initial 650 ms preroll provides
+        // headroom for normal Gemini/network jitter.
+        scheduledUntil = Math.max(
+          scheduledUntil,
+          audioContext.currentTime + TTS_MIN_START_AHEAD_SECONDS,
+        );
+        source.start(scheduledUntil);
+        scheduledUntil += buffer.duration;
+
+        ttsSources.add(source);
+        source.onended = () => ttsSources.delete(source);
+        ttsScheduledUntil = scheduledUntil;
+      };
+
+      const flushPending = () => {
+        if (!pendingPcm.length) return;
+        const merged = new Uint8Array(pendingBytes);
+        let offset = 0;
+        for (const chunk of pendingPcm) {
+          merged.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        pendingPcm.length = 0;
+        pendingBytes = 0;
+        schedulePcm(merged);
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value?.byteLength) continue;
+
+        let bytes = value;
+        if (pendingByte !== null) {
+          const merged = new Uint8Array(bytes.byteLength + 1);
+          merged[0] = pendingByte;
+          merged.set(bytes, 1);
+          bytes = merged;
+          pendingByte = null;
+        }
+
+        if (bytes.byteLength % 2 !== 0) {
+          pendingByte = bytes[bytes.byteLength - 1];
+          bytes = bytes.subarray(0, bytes.byteLength - 1);
+        }
+        if (!bytes.byteLength) continue;
+
+        pendingPcm.push(bytes);
+        pendingBytes += bytes.byteLength;
+
+        // Hold roughly 650 ms of PCM before the first schedule operation.
+        // Afterwards each network chunk is scheduled contiguously.
+        const bufferedSeconds = pendingBytes / 2 / TTS_SAMPLE_RATE;
+        if (bufferedSeconds >= TTS_PREROLL_SECONDS) {
+          flushPending();
+        }
+      }
+
+      if (pendingByte !== null) {
+        // A valid PCM stream must contain complete 16-bit samples. Do not invent
+        // a sample from a lone trailing byte.
+        pendingByte = null;
+      }
+      flushPending();
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+      if (activeTtsController === controller) activeTtsController = null;
     }
-    // Do not wait for playback here. The PCM has already been scheduled on the
-    // AudioContext timeline, so returning now lets the next Gemini request start while
-    // this sentence is still playing. That removes the API/request gap between sentences.
-    signal?.removeEventListener("abort", onAbort);
-    if (activeTtsController === controller) activeTtsController = null;
   }
 
   async function waitForTtsPlayback(signal) {

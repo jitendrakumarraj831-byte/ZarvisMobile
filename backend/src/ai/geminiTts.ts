@@ -53,13 +53,21 @@ export class GeminiTtsProvider {
     }
     throw lastError ?? new Error("Gemini TTS failed");
   }
-  /** Streams raw 24 kHz mono PCM chunks from Gemini for low-latency browser playback. */
+  /** Streams headerless 24 kHz mono 16-bit little-endian PCM chunks for browser playback. */
   async *streamSynthesize(text: string): AsyncIterable<Buffer> {
     const url = this.baseUrl + "/models/" + encodeURIComponent(this.model) + ":streamGenerateContent?alt=sse";
     const body = JSON.stringify({
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: {
         responseModalities: ["AUDIO"],
+        // Streaming TTS is consumed as raw 24 kHz PCM in the browser. Keep this
+        // explicit so the server/client audio contract cannot silently change.
+        responseFormat: {
+          audio: {
+            mimeType: "AUDIO_L16",
+            sampleRate: 24000,
+          },
+        },
         speechConfig: { voiceConfig: { voice: this.voiceName } },
       },
     });
