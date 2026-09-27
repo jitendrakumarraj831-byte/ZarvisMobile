@@ -3518,3 +3518,39 @@ body:not([data-active-view="home"]) .stage {
     scroll-behavior: auto;
   }
 }
+
+
+/* ZARVIS MOBILE lockup — keep the complete brand inside the reactor core on
+   narrow phones. The previous tiny, widely-spaced MOBILE word looked detached
+   and could visually run into the orbit/core glow. */
+.reactor-brand {
+  width: 100%;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(4px, 1.2vw, 7px);
+  white-space: nowrap;
+  line-height: 1;
+  font-size: clamp(18px, 5.4vw, 30px);
+  letter-spacing: .045em;
+  text-align: center;
+}
+
+.reactor-brand b {
+  display: inline-block;
+  font-size: clamp(8px, 2.35vw, 13px);
+  letter-spacing: .14em;
+  line-height: 1;
+  transform: translateY(1px);
+}
+
+@media (max-width: 639px) {
+  .reactor-brand {
+    font-size: clamp(18px, 5.2vw, 23px);
+    letter-spacing: .035em;
+  }
+
+  .reactor-brand b {
+    font-size: clamp(8px, 2.25vw, 10px);
+    letter-spacing: .12em;
+  }
+}
