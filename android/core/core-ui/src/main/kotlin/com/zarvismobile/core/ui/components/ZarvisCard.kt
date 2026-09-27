@@ -13,24 +13,16 @@ import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
-/**
- * The design system's single card container — consistent elevation/corner radius everywhere,
- * finished with the same hairline glass border used across the "Zarvis Cyber Luxury" surfaces
- * (MASTER_SPEC.md §22) so cards read as part of the same glassmorphism family as [GlassSurface].
- */
 @Composable
-fun ZarvisCard(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
+fun ZarvisCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(),
+        colors = CardDefaults.cardColors(containerColor = GlassColors.surfaceTint),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(width = 1.dp, color = GlassColors.border),
+        border = BorderStroke(1.dp, GlassColors.border),
     ) {
         Column(
-            modifier = Modifier.padding(ZarvisSpacing.md),
+            Modifier.padding(ZarvisSpacing.md),
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
             content = content,
         )

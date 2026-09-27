@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
@@ -60,7 +61,8 @@ fun CapabilitiesScreen(
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             Column(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg)) {
-                Text(text = "Capabilities", style = MaterialTheme.typography.headlineMedium)
+                Text(text = "Capabilities", style = MaterialTheme.typography.headlineLarge)
+                Text(text = "AI AGENT HUB", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.8.sp), color = MaterialTheme.colorScheme.primary)
                 Text(
                     text = "Everything ZARVIS can do right now, grouped by category.",
                     style = MaterialTheme.typography.bodyMedium,

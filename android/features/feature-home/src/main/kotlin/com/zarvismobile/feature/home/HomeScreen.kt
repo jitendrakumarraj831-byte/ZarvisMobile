@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.AiOrb
 import com.zarvismobile.core.ui.components.ZarvisCard
@@ -93,9 +94,10 @@ fun HomeScreen(
                         }
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text(text = "ZARVIS MOBILE", style = MaterialTheme.typography.headlineMedium)
+                        Text(text = "ZARVIS", style = MaterialTheme.typography.displayLarge.copy(fontSize = 34.sp, letterSpacing = 2.sp))
+                        Text(text = "AI DIGITAL ASSISTANT", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp), color = MaterialTheme.colorScheme.primary)
                         Text(
-                            text = "आप क्या करवाना चाहते हैं?",
+                            text = "सोचें • पूछें • करवाएँ",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -105,7 +107,7 @@ fun HomeScreen(
 
                 item {
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        AiOrb(state = VoiceState.IDLE, size = 140.dp, onClick = { onNavigateToConversation(null) })
+                        AiOrb(state = VoiceState.IDLE, size = 104.dp, onClick = { onNavigateToConversation(null) })
                     }
                 }
 

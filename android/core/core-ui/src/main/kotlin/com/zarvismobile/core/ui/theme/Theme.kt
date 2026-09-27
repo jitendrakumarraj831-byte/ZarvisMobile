@@ -34,7 +34,7 @@ private val LightColors = lightColorScheme(
     onTertiary = Color.White,
     background = ZarvisSurfaceLight,
     surface = ZarvisSurfaceLightElevated,
-    surfaceVariant = Color(0xFFF0F4FF),
+    surfaceVariant = Color(0xFFEEF2F8),
     onBackground = ZarvisTextPrimaryLight,
     onSurface = ZarvisTextPrimaryLight,
     onSurfaceVariant = ZarvisTextSecondaryLight,
@@ -43,12 +43,8 @@ private val LightColors = lightColorScheme(
     onError = Color.White,
 )
 
-/** Aurora Glass app theme. Light mode is the default. */
 @Composable
-fun ZarvisTheme(
-    darkTheme: Boolean = false,
-    content: @Composable () -> Unit,
-) {
+fun ZarvisTheme(darkTheme: Boolean = false, content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = ZarvisTypography,
@@ -58,5 +54,5 @@ fun ZarvisTheme(
 }
 
 fun zarvisAuroraBrush() = Brush.linearGradient(
-    colors = listOf(ZarvisAccentCyan, ZarvisAccentIndigo, ZarvisAccentViolet, ZarvisAccentPink),
+    colors = listOf(ZarvisAccentCyan, ZarvisAccentIndigo, ZarvisAccentViolet),
 )
