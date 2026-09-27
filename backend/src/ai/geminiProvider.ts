@@ -30,7 +30,7 @@ export class GeminiProvider implements AIProvider {
   ) {}
 
   async generate(request: AIRequest): Promise<AIResponse> {
-    const models = [request.modelConfig.model, "gemini-3.7-flash"].filter(
+    const models = [request.modelConfig.model, "gemini-3.8-flash"].filter(
       (model, index, all) => model && all.indexOf(model) === index,
     );
     let lastError: Error | undefined;
@@ -63,7 +63,7 @@ export class GeminiProvider implements AIProvider {
   }
 
   async *streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk> {
-    const models = [request.modelConfig.model, "gemini-3.7-flash"].filter(
+    const models = [request.modelConfig.model, "gemini-3.8-flash"].filter(
       (model, index, all) => model && all.indexOf(model) === index,
     );
     let lastError: Error | undefined;
