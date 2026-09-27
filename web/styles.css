@@ -3338,28 +3338,51 @@ body:not([data-active-view="home"]) .stage {
 .reactor-dot-b { right: 16%; top: 42%; animation: zarvis-dot-b 8.2s linear infinite; }
 .reactor-dot-c { left: 49%; bottom: 10%; animation: zarvis-dot-c 9.4s linear infinite; }
 
+.reactor-z {
+  position: absolute;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 25%;
+  height: 25%;
+  font-family: var(--font-display);
+  font-size: clamp(52px, 15vw, 92px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -.08em;
+  color: transparent;
+  background: linear-gradient(145deg, #f5ffff 2%, #55e9ff 28%, #356cff 55%, #7d3ff0 78%, #f28cff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 3px 8px rgba(34,89,190,.32)) drop-shadow(0 0 16px rgba(38,207,255,.55));
+  text-shadow: none;
+  pointer-events: none;
+  user-select: none;
+  animation: reactor-z-float 3.2s ease-in-out infinite;
+}
+
 /* Premium centered ZARVIS MOBILE lockup with animated energy rails. */
 .reactor-brand {
-  position: relative;
+  position: absolute;
   z-index: 7;
-  width: min(92%, 310px);
+  width: min(92%, 320px);
   min-width: 0;
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: clamp(5px, 1.5vw, 8px);
-  padding: 10px 22px;
-  margin-top: 1px;
+  padding: 8px 22px;
+  top: 67%;
+  margin-top: 0;
   font-family: var(--font-display);
-  font-size: clamp(19px, 5.5vw, 31px);
+  font-size: clamp(17px, 5vw, 28px);
   font-weight: 900;
   letter-spacing: .025em;
   line-height: 1;
-  color: #fff;
+  color: #18327d;
   text-align: center;
-  text-shadow:
-    0 2px 10px rgba(14,48,150,.68),
-    0 0 16px rgba(0,224,255,.65);
+  text-shadow: 0 2px 10px rgba(255,255,255,.8);
   pointer-events: none;
   user-select: none;
   isolation: isolate;
@@ -3400,6 +3423,11 @@ body:not([data-active-view="home"]) .stage {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: reactor-brand-shimmer 2.8s ease-in-out infinite;
+}
+
+@keyframes reactor-z-float {
+  0%, 100% { transform: translateY(0) scale(.98); filter: drop-shadow(0 3px 8px rgba(34,89,190,.32)) drop-shadow(0 0 14px rgba(38,207,255,.42)); }
+  50% { transform: translateY(-4px) scale(1.04); filter: drop-shadow(0 5px 10px rgba(34,89,190,.38)) drop-shadow(0 0 22px rgba(38,207,255,.68)); }
 }
 
 @keyframes reactor-brand-rail {
