@@ -470,6 +470,152 @@ button:focus-visible,input:focus-visible,select:focus-visible{
   animation:arrow-pulse 2.2s ease-in-out infinite;
 }
 
+/* ---------- home feature discovery ---------- */
+
+.home-features{
+  position:relative;
+  z-index:2;
+  width:min(100%,900px);
+  margin:22px auto 0;
+  padding:18px;
+  border:1px solid rgba(255,255,255,.88);
+  border-radius:26px;
+  background:rgba(255,255,255,.52);
+  box-shadow:0 18px 55px rgba(54,77,139,.08),inset 0 1px 0 rgba(255,255,255,.92);
+  backdrop-filter:blur(20px) saturate(140%);
+  -webkit-backdrop-filter:blur(20px) saturate(140%);
+}
+.home-section-heading{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+  margin-bottom:13px;
+}
+.home-section-heading>div{min-width:0}
+.home-section-eyebrow{
+  display:block;
+  margin-bottom:5px;
+  color:#6d70c9;
+  font-size:8.5px;
+  font-weight:800;
+  letter-spacing:.18em;
+}
+.home-section-heading h2{
+  margin:0;
+  font:700 clamp(18px,4vw,23px)/1.15 var(--font-display);
+  letter-spacing:-.03em;
+  color:#1d2a49;
+}
+.home-section-heading p{
+  max-width:620px;
+  margin:6px 0 0;
+  color:var(--muted);
+  font-size:10.5px;
+  line-height:1.55;
+}
+.home-link-btn{
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:34px;
+  padding:7px 11px;
+  border:1px solid rgba(76,114,255,.16);
+  border-radius:999px;
+  background:rgba(255,255,255,.72);
+  color:#5d6ed4;
+  cursor:pointer;
+  font-size:10px;
+  font-weight:700;
+  white-space:nowrap;
+  transition:transform .35s ease,border-color .35s ease,background .35s ease;
+}
+.home-link-btn:hover{transform:translateY(-2px);border-color:rgba(76,114,255,.28);background:#fff}
+.home-link-btn span{font-size:14px;line-height:1}
+.home-feature-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:9px;
+}
+.home-feature-card{
+  min-width:0;
+  min-height:88px;
+  display:grid;
+  grid-template-columns:38px minmax(0,1fr) 17px;
+  align-items:center;
+  gap:10px;
+  padding:11px;
+  border:1px solid rgba(68,91,145,.10);
+  border-radius:18px;
+  background:rgba(255,255,255,.72);
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+  box-shadow:0 8px 26px rgba(53,76,140,.05),inset 0 1px 0 rgba(255,255,255,.86);
+  transition:transform .38s cubic-bezier(.22,.75,.22,1),border-color .38s ease,box-shadow .38s ease,background .38s ease;
+}
+.home-feature-card:hover{
+  transform:translateY(-3px);
+  border-color:rgba(76,114,255,.22);
+  background:rgba(255,255,255,.92);
+  box-shadow:0 15px 36px rgba(53,76,140,.10),inset 0 1px 0 #fff;
+}
+.home-feature-card:active{transform:translateY(-1px) scale(.995)}
+.home-feature-icon{
+  width:38px;
+  height:38px;
+  display:grid;
+  place-items:center;
+  border-radius:12px;
+  background:linear-gradient(135deg,rgba(18,201,238,.10),rgba(128,96,239,.12));
+  color:#5871d8;
+  font:700 14px/1 var(--font-display);
+}
+.home-feature-copy{min-width:0}
+.home-feature-copy strong{
+  display:block;
+  margin-bottom:3px;
+  color:#263451;
+  font:700 12.5px/1.2 var(--font-display);
+}
+.home-feature-copy small{
+  display:block;
+  color:#77839a;
+  font-size:9.5px;
+  line-height:1.48;
+}
+.home-feature-arrow{
+  color:#6975d9;
+  font-size:18px;
+  line-height:1;
+  transition:transform .35s ease;
+}
+.home-feature-card:hover .home-feature-arrow{transform:translateX(3px)}
+.home-trust-row{
+  margin-top:13px;
+  padding-top:12px;
+  border-top:1px solid rgba(68,91,145,.09);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:8px;
+  color:#78849a;
+  font-size:9px;
+}
+.home-trust-row span{display:inline-flex;align-items:center;gap:5px}
+.home-trust-row b{
+  display:grid;
+  place-items:center;
+  width:20px;height:20px;
+  border-radius:7px;
+  background:rgba(76,114,255,.08);
+  color:#5e70d5;
+  font:800 8px var(--font-display);
+}
+.home-trust-row i{font-style:normal;color:#a1aabd}
+
 /* ---------- chat ---------- */
 
 .chat-stage{gap:10px}
@@ -1051,6 +1197,18 @@ button:focus-visible,input:focus-visible,select:focus-visible{
 /* ---------- compact phones ---------- */
 
 @media (max-width:420px){
+  .home-features{margin-top:16px;padding:12px;border-radius:20px}
+  .home-section-heading{align-items:flex-start;flex-direction:column;gap:9px}
+  .home-section-heading h2{font-size:17px}
+  .home-section-heading p{font-size:9.5px}
+  .home-link-btn{min-height:31px;font-size:9px}
+  .home-feature-grid{grid-template-columns:1fr;gap:7px}
+  .home-feature-card{min-height:74px;grid-template-columns:35px minmax(0,1fr) 14px;padding:9px}
+  .home-feature-icon{width:35px;height:35px}
+  .home-feature-copy strong{font-size:11.5px}
+  .home-feature-copy small{font-size:8.8px}
+  .home-trust-row{font-size:8px;gap:6px}
+
   .bottom-nav{margin-inline:7px;border-radius:20px}
   .nav-item{min-height:46px;font-size:9px}
   .nav-item span:first-child{font-size:17px}
