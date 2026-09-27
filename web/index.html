@@ -232,6 +232,7 @@
             <button type="button" class="settings-entry" data-settings-page="language"><span class="settings-entry-icon cyan">文</span><span><strong>Language</strong><small>English or हिंदी</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="appearance"><span class="settings-entry-icon violet">◈</span><span><strong>Appearance</strong><small>Aurora Light or subtle Dim theme</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="ai"><span class="settings-entry-icon violet">✦</span><span><strong>AI</strong><small>AI preferences and assistant behavior</small></span><b>›</b></button>
+            <button type="button" class="settings-entry protection-entry" data-settings-page="protection"><span class="settings-entry-icon cyan">🛡</span><span><strong>Rules &amp; Protection</strong><small>Safety rules, confirmations and data protection</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="notifications"><span class="settings-entry-icon pink">◌</span><span><strong>Notifications</strong><small>Alerts and notification preferences</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="privacy"><span class="settings-entry-icon cyan">✓</span><span><strong>Privacy</strong><small>Account and conversation privacy</small></span><b>›</b></button>
             <button type="button" class="settings-entry" data-settings-page="security"><span class="settings-entry-icon cyan">⌁</span><span><strong>Security</strong><small>Account session and sign-in protection</small></span><b>›</b></button>
@@ -270,6 +271,51 @@
             <section class="settings-panel zarvis-card" data-settings-panel="ai" hidden>
               <h3 class="card-title">AI</h3>
               <p class="card-desc">ZARVIS automatically manages the AI service and tools for you. There is no technical provider switch to configure here.</p>
+            </section>
+
+            <section class="settings-panel zarvis-card protection-panel" data-settings-panel="protection" hidden>
+              <div class="protection-hero">
+                <span class="protection-status-dot" aria-hidden="true"></span>
+                <div>
+                  <strong>Protection is active</strong>
+                  <small>ZARVIS follows these rules before handling sensitive actions.</small>
+                </div>
+              </div>
+
+              <h3 class="card-title">Rules &amp; Protection</h3>
+              <p class="card-desc">These rules are designed around the web features that are actually available in ZARVIS Mobile. Destructive actions use confirmation instead of silent execution.</p>
+
+              <div class="protection-list">
+                <article class="protection-rule">
+                  <span class="protection-rule-icon">✓</span>
+                  <div><strong>Explicit confirmation</strong><small>Account deletion and other destructive actions must show a confirmation step before execution.</small></div>
+                </article>
+                <article class="protection-rule">
+                  <span class="protection-rule-icon">⌁</span>
+                  <div><strong>Developer protection</strong><small>Repository implementation requires an explicit confirmation and uses the protected developer workflow instead of silently changing code.</small></div>
+                </article>
+                <article class="protection-rule">
+                  <span class="protection-rule-icon">◉</span>
+                  <div><strong>Voice stays user-controlled</strong><small>Microphone input starts only after a deliberate tap. ZARVIS does not keep a wake-word or continuous listening loop running.</small></div>
+                </article>
+                <article class="protection-rule">
+                  <span class="protection-rule-icon">▣</span>
+                  <div><strong>File access is intentional</strong><small>Documents and images are processed only when the user attaches them to the current request.</small></div>
+                </article>
+                <article class="protection-rule">
+                  <span class="protection-rule-icon">◇</span>
+                  <div><strong>Session control</strong><small>Clear local session removes the web session tokens from this device and starts a fresh guest session after reload.</small></div>
+                </article>
+                <article class="protection-rule">
+                  <span class="protection-rule-icon">!</span>
+                  <div><strong>No fake guarantees</strong><small>Unavailable controls are shown as unavailable. ZARVIS should not claim that a protection or capability is active unless the current implementation enforces it.</small></div>
+                </article>
+              </div>
+
+              <div class="protection-note">
+                <strong>Before you approve a sensitive action</strong>
+                <span>Review what ZARVIS is about to do, confirm the target, and cancel if the request is not what you intended.</span>
+              </div>
             </section>
 
             <section class="settings-panel zarvis-card" data-settings-panel="notifications" hidden>
