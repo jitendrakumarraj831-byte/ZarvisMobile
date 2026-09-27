@@ -47,7 +47,10 @@ export const env = {
    * Gemini app's voice mode, called via a plain generateContent request (see
    * ai/geminiTts.ts and AI_ARCHITECTURE.md "Native audio voice"), not the separate Google
    * Cloud Text-to-Speech product. Uses the same GEMINI_API_KEY, no extra credential. */
-  geminiTtsModel: process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts",
+  geminiTtsModel:
+    process.env.GEMINI_TTS_MODEL?.trim() === "gemini-2.5-flash-preview-tts" || !process.env.GEMINI_TTS_MODEL?.trim()
+      ? "gemini-3.8-flash-tts"
+      : process.env.GEMINI_TTS_MODEL.trim(),
   /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
   githubAppId: process.env.GITHUB_APP_ID,
