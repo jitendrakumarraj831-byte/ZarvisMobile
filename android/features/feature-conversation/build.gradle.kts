@@ -30,6 +30,7 @@ kotlin {
 
 dependencies {
     implementation(project(":domain"))
+    implementation(project(":data:data-local"))
     implementation(project(":agents"))
     implementation(project(":data:data-repository"))
     implementation(project(":core:core-ui"))

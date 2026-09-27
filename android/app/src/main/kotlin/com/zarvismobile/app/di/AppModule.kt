@@ -21,7 +21,9 @@ import com.zarvismobile.data.repository.RemoteUsagePort
 import com.zarvismobile.data.repository.SessionRepository
 import com.zarvismobile.domain.port.ConfirmationPort
 import com.zarvismobile.domain.port.EntitlementPort
+import com.zarvismobile.app.ActivityRuntimePermissionBroker
 import com.zarvismobile.domain.port.PermissionPort
+import com.zarvismobile.domain.port.RuntimePermissionBroker
 import com.zarvismobile.domain.port.UsagePort
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
@@ -112,7 +114,12 @@ object AppModule {
         pipeline: ToolPipeline,
         api: ZarvisApi,
         confirmationPort: ComposeConfirmationPort,
-    ): AndroidOrchestrator = AndroidOrchestrator(registry, pipeline, api, confirmationPort)
+        permissionBroker: RuntimePermissionBroker,
+    ): AndroidOrchestrator = AndroidOrchestrator(registry, pipeline, api, confirmationPort, permissionBroker)
+
+    @Provides
+    @Singleton
+    fun provideRuntimePermissionBroker(): RuntimePermissionBroker = ActivityRuntimePermissionBroker
 
     @Provides
     @Singleton
@@ -121,6 +128,9 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideTextToSpeechEngine(@ApplicationContext context: Context, api: ZarvisApi): TextToSpeechEngine =
-        AndroidTextToSpeechEngine(context, api)
+    fun provideTextToSpeechEngine(
+        @ApplicationContext context: Context,
+        api: ZarvisApi,
+        preferences: AppPreferences,
+    ): TextToSpeechEngine = AndroidTextToSpeechEngine(context, api, preferences)
 }

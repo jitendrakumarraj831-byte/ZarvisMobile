@@ -19,6 +19,7 @@
     lang: "zarvis.lang",
     speak: "zarvis.speak",
     voiceURI: "zarvis.voiceURI",
+    ttsVoice: "zarvis.ttsVoice",
     userName: "zarvis.userName",
     conversationId: "zarvis.conversationId",
   };
@@ -679,7 +680,16 @@
     activity: el.viewActivity,
     settings: el.viewSettings,
     feature: el.viewFeature,
+    phone: document.getElementById("view-phone"),
+    files: document.getElementById("view-files"),
+    research: document.getElementById("view-research"),
+    creative: document.getElementById("view-creative"),
+    business: document.getElementById("view-business"),
+    developer: document.getElementById("view-developer"),
+    work: document.getElementById("view-work"),
   };
+  const WORK_VIEWS = new Set(["capabilities", "phone", "files", "research", "creative", "business", "developer", "plans", "feature"]);
+  const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"];
 
   function setupBottomNav() {
     document.body.dataset.activeView = state.activeView;
@@ -704,8 +714,10 @@
     }
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
     el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
-    el.openChatBtn.addEventListener("click", () => setActiveView("chat"));
+    el.openChatBtn?.addEventListener("click", () => setActiveView("chat"));
     el.homeDeveloperCard?.addEventListener("click", () => setActiveView("developer"));
+    setupHomeAsk();
+    setupWorkspacePrompts();
   }
 
   // Home feature cards are real entry points into the same Chat pipeline — no fake
@@ -757,11 +769,12 @@
       el.fileInput.click();
       return;
     }
-    if (feature.action === "phone") {
-      setActiveView("chat");
-      el.input.value = prompt || feature.prompt || "";
-      resizeComposer();
-      el.input.focus();
+    if (feature.action === "phone" || feature.id === "phone") {
+      setActiveView("phone");
+      return;
+    }
+    if (feature.action === "developer" && (!prompt || prompt === feature.prompt)) {
+      setActiveView("developer");
       return;
     }
     setActiveView("chat");
@@ -784,9 +797,59 @@
     el.chatAnnouncer.textContent = text;
   }
 
+  function setupHomeAsk() {
+    const input = document.getElementById("home-ask-input");
+    const send = document.getElementById("home-ask-send");
+    if (!input || !send) return;
+    const ask = () => {
+      const text = input.value.trim();
+      if (!text) {
+        setActiveView("chat");
+        el.input.focus();
+        return;
+      }
+      input.value = "";
+      setActiveView("chat");
+      submitComposerInput(text);
+    };
+    send.addEventListener("click", ask);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        ask();
+      }
+    });
+    document.getElementById("home-ask-mic")?.addEventListener("click", () => {
+      setActiveView("chat");
+      startListening();
+    });
+    document.getElementById("home-ask-attach")?.addEventListener("click", () => {
+      setActiveView("chat");
+      el.fileInput.click();
+    });
+    document.getElementById("files-attach-btn")?.addEventListener("click", () => el.fileInput.click());
+  }
+
+  function setupWorkspacePrompts() {
+    document.querySelectorAll("[data-workspace-prompt]").forEach((button) => {
+      button.addEventListener("click", () => {
+        setActiveView("chat");
+        el.input.value = button.dataset.workspacePrompt || "";
+        resizeComposer();
+        el.input.focus();
+      });
+    });
+  }
+
+  function selectedTtsVoice() {
+    return localStorage.getItem(STORAGE_KEYS.ttsVoice) || "Kore";
+  }
+
   function setActiveView(view) {
+    if (view === "tasks") view = "activity";
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
+    if (state.activeView === "settings" && view !== "settings") closeSettingsPage();
 
     state.activeView = view;
     document.body.dataset.activeView = view;
@@ -794,7 +857,13 @@
       if (section) section.hidden = name !== view;
     }
     const navView = view === "feature" ? "capabilities" : view;
-    for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === navView);
+    for (const item of el.navItems) {
+      const target = item.dataset.view;
+      const inBottom = Boolean(item.closest(".bottom-nav"));
+      const active = target === navView || (inBottom && target === "work" && WORK_VIEWS.has(view));
+      item.classList.toggle("active", active);
+      if (item.getAttribute("role") !== "tab") item.setAttribute("aria-current", active ? "page" : "false");
+    }
     el.composer.hidden = view !== "chat";
 
     if (view === "capabilities") renderCapabilities();
@@ -806,6 +875,7 @@
       startMetricsPolling();
     }
     if (view === "activity") refreshActivity();
+    if (view === "home") renderHomeActivity();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
@@ -982,7 +1052,7 @@
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#1a2233" : "#f4f7ff");
+    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#12110f" : "#f4f1eb");
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -1006,21 +1076,15 @@
     el.activityTaskList.innerHTML = "";
     if (refreshBtn) {
       refreshBtn.disabled = false;
-      refreshBtn.textContent = "Refresh activity";
+      refreshBtn.textContent = "Refresh";
     }
     el.activityTaskList.removeAttribute("aria-busy");
     if (!tasks) {
-      const failed = document.createElement("p");
-      failed.className = "task-empty";
-      failed.textContent = "Couldn't load activity right now. Check your connection and refresh.";
-      el.activityTaskList.appendChild(failed);
+      el.activityTaskList.appendChild(emptyState("Something went wrong", "Try again from Refresh."));
       return;
     }
     if (!tasks.length) {
-      const empty = document.createElement("p");
-      empty.className = "task-empty";
-      empty.textContent = "No activity yet — multi-step tasks will appear here.";
-      el.activityTaskList.appendChild(empty);
+      el.activityTaskList.appendChild(emptyState("Nothing here yet", "Create a tracked task from Chat. ZARVIS stores the steps. It does not run them."));
       return;
     }
     for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
@@ -1059,9 +1123,6 @@
   // routing the same request through the orchestrator's natural-language turn.
 
   function setupDeveloper() {
-    // Developer Agent is intentionally not part of the public web navigation.
-    // Keep its implementation available for owner/developer builds without exposing
-    // technical controls or wiring errors in the public product UI.
     if (!el.developerAnalyzeBtn || !el.developerImplementBtn || !el.developerRepoInput) return;
     el.developerEntryLink?.addEventListener("click", () => {
       haptic();
@@ -1087,17 +1148,28 @@
       renderDeveloperMessage("Repository URL and implementation requirement are both required.", "error");
       return;
     }
-    const approved = window.confirm("ZARVIS will create a new branch, modify only bounded text files, and open a GitHub pull request. It will not merge the PR. Continue?");
-    if (!approved) return;
+    showConfirmModal({
+      title: "Open a pull request?",
+      body: "ZARVIS will create a branch, change bounded text files, and open a pull request. It will not merge. This needs a PRO plan and a configured GitHub token.",
+      confirmLabel: "Implement",
+      destructive: false,
+      onConfirm: () => { void submitImplementation(repoUrl, requirement); },
+    });
+  }
+
+  async function submitImplementation(repoUrl, requirement) {
     el.developerImplementBtn.disabled = true;
     el.developerImplementBtn.textContent = "Implementing…";
+    setDeveloperStage("implement", "Running", "z-badge-info");
     try {
       const res = await apiFetch("/developer/implement", { method: "POST", body: JSON.stringify({ repoUrl, requirement, confirmed: true }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.kind !== "success") {
+        setDeveloperStage("implement", "Couldn't complete", "z-badge-off");
         renderDeveloperMessage(body.error || body.result?.userMessage || body.userMessage || "Implementation failed; no change was reported as committed.", "error");
         return;
       }
+      setDeveloperStage("implement", "Completed", "z-badge-ok");
       const output = body.result?.output || {};
       renderDeveloperMessage(body.result?.summary || "Implementation complete.", "success");
       if (output.pullRequest?.url) {
@@ -1111,10 +1183,11 @@
       }
     } catch (err) {
       console.error(err);
+      setDeveloperStage("implement", "Couldn't complete", "z-badge-off");
       renderDeveloperMessage("Developer Agent could not reach the backend.", "error");
     } finally {
       el.developerImplementBtn.disabled = false;
-      el.developerImplementBtn.textContent = "Implement & Open PR";
+      el.developerImplementBtn.textContent = "Implement and open PR";
     }
   }
   async function analyzeRepo() {
@@ -1124,16 +1197,20 @@
 
     el.developerAnalyzeBtn.disabled = true;
     el.developerAnalyzeBtn.textContent = "Analyzing…";
+    setDeveloperStage("analyze", "Running", "z-badge-info");
     try {
       const res = await apiFetch("/developer/analyze", { method: "POST", body: JSON.stringify({ repoUrl }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.kind !== "success") {
+        setDeveloperStage("analyze", "Couldn't complete", "z-badge-off");
         renderDeveloperMessage(body.error || body.userMessage || `Analysis failed (${res.status}).`, "error");
         return;
       }
+      setDeveloperStage("analyze", "Completed", "z-badge-ok");
       renderDeveloperMessage(body.result?.summary || "Analyzed.", "success");
     } catch (err) {
       console.error(err);
+      setDeveloperStage("analyze", "Couldn't complete", "z-badge-off");
       renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerAnalyzeBtn.disabled = false;
@@ -1158,6 +1235,15 @@
     widget.appendChild(body);
 
     el.developerResult.appendChild(widget);
+    lastDeveloperNote = { status, message };
+    renderHomeActivity();
+  }
+
+  function setDeveloperStage(name, label, tone) {
+    const card = document.querySelector(`#developer-stages [data-stage="${name}"] .z-badge`);
+    if (!card) return;
+    card.textContent = label;
+    card.className = "z-badge" + (tone ? " " + tone : "");
   }
 
   async function refreshPlans() {
@@ -1187,7 +1273,7 @@
 
   function renderPlanCard(plan, currentPlan) {
     const card = document.createElement("div");
-    card.className = plan.highlighted ? "plan-card highlighted" : "plan-card";
+    card.className = plan.highlighted ? "z-card z-card-settings plan-card highlighted" : "z-card z-card-settings plan-card";
 
     const top = document.createElement("div");
     top.className = "plan-card-top";
@@ -1307,7 +1393,7 @@
 
   function renderStatTile({ label, value }) {
     const tile = document.createElement("div");
-    tile.className = "stat-tile";
+    tile.className = "z-card z-card-stat stat-tile";
     const labelEl = document.createElement("span");
     labelEl.className = "stat-tile-label";
     labelEl.textContent = label;
@@ -1318,9 +1404,125 @@
     return tile;
   }
 
+  let latestTasks;
+  let lastDeveloperNote = null;
+
+  function emptyState(title, body) {
+    const box = document.createElement("div");
+    box.className = "empty-state";
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const span = document.createElement("span");
+    span.textContent = body;
+    box.append(strong, span);
+    return box;
+  }
+
+  function renderHomeActivity() {
+    const root = document.getElementById("home-activity");
+    if (!root) return;
+    root.replaceChildren();
+    if (latestTasks === undefined) {
+      const skeleton = document.createElement("div");
+      skeleton.className = "z-skeleton";
+      skeleton.setAttribute("aria-hidden", "true");
+      root.appendChild(skeleton);
+      return;
+    }
+    const rows = [];
+    if (Array.isArray(latestTasks)) {
+      for (const task of latestTasks.slice(0, 3)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "z-card z-card-task activity-row";
+        const status = document.createElement("span");
+        status.className = "task-status-badge";
+        status.textContent = task.status;
+        const title = document.createElement("strong");
+        title.textContent = task.goal;
+        const meta = document.createElement("small");
+        meta.textContent = formatRelativeTime(task.createdAt) + " · Status only";
+        button.append(status, title, meta);
+        button.addEventListener("click", () => setActiveView("activity"));
+        rows.push(button);
+      }
+    }
+    const recentUser = state.history.filter((message) => message.role === "user").slice(-2).reverse();
+    for (const message of recentUser) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "z-card z-card-insight activity-row";
+      const status = document.createElement("span");
+      status.className = "task-status-badge";
+      status.textContent = "Conversation";
+      const title = document.createElement("strong");
+      const line = String(message.content || "").split("\n")[0].replace(/^📎\s*/, "");
+      title.textContent = line.length > 80 ? line.slice(0, 77) + "…" : line;
+      button.append(status, title);
+      button.addEventListener("click", () => setActiveView("chat"));
+      rows.push(button);
+    }
+    if (state.pendingAttachment) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "z-card z-card-status activity-row";
+      const status = document.createElement("span");
+      status.className = "z-badge z-badge-ok";
+      status.textContent = "Ready";
+      const title = document.createElement("strong");
+      title.textContent = state.pendingAttachment.filename;
+      const meta = document.createElement("small");
+      meta.textContent = "Ask about this file in Chat.";
+      button.append(status, title, meta);
+      button.addEventListener("click", () => setActiveView("files"));
+      rows.push(button);
+    }
+    if (lastDeveloperNote) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "z-card z-card-status activity-row";
+      const status = document.createElement("span");
+      status.className = "task-status-badge";
+      status.textContent = lastDeveloperNote.status === "success" ? "Developer" : "Developer";
+      const title = document.createElement("strong");
+      const line = String(lastDeveloperNote.message || "").split("\n")[0];
+      title.textContent = line.length > 80 ? line.slice(0, 77) + "…" : line;
+      button.append(status, title);
+      button.addEventListener("click", () => setActiveView("developer"));
+      rows.push(button);
+    }
+    if (!rows.length) {
+      if (latestTasks === null) {
+        const failed = emptyState("Something went wrong", "Tasks could not be loaded. Try again.");
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "zarvis-btn zarvis-btn-secondary";
+        retry.textContent = "Try again";
+        retry.addEventListener("click", () => { void fetchTasks().catch(() => {}); });
+        failed.appendChild(retry);
+        root.appendChild(failed);
+        return;
+      }
+      root.appendChild(emptyState("Your workspace is ready", "Start a conversation or create your first task."));
+      return;
+    }
+    for (const row of rows) root.appendChild(row);
+  }
+
   async function fetchTasks() {
-    const res = await apiFetch("/tasks");
-    if (!res.ok) return null;
+    let res;
+    try {
+      res = await apiFetch("/tasks");
+    } catch (err) {
+      latestTasks = null;
+      renderHomeActivity();
+      throw err;
+    }
+    if (!res.ok) {
+      latestTasks = null;
+      renderHomeActivity();
+      return null;
+    }
     const { tasks } = await res.json();
     const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
     for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
@@ -1329,13 +1531,21 @@
       if (activeCount > 0) item.setAttribute("aria-label", "Activity, activity in progress");
       else item.removeAttribute("aria-label");
     }
+    latestTasks = tasks;
+    renderHomeActivity();
     return tasks;
   }
 
   async function refreshTasks() {
-    el.taskList.innerHTML = "";
+    if (el.taskList) el.taskList.innerHTML = "";
     const tasks = await fetchTasks();
-    if (!tasks) return;
+    if (!tasks || !el.taskList) {
+      if (el.activityTaskList && tasks) {
+        el.activityTaskList.innerHTML = "";
+        for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
+      }
+      return;
+    }
     if (tasks.length === 0) {
       const empty = document.createElement("p");
       empty.className = "task-empty";
@@ -1371,7 +1581,7 @@
 
   function renderTaskCard(task) {
     const card = document.createElement("div");
-    card.className = "task-card";
+    card.className = "z-card z-card-task task-card";
     card.dataset.status = task.status;
     if (task.status === "RUNNING") card.classList.add("glow-active");
 
@@ -1443,7 +1653,7 @@
       console.error(`Task ${action} failed:`, body.error || res.status);
       return;
     }
-    refreshTasks();
+    refreshActivity();
   }
 
   function formatRelativeTime(dateInput) {
@@ -1483,7 +1693,7 @@
    * deliberately does not — the failed attempt's own user bubble is still on screen, so
    * retrying the exact same text would otherwise show it twice; a retry is always treated as
    * typed/text-only, regardless of how the original turn started). */
-  async function runTurn(utterance, isVoice = false) {
+  async function runTurn(utterance, isVoice = false, options = {}) {
     if (currentTurnController) {
       currentTurnController.abort();
       stopSpeaking();
@@ -1493,7 +1703,6 @@
     const thinkingNode = addThinkingBubble();
     setOrbState("UNDERSTANDING");
     const isFirstTurn = state.firstTurn;
-    state.firstTurn = false;
     const startedAt = performance.now();
 
     try {
@@ -1517,6 +1726,7 @@
           isFirstTurn,
           conversationId: state.conversationId,
           history: state.history.slice(-12),
+          confirmed: options.confirmed === true,
         }),
         signal: controller.signal,
       });
@@ -1603,7 +1813,7 @@
           sentenceBuffer += data.text;
           if (!assistantNode) {
             thinkingNode.remove();
-            assistantNode = addBubble("assistant", "");
+            assistantNode = addBubble("assistant", "", utterance);
             setOrbState("SPEAKING");
           }
           renderFormattedText(assistantNode, fullMessage);
@@ -1636,7 +1846,10 @@
           state.history.push({ role: "user", content: utterance });
           if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
           state.history = state.history.slice(-12);
+          renderHomeActivity();
+          state.firstTurn = false;
           recordLatency(utterance, Math.round(performance.now() - startedAt), true);
+          renderToolActivity(data?.toolCalls, utterance, assistantNode);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           await drainTts();
@@ -1677,7 +1890,7 @@
       await processBuffer(true);
       if (!assistantNode && fullMessage.trim()) {
         thinkingNode.remove();
-        assistantNode = addBubble("assistant", fullMessage);
+        assistantNode = addBubble("assistant", fullMessage, utterance);
       }
     } catch (err) {
       if (err?.name === "AbortError") return;
@@ -1723,16 +1936,109 @@
     });
   }
 
-  function addBubble(role, text) {
+  function addBubble(role, text, utterance) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
-    if (role === "assistant") renderFormattedText(bubble, text);
-    else bubble.textContent = text;
+    bubble.setAttribute("data-role", role);
+    const label = document.createElement("span");
+    label.className = "bubble-role";
+    label.textContent = role === "user" ? "You" : role === "assistant" ? "ZARVIS" : role === "tool" ? "Action" : "Status";
+    bubble.appendChild(label);
+    const body = document.createElement("div");
+    body.className = "bubble-body";
+    if (role === "assistant") renderFormattedText(body, text);
+    else body.textContent = text;
+    bubble.appendChild(body);
+    if (role === "assistant") {
+      const actions = document.createElement("div");
+      actions.className = "bubble-actions";
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(body.innerText || text);
+          copyBtn.textContent = "Copied";
+        } catch {
+          copyBtn.textContent = "Copy failed";
+        }
+      });
+      actions.appendChild(copyBtn);
+      if (utterance) {
+        const again = document.createElement("button");
+        again.type = "button";
+        again.textContent = "Regenerate";
+        again.addEventListener("click", () => {
+          bubble.remove();
+          runTurn(utterance, false);
+        });
+        actions.appendChild(again);
+      }
+      const listen = document.createElement("button");
+      listen.type = "button";
+      listen.textContent = "Listen";
+      listen.addEventListener("click", () => {
+        void speak(body.innerText || text, null, true);
+      });
+      actions.appendChild(listen);
+      bubble.appendChild(actions);
+    }
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
     scrollConversationToBottom();
     if (role === "assistant") announceChat(text);
-    return bubble;
+    return body;
+  }
+
+  const TOOL_OUTCOMES = {
+    success: { label: "Completed", tone: "success", detail: "The skill finished. The reply includes its result." },
+    confirmation_declined: { label: "Needs confirmation", tone: "confirm", detail: "This action has not run." },
+    execution_failed: { label: "Couldn't complete", tone: "failed", detail: "The skill reported a failure." },
+    verification_failed: { label: "Couldn't complete", tone: "failed", detail: "Verification failed, so the action was not completed." },
+    skill_not_found: { label: "Unavailable", tone: "failed", detail: "ZARVIS does not have a skill for that." },
+    validation_failed: { label: "Needs details", tone: "confirm", detail: "Some required details were missing." },
+    permission_denied: { label: "Permission required", tone: "confirm", detail: "A required permission is not granted." },
+    entitlement_denied: { label: "Unavailable on this plan", tone: "failed", detail: "This account cannot run that skill." },
+  };
+
+  function renderToolActivity(toolCalls, utterance) {
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) return;
+    for (const call of toolCalls) {
+      const kind = call?.outcome?.kind || "unknown";
+      const outcome = TOOL_OUTCOMES[kind] || { label: "Reported", tone: "", detail: "ZARVIS returned a tool result." };
+      const row = document.createElement("div");
+      row.className = "z-card z-card-tool tool-row";
+      row.dataset.status = kind;
+      row.dataset.tone = outcome.tone;
+      const top = document.createElement("div");
+      top.className = "tool-row-top";
+      const title = document.createElement("strong");
+      title.textContent = call.skillId || "Tool";
+      const status = document.createElement("span");
+      status.className = "z-badge";
+      status.textContent = outcome.label;
+      top.append(title, status);
+      row.appendChild(top);
+      const note = document.createElement("p");
+      note.className = "stage-note";
+      const summary = call?.outcome?.result?.summary || call?.outcome?.result?.userMessage;
+      const brief = summary ? String(summary).replace(/\s+/g, " ").slice(0, 180) : "";
+      note.textContent = brief ? outcome.detail + " " + brief : outcome.detail;
+      row.appendChild(note);
+      if (kind === "confirmation_declined" && utterance) {
+        const confirm = document.createElement("button");
+        confirm.type = "button";
+        confirm.className = "zarvis-btn zarvis-btn-primary";
+        confirm.textContent = "Confirm and continue";
+        confirm.addEventListener("click", () => {
+          confirm.disabled = true;
+          runTurn(utterance, false, { confirmed: true });
+        });
+        row.appendChild(confirm);
+      }
+      el.conversation.appendChild(row);
+    }
+    scrollConversationToBottom();
   }
 
   /** Render a safe subset of Markdown used by ZARVIS replies without exposing arbitrary HTML. */
@@ -1899,7 +2205,7 @@
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           console.error(`Image analysis failed (${res.status}):`, body.error);
-          addSystemNotice(COPY[state.lang].unreadableFile);
+          addSystemNotice(noticeForExtractError(body.error));
           return;
         }
         const { text } = await res.json();
@@ -1951,9 +2257,7 @@
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         console.error(`Document extraction failed (${res.status}):`, body.error);
-        if (body.error === "unsupported_file_type") addSystemNotice(COPY[state.lang].unsupportedFile);
-        else if (body.error === "document_too_long") addSystemNotice(COPY[state.lang].oversizedFile);
-        else addSystemNotice(COPY[state.lang].unreadableFile);
+        addSystemNotice(noticeForExtractError(body.error));
         return;
       }
       const { text } = await res.json();
@@ -1966,11 +2270,32 @@
     }
   }
 
+  function noticeForExtractError(code) {
+    if (code === "unsupported_file_type") return COPY[state.lang].unsupportedFile;
+    if (code === "document_too_long") return COPY[state.lang].oversizedFile;
+    if (code === "empty_document") return COPY[state.lang].emptyFile;
+    return COPY[state.lang].unreadableFile;
+  }
+
+  function setFilesState(text, mode) {
+    const node = document.getElementById("files-state");
+    if (!node) return;
+    node.className = mode === "ready" ? "z-card z-card-status" : "empty-state";
+    const title = mode === "ready" ? "Ready" : mode === "loading" ? "Reading" : "Nothing here yet";
+    node.replaceChildren();
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const span = document.createElement("span");
+    span.textContent = text;
+    node.append(strong, span);
+  }
+
   function setExtractingState(isExtracting) {
     el.uploadBtn.setAttribute("aria-disabled", String(isExtracting));
     el.uploadBtn.classList.toggle("is-disabled", isExtracting);
     el.fileInput.disabled = isExtracting;
     el.uploadBtn.title = isExtracting ? COPY[state.lang].extracting : COPY[state.lang].uploadTitle;
+    if (isExtracting) setFilesState("Reading the file…", "loading");
   }
 
   /** Shows the "📄 filename / Ready to analyze" chip above the composer — the attachment
@@ -1981,12 +2306,16 @@
     el.attachmentName.textContent = filename;
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
+    setFilesState(`${filename} is ready. Ask about it in Chat.`, "ready");
+    renderHomeActivity();
     el.input.focus();
   }
 
   function clearPendingAttachment() {
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
+    setFilesState("Attach a file, then ask about it in Chat.");
+    renderHomeActivity();
   }
 
   /** The composer's single entry point for a user-authored turn (typed Send/Enter, or a
@@ -2153,7 +2482,7 @@
   // Escape-key guard, both via isBusy() below.
   const BUSY_STATES = ["UNDERSTANDING", "EXECUTING", "SUCCESS", "SPEAKING"];
   function isBusy() {
-    return BUSY_STATES.includes(el.orb.dataset.state);
+    return currentTurnController !== null || BUSY_STATES.includes(el.orb.dataset.state);
   }
 
   function delay(ms) {
@@ -2213,7 +2542,7 @@
     recognition.addEventListener("error", () => {
       el.micBtn.setAttribute("aria-pressed", "false");
       el.orb.setAttribute("aria-pressed", "false");
-      setOrbState("IDLE");
+      if (!currentTurnController) setOrbState("ERROR");
     });
 
     el.micBtn.addEventListener("click", toggleListening);
@@ -2238,6 +2567,8 @@
 
   function startListening() {
     if (!recognition) return;
+    if (currentTurnController) cancelCurrentTurn();
+    stopSpeaking();
     recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
     el.micBtn.setAttribute("aria-pressed", "true");
     el.orb.setAttribute("aria-pressed", "true");
@@ -2276,16 +2607,9 @@
   // See DEVELOPMENT.md "Voice quality" for that upgrade path.
 
   function setupSpeechSynthesis() {
-    if (!window.speechSynthesis) return;
-    const loadVoices = () => {
-      cachedVoices = window.speechSynthesis.getVoices();
-      populateVoiceSelect();
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-
-    el.voiceSelect.addEventListener("change", () => {
-      localStorage.setItem(STORAGE_KEYS.voiceURI, el.voiceSelect.value);
+    populateVoiceSelect();
+    el.voiceSelect?.addEventListener("change", () => {
+      localStorage.setItem(STORAGE_KEYS.ttsVoice, el.voiceSelect.value);
     });
   }
 
@@ -2295,21 +2619,16 @@
   }
 
   function populateVoiceSelect() {
-    const candidates = voicesForCurrentLang();
+    if (!el.voiceSelect) return;
     el.voiceSelect.innerHTML = "";
-    if (candidates.length <= 1) {
-      el.voiceSelect.hidden = true;
-      return;
-    }
-    for (const voice of candidates) {
+    for (const voice of GEMINI_VOICES) {
       const option = document.createElement("option");
-      option.value = voice.voiceURI;
-      option.textContent = `${voice.name}${voice.localService ? "" : " ☁"}`;
+      option.value = voice;
+      option.textContent = voice;
       el.voiceSelect.appendChild(option);
     }
-    const saved = localStorage.getItem(STORAGE_KEYS.voiceURI);
-    const defaultVoice = saved && candidates.some((v) => v.voiceURI === saved) ? saved : pickVoice(state.lang === "hi" ? "hi" : "en").voiceURI;
-    el.voiceSelect.value = defaultVoice;
+    const saved = localStorage.getItem(STORAGE_KEYS.ttsVoice);
+    el.voiceSelect.value = GEMINI_VOICES.includes(saved) ? saved : "Kore";
     el.voiceSelect.hidden = false;
   }
 
@@ -2326,8 +2645,8 @@
   }
 
   // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
-  async function speak(text, node) {
-    if (!state.speak || !text) return;
+  async function speak(text, node, force = false) {
+    if ((!state.speak && !force) || !text) return;
     setOrbState("SPEAKING");
     if (node) attachWaveform(node);
     try {
@@ -2352,7 +2671,7 @@
     try {
       const res = await apiFetch("/tts/synthesize", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice: selectedTtsVoice() }),
         signal: controller.signal,
       });
       if (!res.ok) throw new Error("Gemini TTS HTTP " + res.status);
@@ -2393,7 +2712,7 @@
     try {
       const res = await apiFetch("/tts/synthesize-stream", {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice: selectedTtsVoice() }),
         signal,
       });
       if (!res.ok || !res.body) {

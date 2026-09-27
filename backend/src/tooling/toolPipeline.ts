@@ -1,4 +1,5 @@
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
+import { InsufficientCreditsError } from "../store/store.js";
 import type { PermissionType, SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
 import type { ClockPort, ConfirmationPort, EntitlementPort, PermissionPort, UsagePort } from "./ports.js";
 import { systemClockPort } from "./ports.js";
@@ -79,8 +80,15 @@ export class ToolPipeline {
     // Charge only after a verified success — a blocked/failed action is never charged.
     let chargedCredits = 0;
     if (skill.usageCost.value > 0) {
-      await this.usagePort.charge(context.accountId, skill.usageCost, skill.id);
-      chargedCredits = skill.usageCost.value;
+      try {
+        await this.usagePort.charge(context.accountId, skill.usageCost, skill.id);
+        chargedCredits = skill.usageCost.value;
+      } catch (err) {
+        if (err instanceof InsufficientCreditsError) {
+          return { kind: "entitlement_denied", decision: { allowed: false, reason: "OUT_OF_CREDITS" } };
+        }
+        throw err;
+      }
     }
 
     return { kind: "success", result, chargedCredits };

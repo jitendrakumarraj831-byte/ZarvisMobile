@@ -87,7 +87,13 @@ fun SettingsScreen(
         null -> SettingsHub(uiState.locale, uiState.darkTheme, onBack) { page = it }
         SettingsPage.Voice -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("Voice input", "Uses the existing Speech-to-Text engine. Start listening from the existing orb or microphone controls.", ZarvisAccentCyan)
-            ReadOnlyCard("Voice output", "Uses the existing Gemini-backed TTS with Android on-device fallback. No provider logic was changed.", ZarvisAccentViolet)
+            ReadOnlyCard("Voice output", "Spoken replies use Gemini TTS. The voice below is sent with each synthesis request. There is no Android TTS fallback.", ZarvisAccentViolet)
+            Text("Gemini voice", style = MaterialTheme.typography.titleSmall)
+            listOf("Kore", "Puck", "Charon", "Aoede", "Fenrir").forEach { voice ->
+                SettingRow(voice, if (uiState.ttsVoice == voice) "Selected" else "Tap to use this voice", uiState.ttsVoice == voice) {
+                    viewModel.setTtsVoice(voice)
+                }
+            }
         }
         SettingsPage.Language -> SettingsSubPage(selected, goBack) {
             GlassSurface(Modifier.fillMaxWidth()) {

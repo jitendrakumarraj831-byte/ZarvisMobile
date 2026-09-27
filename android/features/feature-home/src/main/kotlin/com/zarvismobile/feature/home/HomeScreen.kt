@@ -96,9 +96,9 @@ fun HomeScreen(
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Text(text = "ZARVIS", style = MaterialTheme.typography.displayLarge.copy(fontSize = 34.sp, letterSpacing = 2.sp))
-                        Text(text = "AI DIGITAL ASSISTANT", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp), color = MaterialTheme.colorScheme.primary)
+                        Text(text = "AI ASSISTANT", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp), color = MaterialTheme.colorScheme.primary)
                         Text(
-                            text = "सोचें • पूछें • करवाएँ",
+                            text = "Ask a question, speak, or start a task. Phone actions stay on this device.",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -108,7 +108,7 @@ fun HomeScreen(
 
                 item {
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        AiOrb(state = VoiceState.IDLE, size = 104.dp, onClick = { onNavigateToConversation(null) })
+                        AiOrb(state = VoiceState.IDLE, size = 72.dp, onClick = { onNavigateToConversation(null) })
                     }
                 }
 

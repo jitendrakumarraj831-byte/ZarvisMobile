@@ -14,9 +14,8 @@ import com.zarvismobile.domain.entity.UsageCost
  * The `phone.call` reference skill — placing a call is MEDIUM risk per the SKILLS.md rubric
  * ("send/call/modify-files"), which makes `requiresConfirmation` true by
  * [SkillDefinition]'s own default — the Tool pipeline blocks on an explicit user "yes"
- * before this handler ever runs (MASTER_SPEC.md §7). Free, on-device, requires both
- * [PermissionType.PHONE_CALL] (to place the call) and [PermissionType.CONTACTS] (to resolve
- * a spoken name to a number — not needed when `target` is already a raw phone number).
+ * before this handler ever runs (MASTER_SPEC.md §7). Free and on-device.
+ * [PermissionType.PHONE_CALL] is required. Contacts is requested only for a name.
  */
 object PhoneCallSkillFactory {
 
@@ -26,7 +25,7 @@ object PhoneCallSkillFactory {
         description = "Call a contact or phone number, e.g. \"call mom\" or \"call 9876543210\".",
         category = SkillCategory.PHONE,
         capabilities = listOf("call", "dial", "phone", "call kar", "call karo"),
-        requiredPermissions = listOf(PermissionType.PHONE_CALL, PermissionType.CONTACTS),
+        requiredPermissions = listOf(PermissionType.PHONE_CALL),
         requiredEntitlement = EntitlementLevel.FREE,
         usageCost = UsageCost.FREE,
         riskLevel = RiskLevel.MEDIUM,

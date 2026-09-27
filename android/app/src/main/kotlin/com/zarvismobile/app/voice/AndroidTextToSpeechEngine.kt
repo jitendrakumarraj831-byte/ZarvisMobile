@@ -4,8 +4,10 @@ import android.content.Context
 import android.media.MediaDataSource
 import android.media.MediaPlayer
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
+import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.TtsSynthesizeRequest
+import kotlinx.coroutines.flow.first
 import java.io.IOException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -14,16 +16,17 @@ import kotlin.coroutines.resume
 class AndroidTextToSpeechEngine(
     context: Context,
     private val api: ZarvisApi,
+    private val preferences: AppPreferences,
 ) : TextToSpeechEngine {
     private var activePlayer: MediaPlayer? = null
 
     override suspend fun speak(text: String, locale: String) {
         if (text.isBlank()) return
-        playGemini(text)
+        playGemini(text, preferences.ttsVoice.first())
     }
 
-    private suspend fun playGemini(text: String) {
-        val response = api.synthesizeSpeech(TtsSynthesizeRequest(text))
+    private suspend fun playGemini(text: String, voice: String) {
+        val response = api.synthesizeSpeech(TtsSynthesizeRequest(text, voice))
         if (!response.isSuccessful) {
             response.errorBody()?.close()
             throw IOException("Gemini TTS HTTP " + response.code())

@@ -8,8 +8,11 @@ import com.zarvismobile.domain.entity.RiskLevel
 import com.zarvismobile.domain.entity.SkillExecutionContext
 import com.zarvismobile.domain.entity.ToolCall
 import com.zarvismobile.domain.entity.ToolExecutionOutcome
+import com.zarvismobile.domain.entity.PermissionType
+import com.zarvismobile.domain.orchestrator.DeviceCommandGate
 import com.zarvismobile.domain.orchestrator.KeywordSkillMatcher
 import com.zarvismobile.domain.orchestrator.OnDeviceInputBuilder
+import com.zarvismobile.domain.port.RuntimePermissionBroker
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 
@@ -23,17 +26,21 @@ class AndroidOrchestrator(
     private val onDevicePipeline: ToolPipeline,
     private val api: ZarvisApi,
     private val confirmationPort: ComposeConfirmationPort,
+    private val permissionBroker: RuntimePermissionBroker,
 ) {
     private val onDeviceMatcher = KeywordSkillMatcher(onDeviceRegistry)
+    private var conversationId: String? = null
 
     suspend fun handleTurn(utterance: String, accountId: String, locale: String = "en"): TurnOutcome {
         val onDeviceSkill = onDeviceMatcher.match(utterance)
-        if (onDeviceSkill != null) {
+        if (onDeviceSkill != null && DeviceCommandGate.accepts(onDeviceSkill.id, utterance)) {
             // Per-skill input shape (domain module, unit-tested) — previously hardcoded to
             // personal.reminder's {action, title} shape here regardless of which skill
             // matched, which broke silently the moment a second on-device skill (a
             // different inputSchema) was registered alongside it. See OnDeviceInputBuilder.
             val input = OnDeviceInputBuilder.build(onDeviceSkill, utterance)
+            val permissions = permissionsFor(onDeviceSkill.id, input.values["target"] as? String, onDeviceSkill.requiredPermissions)
+            permissionBroker.ensure(permissions)
             val outcome = onDevicePipeline.execute(
                 ToolCall(skillId = onDeviceSkill.id, input = input),
                 SkillExecutionContext(accountId = accountId, locale = locale),
@@ -41,7 +48,10 @@ class AndroidOrchestrator(
             return TurnOutcome.fromOnDevice(outcome)
         }
 
-        val response = api.runTurn(OrchestratorTurnRequest(utterance = utterance, locale = locale))
+        val response = api.runTurn(
+            OrchestratorTurnRequest(utterance = utterance, locale = locale, conversationId = conversationId),
+        )
+        response.conversationId?.let { conversationId = it }
         val confirmation = response.toolCalls.firstOrNull { it.outcome.kind == "confirmation_declined" }
         if (confirmation != null) {
             val approved = confirmationPort.confirm(
@@ -53,12 +63,24 @@ class AndroidOrchestrator(
             )
             if (approved) {
                 val confirmedResponse = api.runTurn(
-                    OrchestratorTurnRequest(utterance = utterance, confirmed = true, locale = locale),
+                    OrchestratorTurnRequest(
+                        utterance = utterance,
+                        confirmed = true,
+                        locale = locale,
+                        conversationId = conversationId,
+                    ),
                 )
+                confirmedResponse.conversationId?.let { conversationId = it }
                 return TurnOutcome(message = confirmedResponse.message)
             }
         }
         return TurnOutcome(message = response.message)
+    }
+
+    private fun permissionsFor(skillId: String, target: String?, declared: List<PermissionType>): List<PermissionType> {
+        if (skillId != "phone.call") return declared
+        val rawNumber = target != null && target.count { it.isDigit() } >= 7
+        return if (rawNumber) listOf(PermissionType.PHONE_CALL) else listOf(PermissionType.PHONE_CALL, PermissionType.CONTACTS)
     }
 }
 

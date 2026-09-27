@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 data class SettingsUiState(
     val locale: String = "en",
     val darkTheme: Boolean = false,
+    val ttsVoice: String = "Kore",
 )
 
 enum class DeleteAccountStatus { IDLE, IN_PROGRESS, FAILED }
@@ -33,8 +34,9 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = combine(
         preferences.locale,
         preferences.darkTheme,
-    ) { locale, darkTheme ->
-        SettingsUiState(locale = locale, darkTheme = darkTheme)
+        preferences.ttsVoice,
+    ) { locale, darkTheme, ttsVoice ->
+        SettingsUiState(locale = locale, darkTheme = darkTheme, ttsVoice = ttsVoice)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
     private val _deleteAccountStatus = MutableStateFlow(DeleteAccountStatus.IDLE)
@@ -46,6 +48,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setDarkTheme(enabled: Boolean) {
         viewModelScope.launch { preferences.setDarkTheme(enabled) }
+    }
+
+    fun setTtsVoice(voice: String) {
+        viewModelScope.launch { preferences.setTtsVoice(voice) }
     }
 
     fun clearLocalSession() {

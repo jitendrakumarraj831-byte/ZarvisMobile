@@ -40,6 +40,11 @@ export function billingRouter(verifier: PlayBillingVerifier, store: Store): Rout
         res.status(422).json({ error: "Purchase token could not be verified" });
         return;
       }
+      const claimed = await store.claimPurchaseToken(purchaseToken, req.auth!.accountId, productId);
+      if (!claimed) {
+        res.status(409).json({ error: "Purchase token has already been used" });
+        return;
+      }
       const account = await store.updateAccountPlan(req.auth!.accountId, plan);
       res.json({ acknowledged: true, verification, account: { id: account.id, plan: account.plan } });
     }),

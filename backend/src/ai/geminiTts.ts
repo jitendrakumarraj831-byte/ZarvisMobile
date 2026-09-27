@@ -2,6 +2,14 @@
  * Gemini 3.8 Flash TTS provider. Gemini is the ONLY voice provider used by Zarvis.
  * Transient Google API failures are retried so the UI never silently changes voice engines.
  */
+export const GEMINI_TTS_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"] as const;
+
+export function resolveGeminiVoice(requested: unknown, fallback: string): string {
+  return typeof requested === "string" && (GEMINI_TTS_VOICES as readonly string[]).includes(requested)
+    ? requested
+    : fallback;
+}
+
 export class GeminiTtsProvider {
   constructor(
     private readonly apiKey: string,
@@ -16,12 +24,16 @@ export class GeminiTtsProvider {
       .filter((model, index, all) => model && all.indexOf(model) === index);
   }
 
-  async synthesize(text: string): Promise<Buffer> {
+  get defaultVoice(): string {
+    return this.voiceName;
+  }
+
+  async synthesize(text: string, voiceName = this.voiceName): Promise<Buffer> {
     const body = JSON.stringify({
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: {
         responseModalities: ["AUDIO"],
-        speechConfig: { voiceConfig: { voice: this.voiceName } },
+        speechConfig: { voiceConfig: { voice: resolveGeminiVoice(voiceName, this.voiceName) } },
       },
     });
 
@@ -64,8 +76,9 @@ export class GeminiTtsProvider {
     throw lastError ?? new Error("Gemini TTS failed");
   }
   /** Streams headerless 24 kHz mono 16-bit little-endian PCM chunks for browser playback. */
-  async *streamSynthesize(text: string): AsyncIterable<Buffer> {
+  async *streamSynthesize(text: string, voiceName = this.voiceName): AsyncIterable<Buffer> {
     const models = this.candidateModels();
+    const voice = resolveGeminiVoice(voiceName, this.voiceName);
     const body = JSON.stringify({
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: {
@@ -78,7 +91,7 @@ export class GeminiTtsProvider {
             sampleRate: 24000,
           },
         },
-        speechConfig: { voiceConfig: { voice: this.voiceName } },
+        speechConfig: { voiceConfig: { voice } },
       },
     });
 
