@@ -50,7 +50,7 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
                         interactionSource = remember { MutableInteractionSource() }, indication = null
                     ) { onSelect(item.route) }.padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
-                    Icon(item.icon, item.label, tint, Modifier.size(20.dp))
+                    Icon(imageVector = item.icon, contentDescription = item.label, modifier = Modifier.size(20.dp), tint = tint)
                     Text(item.label, style = MaterialTheme.typography.labelMedium, color = tint)
                 }
             }
