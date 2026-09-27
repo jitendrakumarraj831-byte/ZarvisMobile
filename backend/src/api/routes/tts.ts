@@ -26,27 +26,54 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
         return;
       }
 
+      // Prime the Gemini stream before committing the HTTP response. This is important:
+      // if Gemini returns 401/403/429/5xx before producing audio, the browser receives a
+      // real HTTP error instead of a mysteriously destroyed/chopped audio stream.
+      const iterator = provider.streamSynthesize(text.slice(0, 1200))[Symbol.asyncIterator]();
+      let first: IteratorResult<Buffer>;
+      try {
+        first = await iterator.next();
+      } catch (error) {
+        console.error("[tts] Gemini synthesis failed before audio:", error);
+        if (!res.headersSent) {
+          res.status(502).json({ error: "Gemini TTS synthesis failed. Please try again." });
+        } else if (!res.destroyed) {
+          res.end();
+        }
+        return;
+      }
+
+      if (first.done || !first.value?.length) {
+        console.error("[tts] Gemini returned no audio data");
+        res.status(502).json({ error: "Gemini TTS returned no audio data. Please try again." });
+        return;
+      }
+
       res.status(200);
       res.set({
         "Content-Type": "application/octet-stream",
         "Cache-Control": "no-cache, no-transform",
         "X-Accel-Buffering": "no",
         "Transfer-Encoding": "chunked",
+        "X-Zarvis-TTS": "gemini-stream",
       });
       res.flushHeaders?.();
 
       try {
-        for await (const chunk of provider.streamSynthesize(text.slice(0, 1200))) {
-          if (res.destroyed) break;
-          res.write(chunk);
+        if (!res.destroyed) res.write(first.value);
+        while (!res.destroyed) {
+          const next = await iterator.next();
+          if (next.done) break;
+          if (next.value?.length) res.write(next.value);
         }
       } catch (error) {
-        if (!res.destroyed) {
-          res.destroy(error instanceof Error ? error : new Error(String(error)));
-          return;
-        }
+        // Headers/audio may already be on the wire, so a JSON error cannot be sent here.
+        // Log the real Gemini/backend error and close cleanly; the client will stop at the
+        // last valid PCM frame instead of receiving a browser-level "network error".
+        console.error("[tts] Gemini stream interrupted after audio started:", error);
+      } finally {
+        if (!res.destroyed) res.end();
       }
-      if (!res.destroyed) res.end();
     }),
   );
 
