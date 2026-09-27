@@ -53,6 +53,60 @@ export class GeminiTtsProvider {
     }
     throw lastError ?? new Error("Gemini TTS failed");
   }
+  /** Streams raw 24 kHz mono PCM chunks from Gemini for low-latency browser playback. */
+  async *streamSynthesize(text: string): AsyncIterable<Buffer> {
+    const url = this.baseUrl + "/models/" + encodeURIComponent(this.model) + ":streamGenerateContent?alt=sse";
+    const body = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text }] }],
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        speechConfig: { voiceConfig: { voice: this.voiceName } },
+        responseMimeType: "audio/l16",
+      },
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
+        body,
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(("Gemini streaming TTS failed: " + res.status + " " + res.statusText + " " + detail).trim());
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const payload = trimmed.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            const json = JSON.parse(payload) as GeminiTtsResponse;
+            const parts = json.candidates?.[0]?.content?.parts ?? [];
+            for (const part of parts) {
+              if (part.inlineData?.data) yield Buffer.from(part.inlineData.data, "base64");
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 interface GeminiTtsResponse {
