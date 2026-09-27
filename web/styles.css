@@ -4118,3 +4118,162 @@ body{color-scheme:light}
 }
 @media(max-width:380px){.orb-area{height:285px;min-height:220px}.home-stage .chat-launch-copy small{display:none}.home-stage .chat-launch-card{min-height:61px}.bottom-nav .nav-item{font-size:7px}}
 @media(prefers-reduced-motion:reduce){.home-stage::before,.orb-area>.orb,.orbit,.dot,.particle{animation:none!important}}
+
+/* =========================================================
+   ZARVIS MICRO-ALIGNMENT + RESPONSIVE QA PATCH
+   Fixes absolute-logo centering and tightens small-screen
+   geometry without touching JS behavior.
+   ========================================================= */
+
+/* The logo must be centered by the orb-area, not by its
+   intrinsic text width. */
+.orb-area > .logo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.orb-area > .logo .brand {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  line-height: .95;
+}
+
+.orb-area > .logo .brand-line {
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.orb-area > .logo .mobile {
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+  text-align: center;
+}
+
+/* Keep the decorative side lines optically balanced around MOBILE. */
+.orb-area > .logo .brand-line::before,
+.orb-area > .logo .brand-line::after {
+  flex: 0 1 24px;
+  width: 24px;
+  min-width: 12px;
+  margin: 0;
+}
+
+/* Prevent tiny-width phones from allowing the brand lockup to drift. */
+@media (max-width: 639px) {
+  .orb-area > .logo {
+    left: 50%;
+    width: 100%;
+    transform: translate(-50%, -50%);
+  }
+
+  .orb-area > .logo .brand {
+    width: 100%;
+    text-align: center;
+  }
+
+  .orb-area > .logo .brand-line {
+    width: 100%;
+  }
+}
+
+/* Safe-area aware bottom controls: no accidental overlap with Android
+   gesture navigation or browser chrome. */
+@media (max-width: 639px) {
+  .bottom-nav {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .composer {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Never let hidden views participate in layout. */
+.stage[hidden],
+.settings-panels[hidden],
+.settings-panel[hidden],
+.modal-overlay[hidden],
+.voice-select[hidden],
+[hidden] {
+  display: none !important;
+}
+
+/* Prevent long dynamic text/cards from forcing horizontal overflow. */
+.stage,
+.home-stage,
+.chat-stage,
+.conversation,
+.categories,
+.capabilities-list,
+.plan-cards,
+.status-grid,
+.task-list,
+.settings-grid,
+.settings-panels,
+.zarvis-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.conversation *,
+.categories *,
+.capabilities-list *,
+.plan-cards *,
+.status-grid *,
+.task-list *,
+.settings-grid *,
+.settings-panels * {
+  max-width: 100%;
+}
+
+/* Slightly slower interaction motion across the premium web UI. */
+.sidebar-nav .nav-item,
+.bottom-nav .nav-item,
+.categories button,
+.category-card,
+.settings-entry,
+.chat-launch-card,
+.command-bar,
+.zarvis-btn,
+.option-btn,
+.back-btn {
+  transition-duration: .42s;
+  transition-timing-function: cubic-bezier(.22,.75,.22,1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-nav .nav-item,
+  .bottom-nav .nav-item,
+  .categories button,
+  .category-card,
+  .settings-entry,
+  .chat-launch-card,
+  .command-bar,
+  .zarvis-btn,
+  .option-btn,
+  .back-btn {
+    transition-duration: 0.01ms !important;
+  }
+}
