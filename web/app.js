@@ -2040,122 +2040,61 @@
     return candidates.find((v) => !v.localService) || candidates[0];
   }
 
-  // Primary web playback uses the same Gemini native TTS path that provides the
-  // product's natural voice. Browser SpeechSynthesis is a compatibility fallback only.
-  // This preserves voice quality while still allowing speech on browsers where the Gemini
-  // TTS endpoint is unavailable.
+  // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node) {
     if (!state.speak || !text) return;
     setOrbState("SPEAKING");
     if (node) attachWaveform(node);
-
     try {
-      // Primary: Gemini native TTS — natural/product voice.
-      const geminiStarted = await speakWithGemini(text);
-      if (geminiStarted) return;
+      await speakWithGemini(text);
     } catch (err) {
-      if (err.name === "AbortError") return;
-      console.warn("Gemini voice unavailable, trying browser voice:", err);
-    }
-
-    try {
-      // Fallback only: device/browser TTS. This may sound more robotic depending on
-      // the Android speech engine and installed voices, so it must never replace Gemini
-      // when Gemini TTS is available.
-      const browserStarted = speakWithBrowser(text);
-      if (browserStarted) await browserStarted;
-    } catch (err) {
-      if (err.name !== "AbortError") {
-        console.warn("Browser voice unavailable:", err);
-      }
+      if (err?.name !== "AbortError") console.warn("Gemini TTS unavailable:", err);
     } finally {
       if (node) detachWaveform(node);
       if (el.orb.dataset.state === "SPEAKING") setOrbState("IDLE");
     }
   }
 
-  // Tracks whatever is currently producing audio/network activity so stopSpeaking() can
-  // actually interrupt it, however far it's gotten: `activeTtsController` cancels the
-  // /tts/synthesize request itself if Stop is hit before any audio exists yet, `activeAudio`
-  // pauses the Gemini path's playback once it does, and speechSynthesis.cancel() below
-  // covers the browser-fallback path — only one of these is ever relevant at a time,
-  // matching speak()'s own try-Gemini-then-fall-back sequencing.
   let activeAudio = null;
   let activeTtsController = null;
 
   async function speakWithGemini(text) {
     const controller = new AbortController();
     activeTtsController = controller;
-    let res;
     try {
-      res = await apiFetch("/tts/synthesize", { method: "POST", body: JSON.stringify({ text }), signal: controller.signal });
+      const res = await apiFetch("/tts/synthesize", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error("Gemini TTS HTTP " + res.status);
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("Gemini TTS returned empty audio");
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      activeAudio = audio;
+      try {
+        await new Promise((resolve, reject) => {
+          audio.addEventListener("ended", resolve, { once: true });
+          audio.addEventListener("pause", resolve, { once: true });
+          audio.addEventListener("error", () => reject(new Error("Gemini audio playback failed")), { once: true });
+          audio.play().catch(reject);
+        });
+      } finally {
+        URL.revokeObjectURL(url);
+        activeAudio = null;
+      }
+      setOrbState("IDLE");
     } finally {
       activeTtsController = null;
     }
-    if (!res.ok) return false;
-    const url = URL.createObjectURL(await res.blob());
-    const audio = new Audio(url);
-    activeAudio = audio;
-    try {
-      await new Promise((resolve, reject) => {
-        audio.addEventListener("ended", resolve, { once: true });
-        // Fires when stopSpeaking() calls audio.pause() for a manual stop, so the awaited
-        // promise settles instead of hanging until the tab is closed.
-        audio.addEventListener("pause", resolve, { once: true });
-        audio.addEventListener("error", () => reject(new Error("Audio playback failed")), { once: true });
-        audio.play().catch(reject);
-      });
-    } finally {
-      URL.revokeObjectURL(url);
-      activeAudio = null;
-    }
-    setOrbState("IDLE");
-    return true;
   }
 
-  // Interrupts whichever voice is currently speaking (tapped from the waveform's stop
-  // control, the composer's Stop button, or a new turn superseding this one) — mirrors the
-  // mic/orb's existing "never leave the user stuck mid-interaction" behavior for playback.
   function stopSpeaking() {
     if (activeTtsController) activeTtsController.abort();
     if (activeAudio) activeAudio.pause();
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
     setOrbState("IDLE");
   }
-
-  // Returns a Promise that settles once playback actually finishes (naturally, on error, or
-  // via stopSpeaking()'s cancel()) — previously fire-and-forget, which silently broke the
-  // "await speak() so the orb/waveform reflect the real playback duration" contract for
-  // this fallback path specifically (the Gemini path above already awaited correctly).
-  function speakWithBrowser(text) {
-    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return null;
-
-    // Detect from the actual assistant reply. This fixes Roman Hindi/Hinglish when the
-    // browser UI is still set to English.
-    const language = detectSpeechLanguage(text);
-    const langPrefix = language === "hi" ? "hi" : "en";
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language === "hi" ? "hi-IN" : "en-IN";
-    utterance.rate = language === "hi" ? 0.98 : 1;
-    const voice = pickVoice(langPrefix);
-    if (voice) utterance.voice = voice;
-
-    window.speechSynthesis.cancel();
-    return new Promise((resolve, reject) => {
-      const finish = () => {
-        setOrbState("IDLE");
-        resolve();
-      };
-      utterance.onend = finish;
-      utterance.onerror = (event) => {
-        setOrbState("IDLE");
-        if (event?.error === "canceled" || event?.error === "interrupted") resolve();
-        else reject(new Error("Browser speech synthesis failed"));
-      };
-      window.speechSynthesis.speak(utterance);
-    });
-  }
-
   function detectSpeechLanguage(text) {
     if (/[\u0900-\u097f]/.test(text)) return "hi";
     const normalized = text.toLocaleLowerCase();
