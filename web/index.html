@@ -8,7 +8,7 @@
   <link rel="icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#f3f4f6" />
+  <meta name="theme-color" content="#f4f1eb" />
   <meta name="mobile-web-app-capable" content="yes" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -39,11 +39,14 @@
     <div class="main-content">
       <main class="views">
         <section class="stage home-stage" id="view-home">
-          <p class="brand-mark">ZARVIS</p>
-          <p class="home-kicker">AI assistant</p>
-          <h1 class="home-title">Ask once. Get a clear next step.</h1>
-          <p class="home-lead">ZARVIS answers, researches, reads files you attach, drafts writing, and tracks tasks. Phone actions run on the Android app.</p>
-          <div class="ask-panel">
+          <header class="home-brand">
+            <p class="brand-mark">ZARVIS</p>
+            <p class="home-kicker">Command center</p>
+            <h1 class="home-title">Ask once. ZARVIS takes the next step.</h1>
+            <p class="home-lead">A professional AI workspace for conversation, research, documents, writing, and tracked work. Phone actions run on the Android app.</p>
+          </header>
+          <div class="ask-panel z-card z-card-hero">
+            <p class="ask-label">Ask ZARVIS</p>
             <div class="ask-row">
               <button type="button" class="icon-btn" id="home-ask-mic" aria-label="Speak to ZARVIS">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path><path d="M19 11a7 7 0 0 1-14 0M12 18v3"></path></svg>
@@ -51,24 +54,46 @@
               <button type="button" class="icon-btn" id="home-ask-attach" aria-label="Attach a file">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L13 6a3 3 0 0 1 4 4l-7 7a1 1 0 0 1-1.5-1.5L16 8"></path></svg>
               </button>
-              <textarea id="home-ask-input" class="text-input" rows="1" placeholder="Ask ZARVIS" autocomplete="off"></textarea>
+              <textarea id="home-ask-input" class="text-input" rows="1" placeholder="Ask anything…" autocomplete="off"></textarea>
               <button type="button" class="send-btn" id="home-ask-send" aria-label="Ask ZARVIS">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
               </button>
             </div>
           </div>
-          <div class="suggest-row" aria-label="Suggested actions">
-            <button type="button" class="chip" data-workspace-prompt="Summarize the main points and list open questions.">Summarize a topic</button>
-            <button type="button" class="chip" data-workspace-prompt="Search the web for recent sources and cite the links you use.">Research with sources</button>
-            <button type="button" class="chip" data-home-view="files">Attach a file</button>
-            <button type="button" class="chip" data-home-view="phone">Phone Agent</button>
+          <div class="section-head">
+            <p class="section-kicker">Start</p>
+            <h2>Quick actions</h2>
+          </div>
+          <div class="action-grid" aria-label="Quick actions">
+            <button type="button" class="z-card z-card-action" data-home-view="chat"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 1 1 18 0z"></path></svg></span><span class="z-card-copy"><strong>Ask ZARVIS</strong><small>Open the conversation workspace.</small></span></button>
+            <button type="button" class="z-card z-card-action" data-home-view="research"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><span class="z-card-copy"><strong>Research</strong><small>Search, compare, or outline a topic.</small></span></button>
+            <button type="button" class="z-card z-card-action" data-home-view="files"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></span><span class="z-card-copy"><strong>Analyze document</strong><small>Attach a file, then ask about it.</small></span></button>
+            <button type="button" class="z-card z-card-action" data-home-view="creative"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg></span><span class="z-card-copy"><strong>Create content</strong><small>Draft writing. No image generation.</small></span></button>
+            <button type="button" class="z-card z-card-action" data-home-view="phone"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"></path></svg></span><span class="z-card-copy"><strong>Phone Agent</strong><small>Android apps, contacts, and calls.</small></span></button>
+            <button type="button" class="z-card z-card-action" data-home-view="developer"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"></path></svg></span><span class="z-card-copy"><strong>Developer Agent</strong><small>Analyze a repo. Implement after confirm.</small></span></button>
+            <button type="button" class="z-card z-card-action" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span><span class="z-card-copy"><strong>Create task</strong><small>Track a workflow. Steps are not executed.</small></span></button>
+            <button type="button" class="z-card z-card-action" data-home-view="business"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></span><span class="z-card-copy"><strong>Business assistant</strong><small>Draft replies, posts, and invoices.</small></span></button>
+          </div>
+          <div class="section-head">
+            <p class="section-kicker">Discover</p>
+            <h2>Explore what ZARVIS can do</h2>
           </div>
           <div class="home-grid">
-            <button type="button" class="home-card" data-feature-page="workspace"><span><strong>AI Workspace</strong><small>Conversation, follow-ups, and skills in one thread.</small></span></button>
-            <button type="button" class="home-card" data-feature-page="voice"><span><strong>Voice</strong><small>Tap to speak. Spoken replies use the configured voice.</small></span></button>
-            <button type="button" class="home-card" data-feature-page="research"><span><strong>Research</strong><small>Live search when the backend can ground an answer.</small></span></button>
-            <button type="button" class="home-card" data-feature-page="tasks"><span><strong>Tasks</strong><small>Track a workflow. Steps are stored, not executed.</small></span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="workspace"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 1 1 18 0z"></path></svg></span><span class="z-card-copy"><strong>AI Assistant</strong><small>Think, ask, and follow up in one thread.</small></span><span class="z-arrow" aria-hidden="true">Open</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="voice"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path><path d="M19 11a7 7 0 0 1-14 0M12 18v3"></path></svg></span><span class="z-card-copy"><strong>Voice</strong><small>Speak a request. Listening starts from a tap.</small></span><span class="z-arrow" aria-hidden="true">Try it</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="phone"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"></path></svg></span><span class="z-card-copy"><strong>Phone Agent</strong><small>Supported Android actions, with confirmation.</small></span><span class="z-arrow" aria-hidden="true">Open</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="research"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><span class="z-card-copy"><strong>Research</strong><small>Live search when the provider can ground it.</small></span><span class="z-arrow" aria-hidden="true">Open</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="documents"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></span><span class="z-card-copy"><strong>Documents</strong><small>Summarize a file you choose to attach.</small></span><span class="z-arrow" aria-hidden="true">Open</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="creative"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg></span><span class="z-card-copy"><strong>Creative Studio</strong><small>Messages, poems, and brainstorms.</small></span><span class="z-arrow" aria-hidden="true">Try it</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="business"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></span><span class="z-card-copy"><strong>Business</strong><small>Drafts only. Nothing is sent or published.</small></span><span class="z-arrow" aria-hidden="true">Open</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="developer"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"></path></svg></span><span class="z-card-copy"><strong>Developer Agent</strong><small>Read a repository. Change it after you confirm.</small></span><span class="z-arrow" aria-hidden="true">Open</span></button>
+            <button type="button" class="z-card z-card-feature home-card" data-feature-page="tasks"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l2 2 4-4"></path><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg></span><span class="z-card-copy"><strong>Tasks &amp; Automation</strong><small>Status you can pause, resume, or cancel.</small></span><span class="z-arrow" aria-hidden="true">Open</span></button>
           </div>
+          <div class="section-head">
+            <p class="section-kicker">Workspace</p>
+            <h2>Active work</h2>
+          </div>
+          <div id="home-activity" aria-live="polite"></div>
         </section>
 
         <section class="stage chat-stage" id="view-chat" hidden>
@@ -112,26 +137,30 @@
         <section class="stage" id="view-feature" hidden><div id="feature-root"></div></section>
 
         <section class="stage" id="view-phone" hidden>
-          <div class="view-header">
-            <h2>Phone Agent</h2>
-            <p>Open apps, find contacts, and place calls from the Android app. The browser cannot control your phone.</p>
+          <div class="z-card z-card-hero page-hero">
+            <span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"></path></svg></span>
+            <div>
+              <p class="home-kicker">Android</p>
+              <h2>Phone Agent</h2>
+              <p>Your Android device, connected to ZARVIS. The browser cannot open apps, read contacts, or place calls.</p>
+            </div>
+            <span class="z-badge z-badge-info">Android app</span>
           </div>
-          <div class="callout" role="status">Continue on Android. Install or open the ZARVIS Android app, then say the command in Chat after the permission prompt.</div>
           <div class="home-grid">
-            <article class="work-card"><div><strong>Open apps</strong><small>Available on Android. No runtime permission. Example: Open WhatsApp.</small></div></article>
-            <article class="work-card"><div><strong>Find contacts</strong><small>Requires Contacts. Example: Find Mom's number.</small></div></article>
-            <article class="work-card"><div><strong>Make calls</strong><small>Requires Phone. A raw number does not need Contacts. ZARVIS asks you to confirm before the call.</small></div></article>
-            <article class="work-card"><div><strong>System settings</strong><small>Not supported. Wi-Fi, Bluetooth, and similar controls have no action.</small></div></article>
+            <article class="z-card z-card-capability"><div class="feature-hub-top"><strong>Open apps</strong><span class="z-badge z-badge-ok">Available</span></div><p>Launch an installed app by name. No runtime permission.</p><p class="feature-example">Example: Open WhatsApp</p></article>
+            <article class="z-card z-card-capability"><div class="feature-hub-top"><strong>Find contacts</strong><span class="z-badge z-badge-info">Permission required</span></div><p>Look up a saved number. Requires Contacts.</p><p class="feature-example">Example: Find Rahul's number</p></article>
+            <article class="z-card z-card-capability"><div class="feature-hub-top"><strong>Make calls</strong><span class="z-badge z-badge-info">Confirmation required</span></div><p>A raw number needs Phone. A name also needs Contacts. ZARVIS asks before the call.</p><p class="feature-example">Example: Call 9876543210</p></article>
+            <article class="z-card z-card-capability is-unavailable"><div class="feature-hub-top"><strong>System settings</strong><span class="z-badge z-badge-off">Not supported</span></div><p>Wi-Fi, Bluetooth, and similar controls have no action.</p></article>
           </div>
         </section>
 
         <section class="stage" id="view-activity" hidden>
           <div class="view-header view-header-row">
             <div>
+              <p class="home-kicker">Work</p>
               <h2>Tasks</h2>
-              <p>Workflows ZARVIS has recorded. Pause, resume, cancel, and retry change status. They do not execute the steps.</p>
+              <p>Recorded workflows. Pause, resume, cancel, and retry change status. They do not execute the steps.</p>
             </div>
-            <button type="button" class="home-link-btn" data-home-view="plans">Plans</button>
           </div>
           <div class="activity-actions">
             <button type="button" class="zarvis-btn zarvis-btn-secondary" id="activity-refresh-btn">Refresh</button>
@@ -142,47 +171,62 @@
 
         <section class="stage" id="view-files" hidden>
           <div class="view-header">
+            <p class="home-kicker">Documents</p>
             <h2>Files</h2>
-            <p>Attach an image, PDF, DOCX, or text file. ZARVIS reads it, then you ask about it in Chat. Analysis is ready only after extraction succeeds.</p>
+            <p>Attach an image, PDF, DOCX, or text file. ZARVIS reads it, then you ask about it in Chat.</p>
           </div>
-          <button type="button" class="zarvis-btn zarvis-btn-primary" id="files-attach-btn">Attach a file</button>
-          <p class="stage-note" id="files-state">No file attached.</p>
+          <div class="home-grid">
+            <article class="z-card z-card-action">
+              <span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V6M8 10l4-4 4 4"></path><path d="M5 18h14"></path></svg></span>
+              <span class="z-card-copy"><strong>Upload document</strong><small>PDF, DOCX, text, or an image you already have.</small></span>
+              <button type="button" class="zarvis-btn zarvis-btn-primary" id="files-attach-btn">Attach</button>
+            </article>
+          </div>
+          <div class="empty-state" id="files-state"><strong>Nothing here yet</strong><span>Attach a file, then ask about it in Chat.</span></div>
         </section>
 
         <section class="stage" id="view-research" hidden>
           <div class="view-header">
+            <p class="home-kicker">Knowledge</p>
             <h2>Research</h2>
-            <p>Web search returns grounded links when the provider supports it. Compare, report, and outline skills use model knowledge and are labeled as such.</p>
+            <p>Web search returns grounded links when the provider supports it. Compare, summarize, report, and outline use model knowledge and say so.</p>
           </div>
-          <div class="suggest-row">
-            <button type="button" class="chip" data-workspace-prompt="Search the web and cite the sources you use: ">Search and cite</button>
-            <button type="button" class="chip" data-workspace-prompt="Compare these options and say which claims come from live search: ">Compare</button>
-            <button type="button" class="chip" data-workspace-prompt="Write a short research outline of questions to investigate about: ">Outline</button>
+          <div class="home-grid">
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Search the web and cite the sources you use: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></span><span class="z-card-copy"><strong>Search</strong><small>Live results when the provider can ground them.</small><em>Search the web and cite sources</em></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Compare these options and say which claims come from live search: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h12M8 12h12M8 18h8"></path></svg></span><span class="z-card-copy"><strong>Compare</strong><small>Knowledge-based unless search is used.</small><em>Compare these options</em></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Summarize the main points and list open questions about: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12v16H6z"></path><path d="M9 8h6M9 12h6"></path></svg></span><span class="z-card-copy"><strong>Summarize</strong><small>A short brief from the topic you add.</small><em>Summarize the main points</em></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Write a structured research report, and label anything that is not from a live source, about: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l5 5v13H7z"></path></svg></span><span class="z-card-copy"><strong>Report</strong><small>Structured writing. Not a live crawl.</small><em>Write a structured report</em></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Write a short research outline of questions to investigate about: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span><span class="z-card-copy"><strong>Outline</strong><small>Questions worth investigating.</small><em>Outline the questions</em></span><span class="z-arrow">Start</span></button>
           </div>
         </section>
 
         <section class="stage" id="view-creative" hidden>
           <div class="view-header">
+            <p class="home-kicker">Studio</p>
             <h2>Creative Studio</h2>
-            <p>Writing skills are live. Image generation is not implemented. Attach an image if you want ZARVIS to analyze one you already have.</p>
+            <p>Writing skills are live. Image generation is not implemented.</p>
           </div>
-          <div class="suggest-row">
-            <button type="button" class="chip" data-workspace-prompt="Write a short message about: ">Write a message</button>
-            <button type="button" class="chip" data-workspace-prompt="Brainstorm five directions for: ">Brainstorm</button>
-            <button type="button" class="chip" data-home-view="files">Analyze an image</button>
+          <div class="home-grid">
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Write a short message about: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg></span><span class="z-card-copy"><strong>Write</strong><small>A first draft you can revise in Chat.</small></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Brainstorm five directions for: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2"></path></svg></span><span class="z-card-copy"><strong>Brainstorm</strong><small>Five directions from the brief you add.</small></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Write a warm, concise message about: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v10H7l-3 3z"></path></svg></span><span class="z-card-copy"><strong>Message</strong><small>A message draft. It is not sent.</small></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Write a short poem about: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12M8 8h8M7 12h10M9 16h6M11 20h2"></path></svg></span><span class="z-card-copy"><strong>Poem</strong><small>A short poem in the tone you ask for.</small></span><span class="z-arrow">Start</span></button>
+            <button type="button" class="z-card z-card-feature" data-home-view="files"><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m20 16-4-4-6 6"></path></svg></span><span class="z-card-copy"><strong>Image analysis</strong><small>Read an image you attach. Generation is unavailable.</small></span><span class="z-arrow">Open</span></button>
+            <article class="z-card z-card-capability is-unavailable"><div class="feature-hub-top"><strong>Image generation</strong><span class="z-badge z-badge-off">Unavailable</span></div><p>ZARVIS does not generate images in this version.</p></article>
           </div>
-          <p class="stage-note">Image generation: not supported.</p>
         </section>
 
         <section class="stage" id="view-business" hidden>
           <div class="view-header">
+            <p class="home-kicker">Drafts</p>
             <h2>Business</h2>
-            <p>Draft a social post, a customer reply, or an invoice. ZARVIS does not publish or send them.</p>
+            <p>ZARVIS writes the draft in Chat. It does not publish, email, or collect payment.</p>
           </div>
-          <div class="suggest-row">
-            <button type="button" class="chip" data-workspace-prompt="Draft a social post about: ">Social post</button>
-            <button type="button" class="chip" data-workspace-prompt="Draft a polite customer reply to: ">Customer reply</button>
-            <button type="button" class="chip" data-workspace-prompt="Draft an invoice for: ">Draft invoice</button>
+          <div class="home-grid">
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Draft a polite customer reply to: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v10H7l-3 3z"></path></svg></span><span class="z-card-copy"><strong>Customer reply</strong><small>A reply you can copy. Draft only.</small></span><span class="z-badge">Draft only</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Draft a social post about: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2"></circle><circle cx="16" cy="7" r="2"></circle><circle cx="16" cy="17" r="2"></circle><path d="m8 12 6-4M8 12l6 4"></path></svg></span><span class="z-card-copy"><strong>Social post</strong><small>A post draft. Nothing is published.</small></span><span class="z-badge">Draft only</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Draft an invoice for: "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l5 5v13H7z"></path><path d="M10 13h6M10 17h4"></path></svg></span><span class="z-card-copy"><strong>Invoice draft</strong><small>A document from the line items you type.</small></span><span class="z-badge">Draft only</span></button>
+            <button type="button" class="z-card z-card-feature" data-workspace-prompt="Help me with a business task. I want a polished customer reply, social post, or invoice draft. "><span class="z-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></span><span class="z-card-copy"><strong>Business assistant</strong><small>Choose the draft in the next message.</small></span><span class="z-badge">Draft only</span></button>
           </div>
         </section>
 
@@ -191,11 +235,11 @@
             <h2>Developer Agent</h2>
             <p>Analyze is read-only. Implement opens a pull request after you confirm, and only when this account is PRO and the server has a GitHub token. There is no separate verify agent.</p>
           </div>
-          <div class="dev-stage" aria-label="Developer stages">
-            <span class="live">Analyze</span>
-            <span>Plan — included in implement</span>
-            <span class="live">Implement</span>
-            <span>Verify — not a separate step</span>
+          <div class="dev-stage" id="developer-stages" aria-label="Developer stages">
+            <article class="z-card z-card-status" data-stage="analyze"><span class="z-badge z-badge-ok">Available</span><strong>Analyze</strong><small>Read-only repository report.</small></article>
+            <article class="z-card z-card-status" data-stage="plan"><span class="z-badge z-badge-info">Included</span><strong>Plan</strong><small>Part of implement. Not a separate run.</small></article>
+            <article class="z-card z-card-status" data-stage="implement"><span class="z-badge z-badge-ok">Available</span><strong>Implement</strong><small>Pull request after you confirm. PRO required.</small></article>
+            <article class="z-card z-card-status is-unavailable" data-stage="verify"><span class="z-badge z-badge-off">Not supported</span><strong>Verify</strong><small>No separate verification agent.</small></article>
           </div>
           <label for="developer-repo-input">GitHub repository URL</label>
           <input id="developer-repo-input" class="text-input-block" type="url" placeholder="https://github.com/owner/repo" autocomplete="off" />
@@ -225,18 +269,19 @@
 
         <section class="stage" id="view-work" hidden>
           <div class="view-header">
+            <p class="home-kicker">Library</p>
             <h2>Work</h2>
-            <p>Secondary destinations. Each one opens a real workspace.</p>
+            <p>Every destination below opens a real workspace.</p>
           </div>
           <div class="work-grid">
-            <button type="button" class="work-card" data-home-view="capabilities"><span><strong>Capabilities</strong><small>What ZARVIS can do, and where it runs.</small></span></button>
-            <button type="button" class="work-card" data-home-view="phone"><span><strong>Phone Agent</strong><small>Android-only phone actions.</small></span></button>
-            <button type="button" class="work-card" data-home-view="files"><span><strong>Files</strong><small>Upload and ask about a document.</small></span></button>
-            <button type="button" class="work-card" data-home-view="research"><span><strong>Research</strong><small>Search and structured questions.</small></span></button>
-            <button type="button" class="work-card" data-home-view="creative"><span><strong>Creative</strong><small>Writing. No image generation.</small></span></button>
-            <button type="button" class="work-card" data-home-view="business"><span><strong>Business</strong><small>Drafts that stay in the chat.</small></span></button>
-            <button type="button" class="work-card" data-home-view="developer"><span><strong>Developer</strong><small>Analyze a repo. Implement with confirmation.</small></span></button>
-            <button type="button" class="work-card" data-home-view="plans"><span><strong>Plans</strong><small>Plan, credits, and limits.</small></span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="capabilities"><span class="z-card-copy"><strong>Capabilities</strong><small>What ZARVIS can do, and where it runs.</small></span><span class="z-arrow">Open</span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="phone"><span class="z-card-copy"><strong>Phone Agent</strong><small>Android-only phone actions.</small></span><span class="z-arrow">Open</span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="files"><span class="z-card-copy"><strong>Files</strong><small>Upload and ask about a document.</small></span><span class="z-arrow">Open</span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="research"><span class="z-card-copy"><strong>Research</strong><small>Search and structured questions.</small></span><span class="z-arrow">Open</span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="creative"><span class="z-card-copy"><strong>Creative</strong><small>Writing. No image generation.</small></span><span class="z-arrow">Open</span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="business"><span class="z-card-copy"><strong>Business</strong><small>Drafts that stay in the chat.</small></span><span class="z-arrow">Open</span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="developer"><span class="z-card-copy"><strong>Developer</strong><small>Analyze a repo. Implement with confirmation.</small></span><span class="z-arrow">Open</span></button>
+            <button type="button" class="z-card z-card-feature work-card" data-home-view="plans"><span class="z-card-copy"><strong>Plans</strong><small>Plan, credits, and trial. No checkout.</small></span><span class="z-arrow">Open</span></button>
           </div>
         </section>
 
@@ -246,18 +291,22 @@
             <p>Controls that change this device, plus an honest note where a control is not available.</p>
           </div>
           <div class="settings-grid" id="settings-grid">
-            <button type="button" class="settings-entry" data-settings-page="account"><span><strong>Account</strong><small>Guest session on this browser</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="voice"><span><strong>AI &amp; Voice</strong><small>Spoken replies and Gemini voice</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="language"><span><strong>Language</strong><small>English or Hindi</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="appearance"><span><strong>Appearance</strong><small>Light or dim</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="notifications"><span><strong>Notifications</strong><small>Not available on the web</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="permissions"><span><strong>Permissions</strong><small>Microphone here. Phone on Android</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="privacy"><span><strong>Privacy</strong><small>Delete this account</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="security"><span><strong>Security</strong><small>Clear this browser session</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="protection"><span><strong>Rules &amp; Protection</strong><small>Confirmations that are actually enforced</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="data"><span><strong>Data</strong><small>Deletion. Export is unavailable</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="developer"><span><strong>Developer</strong><small>Open the developer workspace</small></span><b>›</b></button>
-            <button type="button" class="settings-entry" data-settings-page="subscription"><span><strong>Subscription</strong><small>Open Plans</small></span><b>›</b></button>
+            <p class="settings-group-label">Account</p>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="account"><span class="z-card-copy"><strong>Account</strong><small>Guest session on this browser</small></span><b aria-hidden="true">›</b></button>
+            <p class="settings-group-label">Preferences</p>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="voice"><span class="z-card-copy"><strong>AI &amp; Voice</strong><small>Spoken replies and Gemini voice</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="appearance"><span class="z-card-copy"><strong>Appearance</strong><small>Light or dim</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="language"><span class="z-card-copy"><strong>Language</strong><small>English or Hindi</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="notifications"><span class="z-card-copy"><strong>Notifications</strong><small>Not available on the web</small></span><b aria-hidden="true">›</b></button>
+            <p class="settings-group-label">Trust</p>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="permissions"><span class="z-card-copy"><strong>Permissions</strong><small>Microphone here. Phone on Android</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="privacy"><span class="z-card-copy"><strong>Privacy</strong><small>Delete this account</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="security"><span class="z-card-copy"><strong>Security</strong><small>Clear this browser session</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="protection"><span class="z-card-copy"><strong>Rules &amp; Protection</strong><small>Confirmations that are actually enforced</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="data"><span class="z-card-copy"><strong>Data</strong><small>Deletion. Export is unavailable</small></span><b aria-hidden="true">›</b></button>
+            <p class="settings-group-label">Product</p>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="developer"><span class="z-card-copy"><strong>Developer</strong><small>Open the developer workspace</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="subscription"><span class="z-card-copy"><strong>Subscription</strong><small>Open Plans. Checkout is not connected</small></span><b aria-hidden="true">›</b></button>
           </div>
           <div class="settings-panels" id="settings-panels" hidden>
             <div class="settings-subhead">
