@@ -532,7 +532,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{
   transition:transform .35s ease,border-color .35s ease,background .35s ease;
 }
 .home-link-btn:hover{transform:translateY(-2px);border-color:rgba(76,114,255,.28);background:#fff}
+.home-header-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto}
 .home-link-btn span{font-size:14px;line-height:1}
+.home-link-btn-soft{background:rgba(255,255,255,.52);color:#738096;border-color:rgba(68,91,145,.10)}
 .home-feature-grid{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
@@ -1202,6 +1204,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{
   .home-section-heading h2{font-size:17px}
   .home-section-heading p{font-size:10px}
   .home-link-btn{min-height:31px;font-size:9px}
+  .home-header-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}
+  .home-link-btn{justify-content:center;min-width:0}
   .home-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .home-feature-card{
     position:relative;
