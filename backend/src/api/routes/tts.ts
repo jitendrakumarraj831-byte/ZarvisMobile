@@ -13,6 +13,44 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
   const router = Router();
 
   router.post(
+    "/synthesize-stream",
+    requireAuth,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      if (!provider) {
+        res.status(503).json({ error: "Live voice synthesis isn't configured on this server (GEMINI_API_KEY missing)." });
+        return;
+      }
+      const { text } = req.body ?? {};
+      if (typeof text !== "string" || !text.trim()) {
+        res.status(400).json({ error: "text is required" });
+        return;
+      }
+
+      res.status(200);
+      res.set({
+        "Content-Type": "application/octet-stream",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+        "Transfer-Encoding": "chunked",
+      });
+      res.flushHeaders?.();
+
+      try {
+        for await (const chunk of provider.streamSynthesize(text.slice(0, 1200))) {
+          if (res.destroyed) break;
+          res.write(chunk);
+        }
+      } catch (error) {
+        if (!res.destroyed) {
+          res.destroy(error instanceof Error ? error : new Error(String(error)));
+          return;
+        }
+      }
+      if (!res.destroyed) res.end();
+    }),
+  );
+
+  router.post(
     "/synthesize",
     requireAuth,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
