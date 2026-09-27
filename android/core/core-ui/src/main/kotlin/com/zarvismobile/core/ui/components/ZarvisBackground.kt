@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -14,52 +13,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentIndigo
-import com.zarvismobile.core.ui.theme.ZarvisAccentPink
 import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
 
-/** Aurora-glass backdrop that follows the selected Material theme. */
+/** Subtle premium aurora backdrop; deliberately restrained so content stays primary. */
 @Composable
-fun ZarvisBackground(
-    modifier: Modifier = Modifier,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    val base = MaterialTheme.colorScheme.background
+fun ZarvisBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val base = androidx.compose.material3.MaterialTheme.colorScheme.background
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(base)
-            .drawBehind {
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(ZarvisAccentPink.copy(alpha = if (base.luminance() > 0.5f) 0.18f else 0.10f), Color.Transparent),
-                        center = Offset(size.width * 0.05f, size.height * 0.04f),
-                        radius = size.maxDimension * 0.62f,
-                    ),
-                )
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(ZarvisAccentCyan.copy(alpha = if (base.luminance() > 0.5f) 0.15f else 0.08f), Color.Transparent),
-                        center = Offset(size.width * 0.96f, size.height * 0.08f),
-                        radius = size.maxDimension * 0.55f,
-                    ),
-                )
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(ZarvisAccentViolet.copy(alpha = if (base.luminance() > 0.5f) 0.12f else 0.08f), Color.Transparent),
-                        center = Offset(size.width * 0.62f, size.height * 0.98f),
-                        radius = size.maxDimension * 0.52f,
-                    ),
-                )
-                drawRect(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            ZarvisAccentCyan.copy(alpha = 0.035f),
-                            ZarvisAccentIndigo.copy(alpha = 0.035f),
-                            ZarvisAccentPink.copy(alpha = 0.035f),
-                        ),
-                    ),
-                )
-            },
+        modifier = modifier.fillMaxSize().background(base).drawBehind {
+            val a = if (base.luminance() > 0.5f) 0.10f else 0.08f
+            drawRect(Brush.radialGradient(listOf(ZarvisAccentCyan.copy(alpha = a), Color.Transparent), Offset(size.width * .08f, size.height * .02f), size.maxDimension * .48f))
+            drawRect(Brush.radialGradient(listOf(ZarvisAccentViolet.copy(alpha = a), Color.Transparent), Offset(size.width * .92f, size.height * .18f), size.maxDimension * .52f))
+            drawRect(Brush.radialGradient(listOf(ZarvisAccentIndigo.copy(alpha = a * .8f), Color.Transparent), Offset(size.width * .55f, size.height * .98f), size.maxDimension * .55f))
+        },
         content = content,
     )
 }
