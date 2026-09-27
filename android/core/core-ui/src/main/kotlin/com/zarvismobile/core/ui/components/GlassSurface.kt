@@ -15,11 +15,11 @@ import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
-/** Bright translucent surface used for cards, panels, nav and dialogs. */
+/** Premium glass surface shared by every feature page. */
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(24.dp),
+    shape: Shape = RoundedCornerShape(20.dp),
     borderColor: Color = GlassColors.border,
     tint: Color = GlassColors.surfaceTint,
     contentPadding: Dp = ZarvisSpacing.md,
@@ -27,8 +27,8 @@ fun GlassSurface(
 ) {
     Column(
         modifier = modifier
-            .background(color = tint, shape = shape)
-            .border(width = 1.dp, color = borderColor, shape = shape)
+            .background(tint, shape)
+            .border(1.dp, borderColor, shape)
             .padding(contentPadding),
         content = content,
     )
