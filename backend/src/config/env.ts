@@ -49,7 +49,7 @@ export const env = {
    * Cloud Text-to-Speech product. Uses the same GEMINI_API_KEY, no extra credential. */
   geminiTtsModel:
     process.env.GEMINI_TTS_MODEL?.trim() === "gemini-2.5-flash-preview-tts" || !process.env.GEMINI_TTS_MODEL?.trim()
-      ? "gemini-3.8-flash-tts"
+      ? "gemini-3.8-flash-lite-tts"
       : process.env.GEMINI_TTS_MODEL.trim(),
   /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
