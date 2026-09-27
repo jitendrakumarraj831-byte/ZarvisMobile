@@ -83,6 +83,7 @@ fun ZarvisComposer(
                 Icon(imageVector = Icons.Filled.Send, contentDescription = "Send")
             }
         },
-        singleLine = true,
+        singleLine = false,
+        maxLines = 4,
     )
 }

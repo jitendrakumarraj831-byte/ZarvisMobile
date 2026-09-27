@@ -5,12 +5,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -44,13 +48,19 @@ import com.zarvismobile.core.ui.theme.ZarvisSpacing
 @Composable
 fun ConversationScreen(
     initialText: String?,
+    submitInitialText: Boolean = true,
+    listenOnStart: Boolean = false,
+    onBack: (() -> Unit)? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
 
-    LaunchedEffect(initialText) {
-        initialText?.let { viewModel.submitInitialText(it) }
+    LaunchedEffect(initialText, submitInitialText, listenOnStart) {
+        if (listenOnStart) viewModel.startListening()
+        if (!initialText.isNullOrBlank()) {
+            if (submitInitialText) viewModel.submitInitialText(initialText) else viewModel.prefillComposer(initialText)
+        }
     }
 
     LaunchedEffect(uiState.turns.size) {
@@ -71,6 +81,15 @@ fun ConversationScreen(
                 .navigationBarsPadding()
                 .imePadding(),
         ) {
+            if (onBack != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onBack) { Text("Back") }
+                    Text("Chat with ZARVIS", style = MaterialTheme.typography.titleMedium)
+                }
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().weight(1f),
                 state = listState,
@@ -113,13 +132,22 @@ fun ConversationScreen(
 
 @Composable
 private fun TurnBubble(turn: ConversationTurn) {
-    Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
-        ZarvisCard(modifier = Modifier.fillMaxWidth()) {
-            Text(text = turn.userText, style = MaterialTheme.typography.bodyLarge)
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(0.88f).align(Alignment.End),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.primary,
+        ) {
+            Text(
+                text = turn.userText,
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
         }
         if (turn.assistantText != null) {
-            ZarvisCard(modifier = Modifier.fillMaxWidth()) {
-                Text(text = turn.assistantText, style = MaterialTheme.typography.bodyMedium)
+            ZarvisCard(modifier = Modifier.fillMaxWidth(0.88f).align(Alignment.Start)) {
+                Text(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }

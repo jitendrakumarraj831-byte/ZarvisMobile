@@ -10,10 +10,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,7 +30,7 @@ import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
 /** Developer Mode — see DEVELOPER_AGENT.md. */
 @Composable
-fun DeveloperScreen(viewModel: DeveloperViewModel = hiltViewModel()) {
+fun DeveloperScreen(onBack: (() -> Unit)? = null, viewModel: DeveloperViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
 
     // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23): claims the
@@ -43,7 +46,12 @@ fun DeveloperScreen(viewModel: DeveloperViewModel = hiltViewModel()) {
             .padding(ZarvisSpacing.md),
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
     ) {
-        Text(text = "Developer Mode", style = MaterialTheme.typography.headlineMedium)
+        if (onBack != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text("Back") }
+            }
+        }
+        Text(text = "Developer Agent", style = MaterialTheme.typography.headlineMedium)
         Text(
             text = "Read-only repository analysis. Write access (code changes, pull requests) is planned but not enabled in this build.",
             style = MaterialTheme.typography.bodyMedium,

@@ -29,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +55,8 @@ import com.zarvismobile.data.remote.dto.SkillDto
 @Composable
 fun CapabilitiesScreen(
     onRunSkill: (initialText: String) -> Unit,
+    onOpenFeature: (String) -> Unit = {},
+    onOpenPlans: () -> Unit = {},
     viewModel: CapabilitiesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -63,6 +66,7 @@ fun CapabilitiesScreen(
             Column(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg)) {
                 Text(text = "Capabilities", style = MaterialTheme.typography.headlineLarge)
                 Text(text = "AI AGENT HUB", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.8.sp), color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = onOpenPlans) { Text("Plans & quotas") }
                 Text(
                     text = "Everything ZARVIS can do right now, grouped by category.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -84,6 +88,22 @@ fun CapabilitiesScreen(
                         contentPadding = PaddingValues(horizontal = ZarvisSpacing.lg, vertical = ZarvisSpacing.md),
                         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
                     ) {
+                        item {
+                            Text("Browse by product", style = MaterialTheme.typography.titleMedium)
+                        }
+                        items(FeatureCatalog.pages.size) { index ->
+                            val page = FeatureCatalog.pages[index]
+                            GlassSurface(modifier = Modifier.fillMaxWidth()) {
+                                Text(page.category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                Text(page.title, style = MaterialTheme.typography.titleMedium)
+                                Text(page.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(page.availability, style = MaterialTheme.typography.labelMedium)
+                                ZarvisPrimaryButton(text = "Open", onClick = { onOpenFeature(page.id) }, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                        item {
+                            Text("Skills available right now", style = MaterialTheme.typography.titleMedium)
+                        }
                         grouped.forEach { (category, skills) ->
                             item {
                                 Text(

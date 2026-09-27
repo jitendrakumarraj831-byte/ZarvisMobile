@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,7 +70,7 @@ private val PRO_TIER = PlanTier(
 
 /** Plans & Quotas — MASTER_SPEC.md §19-21 (Subscription/Trial/Usage), Free vs Pro comparison. */
 @Composable
-fun SubscriptionScreen(viewModel: SubscriptionViewModel = hiltViewModel()) {
+fun SubscriptionScreen(onBack: (() -> Unit)? = null, viewModel: SubscriptionViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     var billedYearly by remember { mutableStateOf(false) }
 
@@ -79,7 +80,14 @@ fun SubscriptionScreen(viewModel: SubscriptionViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(ZarvisSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
-            item { Text(text = "Plans & Quotas", style = MaterialTheme.typography.headlineMedium) }
+            item {
+                if (onBack != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onBack) { Text("Back") }
+                    }
+                }
+                Text(text = "Plans & Quotas", style = MaterialTheme.typography.headlineMedium)
+            }
 
             if (uiState.isLoading) {
                 item { CircularProgressIndicator() }

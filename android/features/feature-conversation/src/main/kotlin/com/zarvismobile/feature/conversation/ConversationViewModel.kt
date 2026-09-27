@@ -64,6 +64,10 @@ class ConversationViewModel @Inject constructor(
         runTurn(text)
     }
 
+    fun prefillComposer(text: String) {
+        _uiState.update { it.copy(composerText = text) }
+    }
+
     /** Called once by the screen when it was navigated to with a pre-filled utterance (MASTER_SPEC.md §23). */
     fun submitInitialText(text: String) {
         if (text.isBlank()) return

@@ -72,6 +72,7 @@ fun HomeScreen(
     onNavigateToDeveloper: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToCapabilities: () -> Unit = {},
+    onOpenFeature: (String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -194,8 +195,21 @@ fun HomeScreen(
                 }
 
                 item {
-                    TextButton(onClick = onNavigateToDeveloper, modifier = Modifier.fillMaxWidth()) {
-                        Text("Open Developer Mode")
+                    ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+                        Text("Phone Agent", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Open apps, find contacts, and place calls on this phone. System settings are not supported.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { onOpenFeature("phone") }) { Text("Open Phone Agent") }
+                    }
+                }
+
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+                        TextButton(onClick = { onOpenFeature("voice") }) { Text("Voice Assistant") }
+                        TextButton(onClick = { onOpenFeature("developer") }) { Text("Developer Agent") }
                     }
                 }
 

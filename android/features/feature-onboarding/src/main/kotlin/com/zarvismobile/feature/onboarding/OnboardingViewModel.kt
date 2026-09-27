@@ -25,6 +25,11 @@ class OnboardingViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
+    fun previous() {
+        val state = _uiState.value
+        if (state.pageIndex > 0) _uiState.value = state.copy(pageIndex = state.pageIndex - 1)
+    }
+
     fun next() {
         val state = _uiState.value
         if (state.pageIndex < state.pageCount - 1) {
