@@ -206,6 +206,56 @@ export class RealGitHubClient implements GitHubClient {
   }
 }
 
+
+/** Deterministic in-memory GitHub client used by unit tests and local developer-agent checks. */
+export class MockGitHubClient implements GitHubClient {
+  async analyzeRepository(repoUrl: string): Promise<RepoStructure> {
+    return {
+      repoUrl,
+      primaryLanguage: "Kotlin",
+      buildSystem: "Gradle",
+      hasTests: true,
+      hasCi: true,
+      fileCount: 12,
+      topLevelDirs: ["app", "domain"],
+    };
+  }
+
+  async getImplementationContext(repoUrl: string, maxFiles = 24, maxBytes = 70000) {
+    return {
+      repoUrl,
+      defaultBranch: "main",
+      files: [
+        {
+          path: "README.md",
+          content: "# Mock repository\n",
+          sha: "mock-readme-sha",
+        },
+      ].slice(0, Math.min(maxFiles, 1)).map((file) => ({
+        ...file,
+        content: file.content.slice(0, maxBytes),
+      })),
+    };
+  }
+
+  async createImplementationBranch(_repoUrl: string, branch: string) {
+    return { branch };
+  }
+
+  async applyImplementationFiles(
+    _repoUrl: string,
+    _branch: string,
+    files: Array<{ path: string; content: string }>,
+    _message: string,
+  ) {
+    return { commitShas: files.map((_, index) => `mock-commit-${index + 1}`) };
+  }
+
+  async createPullRequest(_repoUrl: string, _branch: string, _title: string, _body: string) {
+    return { number: 1, url: "https://github.com/example/demo/pull/1" };
+  }
+}
+
 function parseRepoUrl(value: string): { owner: string; repo: string } {
   let url: URL;
   try { url = new URL(value); } catch { throw new Error("Please provide a valid GitHub repository URL."); }
