@@ -10,8 +10,13 @@ export class GeminiTtsProvider {
     private readonly baseUrl = "https://generativelanguage.googleapis.com/v1beta",
   ) {}
 
+  private candidateModels(): string[] {
+    return [this.model, "gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]
+      .map((model) => model.trim())
+      .filter((model, index, all) => model && all.indexOf(model) === index);
+  }
+
   async synthesize(text: string): Promise<Buffer> {
-    const url = this.baseUrl + "/models/" + encodeURIComponent(this.model) + ":generateContent";
     const body = JSON.stringify({
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: {
@@ -21,7 +26,9 @@ export class GeminiTtsProvider {
     });
 
     let lastError: Error | undefined;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (const model of this.candidateModels()) {
+      const url = this.baseUrl + "/models/" + encodeURIComponent(model) + ":generateContent";
+      for (let attempt = 0; attempt < 3; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 30_000);
       try {
@@ -49,13 +56,16 @@ export class GeminiTtsProvider {
       } finally {
         clearTimeout(timer);
       }
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt + Math.floor(Math.random() * 250)));
+      }
+      }
     }
     throw lastError ?? new Error("Gemini TTS failed");
   }
   /** Streams headerless 24 kHz mono 16-bit little-endian PCM chunks for browser playback. */
   async *streamSynthesize(text: string): AsyncIterable<Buffer> {
-    const url = this.baseUrl + "/models/" + encodeURIComponent(this.model) + ":streamGenerateContent?alt=sse";
+    const models = this.candidateModels();
     const body = JSON.stringify({
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: {
@@ -75,7 +85,9 @@ export class GeminiTtsProvider {
     // Streaming calls can still hit transient 429/5xx responses. Retry only before
     // the first audio byte is received; never restart after playback has begun.
     let lastError: Error | undefined;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (const model of models) {
+      const url = this.baseUrl + "/models/" + encodeURIComponent(model) + ":streamGenerateContent?alt=sse";
+      for (let attempt = 0; attempt < 3; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 30_000);
       let started = false;
@@ -91,7 +103,7 @@ export class GeminiTtsProvider {
           lastError = new Error(("Gemini streaming TTS failed: " + res.status + " " + res.statusText + " " + detail).trim());
           if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
           if (attempt < 2) {
-            await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt));
+            await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt + Math.floor(Math.random() * 250)));
             continue;
           }
           throw lastError;
@@ -144,9 +156,10 @@ export class GeminiTtsProvider {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (lastError.name === "AbortError") lastError = new Error("Gemini streaming TTS request timed out");
         if (started || attempt >= 2) throw lastError;
-        await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt));
+        await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt + Math.floor(Math.random() * 250)));
       } finally {
         clearTimeout(timer);
+      }
       }
     }
     throw lastError ?? new Error("Gemini streaming TTS failed");
