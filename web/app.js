@@ -1458,6 +1458,7 @@
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           await drainTts();
+          await waitForTtsPlayback(controller.signal);
           if (!controller.signal.aborted) setOrbState("IDLE");
         }
       };
@@ -2202,7 +2203,11 @@
       body: JSON.stringify({ text }),
       signal,
     });
-    if (!res.ok || !res.body) throw new Error("Gemini streaming TTS HTTP " + res.status);
+    if (!res.ok || !res.body) {
+      const body = await res.json().catch(() => ({}));
+      const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
+      throw new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
+    }
 
     const audioContext = activeAudioContext || new AudioContext({ sampleRate: 24000 });
     activeAudioContext = audioContext;
@@ -2228,12 +2233,18 @@
       source.onended = () => ttsSources.delete(source);
       ttsScheduledUntil = scheduledUntil;
     }
-    // Keep the next sentence contiguous with the previous one.
-    if (scheduledUntil > audioContext.currentTime) {
-      await new Promise((resolve) => setTimeout(resolve, Math.max(0, (scheduledUntil - audioContext.currentTime) * 1000)));
-    }
+    // Do not wait for playback here. The PCM has already been scheduled on the
+    // AudioContext timeline, so returning now lets the next Gemini request start while
+    // this sentence is still playing. That removes the API/request gap between sentences.
     signal?.removeEventListener("abort", onAbort);
     if (activeTtsController === controller) activeTtsController = null;
+  }
+
+  async function waitForTtsPlayback(signal) {
+    while (!signal?.aborted && ttsScheduledUntil > (activeAudioContext?.currentTime || 0) + 0.02) {
+      const remaining = Math.max(20, (ttsScheduledUntil - (activeAudioContext?.currentTime || 0)) * 1000);
+      await delay(Math.min(remaining, 120));
+    }
   }
 
   function stopSpeaking() {
