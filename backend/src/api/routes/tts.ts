@@ -51,20 +51,25 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
 
       res.status(200);
       res.set({
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "audio/l16; codec=pcm; rate=24000",
         "Cache-Control": "no-cache, no-transform",
         "X-Accel-Buffering": "no",
-        "Transfer-Encoding": "chunked",
         "X-Zarvis-TTS": "gemini-stream",
       });
       res.flushHeaders?.();
 
+      const writeChunk = async (chunk: Buffer) => {
+        if (res.destroyed || !chunk.length) return;
+        if (res.write(chunk)) return;
+        await new Promise<void>((resolve) => res.once("drain", resolve));
+      };
+
       try {
-        if (!res.destroyed) res.write(first.value);
+        await writeChunk(first.value);
         while (!res.destroyed) {
           const next = await iterator.next();
           if (next.done) break;
-          if (next.value?.length) res.write(next.value);
+          if (next.value?.length) await writeChunk(next.value);
         }
       } catch (error) {
         // Headers/audio may already be on the wire, so a JSON error cannot be sent here.
