@@ -1284,3 +1284,60 @@ button:focus-visible,input:focus-visible,select:focus-visible{
     transition-duration:.01ms!important;
   }
 }
+
+
+/* ---------- Rules & Protection ---------- */
+.protection-entry .settings-entry-icon{font-size:15px}
+.protection-panel{overflow:hidden}
+.protection-hero{
+  display:flex;
+  align-items:center;
+  gap:11px;
+  padding:12px 13px;
+  margin-bottom:14px;
+  border:1px solid rgba(22,168,201,.18);
+  border-radius:16px;
+  background:linear-gradient(135deg,rgba(18,201,238,.09),rgba(128,96,239,.06));
+}
+.protection-status-dot{
+  width:10px;
+  height:10px;
+  flex:0 0 10px;
+  border-radius:50%;
+  background:#19b878;
+  box-shadow:0 0 0 5px rgba(25,184,120,.10),0 0 14px rgba(25,184,120,.34);
+}
+.protection-hero strong{display:block;font:700 12px var(--font-display);color:#24345d}
+.protection-hero small{display:block;margin-top:3px;font-size:10px;line-height:1.45;color:#6e7895}
+.protection-list{display:grid;gap:8px;margin-top:14px}
+.protection-rule{
+  display:grid;
+  grid-template-columns:30px minmax(0,1fr);
+  gap:10px;
+  align-items:start;
+  padding:11px;
+  border:1px solid rgba(95,112,155,.10);
+  border-radius:14px;
+  background:rgba(255,255,255,.56);
+}
+.protection-rule-icon{
+  width:30px;height:30px;display:grid;place-items:center;border-radius:10px;
+  background:rgba(22,168,201,.09);color:#149dbb;font-size:12px;font-weight:800;
+}
+.protection-rule strong{display:block;color:#2c385b;font-size:11px;line-height:1.3}
+.protection-rule small{display:block;margin-top:3px;color:#737c97;font-size:9.5px;line-height:1.5}
+.protection-note{
+  display:grid;gap:4px;margin-top:12px;padding:12px 13px;border-radius:14px;
+  background:rgba(128,96,239,.06);border:1px solid rgba(128,96,239,.12);
+}
+.protection-note strong{font:700 10px var(--font-display);color:#5e4fc0}
+.protection-note span{font-size:9.5px;line-height:1.5;color:#737c97}
+@media (min-width:640px){
+  .protection-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:420px){
+  .protection-panel{padding-bottom:4px}
+  .protection-hero{padding:10px 11px}
+  .protection-rule{grid-template-columns:28px minmax(0,1fr);padding:10px}
+  .protection-rule-icon{width:28px;height:28px}
+}
