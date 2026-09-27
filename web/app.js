@@ -1372,12 +1372,29 @@
       let sentenceBuffer = "";
       const ttsQueue = [];
       let ttsRunning = false;
+      let ttsStartTimer = null;
+      let firstTextAt = 0;
+      let ttsPrimed = false;
 
-      const enqueueTts = (text) => {
+      const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
         if (!clean || !isVoice || !state.speak) return;
         ttsQueue.push(clean);
-        void drainTts();
+        if (immediate || ttsPrimed) {
+          ttsPrimed = true;
+          void drainTts();
+          return;
+        }
+        // Give the text stream about 2.3s to accumulate enough context before the
+        // first Gemini TTS request. This avoids dozens of tiny sentence requests.
+        if (!firstTextAt) firstTextAt = performance.now();
+        if (!ttsStartTimer) {
+          ttsStartTimer = setTimeout(() => {
+            ttsStartTimer = null;
+            ttsPrimed = true;
+            void drainTts();
+          }, 2300);
+        }
       };
 
       const drainTts = async () => {
@@ -1411,13 +1428,16 @@
           scrollConversationToBottom();
 
           // Start Gemini TTS as soon as a sentence is available; don't wait for the full reply.
+          // Keep chunks large enough for natural continuous speech. We still split
+          // at punctuation/word boundaries, but avoid firing a network request for
+          // every short sentence.
           const ready = sentenceBuffer.match(/^([\s\S]*?[.!?।！？]+\s*)/);
-          if (ready) {
+          if (ready && sentenceBuffer.length >= 220) {
             enqueueTts(ready[1]);
             sentenceBuffer = sentenceBuffer.slice(ready[1].length);
-          } else if (sentenceBuffer.length >= 140) {
-            const cut = sentenceBuffer.lastIndexOf(" ");
-            if (cut > 40) {
+          } else if (sentenceBuffer.length >= 320) {
+            const cut = sentenceBuffer.lastIndexOf(" ", 320);
+            if (cut > 160) {
               enqueueTts(sentenceBuffer.slice(0, cut));
               sentenceBuffer = sentenceBuffer.slice(cut + 1);
             }
@@ -1425,7 +1445,11 @@
           return;
         }
         if (event === "done") {
-          if (sentenceBuffer.trim()) enqueueTts(sentenceBuffer);
+          if (ttsStartTimer) {
+            clearTimeout(ttsStartTimer);
+            ttsStartTimer = null;
+          }
+          if (sentenceBuffer.trim()) enqueueTts(sentenceBuffer, true);
           if (typeof data?.message === "string") fullMessage = data.message;
           state.history.push({ role: "user", content: utterance });
           if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
@@ -1479,6 +1503,10 @@
       setOrbState("ERROR");
       recordLatency(utterance, Math.round(performance.now() - startedAt), false);
     } finally {
+      if (ttsStartTimer) {
+        clearTimeout(ttsStartTimer);
+        ttsStartTimer = null;
+      }
       if (!thinkingNode.isConnected) {
         // no-op; the real assistant bubble is already rendered
       } else {
