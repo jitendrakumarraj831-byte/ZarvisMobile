@@ -1204,6 +1204,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{
   .home-link-btn{min-height:31px;font-size:9px}
   .home-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .home-feature-card{
+    position:relative;
     min-height:118px;
     display:flex;
     flex-direction:column;
