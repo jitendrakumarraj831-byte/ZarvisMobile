@@ -1332,6 +1332,16 @@
     const startedAt = performance.now();
 
     try {
+      // Create/resume the AudioContext directly from the user's voice gesture before the
+      // network await, so mobile browsers are much less likely to block playback later.
+      if (isVoice && state.speak) {
+        try {
+          activeAudioContext = activeAudioContext || new AudioContext({ sampleRate: 24000 });
+          if (activeAudioContext.state === "suspended") await activeAudioContext.resume();
+        } catch (audioError) {
+          console.warn("Gemini streaming audio context unavailable:", audioError);
+        }
+      }
       setOrbState("EXECUTING");
       const res = await apiFetch("/orchestrator/turn-stream", {
         method: "POST",
@@ -2155,6 +2165,10 @@
 
   async function speakGeminiStream(text, signal) {
     setOrbState("SPEAKING");
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    activeTtsController = controller;
     const res = await apiFetch("/tts/synthesize-stream", {
       method: "POST",
       body: JSON.stringify({ text }),
@@ -2167,7 +2181,6 @@
     if (audioContext.state === "suspended") await audioContext.resume();
 
     const reader = res.body.getReader();
-    const decoder = null;
     let scheduledUntil = Math.max(audioContext.currentTime + 0.03, ttsScheduledUntil);
     while (true) {
       const { value, done } = await reader.read();
@@ -2191,6 +2204,8 @@
     if (scheduledUntil > audioContext.currentTime) {
       await new Promise((resolve) => setTimeout(resolve, Math.max(0, (scheduledUntil - audioContext.currentTime) * 1000)));
     }
+    signal?.removeEventListener("abort", onAbort);
+    if (activeTtsController === controller) activeTtsController = null;
   }
 
   function stopSpeaking() {
