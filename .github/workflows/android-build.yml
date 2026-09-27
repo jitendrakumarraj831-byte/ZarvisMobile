@@ -212,6 +212,11 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      - name: Typecheck backend and syntax-check web client
+        run: |
+          npm run typecheck
+          node --check ../web/app.js
+
       - name: Start the dev backend
         working-directory: backend
         run: |
