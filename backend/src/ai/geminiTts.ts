@@ -63,48 +63,85 @@ export class GeminiTtsProvider {
         speechConfig: { voiceConfig: { voice: this.voiceName } },
       },
     });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
-        body,
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(("Gemini streaming TTS failed: " + res.status + " " + res.statusText + " " + detail).trim());
-      }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+    // Streaming calls can still hit transient 429/5xx responses. Retry only before
+    // the first audio byte is received; never restart after playback has begun.
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30_000);
+      let started = false;
       try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            const payload = trimmed.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            const json = JSON.parse(payload) as GeminiTtsResponse;
-            const parts = json.candidates?.[0]?.content?.parts ?? [];
-            for (const part of parts) {
-              if (part.inlineData?.data) yield Buffer.from(part.inlineData.data, "base64");
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
+          body,
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) {
+          const detail = await res.text().catch(() => "");
+          lastError = new Error(("Gemini streaming TTS failed: " + res.status + " " + res.statusText + " " + detail).trim());
+          if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt));
+            continue;
+          }
+          throw lastError;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              const payload = trimmed.slice(5).trim();
+              if (!payload || payload === "[DONE]") continue;
+              const json = JSON.parse(payload) as GeminiTtsResponse;
+              const parts = json.candidates?.[0]?.content?.parts ?? [];
+              for (const part of parts) {
+                if (part.inlineData?.data) {
+                  started = true;
+                  yield Buffer.from(part.inlineData.data, "base64");
+                }
+              }
             }
           }
+          // Flush a final SSE line that did not end in a newline.
+          if (buffer.trim().startsWith("data:")) {
+            const payload = buffer.trim().slice(5).trim();
+            if (payload && payload !== "[DONE]") {
+              const json = JSON.parse(payload) as GeminiTtsResponse;
+              const parts = json.candidates?.[0]?.content?.parts ?? [];
+              for (const part of parts) {
+                if (part.inlineData?.data) {
+                  started = true;
+                  yield Buffer.from(part.inlineData.data, "base64");
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
         }
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (lastError.name === "AbortError") lastError = new Error("Gemini streaming TTS request timed out");
+        if (started || attempt >= 2) throw lastError;
+        await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt));
       } finally {
-        reader.releaseLock();
+        clearTimeout(timer);
       }
-    } finally {
-      clearTimeout(timer);
     }
+    throw lastError ?? new Error("Gemini streaming TTS failed");
   }
 }
 
