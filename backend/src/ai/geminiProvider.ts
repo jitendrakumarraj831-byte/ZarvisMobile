@@ -40,9 +40,10 @@ export class GeminiProvider implements AIProvider {
     for (const model of models) {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const body = toGeminiRequestBody(request);
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${this.apiKey}`,
           { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+          90_000,
         );
         if (res.ok) {
           const json = (await res.json()) as GeminiGenerateResponse;
@@ -55,7 +56,7 @@ export class GeminiProvider implements AIProvider {
         );
 
         if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
-        if (attempt < 2) await sleepWithJitter(attempt);
+        if (attempt < 2) await sleepWithJitter(attempt, res.headers.get("retry-after"));
       }
     }
 
@@ -74,13 +75,14 @@ export class GeminiProvider implements AIProvider {
     for (const model of models) {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const body = toGeminiRequestBody(request);
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `${this.baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
           {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
           },
+          120_000,
         );
 
         if (res.ok && res.body) {
@@ -116,7 +118,7 @@ export class GeminiProvider implements AIProvider {
           `Gemini streamGenerateContent failed: ${res.status} ${res.statusText} ${text}`.trim(),
         );
         if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
-        if (attempt < 2) await sleepWithJitter(attempt);
+        if (attempt < 2) await sleepWithJitter(attempt, res.headers.get("retry-after"));
       }
     }
 
@@ -237,8 +239,30 @@ function extractText(chunk: GeminiGenerateResponse): string {
 }
 
 
-function sleepWithJitter(attempt: number): Promise<void> {
-  const baseMs = 1000 * 2 ** attempt;
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Gemini request timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function sleepWithJitter(attempt: number, retryAfterHeader?: string | null): Promise<void> {
+  const retryAfter = Number(retryAfterHeader);
+  const baseMs = Number.isFinite(retryAfter) && retryAfter > 0
+    ? Math.min(30_000, retryAfter * 1000)
+    : 1000 * 2 ** attempt;
   const jitterMs = Math.floor(Math.random() * 400);
   return new Promise((resolve) => setTimeout(resolve, baseMs + jitterMs));
 }
