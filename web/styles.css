@@ -3766,3 +3766,178 @@ body:not([data-active-view="home"]) .stage {
 @media (prefers-reduced-motion:reduce){
   .home-stage::before,.zarvis-reactor::before,.zarvis-reactor::after,.reactor-z,.reactor-pedestal,.reactor-spark { animation:none !important; }
 }
+
+
+/* ==========================================================================
+   ZARVIS LOGO ANIMATION — replacement for the previous Home reactor logo.
+   Uses the supplied glass sphere + two orbital rings design.
+   ========================================================================== */
+.zarvis-logo-animation {
+  position: relative;
+  width: min(320px, 82vw);
+  height: min(320px, 82vw);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  isolation: isolate;
+  margin: 0 auto 18px;
+}
+
+.zla-orbit-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(120, 150, 255, 0.42);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.zla-ring-1 {
+  width: min(300px, 78vw);
+  height: min(140px, 36vw);
+  transform: rotate(-25deg);
+  animation: zla-spin 12s linear infinite;
+}
+
+.zla-ring-2 {
+  width: min(280px, 73vw);
+  height: min(120px, 31vw);
+  transform: rotate(35deg);
+  animation: zla-spin-reverse 15s linear infinite;
+}
+
+.zla-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00d2ff, #0040ff);
+  box-shadow: 0 0 10px rgba(0, 150, 255, 0.8);
+}
+
+.zla-ring-1 .zla-dot { top: -6px; left: 50%; }
+.zla-ring-2 .zla-dot { bottom: -6px; left: 30%; }
+
+.zla-glass-sphere {
+  position: relative;
+  width: min(190px, 49vw);
+  height: min(190px, 49vw);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 35%,
+    rgba(255,255,255,.96) 0%,
+    rgba(180,215,255,.55) 40%,
+    rgba(120,160,255,.22) 70%,
+    rgba(138,43,226,.30) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.82);
+  box-shadow:
+    0 10px 30px rgba(100,150,255,.30),
+    inset 0 0 20px rgba(255,255,255,.82),
+    inset -10px -10px 25px rgba(138,43,226,.20);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  animation: zla-float 4s ease-in-out infinite;
+  z-index: 2;
+}
+
+.zla-glow-aura {
+  position: absolute;
+  width: min(220px, 57vw);
+  height: min(220px, 57vw);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(0,191,255,.30) 0%,
+    rgba(138,43,226,.15) 50%,
+    transparent 70%
+  );
+  animation: zla-pulse 3s ease-in-out infinite alternate;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.zla-logo-z {
+  font-family: var(--font-display);
+  font-size: clamp(58px, 18vw, 75px);
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1;
+  background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 40%, #8a2be2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 4px 10px rgba(58,123,213,.42));
+  margin-bottom: 2px;
+}
+
+.zla-brand-title {
+  font-family: var(--font-display);
+  font-size: clamp(15px, 4.5vw, 18px);
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: #1a2a6c;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.zla-brand-subtitle {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: #2b5876;
+  text-transform: uppercase;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zla-brand-subtitle::before,
+.zla-brand-subtitle::after {
+  content: "";
+  width: 12px;
+  height: 1px;
+  background: #2b5876;
+}
+
+@keyframes zla-spin {
+  0% { transform: rotate(-25deg) rotateZ(0deg); }
+  100% { transform: rotate(-25deg) rotateZ(360deg); }
+}
+
+@keyframes zla-spin-reverse {
+  0% { transform: rotate(35deg) rotateZ(360deg); }
+  100% { transform: rotate(35deg) rotateZ(0deg); }
+}
+
+@keyframes zla-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes zla-pulse {
+  0% { transform: scale(.95); opacity: .6; }
+  100% { transform: scale(1.1); opacity: 1; }
+}
+
+@media (max-width: 639px) {
+  .zarvis-logo-animation {
+    width: min(320px, 86vw);
+    height: min(320px, 86vw);
+    margin-bottom: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zla-orbit-ring,
+  .zla-glass-sphere,
+  .zla-glow-aura {
+    animation: none !important;
+  }
+}
