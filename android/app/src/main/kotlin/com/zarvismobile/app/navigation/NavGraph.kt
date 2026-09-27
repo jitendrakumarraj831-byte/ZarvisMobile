@@ -23,6 +23,7 @@ import com.zarvismobile.core.ui.components.ZarvisNavItem
 import com.zarvismobile.feature.conversation.ConversationScreen
 import com.zarvismobile.feature.developer.DeveloperScreen
 import com.zarvismobile.feature.home.CapabilitiesScreen
+import com.zarvismobile.feature.home.FeatureDetailScreen
 import com.zarvismobile.feature.home.HomeScreen
 import com.zarvismobile.feature.onboarding.OnboardingScreen
 import com.zarvismobile.feature.settings.SettingsScreen
@@ -43,12 +44,14 @@ object Routes {
     const val DEVELOPER = "developer"
     const val SUBSCRIPTION = "subscription"
     const val SETTINGS = "settings"
+    const val FEATURE = "feature/{featureId}"
+    const val FEATURE_ARG = "featureId"
 }
 
 private val BOTTOM_NAV_ITEMS = listOf(
     ZarvisNavItem(Routes.HOME, "Home", Icons.Filled.Home),
     ZarvisNavItem(Routes.CHAT, "Chat", Icons.Filled.ChatBubble),
-    ZarvisNavItem(Routes.CAPABILITIES, "Features", Icons.Filled.Explore),
+    ZarvisNavItem(Routes.CAPABILITIES, "Capabilities", Icons.Filled.Explore),
     ZarvisNavItem(Routes.ACTIVITY, "Activity", Icons.Filled.BarChart),
 )
 
@@ -99,13 +102,14 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                 HomeScreen(
                     onNavigateToConversation = { initialText ->
                         val encoded = Uri.encode(initialText ?: "")
-                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded")
+                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=true&listen=false")
                     },
                     onNavigateToTasks = { navController.navigate(Routes.ACTIVITY) },
                     onNavigateToSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
                     onNavigateToDeveloper = { navController.navigate(Routes.DEVELOPER) },
                     onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                     onNavigateToCapabilities = { navController.navigate(Routes.CAPABILITIES) },
+                    onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
                 )
             }
             composable(Routes.CHAT) { ConversationScreen(initialText = null) }
@@ -113,30 +117,65 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                 CapabilitiesScreen(
                     onRunSkill = { initialText ->
                         val encoded = Uri.encode(initialText)
-                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded")
+                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=true&listen=false")
                     },
+                    onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
+                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
                 )
             }
-            composable(Routes.ACTIVITY) { TasksScreen() }
+            composable(Routes.ACTIVITY) {
+                TasksScreen(
+                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onOpenTasksFeature = { navController.navigate("feature/tasks") },
+                )
+            }
+            composable(
+                route = "feature/{${Routes.FEATURE_ARG}}",
+                arguments = listOf(navArgument(Routes.FEATURE_ARG) { type = NavType.StringType }),
+            ) { entry ->
+                FeatureDetailScreen(
+                    featureId = entry.arguments?.getString(Routes.FEATURE_ARG).orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onStartChat = { prompt, listen ->
+                        val encoded = Uri.encode(prompt)
+                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=false&listen=$listen")
+                    },
+                    onOpenDeveloper = { navController.navigate(Routes.DEVELOPER) },
+                )
+            }
             composable(Routes.METRICS) { MetricsScreen() }
             composable(Routes.TASKS) { TasksScreen() }
             composable(
-                route = "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}={${Routes.CONVERSATION_ARG_INITIAL_TEXT}}",
+                route = "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}={${Routes.CONVERSATION_ARG_INITIAL_TEXT}}&submit={submit}&listen={listen}",
                 arguments = listOf(
                     navArgument(Routes.CONVERSATION_ARG_INITIAL_TEXT) {
                         type = NavType.StringType
                         nullable = true
                         defaultValue = null
                     },
+                    navArgument("submit") {
+                        type = NavType.BoolType
+                        defaultValue = true
+                    },
+                    navArgument("listen") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
                 ),
             ) { backStackEntryArg ->
                 val raw = backStackEntryArg.arguments?.getString(Routes.CONVERSATION_ARG_INITIAL_TEXT)
-                ConversationScreen(initialText = raw?.takeIf { it.isNotBlank() })
+                ConversationScreen(
+                    initialText = raw?.takeIf { it.isNotBlank() },
+                    submitInitialText = backStackEntryArg.arguments?.getBoolean("submit") ?: true,
+                    listenOnStart = backStackEntryArg.arguments?.getBoolean("listen") ?: false,
+                    onBack = { navController.popBackStack() },
+                )
             }
-            composable(Routes.DEVELOPER) { DeveloperScreen() }
-            composable(Routes.SUBSCRIPTION) { SubscriptionScreen() }
+            composable(Routes.DEVELOPER) { DeveloperScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.SUBSCRIPTION) { SubscriptionScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
+                    onBack = { navController.popBackStack() },
                     onSessionCleared = {
                         navController.navigate(Routes.HOME) {
                             popUpTo(Routes.HOME) { inclusive = true }

@@ -56,8 +56,10 @@ fun OnboardingScreen(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            if (uiState.pageIndex > 0) ZarvisGhostButton(text = "Back", onClick = viewModel::previous)
+            else Text("")
             ZarvisGhostButton(text = "Skip", onClick = viewModel::skip)
         }
 

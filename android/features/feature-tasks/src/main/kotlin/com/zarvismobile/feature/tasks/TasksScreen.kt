@@ -1,6 +1,7 @@
 package com.zarvismobile.feature.tasks
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,9 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,24 +28,47 @@ import com.zarvismobile.data.remote.dto.TaskDto
 
 /** Task list + lifecycle controls — MASTER_SPEC.md §18 (Task Engine). */
 @Composable
-fun TasksScreen(viewModel: TasksViewModel = hiltViewModel()) {
+fun TasksScreen(
+    onOpenPlans: () -> Unit = {},
+    onOpenTasksFeature: () -> Unit = {},
+    viewModel: TasksViewModel = hiltViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23), so this screen
-    // must claim the gesture-nav-bar inset itself.
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(ZarvisSpacing.md)) {
-        Text(text = "Tasks", style = MaterialTheme.typography.headlineMedium)
-
-        if (uiState.tasks.isEmpty() && !uiState.isLoading) {
-            Text(
-                text = "No tasks yet. Ask ZARVIS to do something multi-step, like \"audit my website.\"",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = ZarvisSpacing.md),
-            )
+        Text(text = "Activity", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            text = "Creating a workflow tracks steps. It does not run them.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row {
+            TextButton(onClick = onOpenPlans) { Text("Plans & quotas") }
+            TextButton(onClick = onOpenTasksFeature) { Text("About tasks") }
         }
 
-        uiState.error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+        if (uiState.isLoading && uiState.tasks.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+
+        if (uiState.tasks.isEmpty() && !uiState.isLoading && uiState.error == null) {
+            ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "No tasks yet. Ask ZARVIS to create a workflow, then control it here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        uiState.error?.let {
+            Text(
+                text = "Couldn't load activity. Check your connection and open this screen again.",
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
 
         LazyColumn(
             contentPadding = PaddingValues(vertical = ZarvisSpacing.md),

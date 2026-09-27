@@ -10,10 +10,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.size
+import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -42,6 +44,10 @@ fun AiOrb(
     modifier: Modifier = Modifier,
     size: Dp = 120.dp,
 ) {
+    val context = LocalContext.current
+    val reduceMotion = remember {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
     val transition = rememberInfiniteTransition(label = "ai-orb")
 
     val pulse by transition.animateFloat(
@@ -76,8 +82,9 @@ fun AiOrb(
     val (colorStart, colorEnd) = orbColors(state)
     val description = contentDescriptionFor(state)
     val interactionSource = remember { MutableInteractionSource() }
-    val scale = if (state == VoiceState.LISTENING || state == VoiceState.SPEAKING) pulse else 1f
-    val glowStrength = glowIntensity(state) * glowPulse
+    val scale = if (reduceMotion) 1f else if (state == VoiceState.LISTENING || state == VoiceState.SPEAKING) pulse else 1f
+    val glowStrength = if (reduceMotion) glowIntensity(state) else glowIntensity(state) * glowPulse
+    val rotation = if (reduceMotion) 0f else rotationDegrees
 
     Canvas(
         modifier = modifier
@@ -100,7 +107,7 @@ fun AiOrb(
             center = center,
         )
 
-        rotate(degrees = rotationDegrees, pivot = center) {
+        rotate(degrees = rotation, pivot = center) {
             drawCircle(
                 brush = Brush.sweepGradient(listOf(colorStart, colorEnd, colorStart), center = center),
                 radius = radius,

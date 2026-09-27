@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -63,11 +64,13 @@ private enum class SettingsPage(val title: String, val icon: ImageVector) {
     Security("Security", Icons.Filled.Security),
     Data("Data", Icons.Filled.DataObject),
     Memory("Memory", Icons.Filled.Memory),
-    Developer("Developer options", Icons.Filled.Code),
+    Protection("Rules & Protection", Icons.Filled.Shield),
+    Developer("Developer Agent", Icons.Filled.Code),
 }
 
 @Composable
 fun SettingsScreen(
+    onBack: () -> Unit = {},
     onSessionCleared: () -> Unit,
     onDeveloper: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -76,11 +79,12 @@ fun SettingsScreen(
     val deleteStatus by viewModel.deleteAccountStatus.collectAsState()
     var page by remember { mutableStateOf<SettingsPage?>(null) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showClearConfirmation by remember { mutableStateOf(false) }
 
     val goBack: () -> Unit = { page = null }
 
     when (val selected = page) {
-        null -> SettingsHub(uiState.locale, uiState.darkTheme) { page = it }
+        null -> SettingsHub(uiState.locale, uiState.darkTheme, onBack) { page = it }
         SettingsPage.Voice -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("Voice input", "Uses the existing Speech-to-Text engine. Start listening from the existing orb or microphone controls.", ZarvisAccentCyan)
             ReadOnlyCard("Voice output", "Uses the existing Gemini-backed TTS with Android on-device fallback. No provider logic was changed.", ZarvisAccentViolet)
@@ -119,12 +123,18 @@ fun SettingsScreen(
             GlassSurface(Modifier.fillMaxWidth()) {
                 Text("Local session", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("Clear local auth/session tokens without deleting the server account.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ZarvisDestructiveButton("Clear local session", onClick = { viewModel.clearLocalSession(); onSessionCleared() })
+                ZarvisSecondaryButton("Clear local session", onClick = { showClearConfirmation = true })
             }
         }
         SettingsPage.Data -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("Available data controls", "The current API exposes authenticated account deletion, tasks, usage and entitlements. There is no export endpoint in this build.", ZarvisAccentViolet)
             AccountDeleteCard(deleteStatus) { showDeleteConfirmation = true }
+        }
+        SettingsPage.Protection -> SettingsSubPage(selected, goBack) {
+            ReadOnlyCard("Explicit confirmation", "Account deletion and calls ask before they run.", ZarvisAccentCyan)
+            ReadOnlyCard("Voice stays user-controlled", "Listening starts from a tap. There is no wake word and no continuous listening.", ZarvisAccentViolet)
+            ReadOnlyCard("Phone Agent", "Open app, find contact, and call are the implemented phone skills. System settings are not supported.", ZarvisAccentPink)
+            ReadOnlyCard("No fake guarantees", "A control is shown only when this build can perform it.", ZarvisAccentCyan)
         }
         SettingsPage.Memory -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("Conversation context", "Conversation state is handled by the existing conversation/orchestrator path. The current API does not expose individual memory browsing or deletion endpoints.", ZarvisAccentCyan)
@@ -150,10 +160,26 @@ fun SettingsScreen(
             dismissButton = { TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") } },
         )
     }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = { Text("Clear local session?") },
+            text = { Text("This removes the session on this device. Your account is not deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearConfirmation = false
+                    viewModel.clearLocalSession()
+                    onSessionCleared()
+                }) { Text("Clear session") }
+            },
+            dismissButton = { TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 @Composable
-private fun SettingsHub(locale: String, darkTheme: Boolean, onOpen: (SettingsPage) -> Unit) {
+private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, onOpen: (SettingsPage) -> Unit) {
     com.zarvismobile.core.ui.components.ZarvisBackground {
         LazyColumn(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
@@ -161,6 +187,7 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onOpen: (SettingsPag
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
+                TextButton(onClick = onBack) { Text("Back") }
                 Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text("Personalize the ZARVIS experience using real app, OS and backend capabilities.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -196,7 +223,8 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onOpen: (SettingsPag
                                     SettingsPage.Security -> "Secure tokens and local session"
                                     SettingsPage.Data -> "Server data and deletion"
                                     SettingsPage.Memory -> "Conversation context boundary"
-                                    SettingsPage.Developer -> "Developer Agent access"
+                                    SettingsPage.Protection -> "What this build actually enforces"
+                                    SettingsPage.Developer -> "Read-only repository analysis"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,

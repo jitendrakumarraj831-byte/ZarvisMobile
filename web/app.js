@@ -178,6 +178,11 @@
     viewActivity: document.getElementById("view-activity"),
     viewDeveloper: document.getElementById("view-developer"),
     viewSettings: document.getElementById("view-settings"),
+    viewFeature: document.getElementById("view-feature"),
+    featureRoot: document.getElementById("feature-root"),
+    capabilityHub: document.getElementById("capability-hub"),
+    settingsSubpageTitle: document.getElementById("settings-subpage-title"),
+    chatAnnouncer: document.getElementById("chat-announcer"),
     capabilitiesList: document.getElementById("capabilities-list"),
     plansCurrent: document.getElementById("plans-current"),
     billingToggle: document.getElementById("billing-toggle"),
@@ -248,6 +253,7 @@
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
     appearance: localStorage.getItem("zarvis.appearance") || "aurora",
     settingsPage: null,
+    featureId: null,
   };
 
   // Declared here (not near their setup functions below) because init() runs synchronously
@@ -279,9 +285,13 @@
       else submitComposerInput(el.input.value);
     });
     el.input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submitComposerInput(el.input.value);
-      if (e.key === "Escape" && isBusy()) cancelCurrentTurn();
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submitComposerInput(el.input.value);
+      }
+      if (e.key === "Escape" && isBusy() && el.confirmModal.hidden) cancelCurrentTurn();
     });
+    el.input.addEventListener("input", resizeComposer);
     el.fileInput.addEventListener("change", handleFileSelected);
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
@@ -298,6 +308,7 @@
       ["service worker", registerServiceWorker],
       ["navigation", setupBottomNav],
       ["home feature links", setupHomeFeatures],
+      ["capability pages", setupCapabilityPages],
       ["plans", setupPlans],
       ["settings", setupSettings],
       ["developer", setupDeveloper],
@@ -341,6 +352,9 @@
 
   function applyLanguage() {
     const copy = COPY[state.lang];
+    document.documentElement.lang = state.lang === "hi" ? "hi" : "en";
+    el.micBtn.setAttribute("aria-label", copy.mic || "Speak");
+    if (!el.sendBtn.classList.contains("stop-mode")) el.sendBtn.setAttribute("aria-label", copy.send || "Send");
     el.heroGreeting.textContent = copy.greeting;
     el.heroTitle.textContent = copy.hero;
     el.heroSubtitle.textContent = copy.subtitle;
@@ -664,6 +678,7 @@
     plans: el.viewPlans,
     activity: el.viewActivity,
     settings: el.viewSettings,
+    feature: el.viewFeature,
   };
 
   function setupBottomNav() {
@@ -681,7 +696,7 @@
       haptic();
       setActiveView("settings");
     });
-    el.settingsBackBtn.addEventListener("click", () => setActiveView("home"));
+    el.settingsBackBtn?.addEventListener("click", () => setActiveView("home"));
     el.developerBackBtn?.addEventListener("click", () => setActiveView("capabilities"));
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
     for (const btn of document.querySelectorAll("[data-home-view]")) {
@@ -697,28 +712,89 @@
   // demo pages and no duplicated feature logic. A tap opens Chat, pre-fills a useful
   // request, and leaves the final wording editable before the user sends it.
   function setupHomeFeatures() {
-    for (const card of document.querySelectorAll("[data-feature-key][data-feature-prompt]")) {
+    for (const card of document.querySelectorAll("[data-feature-page]")) {
       card.addEventListener("click", () => {
         haptic();
-        const prompt = card.dataset.featurePrompt || "";
-        setActiveView("chat");
-        el.input.value = prompt;
-        el.input.focus();
-        requestAnimationFrame(() => {
-          el.input.setSelectionRange(el.input.value.length, el.input.value.length);
-        });
+        openFeature(card.dataset.featurePage);
       });
     }
   }
 
+  function setupCapabilityPages() {
+    if (el.capabilityHub && window.ZarvisFeatures) {
+      window.ZarvisFeatures.renderHub(el.capabilityHub);
+      el.capabilityHub.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-feature-page]");
+        if (!button) return;
+        haptic();
+        openFeature(button.dataset.featurePage);
+      });
+    }
+  }
+
+  function openFeature(id) {
+    state.featureId = id;
+    if (!el.featureRoot || !window.ZarvisFeatures) return;
+    window.ZarvisFeatures.renderDetail(el.featureRoot, id, {
+      onBack: () => setActiveView("capabilities"),
+      onPrimary: (feature) => runFeatureAction(feature, feature.prompt),
+      onPrompt: (feature, prompt) => runFeatureAction(feature, prompt),
+    });
+    if (state.activeView === "feature") return;
+    setActiveView("feature");
+  }
+
+  function runFeatureAction(feature, prompt) {
+    if (feature.action === "voice") {
+      setActiveView("chat");
+      startListening();
+      return;
+    }
+    if (feature.action === "attach") {
+      setActiveView("chat");
+      el.input.value = prompt || feature.prompt || "";
+      resizeComposer();
+      el.fileInput.click();
+      return;
+    }
+    if (feature.action === "phone") {
+      setActiveView("chat");
+      el.input.value = prompt || feature.prompt || "";
+      resizeComposer();
+      el.input.focus();
+      return;
+    }
+    setActiveView("chat");
+    el.input.value = prompt || "";
+    resizeComposer();
+    el.input.focus();
+    const length = el.input.value.length;
+    requestAnimationFrame(() => el.input.setSelectionRange(length, length));
+  }
+
+  function resizeComposer() {
+    if (!el.input) return;
+    el.input.style.height = "auto";
+    el.input.style.height = Math.min(el.input.scrollHeight, 96) + "px";
+  }
+
+  function announceChat(text) {
+    if (!el.chatAnnouncer || !text) return;
+    el.chatAnnouncer.textContent = "";
+    el.chatAnnouncer.textContent = text;
+  }
+
   function setActiveView(view) {
-    if (!VIEWS[view] || state.activeView === view) return;
+    if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
 
     state.activeView = view;
     document.body.dataset.activeView = view;
-    for (const [name, section] of Object.entries(VIEWS)) section.hidden = name !== view;
-    for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === view);
+    for (const [name, section] of Object.entries(VIEWS)) {
+      if (section) section.hidden = name !== view;
+    }
+    const navView = view === "feature" ? "capabilities" : view;
+    for (const item of el.navItems) item.classList.toggle("active", item.dataset.view === navView);
     el.composer.hidden = view !== "chat";
 
     if (view === "capabilities") renderCapabilities();
@@ -779,23 +855,53 @@
   // rather than a one-off dialog per caller — currently used only by Settings' "Delete
   // account", but written to take any title/body/confirm label.
 
-  function showConfirmModal({ title, body, confirmLabel = "Confirm", onConfirm }) {
+  function showConfirmModal({ title, body, confirmLabel = "Confirm", destructive = false, onConfirm }) {
+    const opener = document.activeElement;
     el.confirmModalTitle.textContent = title;
     el.confirmModalBody.textContent = body;
     el.confirmModalConfirm.textContent = confirmLabel;
+    el.confirmModalConfirm.classList.toggle("zarvis-btn-danger", destructive);
+    el.confirmModalConfirm.classList.toggle("zarvis-btn-primary", !destructive);
     el.confirmModal.hidden = false;
+    el.confirmModalCancel.focus();
 
     const close = () => {
       el.confirmModal.hidden = true;
       el.confirmModalConfirm.removeEventListener("click", handleConfirm);
       el.confirmModalCancel.removeEventListener("click", close);
+      el.confirmModal.removeEventListener("keydown", onKey);
+      el.confirmModal.removeEventListener("click", onScrim);
+      if (opener && typeof opener.focus === "function") opener.focus();
     };
     const handleConfirm = () => {
       close();
       onConfirm();
     };
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const nodes = [el.confirmModalCancel, el.confirmModalConfirm];
+      const first = nodes[0];
+      const last = nodes[1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    const onScrim = (event) => {
+      if (event.target === el.confirmModal) close();
+    };
     el.confirmModalConfirm.addEventListener("click", handleConfirm);
     el.confirmModalCancel.addEventListener("click", close);
+    el.confirmModal.addEventListener("keydown", onKey);
+    el.confirmModal.addEventListener("click", onScrim);
   }
 
   // ---- Settings ----------------------------------------------------------------------------
@@ -826,7 +932,13 @@
     });
     el.settingsClearSessionBtn.addEventListener("click", () => {
       haptic();
-      clearLocalSession();
+      showConfirmModal({
+        title: "Clear local session?",
+        body: "This removes the session on this device and starts a fresh guest session after reload. Your account is not deleted.",
+        confirmLabel: "Clear session",
+        destructive: false,
+        onConfirm: clearLocalSession,
+      });
     });
     el.settingsDeleteBtn.addEventListener("click", () => {
       haptic();
@@ -835,6 +947,7 @@
         title: "Delete your account?",
         body: "This permanently deletes your account, tasks, and usage history from the server. This cannot be undone.",
         confirmLabel: "Delete",
+        destructive: true,
         onConfirm: deleteAccount,
       });
     });
@@ -842,8 +955,11 @@
 
   function openSettingsPage(page) {
     state.settingsPage = page;
+    el.viewSettings.classList.add("is-subpage");
     el.settingsGrid.hidden = true;
     el.settingsPanels.hidden = false;
+    const entry = document.querySelector(`[data-settings-page="${page}"] strong`);
+    if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = entry ? entry.textContent : "Settings";
     for (const panel of document.querySelectorAll("[data-settings-panel]")) {
       panel.hidden = panel.dataset.settingsPanel !== page;
     }
@@ -852,6 +968,7 @@
 
   function closeSettingsPage() {
     state.settingsPage = null;
+    el.viewSettings.classList.remove("is-subpage");
     el.settingsPanels.hidden = true;
     el.settingsGrid.hidden = false;
   }
@@ -864,6 +981,8 @@
 
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#1a2233" : "#f4f7ff");
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -871,8 +990,32 @@
 
   async function refreshActivity() {
     if (!el.activityTaskList) return;
+    const refreshBtn = el.activityRefreshBtn;
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = "Refreshing…";
+    }
+    el.activityTaskList.setAttribute("aria-busy", "true");
+    let tasks = null;
+    try {
+      tasks = await fetchTasks();
+    } catch (err) {
+      console.error(err);
+      tasks = null;
+    }
     el.activityTaskList.innerHTML = "";
-    const tasks = await fetchTasks();
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = "Refresh activity";
+    }
+    el.activityTaskList.removeAttribute("aria-busy");
+    if (!tasks) {
+      const failed = document.createElement("p");
+      failed.className = "task-empty";
+      failed.textContent = "Couldn't load activity right now. Check your connection and refresh.";
+      el.activityTaskList.appendChild(failed);
+      return;
+    }
     if (!tasks.length) {
       const empty = document.createElement("p");
       empty.className = "task-empty";
@@ -1177,19 +1320,22 @@
 
   async function fetchTasks() {
     const res = await apiFetch("/tasks");
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const { tasks } = await res.json();
     const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
-    // Surfaced on the Metrics nav item (bottom-nav on mobile, sidebar on desktop) — the same
-    // "something's running" signal the old topbar tasks-toggle badge showed, just relocated
-    // with the drawer it replaced.
     for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
+    for (const item of el.navItems) {
+      if (item.dataset.view !== "activity") continue;
+      if (activeCount > 0) item.setAttribute("aria-label", "Activity, activity in progress");
+      else item.removeAttribute("aria-label");
+    }
     return tasks;
   }
 
   async function refreshTasks() {
     el.taskList.innerHTML = "";
     const tasks = await fetchTasks();
+    if (!tasks) return;
     if (tasks.length === 0) {
       const empty = document.createElement("p");
       empty.className = "task-empty";
@@ -1585,6 +1731,7 @@
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
     scrollConversationToBottom();
+    if (role === "assistant") announceChat(text);
     return bubble;
   }
 
@@ -1668,6 +1815,7 @@
 
     el.conversation.appendChild(bubble);
     el.conversation.scrollTop = el.conversation.scrollHeight;
+    announceChat(errorCopy.title + ". " + errorCopy.subtitle);
     return bubble;
   }
 
@@ -1690,6 +1838,7 @@
 
     el.conversation.appendChild(bubble);
     el.conversation.scrollTop = el.conversation.scrollHeight;
+    announceChat(copy.title + ". " + copy.subtitle);
     return bubble;
   }
 
@@ -1995,6 +2144,7 @@
     const copy = COPY[state.lang];
     el.sendBtn.classList.toggle("stop-mode", busy);
     el.sendBtn.title = busy ? copy.stop : copy.send;
+    el.sendBtn.setAttribute("aria-label", busy ? copy.stop : copy.send);
     el.sendLabel.textContent = busy ? copy.stop : copy.send;
   }
 
