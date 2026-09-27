@@ -61,7 +61,6 @@ export class GeminiTtsProvider {
       generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: { voiceConfig: { voice: this.voiceName } },
-        responseMimeType: "audio/l16",
       },
     });
     const controller = new AbortController();
