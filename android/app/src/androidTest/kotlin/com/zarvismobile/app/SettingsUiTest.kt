@@ -58,6 +58,9 @@ class SettingsUiTest {
     /** Finds [text] on the current page: from the top, scrolling down through it. */
     private fun find(text: String): UiObject2? {
         ui.wait(Until.findObject(By.pkg(APP).text(text)), 2_000)?.let { return it }
+        // The page may still be composing: wait until it has content or its list before scrolling.
+        eventually(10_000) { ui.hasObject(By.pkg(APP).scrollable(true)) || ui.hasObject(By.pkg(APP).text(text)) }
+        ui.findObject(By.pkg(APP).text(text))?.let { return it }
         scrollUntilStuck(Direction.UP)
         return scrollUntilStuck(Direction.DOWN, text) ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found") }
     }
