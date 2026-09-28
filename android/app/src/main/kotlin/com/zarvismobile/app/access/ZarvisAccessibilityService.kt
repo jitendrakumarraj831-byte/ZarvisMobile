@@ -104,10 +104,11 @@ class AndroidScreenAccessPort(private val context: Context) : ScreenAccessPort {
         if (pkg != expectedPackage) {
             return@withContext ScreenRead.Unavailable("The app in front changed, so nothing was read. Ask again.", userActionRequired = false)
         }
-        val root = window.root ?: return@withContext ScreenRead.Unavailable("Android didn't share this screen's content.", userActionRequired = false)
+        val roots = appRoots(svc, pkg)
+        if (roots.isEmpty()) return@withContext ScreenRead.Unavailable("Android didn't share this screen's content.", userActionRequired = false)
         var skipped = 0
         val lines = mutableListOf<String>()
-        walk(root) { node ->
+        for (root in roots) walk(root) { node ->
             if (node.isPassword) {
                 skipped++
                 false // never read a password field or anything inside it
@@ -126,7 +127,7 @@ class AndroidScreenAccessPort(private val context: Context) : ScreenAccessPort {
     override suspend fun planTap(label: String): TapPlan = withContext(Dispatchers.Main) {
         val svc = service ?: return@withContext TapPlan.Unavailable("ZARVIS's accessibility service isn't running.", userActionRequired = true)
         val (window, pkg) = targetWindow(svc) ?: return@withContext TapPlan.Unavailable("No app is visible behind ZARVIS.", userActionRequired = true)
-        val matches = clickableMatches(window, label)
+        val matches = clickableMatches(appRoots(svc, pkg), label)
         when (matches.size) {
             1 -> TapPlan.Ready(ScreenTarget(pkg, label(pkg, window)), matches.single().second)
             0 -> TapPlan.Unavailable("I can't find a button labelled \"$label\" on the ${label(pkg, window)} screen.", userActionRequired = false)
@@ -136,15 +137,15 @@ class AndroidScreenAccessPort(private val context: Context) : ScreenAccessPort {
 
     override suspend fun tap(label: String, expectedPackage: String): TapResult = withContext(Dispatchers.Main) {
         val svc = service ?: return@withContext TapResult(false, false, "ZARVIS's accessibility service isn't running.")
-        val (window, pkg) = targetWindow(svc) ?: return@withContext TapResult(false, false, "No app is visible behind ZARVIS.")
+        val (_, pkg) = targetWindow(svc) ?: return@withContext TapResult(false, false, "No app is visible behind ZARVIS.")
         if (pkg != expectedPackage) return@withContext TapResult(false, false, "The app in front changed, so nothing was tapped.")
-        val match = clickableMatches(window, label).singleOrNull()
+        val match = clickableMatches(appRoots(svc, pkg), label).singleOrNull()
             ?: return@withContext TapResult(false, false, "The button \"$label\" is no longer on screen exactly once, so nothing was tapped.")
-        val before = signature(window.root)
+        val before = signature(appRoots(svc, pkg))
         val accepted = match.first.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         if (!accepted) return@withContext TapResult(false, false, "Android didn't accept the tap on \"$label\".")
         delay(SETTLE_MS)
-        val after = targetWindow(svc)?.first?.root?.let(::signature)
+        val after = signature(appRoots(svc, pkg))
         val changed = after != before
         Log.i(TAG, "ZARVIS_EVIDENCE screen_tap package=$pkg accepted=true changed=$changed")
         TapResult(accepted = true, screenChanged = changed)
@@ -160,12 +161,22 @@ class AndroidScreenAccessPort(private val context: Context) : ScreenAccessPort {
                 if (pkg == context.packageName) null else window to pkg
             }
 
-    /** (clickable node, the label as shown) for each distinct element exactly matching [label]. */
-    private fun clickableMatches(window: AccessibilityWindowInfo, label: String): List<Pair<AccessibilityNodeInfo, String>> {
-        val root = window.root ?: return emptyList()
+    /**
+     * Every window of the app in front, top-most first. Apps often show a popup, banner or
+     * dialog in a separate window over their main screen (e.g. Clock's privacy notice on
+     * Android 14); reading only the top window would miss the screen the user sees under it.
+     */
+    private fun appRoots(svc: AccessibilityService, pkg: String): List<AccessibilityNodeInfo> =
+        svc.windows
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .sortedByDescending { it.layer }
+            .mapNotNull { window -> window.root?.takeIf { it.packageName?.toString() == pkg } }
+
+    /** (clickable node, the label as shown) for each distinct element exactly matching [label], across the app's windows. */
+    private fun clickableMatches(roots: List<AccessibilityNodeInfo>, label: String): List<Pair<AccessibilityNodeInfo, String>> {
         val wanted = normalize(label)
         val found = mutableListOf<Pair<AccessibilityNodeInfo, String>>()
-        walk(root) { node ->
+        for (root in roots) walk(root) { node ->
             if (node.isPassword) return@walk false
             val shown = (node.text ?: node.contentDescription)?.toString()
             if (node.isVisibleToUser && shown != null && normalize(shown) == wanted) {
@@ -199,10 +210,9 @@ class AndroidScreenAccessPort(private val context: Context) : ScreenAccessPort {
         }
     }
 
-    private fun signature(root: AccessibilityNodeInfo?): String {
-        if (root == null) return ""
+    private fun signature(roots: List<AccessibilityNodeInfo>): String {
         val parts = StringBuilder()
-        walk(root) { node ->
+        for (root in roots) walk(root) { node ->
             if (node.isPassword) return@walk false
             parts.append(node.className).append('|').append(node.text).append('|').append(node.isSelected).append('|').append(node.isChecked).append(';')
             true
