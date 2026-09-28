@@ -65,6 +65,14 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!--
+          Spoken notifications use the phone's own text-to-speech engine. Since Android 11,
+          an app can only see and bind TTS engines it declares interest in here; without it
+          TextToSpeech finds no engine even when one is installed.
+        -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <!-- device.global_action verifies Home by comparing with the default launcher. -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
