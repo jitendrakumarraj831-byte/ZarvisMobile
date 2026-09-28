@@ -25,7 +25,15 @@ jobs:
       fail-fast: false
       matrix:
         # Android 8.0 (oldest supported), Android 11, Android 14 (current target).
-        api-level: [26, 30, 34]
+        # API 26 runs the 32-bit x86 image: its x86_64 google_apis image crash-loops System UI
+        # ("System UI has stopped"), which covered Android's own permission dialogs.
+        include:
+          - api-level: 26
+            arch: x86
+          - api-level: 30
+            arch: x86_64
+          - api-level: 34
+            arch: x86_64
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +77,7 @@ jobs:
         with:
           api-level: ${{ matrix.api-level }}
           target: google_apis
-          arch: x86_64
+          arch: ${{ matrix.arch }}
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated
           disable-animations: true

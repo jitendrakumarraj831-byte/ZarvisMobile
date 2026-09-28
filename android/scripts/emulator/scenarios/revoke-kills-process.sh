@@ -6,6 +6,9 @@ set -uo pipefail
 API="$1"; OUT="$2"; APP=com.zarvismobile.app
 ui_has() { adb shell uiautomator dump /sdcard/zarvis-ui.xml >/dev/null 2>&1; adb shell cat /sdcard/zarvis-ui.xml | grep -q "$1"; }
 
+# Start from exactly one fresh app process (no leftover instrumentation process).
+adb shell am force-stop $APP
+sleep 1
 adb shell pm grant $APP android.permission.RECORD_AUDIO
 adb shell am start -W -n $APP/.MainActivity
 sleep 10   # startup; the resume check records "microphone granted"
@@ -16,7 +19,12 @@ adb shell pm revoke $APP android.permission.RECORD_AUDIO
 sleep 3
 after=$(adb shell pidof $APP | tr -d '\r')
 echo "ZARVIS_EVIDENCE sdk=$API revoke pid_before=$before pid_after=${after:-none}"
-if [ -n "$after" ] && [ "$after" = "$before" ]; then echo "process was not restarted after revoke"; exit 1; fi
+if [ -z "$before" ]; then echo "app process was not running before the revoke"; exit 1; fi
+for pid in $before; do
+  for now in $after; do
+    if [ "$pid" = "$now" ]; then echo "process $pid survived the revoke"; exit 1; fi
+  done
+done
 
 adb shell am start -W -n $APP/.MainActivity
 for _ in $(seq 1 20); do
