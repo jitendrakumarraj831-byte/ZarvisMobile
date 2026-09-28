@@ -1,67 +1,427 @@
 # ZARVIS MOBILE — MASTER A→Z PRODUCT BLUEPRINT
 
-> **Permanent product + UX + architecture + execution specification**
+> **Permanent Product + UX + Architecture + Web + Android + Agent + Execution Specification**
 >
-> Repository: `jitendrakumarraj831-byte/ZarvisMobile`
+> Repository: `jitendrakumarraj831-byte/ZarvisMobile`  
 > Branch: `main`
 >
-> **Authority:** This is the single source of truth for product direction, feature scope, page structure, content placement, agent architecture, Android access, execution rules, UX states, testing and implementation order.
+> **Authority:** This is the single source of truth for ZARVIS product direction, shared AI brain, Web platform, Android platform, feature scope, page architecture, content placement, agent system, permissions, execution, UX states, testing and implementation order.
 >
-> **Build rule:** Implement in the exact phase order below. Do not jump ahead and do not create fake functionality.
+> **Core rule:** Web and Android are both first-class products. They share one ZARVIS Brain and common backend/tool/policy architecture, while each platform exposes the capabilities appropriate to it.
+>
+> **Build rule:** Implement in the exact phase order below. Do not jump ahead. Do not create fake functionality.
 
 ---
 
-## 0. PRODUCT NORTH STAR
+# 0. PRODUCT NORTH STAR
 
-ZARVIS is a **personal AI digital assistant and agent**, not a chat dashboard.
+ZARVIS is a **personal AI digital assistant and agent**, not merely a chat interface or dashboard.
 
-Core loop:
+The final experience is:
 
-**User request → Intent → Plan → Capability → Permission → Risk → User decision → Execute → Verify → Explain → Remember only when appropriate**
+**User request → Intent → Plan → Agent/Skill → Capability → Permission/Integration → Risk → User decision → Execute → Verify → Explain → Remember only when appropriate**
 
-ZARVIS must always be honest about what is:
+ZARVIS should work naturally across:
 
-- WORKING
-- PARTIAL
-- PLANNED
-- UNSUPPORTED
+- Web browser
+- Desktop browser
+- Mobile browser
+- Android app
 
-Never simulate execution, verification, permissions, sources, tool results, task progress or integrations.
+The user should feel that they are using **one ZARVIS**, not separate products.
+
+## Non-negotiable principles
+
+1. No fake capabilities.
+2. No fake execution.
+3. No fake verification.
+4. No fake progress.
+5. No silent permission escalation.
+6. Least privilege by default.
+7. Explain access before requesting it.
+8. Permission and action confirmation are separate.
+9. Android remains the security authority.
+10. Every feature has a truthful status: WORKING, PARTIAL, PLANNED or UNSUPPORTED.
+11. UI, voice and task state must reflect real backend/tool state.
+12. Preserve existing working APIs unless a deliberate migration is tested.
+13. Prefer scoped platform APIs over broad access.
+14. Sensitive data must not be uploaded, logged or retained unnecessarily.
+15. Web and Android must never develop conflicting versions of the same core feature.
 
 ---
 
-# 1. PRODUCT EXPERIENCE MAP
+# 1. THE ZARVIS BRAIN — THE MOST IMPORTANT ARCHITECTURAL RULE
 
-## 1.1 Primary navigation
+## 1.1 One Brain, multiple clients
 
-### Web / Desktop
+ZARVIS must have one shared **ZARVIS Brain**.
+
+```
+                         ZARVIS
+                           │
+                    ┌──────┴──────┐
+                    │ ZARVIS BRAIN │
+                    └──────┬──────┘
+                           │
+      ┌────────────────────┼────────────────────┐
+      │                    │                    │
+    WEB CLIENT       ANDROID CLIENT       FUTURE CLIENTS
+      │                    │                    │
+      │                    │                    │
+      └────────────────────┼────────────────────┘
+                           │
+                    SHARED PLATFORM
+                           │
+       ┌───────────────────┼───────────────────┐
+       │                   │                   │
+   Agent System        ToolPipeline        Policy Layer
+       │                   │                   │
+       ├── Memory          ├── Web APIs       ├── Risk
+       ├── Context         ├── Android APIs   ├── Permission
+       ├── Projects        ├── Files          ├── Confirmation
+       ├── Tasks           ├── Integrations   └── Ownership
+       └── Skills          └── Verification
+```
+
+### The Brain owns
+
+- identity/context
+- intent understanding
+- planning
+- agent orchestration
+- skill selection
+- conversation context
+- memory
+- projects/workspaces
+- task state
+- tool routing
+- policy decisions
+- risk classification
+- confirmation requirements
+- verification
+- response generation
+- capability status
+- cross-device continuity
+
+### The clients own
+
+**Web**
+- browser UI
+- desktop workspace
+- responsive layout
+- web-compatible tools
+- browser permissions
+- desktop productivity workflows
+
+**Android**
+- native phone/device access
+- Android runtime permissions
+- notification access
+- contacts/calling
+- camera/microphone
+- scoped files/photos
+- location
+- calendar/alarms
+- supported system actions
+- Android lifecycle/process recovery
+
+The client must never create a second independent AI brain.
+
+---
+
+# 2. CROSS-DEVICE CONTINUITY
+
+A user may start on Web and continue on Android, or start on Android and continue on Web.
+
+Example:
+
+**Web:** “Research this project and prepare a report.”
+
+Later:
+
+**Android:** “जहाँ छोड़ा था वहीं से continue करो।”
+
+ZARVIS should recover only real stored context:
+
+- project
+- conversation
+- plan
+- completed steps
+- pending steps
+- files
+- research sources
+- decisions
+- errors
+- confirmations
+- connected tools
+- task state
+
+Likewise:
+
+**Android → Web**
+
+A device task or conversation can become a Web workspace when appropriate.
+
+Never claim cross-device continuity if the required state was not actually persisted.
+
+---
+
+# 3. WEB VERSION — FULL AI WORKSPACE
+
+The Web version is a **first-class product**, not a simplified Android mirror.
+
+Its advantage is screen size, productivity, multi-panel workflows and rich document/research/developer experiences.
+
+## 3.1 Web primary navigation
+
+Recommended desktop navigation:
 
 1. Home
 2. Chat
-3. Capabilities
-4. Phone Agent
+3. Work
+4. Agents / Capabilities
 5. Tasks
 6. Files
 7. Research
 8. Creative
 9. Business
 10. Developer
-11. Plans
-12. Settings
+11. Activity
+12. Plans & Usage
+13. Settings
 
-### Mobile
+On smaller screens, navigation collapses into a compact responsive structure.
 
-Primary navigation should stay simple:
+## 3.2 Web Home
 
-1. Home
-2. Chat
-3. Work
-4. Tasks
-5. Settings
+Purpose: personal AI command center.
 
-Capabilities/agents can be opened from Home, Chat, Work or an Agent Hub rather than overcrowding the bottom navigation.
+Content order:
 
-### Android
+1. ZARVIS identity
+2. contextual greeting
+3. main Ask ZARVIS field
+4. voice
+5. file/image attachment
+6. quick actions
+7. active work
+8. pending confirmations
+9. recent activity
+10. agent/capability shortcuts
+
+Examples:
+
+- “Research this for me.”
+- “Summarize this PDF.”
+- “Continue my project.”
+- “Create a quotation.”
+- “Prepare an email.”
+- “Find the latest information.”
+- “Open my developer workspace.”
+
+No fake statistics or fake activity.
+
+## 3.3 Web Chat
+
+### Header
+- conversation title
+- selected agent
+- connection state
+- tool/agent state
+- actions
+
+### Main conversation
+- user messages
+- ZARVIS responses
+- planning state
+- tool activity
+- permission explanation
+- confirmation cards
+- progress
+- verification
+- results
+- citations where applicable
+
+### Composer
+- text
+- microphone
+- attachments
+- send
+- stop/cancel
+
+### Real states
+
+- thinking
+- planning
+- permission required
+- confirmation required
+- executing
+- waiting
+- verifying
+- completed
+- failed
+- partial
+- cancelled
+- disconnected
+
+Animations must represent real state, not fake activity.
+
+## 3.4 Web Work / Projects
+
+This is one of the most important Web-only productivity areas.
+
+Each project/workspace can contain:
+
+- project overview
+- goal
+- active agent
+- conversations
+- files
+- tasks
+- research
+- generated outputs
+- decisions
+- activity timeline
+- pending actions
+- integrations
+- project memory
+- continue-work action
+
+This is where long-running work should live.
+
+## 3.5 Web Tasks
+
+Show:
+
+- queued
+- running
+- waiting
+- confirmation required
+- verifying
+- completed
+- failed
+- cancelled
+- blocked
+
+Actions:
+
+- pause
+- resume
+- retry
+- cancel
+- open result
+- continue work
+
+A task record is not proof of execution.
+
+## 3.6 Web Files
+
+Support where implemented:
+
+- PDF
+- DOC/DOCX
+- spreadsheets
+- images
+- scanned documents
+- OCR
+- generated files
+
+Actions:
+
+- upload
+- inspect
+- summarize
+- compare
+- extract
+- ask questions
+- organize
+- create output
+
+Use real file processing only.
+
+## 3.7 Web Research
+
+Workspace should support:
+
+- search
+- current information
+- multi-source research
+- source list
+- source comparison
+- citations
+- extracted facts
+- research notes
+- report generation
+- concise/detailed modes
+
+Never invent sources.
+
+## 3.8 Web Creative Studio
+
+Possible real capabilities:
+
+- image understanding
+- image generation where connected
+- image editing where connected
+- posters
+- thumbnails
+- social content
+- presentations
+- scripts
+- campaigns
+
+Unavailable capabilities must show their real state.
+
+## 3.9 Web Developer Agent
+
+Desktop is the primary workspace for:
+
+- repository analysis
+- code analysis
+- debugging
+- code generation
+- code changes
+- tests
+- GitHub
+- pull requests
+- deployment workflows
+- project memory
+
+Lifecycle:
+
+**Analyze → Plan → Confirm → Implement → Test → Verify → Report**
+
+Never claim a test or deployment succeeded without actual evidence.
+
+---
+
+# 4. ANDROID VERSION — PERSONAL DEVICE AGENT
+
+Android is not simply the Web UI inside a phone.
+
+Its unique purpose is:
+
+> **ZARVIS + the user's authorized Android device capabilities**
+
+Android should provide:
+
+- voice-first interaction
+- native microphone
+- contacts
+- calling
+- notifications
+- camera
+- photos
+- files
+- location
+- calendar
+- alarms
+- Bluetooth/nearby-device flows
+- supported system settings
+- device-aware tasks
+- permission intelligence
+
+Android navigation should remain focused:
 
 1. Home
 2. Chat
@@ -69,142 +429,104 @@ Capabilities/agents can be opened from Home, Chat, Work or an Agent Hub rather t
 4. Tasks
 5. Work
 
-Android-specific permission and device controls must be reachable from Settings → Permissions / Device Access.
+Settings contains Permission/Device Access.
 
 ---
 
-# 2. PAGE-BY-PAGE PRODUCT SPECIFICATION
+# 5. PLATFORM FEATURE MATRIX
 
-Every page must have a clear purpose. Do not place random features just because space is available.
+Every major feature must have a documented platform state.
 
-## 2.1 HOME — Personal AI Command Center
+| Capability | Web | Android | Shared Brain |
+|---|---|---|---|
+| Chat | Yes | Yes | Yes |
+| Memory | Yes | Yes | Yes |
+| Projects | Yes | Yes | Yes |
+| Research | Yes | Yes | Yes |
+| Documents | Yes | Yes | Yes |
+| Voice | Browser support | Native support | Yes |
+| Tasks | Yes | Yes | Yes |
+| Developer | Full workspace | Limited/mobile workflows | Yes |
+| GitHub | Yes | Limited where appropriate | Yes |
+| Contacts | Browser/Integration dependent | Native permission | Policy |
+| Calling | Android bridge/integration | Native | Policy |
+| Notifications | Limited/browser notifications | Native notification access | Policy |
+| Camera | Browser permission | Native | Policy |
+| Location | Browser permission | Native | Policy |
+| Files | Browser picker | Android document picker | Yes |
+| Photos | Browser picker | Android media APIs | Yes |
+| Calendar | Integration | Android integration | Yes |
+| Bluetooth | Browser/platform dependent | Native supported flows | Policy |
+| System settings | Limited | Android flows | Policy |
 
-### Purpose
-The fastest place to tell ZARVIS what the user wants.
-
-### Required content order
-
-1. Brand / ZARVIS identity
-2. Short contextual greeting
-3. Main Ask ZARVIS input
-4. Voice button
-5. File/image attachment
-6. Quick actions
-7. Active work / resumable tasks
-8. Pending confirmations
-9. Recent activity
-10. Capability shortcuts
-
-### Main interaction
-
-User can type, speak or attach a file.
-
-Examples:
-
-- “Research this for me.”
-- “Call Deepak.”
-- “Summarize this PDF.”
-- “Continue my work.”
-- “Create a quotation.”
-- “Remind me tomorrow.”
-
-### Home must never display fake statistics or fake activity.
+**Important:** “Limited” or “Integration dependent” is a truthful capability state, not a promise of universal access.
 
 ---
 
-## 2.2 CHAT — Conversation + Agent Execution
+# 6. PAGE-BY-PAGE INFORMATION ARCHITECTURE
 
-### Purpose
-The main conversational workspace.
+Every page must have one clear purpose.
 
-### Layout
+## Home
+High-frequency actions + current personal context.
 
-**Header**
-- conversation title
-- agent/tool state
-- menu
+## Chat
+Conversation + agent execution + confirmations + results.
 
-**Conversation**
-- user messages
-- ZARVIS responses
-- tool activity
-- permission explanation
-- confirmation cards
-- execution progress
-- verification result
+## Work
+Long-running projects + agents + files + resumable work.
 
-**Composer**
-- text
-- microphone
-- attachments
-- send
-- stop/cancel when active
+## Agents / Capabilities
+Discover what ZARVIS can really do.
 
-### Required states
+## Tasks
+Durable execution, schedules and progress.
 
-- thinking
-- planning
-- waiting for permission
-- waiting for confirmation
-- executing
-- verifying
-- completed
-- failed
-- cancelled
-- partial success
+## Files
+Documents, images and file actions.
 
-### Important rule
+## Research
+Search, sources and reports.
 
-The UI state must come from actual execution state, not animation alone.
+## Creative
+Creation workflows.
 
----
+## Business
+Business workflows.
 
-## 2.3 CAPABILITIES — What ZARVIS Can Actually Do
+## Developer
+Code/repository workflows.
 
-### Purpose
-Show capabilities with truthful status.
+## Activity
+Real tool/task history.
 
-Each capability card contains:
+## Plans & Usage
+Plan, credits, billing and usage state.
 
-- icon
-- name
-- short explanation
-- current status
-- required access
-- what it can do
-- what it cannot do
-- privacy impact
-- settings/action button
+## Settings
+All configuration, permissions, privacy, memory and integrations.
 
-Statuses:
-
-- WORKING
-- PARTIAL
-- PLANNED
-- UNSUPPORTED
-
-Do not call a feature “AI-powered” unless an actual AI/tool path exists.
+Do not scatter the same setting across multiple pages without a strong UX reason.
 
 ---
 
-## 2.4 AGENT / WORKSPACE PAGES
+# 7. AGENT PAGE STANDARD
 
-Every major agent should use the same structure.
-
-### Standard agent page
+Every major agent uses the same predictable layout.
 
 1. Agent identity
-2. What this agent does
+2. What it does
 3. Ask / Start task
 4. Quick actions
 5. Required permissions/integrations
-6. Current tasks
+6. Current work
 7. Recent results
 8. Files/context
-9. Settings
-10. Limitations
+9. Activity
+10. Settings
+11. Limitations
 
-### Agents
+Agents:
 
 - Personal AI
 - Research
@@ -213,7 +535,7 @@ Every major agent should use the same structure.
 - Writing
 - Creative
 - Life Organizer
-- Task
+- Tasks
 - Phone
 - Notifications
 - Business
@@ -226,55 +548,13 @@ Every major agent should use the same structure.
 - Developer
 - Multi-Agent
 
-Agents share one policy, permission and verification layer.
+All agents use the same Brain, policy, ToolPipeline and verification layer.
 
 ---
 
-# 3. CONTENT PLACEMENT RULES
+# 8. SETTINGS INFORMATION ARCHITECTURE
 
-## Home
-Only high-frequency actions and current personal context.
-
-## Chat
-Conversation, tool activity, permissions, confirmations and results.
-
-## Capabilities
-Capability discovery and truthful availability.
-
-## Work
-Long-running projects, agent sessions, files and resumable work.
-
-## Tasks
-Durable tasks, schedules, progress, retries, confirmations and history.
-
-## Files
-Uploaded/selected documents, folders, recent files and file actions.
-
-## Research
-Search, sources, comparisons, reports and citations.
-
-## Creative
-Image/design/content creation workflows.
-
-## Business
-Business-specific workflows and records.
-
-## Developer
-Repository/code/test/deployment workflows.
-
-## Plans
-Plans, usage, credits and billing state.
-
-## Settings
-Preferences, permissions, privacy, memory, integrations, security and developer controls.
-
-Avoid duplicating the same control across many pages unless there is a strong usability reason.
-
----
-
-# 4. SETTINGS INFORMATION ARCHITECTURE
-
-Settings should use separate focused pages, not one giant screen.
+Use separate focused pages.
 
 ## General
 - account
@@ -288,7 +568,7 @@ Settings should use separate focused pages, not one giant screen.
 - speech recognition
 - playback
 - auto-speak
-- interrupt behavior
+- interruption
 
 ## Language
 - app language
@@ -301,7 +581,7 @@ Settings should use separate focused pages, not one giant screen.
 ## AI
 - model/provider where supported
 - response behavior
-- reasoning preferences where exposed
+- reasoning options where exposed
 - fallback behavior
 
 ## Notifications
@@ -309,7 +589,7 @@ Settings should use separate focused pages, not one giant screen.
 - spoken notifications
 - quiet hours
 - headphones
-- lock-screen behavior
+- lock-screen
 - preview policy
 - sensitive-app exclusions
 
@@ -328,18 +608,19 @@ Settings should use separate focused pages, not one giant screen.
 - accessibility
 - usage access
 - default assistant
-- system settings
+- supported system settings
 
-Every permission page must explain:
-- why it is needed
+Every permission screen explains:
+
+- why access is needed
 - what data/access is involved
-- what will not happen automatically
-- how to revoke it
+- what will NOT happen automatically
+- how to revoke access
 
 ## Privacy
 - data controls
 - sensitive data
-- activity history
+- activity
 - connected accounts
 - export/delete where implemented
 
@@ -359,19 +640,41 @@ Every permission page must explain:
 
 ## Developer
 - developer mode
-- logs where safe
-- API/integration diagnostics
+- safe diagnostics
+- integration diagnostics
 - advanced agent settings
 
 ---
 
-# 5. PERMISSION-AWARE ANDROID FOUNDATION — PHASE 1
+# 9. MASTER AGENT ARCHITECTURE
 
-**This is the immediate implementation priority. No later feature may bypass it.**
+All clients and agents converge here:
 
-## Capability registry
+`User → Input → Intent → ZARVIS Brain → Plan → Agent/Skill → Capability → Permission/Integration → Risk → Confirmation → ToolPipeline → External API/Android/Local Tool → Verification → Task/Activity State → Response → Voice/UI → Memory`
 
-Centralize:
+Security boundary:
+
+`LLM → Intent → Policy Engine → Capability Registry → Permission Manager → ToolPipeline → Platform/API → Verification`
+
+The LLM proposes.
+
+The policy layer decides.
+
+The tool layer executes.
+
+Android enforces Android permissions.
+
+The user controls sensitive authorization.
+
+Verification determines whether something actually happened.
+
+---
+
+# 10. PHASE 1 — ANDROID MOBILE ACCESS + PERMISSION INTELLIGENCE
+
+**Immediate implementation priority.**
+
+Capability registry:
 
 - microphone
 - contacts
@@ -392,8 +695,8 @@ Centralize:
 
 Each capability defines:
 
-- required Android access
-- API/version requirements
+- required access
+- Android/API requirements
 - risk
 - data exposure
 - supported actions
@@ -406,34 +709,36 @@ Each capability defines:
 
 ## Permission flow
 
-`Intent → Capability Planner → Permission Intelligence → Explain purpose/privacy → Allow / Not Now / Learn More → Android/System flow → verify actual state → ToolPipeline → execute → verify → text + voice result`
+`Intent → Capability Planner → Permission Intelligence → Explain purpose/privacy → Allow / Not Now / Learn More → Android/System flow → verify actual state → ToolPipeline → execute → verify → text + voice`
 
 Android is the security authority.
 
-Never trust a stored permission flag instead of the real Android state.
+Never trust only a locally stored permission flag.
 
-## Risk model
+## Risk
 
 - LOW
 - MEDIUM
 - HIGH
 - VERY_HIGH
 
-Risk labels must be factual and non-manipulative.
+Risk descriptions must be factual.
 
 ## Permission ≠ action authorization
 
-Examples:
+Contacts permission does not authorize sharing contacts.
 
-- Contacts access ≠ permission to share contacts.
-- Notification access ≠ permission to read everything aloud.
-- Phone access ≠ permission to call arbitrary numbers.
-- File access ≠ permission to upload everything.
-- Accessibility ≠ universal automation.
+Notification access does not authorize speaking every notification.
 
-## Structured Android tool result
+Phone permission does not authorize arbitrary calls.
 
-Every device tool returns:
+File access does not authorize uploading everything.
+
+Accessibility does not mean universal automation.
+
+## Structured tool result
+
+Every Android tool returns:
 
 - success
 - status
@@ -448,7 +753,7 @@ Statuses:
 
 ---
 
-# 6. ANDROID ACCESS SCOPE
+# 11. ANDROID ACCESS SCOPE
 
 Implement and verify:
 
@@ -463,10 +768,10 @@ Implement and verify:
 9. Calendar
 10. Alarms
 11. Bluetooth/nearby devices
-12. Supported system settings
+12. supported system settings
 13. Permission Center
-14. Revocation detection
-15. Lifecycle/process-death recovery
+14. revocation detection
+15. lifecycle/process-death recovery
 
 Prefer scoped Android APIs and document pickers.
 
@@ -474,9 +779,9 @@ Never bypass Android security.
 
 ---
 
-# 7. NOTIFICATION PRIVACY
+# 12. NOTIFICATION PRIVACY
 
-Supported modes:
+Modes:
 
 - Off
 - App + type
@@ -484,158 +789,49 @@ Supported modes:
 - Contact + app + preview
 - available content
 
-Also provide:
+Controls:
 
 - quiet hours
-- lock-screen policy
-- headphones mode
+- lock-screen behavior
+- headphones
 - sensitive-app/content exclusions
 
 Never invent sender names.
 
 OTP, banking and authentication alerts should not be spoken aloud by default.
 
-Example only when actual notification data supports it:
-
-> “Jitendra ji, Deepak ji का नया message आया है।”
-
 ---
 
-# 8. MASTER AGENT ARCHITECTURE
+# 13. A→Z AGENT ROADMAP
 
-All agents use one execution pipeline:
+## Phase 1 — Android Access + Permission Intelligence
+Permission, capability, risk, confirmation, revocation, lifecycle and verification foundation.
 
-`User → Natural Language/Voice/File → Intent → Orchestrator → Plan → Skill → Capability Check → Permission Check → Risk Check → Confirmation → ToolPipeline → External API/Android/Local Tool → Verification → Task/Activity State → Response → Voice/UI → Memory update`
+## Phase 2 — Personal AI Core + Memory
+Conversations, context, multi-turn interaction, projects, workspaces, explicit memory, remember/forget, memory review.
 
-Security boundary:
+## Phase 3 — Voice AI
+STT, TTS, Hindi, English, Hinglish, playback, interruption, text fallback, truthful speaking state.
 
-`LLM → Intent → Policy Engine → Capability Registry → Permission Manager → ToolPipeline → Android/API → Verification`
+## Phase 4 — Research
+Web search, current information, multi-source research, citations, comparisons, reports, uncertainty.
 
-The model proposes. Policy/tool layers decide. Android enforces. The user confirms sensitive actions.
+## Phase 5 — Study
+PDF teacher, questions, quizzes, flashcards, revision, exam preparation, notes, language learning.
 
----
+## Phase 6 — Documents
+PDF, DOC/DOCX, spreadsheets where supported, OCR, extraction, comparison, reports, forms, invoices.
 
-# 9. AGENT FEATURE ROADMAP — A→Z
+## Phase 7 — Writing & Communication
+Email, message drafts, applications, complaints, resumes, proposals, social content, scripts, translation and rewriting.
 
-## PHASE 1 — Android Mobile Access + Permission Intelligence
-Complete all permission, capability, risk, confirmation, revocation, lifecycle and verification foundations.
+## Phase 8 — Creative
+Image understanding, generation/editing where connected, posters, thumbnails, presentations, ads, scripts.
 
-## PHASE 2 — Personal AI Core + Memory
-- persistent conversations
-- titles
-- history
-- context
-- multi-turn interaction
-- search/archive/delete
-- explicit memory
-- preferences
-- projects
-- workspaces
-- remember/forget
-- memory review/privacy
+## Phase 9 — Life Organizer
+Tasks, reminders, calendar, appointments, lists, bills, routines, goals and daily planning.
 
-## PHASE 3 — Voice AI
-**Listen → Understand → Think → Work → Respond → Speak → Interrupt/Stop**
-
-- STT
-- TTS
-- Hindi
-- English
-- Hinglish
-- voice settings
-- playback
-- interruption
-- text fallback
-- truthful speaking state
-
-## PHASE 4 — Research Agent
-- web search
-- current information
-- multi-source research
-- source extraction
-- comparison
-- citations
-- reports
-- uncertainty
-- product/service comparison
-
-Never invent sources.
-
-## PHASE 5 — Study Agent
-- PDF/book teacher
-- chapter explanation
-- questions
-- image questions
-- MCQs
-- quizzes
-- flashcards
-- revision
-- exam preparation
-- notes
-- English learning
-- personalized study
-
-## PHASE 6 — Document & File Agent
-- PDF
-- DOC/DOCX
-- spreadsheets where supported
-- OCR/images
-- invoices
-- quotations
-- reports
-- resumes
-- applications
-- extraction
-- comparison
-- structured output
-
-## PHASE 7 — Writing & Communication
-- email
-- WhatsApp drafts
-- SMS drafts
-- applications
-- complaints
-- resumes
-- proposals
-- business messages
-- social posts
-- captions
-- blogs
-- scripts
-- replies
-- translation
-- grammar
-
-Never claim a message was sent without provider confirmation.
-
-## PHASE 8 — Creative Studio
-- image understanding
-- generation/editing where connected
-- posters
-- social creatives
-- logos
-- thumbnails
-- presentations
-- ads
-- reels/shorts
-- stories
-
-No fake generation buttons.
-
-## PHASE 9 — Life Organizer
-- tasks
-- reminders
-- calendar
-- appointments
-- lists
-- bills
-- recurring tasks
-- routines
-- goals
-- planning
-- daily briefing
-
-## PHASE 10 — Real Task & Automation Engine
+## Phase 10 — Real Task & Automation Engine
 
 Lifecycle:
 
@@ -655,27 +851,16 @@ Required:
 - idempotency
 - ownership
 - progress
-- logs
 - verification
 - recovery
 - notifications
 - dependencies
 - confirmation checkpoints
 
-A created task is not proof that work executed.
+## Phase 11 — Phone & Device Agent
+Supported apps, contacts, calls, notification understanding, file selection, camera, location and system flows.
 
-## PHASE 11 — Phone & Device Agent
-- open supported apps
-- contact lookup
-- calls
-- notification understanding
-- file selection
-- camera launch
-- location features
-- system settings
-- supported device actions
-
-Third-party capability states:
+Third-party states:
 
 - API_AVAILABLE
 - INTENT_AVAILABLE
@@ -685,211 +870,72 @@ Third-party capability states:
 - USER_ACTION_REQUIRED
 - NOT_SUPPORTED
 
-## PHASE 12 — Notification Intelligence
-- reader
-- sender/app recognition
-- important notifications
-- spoken notifications
-- quiet hours
-- headphones
-- lock-screen
-- exclusions
+## Phase 12 — Notification Intelligence
+Reader, sender/app recognition, important notifications, spoken notifications, quiet hours, headphones and exclusions.
 
-## PHASE 13 — Business Agent
-- enquiries
-- leads
-- follow-ups
-- quotations
-- invoices
-- catalog
-- customer notes
-- appointments
-- sales summaries
-- expense summaries
-- marketing
-- reports
+## Phase 13 — Business
+Enquiries, leads, follow-ups, quotations, invoices, catalog, customer notes, appointments, reports and marketing.
 
-## PHASE 14 — Finance Assistant
-Start with safe user-provided/manual data:
+## Phase 14 — Finance
+Expenses, budgets, analysis, EMI/loan calculations, savings, subscriptions, bills and financial document explanation.
 
-- expenses
-- budgets
-- monthly analysis
-- EMI/loan calculations
-- savings
-- subscriptions
-- bills
-- financial document explanation
+Never imply bank access without a real authorized integration.
 
-Never imply bank access without an authorized integration.
+## Phase 15 — Shopping
+Products, specifications, prices, reviews, warranty, alternatives and buying checklists.
 
-## PHASE 15 — Shopping Agent
-- product research
-- specifications
-- price comparison
-- reviews
-- warranty
-- buying checklist
-- budget filtering
-- alternatives
+Use live sources for current data.
 
-Use live sources for current prices/availability.
+## Phase 16 — Travel
+Destinations, transport, hotels, itineraries, budgets, local information, packing and booking preparation.
 
-## PHASE 16 — Travel Agent
-- destination research
-- transport
-- hotels
-- itinerary
-- budget
-- local information
-- packing
-- booking preparation
+## Phase 17 — Translation
+Text, voice, conversation, Hindi/English, supported regional languages, message explanation and document translation.
 
-Only report booking completion after real provider confirmation.
+## Phase 18 — Email / Communication
+Summaries, important messages, reply drafts, follow-ups, meetings and attachments.
 
-## PHASE 17 — Universal Translator
-- text
-- voice
-- conversation
-- Hindi ↔ English
-- supported regional languages
-- message explanation
-- reply drafting
-- document translation
+Never claim sending without provider confirmation.
 
-## PHASE 18 — Email / Communication Agent
-- summaries
-- important messages
-- reply drafts
-- follow-ups
-- meeting preparation
-- attachment understanding
+## Phase 19 — Meeting
+Preparation, agendas, notes, transcript summaries, action items, follow-up and deadlines.
 
-## PHASE 19 — Meeting Agent
-- preparation
-- agenda
-- notes
-- transcript summary
-- action items
-- follow-up
-- deadlines
-- task creation
+## Phase 20 — Developer
+Repository analysis, bugs, code, tests, GitHub, pull requests, deployment assistance and project memory.
 
-## PHASE 20 — Developer Agent
 Lifecycle:
 
 **Analyze → Plan → Confirm → Implement → Test → Verify → Report**
 
-- repository analysis
-- bug analysis
-- code generation
-- code changes
-- tests
-- documentation
-- debugging
-- GitHub
-- pull requests
-- deployment assistance
-- project memory
+## Phase 21 — Skills + Multi-Agent
+Shared skill registry and specialized agents using common policy/permission/verification.
 
-Never claim tests/deployment succeeded without evidence.
+## Phase 22 — Personal Dashboard
+Tasks, reminders, conversations, active agents, running work, documents, research, usage, confirmations and permission alerts.
 
-## PHASE 21 — Skills + Multi-Agent
-Shared skill registry and common policy/verification layer.
+## Phase 23 — Privacy + Security Center
+Permissions, memory, connected accounts, data controls, activity, sessions, security and sensitive-data controls.
 
-Possible agents:
+## Phase 24 — Family Workspace
+Shared tasks, lists, calendars, reminders, documents, roles and member permissions.
 
-- Research
-- Study
-- Documents
-- Voice
-- Phone
-- Tasks
-- Business
-- Developer
-- Creative
-- Personal Memory
+## Phase 25 — Integrations Hub
+Google, Microsoft, GitHub, cloud storage, calendar, email, officially supported business messaging APIs, productivity and billing systems.
 
-No specialized agent may bypass common policy/permission controls.
+Each integration requires connection status, scopes, revoke/disconnect, data explanation, errors and reauthorization.
 
-## PHASE 22 — Personal Dashboard
-Show real:
-
-- tasks
-- reminders
-- conversations
-- active agents
-- running tasks
-- documents
-- research
-- usage/credits
-- quick actions
-- confirmations
-- permission alerts
-
-## PHASE 23 — Privacy + Security Center
-- permissions
-- memory
-- connected accounts
-- data controls
-- export/delete where implemented
-- privacy modes
-- activity
-- sessions
-- security
-- sensitive-data controls
-
-## PHASE 24 — Family Workspace
-- shared tasks
-- lists
-- calendar
-- reminders
-- documents
-- member permissions
-- roles
-
-Keep member data separated.
-
-## PHASE 25 — Integrations Hub
-Potential integrations:
-
-- Google
-- Microsoft
-- GitHub
-- cloud storage
-- Calendar
-- Email
-- officially supported WhatsApp/business APIs
-- productivity tools
-- billing systems
-
-Every integration needs:
-
-- connection status
-- scopes
-- revoke/disconnect
-- data-access explanation
-- error state
-- reauthorization
-
-## PHASE 26 — Smart Home / IoT
-- supported lights
-- devices
-- routines
-- scenes
-- status
-
-Only supported APIs/protocols.
+## Phase 26 — Smart Home / IoT
+Supported devices, routines, scenes and status through legitimate APIs/protocols.
 
 ---
 
-# 10. “DO IT FOR ME” MODE
+# 14. “DO IT FOR ME” MODE
 
 ZARVIS should:
 
-1. understand goal
+1. understand the goal
 2. ask only essential questions
-3. plan
+3. build a plan
 4. select skills
 5. identify permissions/integrations
 6. explain access
@@ -904,27 +950,26 @@ No fake background execution.
 
 ---
 
-# 11. “CONTINUE MY WORK”
+# 15. “CONTINUE MY WORK”
 
-Recover only stored context:
+Recover only stored:
 
 - project
 - plan
 - completed steps
 - pending steps
-- relevant files
+- files
 - decisions
 - errors
 - confirmations
 - connected tools
-
-Never pretend to remember information that was not stored.
+- task state
 
 ---
 
-# 12. ERROR AND FALLBACK MODEL
+# 16. ERROR + FALLBACK MODEL
 
-Every action must distinguish:
+Distinguish:
 
 - permission required
 - permission denied
@@ -940,11 +985,11 @@ Every action must distinguish:
 - partial success
 - cancelled
 
-Use useful messages rather than generic errors.
+Always explain the next legitimate option.
 
 ---
 
-# 13. SAFETY / CONFIRMATION MODEL
+# 17. SAFETY + CONFIRMATION
 
 Action classes:
 
@@ -957,11 +1002,11 @@ Action classes:
 
 Higher-impact actions require stronger confirmation and verification.
 
-Permission is never permanent authorization for every future action.
+Permission is never unlimited future authorization.
 
 ---
 
-# 14. DATA + PRIVACY ARCHITECTURE
+# 18. DATA + PRIVACY
 
 - least privilege
 - data minimization
@@ -976,9 +1021,7 @@ Permission is never permanent authorization for every future action.
 
 ---
 
-# 15. TRUTHFUL PRODUCT STATUS
-
-Every feature has exactly one state:
+# 19. TRUTHFUL PRODUCT STATUS
 
 ### WORKING
 Real, connected, tested and verified.
@@ -992,13 +1035,13 @@ Designed but not active.
 ### UNSUPPORTED
 No legitimate current route.
 
-The UI, voice, API and documentation must use the same truth.
+Web UI, Android UI, API, voice and documentation must use the same status.
 
 ---
 
-# 16. TESTING MATRIX
+# 20. TESTING MATRIX
 
-Every capability must test:
+Every capability:
 
 ### Happy
 Request → allow → execute → verify → respond
@@ -1007,7 +1050,7 @@ Request → allow → execute → verify → respond
 Request → deny → fallback → explain
 
 ### Revoked
-Grant → revoke in Android Settings → return → detect → recover
+Grant → revoke → return → detect → recover
 
 ### Failure
 API/tool/timeout/partial/verification failure
@@ -1018,13 +1061,26 @@ Background → foreground → process death → restart → reboot where relevan
 ### Security
 Wrong user, wrong owner, missing permission, missing confirmation, stale authorization, disconnected integration.
 
+Also test **Web ↔ Android continuity**:
+
+- same account
+- same conversation state
+- same project state
+- same task state
+- same memory rules
+- correct platform capability boundaries
+
 ---
 
-# 17. WHOLE-PRODUCT DEFINITION OF DONE
+# 21. WHOLE-PRODUCT DEFINITION OF DONE
 
 ZARVIS is production-ready only when:
 
-- Android access is real and permission-aware
+- Web is a complete first-class AI workspace
+- Android is a real first-class device agent
+- both use the shared ZARVIS Brain
+- cross-device continuity is real
+- Android access is permission-aware
 - orchestration is real
 - tasks are durable
 - memory is user-controlled
@@ -1036,29 +1092,33 @@ ZARVIS is production-ready only when:
 - billing/credits are safe
 - ownership is enforced
 - sensitive actions require confirmation
-- UI reflects real backend state
+- UI reflects actual backend state
 - errors are honest
 - critical paths are tested
 - documentation matches implementation
 
 ---
 
-# 18. PERMANENT CODING-AGENT RULES
+# 22. PERMANENT CODING-AGENT RULES
 
 Before coding:
 
 1. Read this file completely.
-2. Inspect the existing implementation.
-3. Identify the current phase.
-4. Do not implement later-phase features early.
-5. Search for duplicate implementations.
-6. Preserve working APIs and behavior.
+2. Identify the current phase.
+3. Inspect existing Web and Android architecture.
+4. Inspect the shared Brain/orchestration path.
+5. Inspect ToolPipeline, permissions, voice/TTS, notifications and authentication.
+6. Search for duplicate implementations.
+7. Preserve working APIs and behavior.
+8. Do not implement later phases early.
 
 While coding:
 
-- make real implementations
+- build real functionality
+- keep shared logic centralized
+- keep platform-specific adapters isolated
 - keep permissions centralized
-- use structured tool results
+- use structured results
 - add tests
 - keep UI truthful
 - avoid unrelated rewrites
@@ -1071,17 +1131,19 @@ After coding:
 - compile
 - test
 - lint where available
-- run relevant Android flows
+- run Web flows
+- run Android flows
+- test cross-device state
 - run security checks
 - verify UI states
 - verify voice states
 - update this master document when architecture/status changes
 
-**Do not create separate roadmap/spec/status MD files unless explicitly requested. Keep permanent product documentation in this root master file.**
+**Do not create separate permanent roadmap/spec/status MD files unless explicitly requested. Keep authoritative product documentation in this root master file.**
 
 ---
 
-# 19. MASTER EXECUTION ORDER
+# 23. MASTER EXECUTION ORDER
 
 ```
 1. Android Mobile Access + Permission Intelligence
@@ -1137,14 +1199,16 @@ After coding:
 26. Smart Home / IoT
 ```
 
+**Important:** “Web-first-class” does not mean implementing every later feature before Phase 1. It means that every phase must be designed so its final implementation works correctly across the appropriate Web and Android surfaces using the shared Brain.
+
 ---
 
-# 20. FINAL PRODUCT DEFINITION
+# 24. FINAL PRODUCT DEFINITION
 
-The finished ZARVIS should feel like a real personal digital agent:
+The finished ZARVIS should feel like **one intelligent personal agent available everywhere**:
 
-> **It understands what I want, plans the work, tells me what access it needs, explains why and the privacy impact, lets me decide, uses only capabilities I granted, performs real work through legitimate tools, verifies what happened, remembers only what I allow, and clearly tells me the result.**
+> **It understands what I want, plans the work, knows which platform capabilities are available, tells me what access it needs, explains why and the privacy impact, lets me decide, performs real work through legitimate tools, verifies what happened, synchronizes useful state across Web and Android, remembers only what I allow, and clearly tells me the result.**
 
 **Immediate engineering milestone: PHASE 1 — ANDROID MOBILE ACCESS + PERMISSION INTELLIGENCE.**
 
-**This root-level file is the single authoritative A→Z ZARVIS product, UX, architecture and execution specification.**
+**This root-level file is the single authoritative ZARVIS A→Z product, UX, shared-brain architecture, Web specification, Android specification and execution blueprint.**
