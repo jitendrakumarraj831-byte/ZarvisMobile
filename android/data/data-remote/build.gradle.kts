@@ -12,6 +12,10 @@ android {
         minSdk = 26
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -36,4 +40,7 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coroutines.core)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.okhttp.mockwebserver)
 }

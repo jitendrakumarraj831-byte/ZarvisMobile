@@ -1,6 +1,6 @@
 package com.zarvismobile.data.repository
 
-import com.zarvismobile.core.security.SecureStorage
+import com.zarvismobile.core.security.SecretStore
 import com.zarvismobile.data.remote.SessionEvents
 import com.zarvismobile.data.remote.TokenAuthenticator
 import com.zarvismobile.data.remote.TokenStorageKeys
@@ -37,7 +37,7 @@ class SessionExpiredException(val reason: String) : IllegalStateException("Your 
  */
 class SessionRepository(
     private val api: ZarvisApi,
-    private val secureStorage: SecureStorage,
+    private val secureStorage: SecretStore,
 ) {
     private val _state = MutableStateFlow(readState())
     val state: StateFlow<SessionState> = _state.asStateFlow()

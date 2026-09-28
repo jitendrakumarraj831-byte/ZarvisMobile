@@ -1,6 +1,6 @@
 package com.zarvismobile.data.remote
 
-import com.zarvismobile.core.security.SecureStorage
+import com.zarvismobile.core.security.SecretStore
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -22,7 +22,7 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 object ApiClientFactory {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun create(secureStorage: SecureStorage, baseUrl: String): ZarvisApi {
+    fun create(secureStorage: SecretStore, baseUrl: String): ZarvisApi {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             // BASIC only — never log request/response bodies, which may carry tokens or
             // conversation content. See SECURITY.md "Logging redaction".

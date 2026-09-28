@@ -1,13 +1,13 @@
 package com.zarvismobile.data.remote
 
-import com.zarvismobile.core.security.SecureStorage
+import com.zarvismobile.core.security.SecretStore
 import okhttp3.Interceptor
 import okhttp3.Response
 
 private const val ACCESS_TOKEN_KEY = "access_token"
 
 /** Attaches the stored access token to every request — see SecureStorage and MASTER_SPEC.md §15. */
-class AuthInterceptor(private val secureStorage: SecureStorage) : Interceptor {
+class AuthInterceptor(private val secureStorage: SecretStore) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val token = secureStorage.getString(ACCESS_TOKEN_KEY)
         val request = if (token != null) {

@@ -38,6 +38,11 @@ jobs:
       - name: Build and test :domain
         run: ./gradlew :domain:build --stacktrace --console=plain
 
+      # Session continuity against a local HTTP server (real OkHttp/Retrofit stack): a refresh
+      # failure must never replace the account; only a server session_* code ends a session.
+      - name: Unit-test auth/session layer
+        run: ./gradlew :data:data-remote:testDebugUnitTest :data:data-repository:testDebugUnitTest --stacktrace --console=plain
+
       # The dev API host is machine-specific and auto-detected from the build machine's LAN
       # address (see app/build.gradle.kts). A CI runner's address is meaningless to anyone
       # downloading the artifact, so pin it here: the uploaded APK is deterministic and

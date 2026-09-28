@@ -1,6 +1,6 @@
 package com.zarvismobile.data.remote
 
-import com.zarvismobile.core.security.SecureStorage
+import com.zarvismobile.core.security.SecretStore
 import com.zarvismobile.data.remote.dto.ApiErrorResponse
 import com.zarvismobile.data.remote.dto.AuthTokensResponse
 import com.zarvismobile.data.remote.dto.RefreshRequest
@@ -30,7 +30,7 @@ import okhttp3.Route
  */
 class TokenAuthenticator(
     private val baseUrl: String,
-    private val secureStorage: SecureStorage,
+    private val secureStorage: SecretStore,
     private val authHttp: OkHttpClient = OkHttpClient(),
 ) : Authenticator {
     private val json = Json { ignoreUnknownKeys = true }
@@ -116,7 +116,7 @@ class TokenAuthenticator(
     companion object {
         val SESSION_ENDED_CODES = setOf("session_invalid", "session_revoked", "refresh_token_reused")
 
-        fun storeTokens(secureStorage: SecureStorage, tokens: AuthTokensResponse) {
+        fun storeTokens(secureStorage: SecretStore, tokens: AuthTokensResponse) {
             secureStorage.putString(TokenStorageKeys.ACCESS_TOKEN, tokens.accessToken)
             secureStorage.putString(TokenStorageKeys.REFRESH_TOKEN, tokens.refreshToken)
             secureStorage.putString(TokenStorageKeys.ACCOUNT_ID, tokens.accountId)
