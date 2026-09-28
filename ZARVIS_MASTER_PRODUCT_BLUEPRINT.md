@@ -1111,6 +1111,9 @@ Before coding:
 6. Search for duplicate implementations.
 7. Preserve working APIs and behavior.
 8. Do not implement later phases early.
+9. Complete the active phase's A→Z UI/UX together with its real functionality.
+10. Do not advance to the next phase until the current phase receives an A→Z PASS after final verification.
+11. Repeat verification after every critical/high-priority fix.
 
 While coding:
 
@@ -1142,6 +1145,158 @@ After coding:
 **Do not create separate permanent roadmap/spec/status MD files unless explicitly requested. Keep authoritative product documentation in this root master file.**
 
 ---
+
+
+
+---
+
+# 22A. STRICT PHASE GATE — A→Z WORKING VERIFICATION + UI COMPLETION
+
+This is a **non-negotiable execution rule** for every phase.
+
+A phase is NOT complete merely because code compiles or the main feature appears on screen.
+
+## Required phase lifecycle
+
+```
+PHASE N
+  ↓
+Deep-scan existing implementation
+  ↓
+Read applicable architecture/security requirements
+  ↓
+Implement feature end-to-end
+  ↓
+Implement A→Z UI/UX for the feature
+  ↓
+Connect real backend/tools/APIs
+  ↓
+Run automated tests
+  ↓
+Run integration tests
+  ↓
+Run platform-specific tests
+  ↓
+Run failure / denial / revoke / lifecycle tests
+  ↓
+Run security + ownership tests
+  ↓
+Run real-device verification where applicable
+  ↓
+Deep-scan for remaining bugs/regressions
+  ↓
+Fix ALL discovered critical/high-priority issues
+  ↓
+Repeat verification
+  ↓
+A→Z PASS
+  ↓
+Update feature status + documentation
+  ↓
+ONLY THEN start PHASE N+1
+```
+
+## A→Z implementation requirement
+
+Every phase must be completed across **both capability and experience**.
+
+For each feature, verify:
+
+### A. Product behavior
+- User goal is clearly defined.
+- Real end-to-end flow exists.
+- Empty/loading/thinking/planning states work.
+- Success state works.
+- Partial/failure/cancelled states work.
+- Permission/confirmation states work where applicable.
+- Recovery/resume behavior works where applicable.
+
+### B. Backend / Brain
+- Shared Brain integration is real.
+- Intent and planning path is connected.
+- Correct agent/skill is selected.
+- Capability checks are enforced.
+- Permission/integration checks are enforced.
+- Policy/risk checks are enforced.
+- ToolPipeline executes the real operation.
+- Verification is real.
+- Task/activity state is persisted where required.
+
+### C. Web UI
+- Complete A→Z responsive UI exists.
+- Desktop, tablet and mobile layouts are checked.
+- All buttons/actions are connected.
+- Loading, empty, error and success states exist.
+- Accessibility and keyboard/focus behavior are checked where applicable.
+- UI status matches actual backend state.
+- No placeholder/fake statistics/activity remain.
+
+### D. Android UI
+- Complete A→Z native/mobile UI exists where the capability applies.
+- Permission explanation UI works.
+- Allow / Not Now / Learn More flows work where applicable.
+- Android system permission state is verified.
+- Denied/revoked permission states are handled.
+- Background/foreground/process-death behavior is checked.
+- Voice and text fallback behavior is checked where applicable.
+
+### E. Cross-device continuity
+Where the feature is shared:
+- Web can create/persist the relevant state.
+- Android can recover the relevant persisted state.
+- Android-created state can be recovered on Web where applicable.
+- No state is fabricated.
+- Platform-specific limitations remain truthful.
+
+## Phase PASS criteria
+
+A phase may be marked **PASS** only when:
+
+- feature implementation is real
+- A→Z UI is implemented
+- real integrations/tools are connected
+- automated tests pass
+- integration tests pass
+- platform tests pass
+- relevant real-device tests pass
+- negative/failure/security tests pass
+- no known critical blocker remains
+- high-priority regressions are fixed or explicitly documented with approval
+- capability status is truthful
+- documentation matches implementation
+- changed behavior has been verified after the final fix
+
+**If verification fails, the phase remains FAILING and the next phase must not begin.**
+
+## No “UI now, functionality later” for the active phase
+
+The active phase must receive its **complete functional UI and complete working implementation together**.
+
+Later phases may remain Planned, but the current phase cannot be declared complete with mock screens, dead buttons, placeholder agents, fake progress or disconnected controls.
+
+## Phase handoff record
+
+At the end of each phase, the coding agent must produce a concise verification report containing:
+
+- Phase name
+- Features implemented
+- Web UI verified
+- Android UI verified
+- Backend/Brain verified
+- Integrations/tools verified
+- Permission/security verified
+- Automated test result
+- Integration test result
+- Real-device result where applicable
+- Cross-device result where applicable
+- Bugs found
+- Bugs fixed
+- Known limitations
+- Final PASS/FAIL status
+- Evidence/commands used for verification
+
+Only a **PASS** status authorizes the next phase.
+
 
 # 23. MASTER EXECUTION ORDER
 
@@ -1199,7 +1354,7 @@ After coding:
 26. Smart Home / IoT
 ```
 
-**Important:** “Web-first-class” does not mean implementing every later feature before Phase 1. It means that every phase must be designed so its final implementation works correctly across the appropriate Web and Android surfaces using the shared Brain.
+**Important:** “Web-first-class” does not mean implementing every later feature before Phase 1. It means that every phase must be designed so its final implementation works correctly across the appropriate Web and Android surfaces using the shared Brain. **Each phase is a hard gate: A→Z implementation + A→Z UI + real integration + full verification must PASS before the next phase begins.**
 
 ---
 
