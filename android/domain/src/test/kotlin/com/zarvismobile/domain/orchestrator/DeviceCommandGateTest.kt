@@ -30,4 +30,25 @@ class DeviceCommandGateTest {
         assertTrue(DeviceCommandGate.accepts("personal.reminder", "please remind me to call mom"))
         assertFalse(DeviceCommandGate.accepts("phone.call", "please remind me to call mom"))
     }
+
+    @Test
+    fun `questions about a topic are not device commands`() {
+        assertFalse(DeviceCommandGate.accepts("bluetooth.open_settings", "how does bluetooth work"))
+        assertFalse(DeviceCommandGate.accepts("alarm.set", "what is an alarm clock"))
+        assertFalse(DeviceCommandGate.accepts("camera.capture_photo", "what camera does this phone have"))
+    }
+
+    @Test
+    fun `device commands are accepted`() {
+        assertTrue(DeviceCommandGate.accepts("bluetooth.open_settings", "open bluetooth settings"))
+        assertTrue(DeviceCommandGate.accepts("alarm.set", "set an alarm for 6 am"))
+        assertTrue(DeviceCommandGate.accepts("location.current", "where am i"))
+        assertTrue(DeviceCommandGate.accepts("calendar.create_event", "add meeting to my calendar tomorrow at 5 pm"))
+        assertTrue(DeviceCommandGate.accepts("personal.reminder", "show my reminders"))
+    }
+
+    @Test
+    fun `open wifi settings is not treated as opening an app`() {
+        assertFalse(DeviceCommandGate.accepts("phone.open_app", "open wifi settings"))
+    }
 }

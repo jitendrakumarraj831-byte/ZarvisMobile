@@ -9,11 +9,16 @@ data class ToolCall(
     val input: SkillInput,
 )
 
-/** Shown to the user for MEDIUM/HIGH risk skills before execution. See MASTER_SPEC.md §7. */
+/**
+ * Shown to the user before a confirmation-gated action runs. [summary] is the exact action
+ * (e.g. "Call Mom at +91 98765 43210"), never a generic skill description.
+ */
 data class ConfirmationRequest(
     val skillId: String,
     val summary: String,
     val riskLevel: RiskLevel,
+    val actionClass: ActionClass = ActionClass.READ_ONLY,
+    val capabilityId: String? = null,
 )
 
 /**

@@ -138,7 +138,7 @@
       "unsupportedActions": [
         "Reading other apps' notifications (not implemented in this build)"
       ],
-      "confirmation": "NONE",
+      "confirmation": "PER_ACTION",
       "denialBehavior": "Not requested in this build.",
       "fallback": "Open the app that sent the notification.",
       "revocationHandling": "Not applicable until implemented.",
@@ -320,7 +320,7 @@
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
       "androidRequirements": "Location services turned on; LocationManager.",
-      "risk": "HIGH",
+      "risk": "MEDIUM",
       "actionClass": "READ_ONLY",
       "dataExposure": "Approximate latitude/longitude, shown to you. Not uploaded or stored.",
       "supportedActions": [
@@ -520,7 +520,7 @@
       "unsupportedActions": [
         "Reading app usage (not implemented)"
       ],
-      "confirmation": "NONE",
+      "confirmation": "PER_ACTION",
       "denialBehavior": "Not requested.",
       "fallback": "None needed.",
       "revocationHandling": "Not applicable.",
@@ -555,7 +555,7 @@
       "unsupportedActions": [
         "Acting as the default assistant (not implemented)"
       ],
-      "confirmation": "NONE",
+      "confirmation": "PER_ACTION",
       "denialBehavior": "Not requested.",
       "fallback": "Open ZARVIS from the launcher.",
       "revocationHandling": "Not applicable.",

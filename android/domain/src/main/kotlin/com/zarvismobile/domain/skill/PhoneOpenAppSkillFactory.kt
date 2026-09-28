@@ -1,5 +1,6 @@
 package com.zarvismobile.domain.skill
 
+import com.zarvismobile.domain.entity.ActionClass
 import com.zarvismobile.domain.entity.EntitlementLevel
 import com.zarvismobile.domain.entity.JsonSchema
 import com.zarvismobile.domain.entity.RiskLevel
@@ -29,6 +30,7 @@ object PhoneOpenAppSkillFactory {
         requiredEntitlement = EntitlementLevel.FREE,
         usageCost = UsageCost.FREE,
         riskLevel = RiskLevel.LOW,
+        actionClass = ActionClass.LOW_IMPACT,
         requiresConfirmation = false,
         executesOnDevice = true,
         inputSchema = JsonSchema(requiredFields = setOf("appName")),
@@ -44,6 +46,7 @@ object PhoneOpenAppSkillFactory {
             is AppLaunchResult.Opened -> SkillResult.Success(
                 output = mapOf("appName" to result.appName),
                 summary = "Opening ${result.appName}.",
+                evidence = mapOf("launchIntentStarted" to result.appName),
             )
             AppLaunchResult.NotFound -> SkillResult.Failure(
                 reason = "app_not_found",

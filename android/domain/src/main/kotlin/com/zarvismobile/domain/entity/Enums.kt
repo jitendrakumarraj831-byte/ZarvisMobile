@@ -12,8 +12,29 @@ enum class PermissionType {
     LOCATION,
 }
 
-/** LOW auto-runs; MEDIUM/HIGH require explicit user confirmation. See MASTER_SPEC.md §7, §21. */
-enum class RiskLevel { LOW, MEDIUM, HIGH }
+/**
+ * Blueprint §10 risk classes. The confirmation decision is made by
+ * [com.zarvismobile.domain.capability.ActionPolicy] from risk + [ActionClass]; VERY_HIGH is
+ * reserved for security-sensitive capabilities (accessibility, screen interaction).
+ */
+enum class RiskLevel { LOW, MEDIUM, HIGH, VERY_HIGH }
+
+/** Blueprint §17 action classes. */
+enum class ActionClass { READ_ONLY, LOW_IMPACT, EXTERNAL_COMMUNICATION, FINANCIAL, DESTRUCTIVE, SECURITY_SENSITIVE }
+
+/** Blueprint §19 truthful capability status. */
+enum class CapabilityStatus { WORKING, PARTIAL, PLANNED, UNSUPPORTED }
+
+/** Blueprint §10 structured tool result statuses. */
+enum class ToolResultStatus {
+    COMPLETED,
+    DENIED,
+    PERMISSION_REQUIRED,
+    USER_ACTION_REQUIRED,
+    CONFIRMATION_REQUIRED,
+    UNSUPPORTED,
+    FAILED,
+}
 
 /**
  * Ranked from least to most capable. Order matters: [EntitlementResolver] compares plans by

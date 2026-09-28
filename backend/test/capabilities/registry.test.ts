@@ -57,6 +57,12 @@ describe("Phase 1 capability registry", () => {
     expect(policyRequiresConfirmation("LOW_IMPACT", "LOW")).toBe(false);
   });
 
+  it("each capability's declared confirmation matches the action policy", () => {
+    for (const c of CAPABILITIES) {
+      expect(c.confirmation === "PER_ACTION", c.id).toBe(policyRequiresConfirmation(c.actionClass, c.risk));
+    }
+  });
+
   it("phone calls require a per-action confirmation", () => {
     const call = CAPABILITIES.find((c) => c.id === "phone_call")!;
     expect(call.confirmation).toBe("PER_ACTION");

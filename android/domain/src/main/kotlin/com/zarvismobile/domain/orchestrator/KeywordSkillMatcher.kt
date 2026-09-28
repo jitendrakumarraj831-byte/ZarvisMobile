@@ -16,14 +16,21 @@ import com.zarvismobile.domain.tooling.SkillRegistry
  */
 class KeywordSkillMatcher(private val registry: SkillRegistry) {
 
-    fun match(utterance: String): SkillDefinition? {
+    fun match(utterance: String): SkillDefinition? = rank(utterance).firstOrNull()
+
+    /** Every skill with a positive score, best first (stable for equal scores). */
+    fun rank(utterance: String): List<SkillDefinition> {
         val normalized = utterance.lowercase()
         return registry.all()
             .map { skill -> skill to score(normalized, skill) }
             .filter { (_, score) -> score > 0 }
-            .maxByOrNull { (_, score) -> score }
-            ?.first
+            .sortedByDescending { (_, score) -> score }
+            .map { it.first }
     }
+
+    /** The best-scoring skill that [DeviceCommandGate] accepts for this utterance, if any. */
+    fun matchCommand(utterance: String): SkillDefinition? =
+        rank(utterance).firstOrNull { DeviceCommandGate.accepts(it.id, utterance) }
 
     private fun score(utterance: String, skill: SkillDefinition): Int {
         val capabilityHits = skill.capabilities.count { capability -> utterance.contains(capability.lowercase()) }
