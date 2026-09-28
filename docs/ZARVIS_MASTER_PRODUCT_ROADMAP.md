@@ -104,9 +104,60 @@ Do not move to Phase 2 until:
 - tests cover allow/deny/revoke/failure paths;
 - no privileged action bypasses Android.
 
-The detailed implementation baseline is:
+## Phase 1 permanent technical baseline
 
-`docs/ZARVIS_PERMISSION_AWARE_AGENT_ARCHITECTURE.md`
+The following rules are part of this master document and remain authoritative for Android access:
+
+### Capability registry
+
+Create one centralized registry for microphone, contacts, phone_call, notification_read, notification_speak, camera, files, photos, location, bluetooth, alarms, calendar, accessibility, usage_stats, default_assistant and screen_interaction. Each capability must define required access, Android/API requirements, risk, data exposure, supported actions, unsupported actions, confirmation requirement, denial behavior, fallback, revocation handling and settings destination.
+
+### Permission flow
+
+`Intent → Capability Planner → Permission Intelligence → Explain why + privacy impact → Allow / Not Now / Learn More → Android/System flow → verify actual access → ToolPipeline → execute → verify result → text + voice response`
+
+Android owns permissions. ZARVIS owns explanation, orchestration and routing. Never bypass Android or trust a stored permission flag instead of checking the real Android state.
+
+### Risk model
+
+- LOW — limited/active-use access.
+- MEDIUM — contacts, calendar, location, scoped files/photos.
+- HIGH — notification content and powerful/background capabilities.
+- VERY_HIGH — Accessibility, broad screen/UI interaction and highly sensitive data.
+
+Risk labels must be factual and non-manipulative.
+
+### Permission vs action confirmation
+
+Granting permission never grants unlimited future authorization. Contacts ≠ permission to share contacts. Notification access ≠ permission to read every notification aloud. Phone permission ≠ permission to call arbitrary targets. File access ≠ permission to upload files. Accessibility ≠ universal automation authorization.
+
+Use action classes: `READ_ONLY`, `LOW_IMPACT`, `EXTERNAL_COMMUNICATION`, `FINANCIAL`, `DESTRUCTIVE`, `SECURITY_SENSITIVE`. Require explicit confirmation for appropriate high-impact actions.
+
+### Android access priorities
+
+Implement and verify: microphone, contacts, phone/calling, notifications, files/document picker, photos, camera, location, calendar, alarms, Bluetooth/nearby-device flows, supported system-settings flows, Permission Center, revocation detection and lifecycle/process-death recovery. Prefer scoped Android APIs and document pickers over broad storage access.
+
+### Notification privacy
+
+Provide Off / App+type / Contact+app / Contact+app+preview / available-content modes, plus quiet hours, lock-screen behavior, headphones mode and sensitive-app/content exclusions. Never invent sender names. Sensitive content such as OTPs and banking/authentication alerts must not be spoken aloud by default.
+
+### Third-party app reality
+
+A capability may be `API_AVAILABLE`, `INTENT_AVAILABLE`, `SHARE_FLOW_AVAILABLE`, `SYSTEM_FLOW_AVAILABLE`, `ACCESSIBILITY_ALLOWED_AND_SUPPORTED`, `USER_ACTION_REQUIRED` or `NOT_SUPPORTED`. If direct execution is unavailable, provide the strongest legitimate fallback and never claim completion.
+
+### Structured tool result
+
+Every Android tool should return a structured result containing success, status (`COMPLETED`, `DENIED`, `PERMISSION_REQUIRED`, `USER_ACTION_REQUIRED`, `CONFIRMATION_REQUIRED`, `UNSUPPORTED`, `FAILED`), capability ID, user-safe message, retryability and verification evidence where available.
+
+### Security boundary
+
+`LLM → Intent → Policy Engine → Capability Registry → Permission Manager → ToolPipeline → Android API → Verification`. The model proposes; policy/tool layers decide; Android enforces; the user confirms sensitive actions.
+
+### Phase 1 Definition of Done
+
+A capability is `WORKING` only when real Android/API integration, permission-state checking, explanation, denial handling, error handling, appropriate confirmation, execution verification, truthful UI/voice state, tests and Android-version/privacy documentation all exist. Otherwise it is `PARTIAL`, `PLANNED` or `UNSUPPORTED`.
+
+No later phase may weaken or bypass this foundation.
 
 ---
 
@@ -1252,4 +1303,4 @@ The finished ZARVIS should feel like a **real personal digital agent**:
 
 That is the permanent A→Z product direction.
 
-**Immediate next step: PHASE 1 — ANDROID MOBILE ACCESS + PERMISSION INTELLIGENCE.**
+**Immediate next step: PHASE 1 — ANDROID MOBILE ACCESS + PERMISSION INTELLIGENCE. This document is the single authoritative ZARVIS roadmap and engineering specification.**
