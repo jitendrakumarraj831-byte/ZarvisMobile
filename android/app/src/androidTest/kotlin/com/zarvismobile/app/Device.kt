@@ -56,9 +56,38 @@ object Device {
         println(line)
     }
 
-    /** Waits for [selector]; on timeout records what was on screen instead (for the CI log). */
-    fun waitFor(selector: BySelector, timeoutMs: Long = 15_000): UiObject2? =
-        ui.wait(Until.findObject(selector), timeoutMs) ?: null.also { diagnose("timeout waiting for $selector") }
+    private var lastDialogCheck = 0L
+
+    /**
+     * Some emulator images crash their own System UI ("System UI has stopped", seen on the API 26
+     * image) or show "isn't responding" for system apps. That dialog belongs to Android, not to
+     * ZARVIS, and covers everything; a user would dismiss it and carry on, so the tests do too
+     * (and record that it happened).
+     */
+    fun dismissSystemErrorDialogs() {
+        val now = System.currentTimeMillis()
+        if (now - lastDialogCheck < 1_000) return
+        lastDialogCheck = now
+        val close = ui.findObject(By.res("android", "aerr_close")) ?: ui.findObject(By.res("android", "aerr_wait")) ?: return
+        val title = ui.findObject(By.res("android", "alertTitle"))?.text
+        // Never hide ZARVIS's own crash or freeze: that is a real failure and must stay visible.
+        if (title != null && title.contains("ZARVIS", ignoreCase = true)) {
+            diagnose("ZARVIS crash/ANR dialog on screen: $title")
+            return
+        }
+        runCatching { close.click() }
+        evidence("environment: dismissed Android system error dialog \"$title\" (not a ZARVIS dialog)")
+    }
+
+    /** Waits for [selector] (dismissing Android crash dialogs); on timeout records what was on screen. */
+    fun waitFor(selector: BySelector, timeoutMs: Long = 15_000): UiObject2? {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            dismissSystemErrorDialogs()
+            ui.wait(Until.findObject(selector), 1_000)?.let { return it }
+        }
+        return null.also { diagnose("timeout waiting for $selector") }
+    }
 
     fun appText(text: String): BySelector = By.pkg(APP).text(text)
 
@@ -73,6 +102,7 @@ object Device {
         val end = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < end) {
             if (condition()) return true
+            dismissSystemErrorDialogs()
             Thread.sleep(stepMs)
         }
         return condition()

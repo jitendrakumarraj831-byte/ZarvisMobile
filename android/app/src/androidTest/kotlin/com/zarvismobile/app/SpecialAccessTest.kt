@@ -87,20 +87,29 @@ class SpecialAccessTest {
     }
 
     private fun openClock(): String {
-        shell("am start -W -a android.intent.action.SHOW_ALARMS")
+        shell("am start -a android.intent.action.SHOW_ALARMS")
         assertTrue("clock app in front", eventually(10_000) { ui.currentPackageName?.contains("clock") == true })
         return ui.currentPackageName
     }
 
     // --- notification_read ---------------------------------------------------------------
 
-    /** What the user's switch on Android's "Notification access" page does (cmd exists since Android 8.0). */
+    /** What the user's switch on Android's "Notification access" page does. */
     private fun setListener(enabled: Boolean) {
-        val out = shell("cmd notification ${if (enabled) "allow_listener" else "disallow_listener"} ${Device.listenerComponent}")
-        if (out.contains("Unknown", ignoreCase = true) || out.contains("usage", ignoreCase = true)) {
-            if (enabled) shell("settings put secure enabled_notification_listeners ${Device.listenerComponent}")
-            else shell("settings delete secure enabled_notification_listeners")
+        if (sdk >= 28) {
+            shell("cmd notification ${if (enabled) "allow_listener" else "disallow_listener"} ${Device.listenerComponent}")
+        } else if (enabled) {
+            // Android 8.x: the secure setting the Settings switch writes (cmd has no listener verbs there).
+            shell("settings put secure enabled_notification_listeners ${Device.listenerComponent}")
+        } else {
+            shell("settings delete secure enabled_notification_listeners")
         }
+    }
+
+    /** Android binds the listener asynchronously; ZARVIS's reader asks for a rebind when it isn't yet. */
+    private fun listenerBound(): Boolean {
+        runBlocking { entry.notificationReader().active() }
+        return ZarvisNotificationListener.connected != null
     }
 
     @Test
@@ -123,7 +132,7 @@ class SpecialAccessTest {
 
         setListener(true)
         assertTrue(eventually(15_000) { state(PermissionType.NOTIFICATION_LISTENER) == AccessState.GRANTED })
-        assertTrue("listener bound by Android", eventually(15_000) { ZarvisNotificationListener.connected != null })
+        assertTrue("listener bound by Android", eventually(20_000, stepMs = 1_000) { listenerBound() })
         evidence("notification_read granted -> listener connected")
 
         runBlocking { entry.notificationSettings().update { it.copy(mode = NotificationMode.CONTACT_APP_PREVIEW, includeSensitive = false) } }
@@ -326,7 +335,7 @@ class SpecialAccessTest {
         runBlocking { screen.performGlobal(GlobalAction.BACK) }
 
         // Never inside Android Settings (a security surface), even when asked.
-        shell("am start -W -a android.settings.SETTINGS")
+        shell("am start -a android.settings.SETTINGS")
         assertTrue(eventually { ui.currentPackageName == "com.android.settings" })
         val refused = turn("read my screen")
         assertEquals(ToolResultStatus.FAILED, refused.result?.status)
