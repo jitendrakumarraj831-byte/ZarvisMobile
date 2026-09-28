@@ -35,8 +35,13 @@ adb emu geo fix 87.2677 26.2987 || true
 run_classes() {
   local name="$1" classes="$2" expect_crash="${3:-}"
   log "instrumentation $name"
-  adb shell am instrument -w -r -e class "$classes" "$RUNNER" > "$OUT/instr-$name.txt" 2>&1
-  cat "$OUT/instr-$name.txt" | grep -E "INSTRUMENTATION_STATUS: (test|stack)=|^OK|FAILURES|Tests run|shortMsg|Process crashed" | head -200
+  # A hard limit per phase, so a hang still leaves evidence and diagnostics in the job log.
+  timeout 1200 adb shell am instrument -w -r -e class "$classes" "$RUNNER" > "$OUT/instr-$name.txt" 2>&1
+  if [ $? -eq 124 ]; then
+    log "$name TIMED OUT after 20 min; last output:"; tail -40 "$OUT/instr-$name.txt"
+    adb shell am force-stop "$APP" || true
+  fi
+  cat "$OUT/instr-$name.txt" | grep -E "INSTRUMENTATION_STATUS: (test|stack)=|^OK|FAILURES|Tests run|shortMsg|Process crashed|TestTimedOut|stuck thread|^\s+at com\.zarvismobile" | head -300
   if [ -n "$expect_crash" ]; then
     grep -q "Process crashed" "$OUT/instr-$name.txt" && return 0
     log "$name: expected the process to be killed"; FAIL=1; return 1

@@ -32,7 +32,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ProcessDeathPhase1 {
-    @get:Rule val diagnose = DiagnoseOnFailure()
+    @get:Rule val guard = verificationGuard()
 
     @Test
     fun killTheProcessWhileAnActionWaitsForTheUser() {
@@ -53,7 +53,7 @@ class ProcessDeathPhase1 {
 
 @RunWith(AndroidJUnit4::class)
 class ProcessDeathPhase2 {
-    @get:Rule val diagnose = DiagnoseOnFailure()
+    @get:Rule val guard = verificationGuard()
 
     @Test
     fun theInterruptedActionIsOfferedNotRun() = runBlocking {

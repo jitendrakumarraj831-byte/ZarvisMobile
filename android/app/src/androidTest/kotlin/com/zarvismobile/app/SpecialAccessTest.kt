@@ -61,7 +61,7 @@ import org.junit.runners.MethodSorters
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class SpecialAccessTest {
-    @get:Rule val diagnose = DiagnoseOnFailure()
+    @get:Rule val guard = verificationGuard()
 
     private fun state(permission: PermissionType) = runBlocking { entry.deviceAccessPort().state(permission) }
 

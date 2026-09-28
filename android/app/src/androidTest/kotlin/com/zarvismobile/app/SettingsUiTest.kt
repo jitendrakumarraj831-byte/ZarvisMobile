@@ -29,7 +29,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class SettingsUiTest {
-    @get:Rule val diagnose = DiagnoseOnFailure()
+    @get:Rule val guard = verificationGuard()
 
     /** The app's visible texts — used to tell whether a scroll actually moved (Compose's scroll() result isn't reliable). */
     private fun visibleTexts(): List<String> = ui.findObjects(By.pkg(APP).text(Pattern.compile(".+", Pattern.DOTALL))).mapNotNull { it.text }

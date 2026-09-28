@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 /** Proves the packaged registry and live permission reads work on a real Android runtime. */
 @RunWith(AndroidJUnit4::class)
 class EmulatorSmokeTest {
-    @get:Rule val diagnose = DiagnoseOnFailure()
+    @get:Rule val guard = verificationGuard()
 
     private val entry = EntryPointAccessors.fromApplication(
         ApplicationProvider.getApplicationContext<ZarvisApplication>(),

@@ -44,7 +44,7 @@ import org.junit.runners.MethodSorters
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class DeviceCapabilityTest {
-    @get:Rule val diagnose = DiagnoseOnFailure()
+    @get:Rule val guard = verificationGuard()
 
     private fun turn(utterance: String, confirm: Boolean? = true): TurnOutcome = runBlocking {
         val responders = CoroutineScope(Dispatchers.Default)

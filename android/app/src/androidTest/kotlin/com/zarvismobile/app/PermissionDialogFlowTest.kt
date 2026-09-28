@@ -39,7 +39,7 @@ import org.junit.runners.MethodSorters
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class PermissionDialogFlowTest {
-    @get:Rule val diagnose = DiagnoseOnFailure()
+    @get:Rule val guard = verificationGuard()
 
     private lateinit var scenario: ActivityScenario<MainActivity>
     private val registry get() = entry.capabilityRegistry()
