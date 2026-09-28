@@ -96,7 +96,7 @@ class AndroidLocationPort(private val context: Context) : LocationPort {
             if (location == null) {
                 LocationResult.Unavailable("I couldn't get a location fix right now. Try again in a moment.", userActionRequired = false)
             } else {
-                LocationResult.Located(location.latitude, location.longitude, if (location.hasAccuracy()) location.accuracy else null, location.time, location.provider ?: provider)
+                LocationResult.Located(location.latitude, location.longitude, if (location.hasAccuracy()) location.accuracy else null, location.time, location.provider ?: provider ?: "unknown")
             }
         }
     } catch (e: SecurityException) {
