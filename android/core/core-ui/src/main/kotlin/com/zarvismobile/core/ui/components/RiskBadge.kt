@@ -11,17 +11,17 @@ import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.RiskColors
 
 /** LOW/MEDIUM/HIGH risk indicator — shown wherever an action's risk is surfaced (MASTER_SPEC.md §21). */
-enum class RiskBadgeLevel { LOW, MEDIUM, HIGH }
+enum class RiskBadgeLevel(val label: String) { LOW("Low risk"), MEDIUM("Medium risk"), HIGH("High risk"), VERY_HIGH("Very high risk") }
 
 @Composable
 fun RiskBadge(level: RiskBadgeLevel, modifier: Modifier = Modifier) {
     val color = when (level) {
         RiskBadgeLevel.LOW -> RiskColors.low
         RiskBadgeLevel.MEDIUM -> RiskColors.medium
-        RiskBadgeLevel.HIGH -> RiskColors.high
+        RiskBadgeLevel.HIGH, RiskBadgeLevel.VERY_HIGH -> RiskColors.high
     }
     Text(
-        text = level.name,
+        text = level.label,
         style = MaterialTheme.typography.labelMedium,
         color = color,
         modifier = modifier

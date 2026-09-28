@@ -17,10 +17,11 @@ interface SpeechToTextEngine {
 data class TranscriptUpdate(val text: String, val isFinal: Boolean)
 
 /**
- * Platform seam for text-to-speech — wraps Android's `TextToSpeech` in the MVP. See
- * MASTER_SPEC.md §11 and §31.
+ * Platform seam for text-to-speech. [speak] suspends until playback finishes (or throws), and
+ * calls [onPlaybackStarted] only once audio is actually playing — so the UI can show
+ * "Speaking" truthfully instead of while the audio is still being synthesized.
  */
 interface TextToSpeechEngine {
-    suspend fun speak(text: String, locale: String)
+    suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit = {})
     fun stop()
 }

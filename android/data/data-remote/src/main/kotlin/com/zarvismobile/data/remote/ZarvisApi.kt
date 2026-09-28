@@ -1,6 +1,9 @@
 package com.zarvismobile.data.remote
 
 import com.zarvismobile.data.remote.dto.AuthTokensResponse
+import com.zarvismobile.data.remote.dto.ConfirmationResolutionResponse
+import com.zarvismobile.data.remote.dto.ConversationMessagesResponse
+import com.zarvismobile.data.remote.dto.IdentityResponse
 import com.zarvismobile.data.remote.dto.CreateTaskRequest
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeRequest
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeResponse
@@ -35,6 +38,30 @@ interface ZarvisApi {
 
     @POST("api/v1/auth/refresh")
     suspend fun refresh(@Body request: RefreshRequest): AuthTokensResponse
+
+    /** Server-created guest account; the client never chooses guest credentials. */
+    @POST("api/v1/auth/guest")
+    suspend fun createGuest(): AuthTokensResponse
+
+    @GET("api/v1/auth/me")
+    suspend fun me(): IdentityResponse
+
+    /** Adds a sign-in email/password to the current guest account (same account id and data). */
+    @POST("api/v1/auth/link")
+    suspend fun linkAccount(@Body request: LoginRequest): IdentityResponse
+
+    /** Revokes this device's session server-side. */
+    @POST("api/v1/auth/logout")
+    suspend fun logout(): Response<Unit>
+
+    @GET("api/v1/conversations/{id}/messages")
+    suspend fun conversationMessages(@Path("id") id: String): ConversationMessagesResponse
+
+    @POST("api/v1/confirmations/{id}/approve")
+    suspend fun approveConfirmation(@Path("id") id: String): ConfirmationResolutionResponse
+
+    @POST("api/v1/confirmations/{id}/decline")
+    suspend fun declineConfirmation(@Path("id") id: String): ConfirmationResolutionResponse
 
     /** Cascading account deletion — MASTER_SPEC.md §17 "Memory Architecture". */
     @DELETE("api/v1/account")

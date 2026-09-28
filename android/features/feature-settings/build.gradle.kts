@@ -32,6 +32,7 @@ dependencies {
     implementation(project(":data:data-local"))
     implementation(project(":data:data-remote"))
     implementation(project(":core:core-security"))
+    implementation(project(":data:data-repository"))
     implementation(project(":core:core-ui"))
 
     implementation(platform(libs.compose.bom))

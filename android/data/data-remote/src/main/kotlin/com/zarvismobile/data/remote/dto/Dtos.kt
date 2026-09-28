@@ -14,7 +14,20 @@ data class LoginRequest(val email: String, val password: String)
 data class RefreshRequest(val refreshToken: String)
 
 @Serializable
-data class AuthTokensResponse(val accessToken: String, val refreshToken: String, val accountId: String)
+data class AuthTokensResponse(
+    val accessToken: String,
+    val refreshToken: String,
+    val accountId: String,
+    val isGuest: Boolean = true,
+    val email: String? = null,
+)
+
+@Serializable
+data class IdentityResponse(val accountId: String, val isGuest: Boolean, val email: String? = null)
+
+/** Error body shape for auth failures: `code` distinguishes "session gone" from other errors. */
+@Serializable
+data class ApiErrorResponse(val error: String? = null, val code: String? = null)
 
 @Serializable
 data class SkillDto(
@@ -43,10 +56,10 @@ data class EntitlementSnapshotResponse(
     val creditBalance: Int,
 )
 
+/** No "confirmed" field: higher-risk actions come back as server-issued confirmations. */
 @Serializable
 data class OrchestratorTurnRequest(
     val utterance: String,
-    val confirmed: Boolean? = null,
     val locale: String? = null,
     val conversationId: String? = null,
 )
@@ -59,11 +72,51 @@ data class OrchestratorTurnResponse(
 )
 
 @Serializable
-data class ToolCallResultDto(val skillId: String, val outcome: OutcomeDto)
+data class ToolCallResultDto(val skillId: String, val outcome: OutcomeDto, val result: StructuredResultDto? = null)
 
 /** Only the fields the client needs to render are modeled — the full outcome shape lives server-side. */
 @Serializable
-data class OutcomeDto(val kind: String)
+data class OutcomeDto(val kind: String, val confirmation: PendingConfirmationDto? = null)
+
+/** A server-issued, single-use confirmation for one exact action. */
+@Serializable
+data class PendingConfirmationDto(
+    val id: String,
+    val skillId: String,
+    val skillName: String,
+    val action: String,
+    val riskLevel: String,
+    val actionClass: String,
+    val expiresAt: String,
+)
+
+/** Blueprint §10 structured tool result, as returned by the backend. */
+@Serializable
+data class StructuredResultDto(
+    val success: Boolean,
+    val status: String,
+    val capabilityId: String? = null,
+    val skillId: String,
+    val userSafeMessage: String,
+    val retryable: Boolean = false,
+)
+
+@Serializable
+data class ConfirmationResolutionResponse(
+    val confirmationId: String,
+    val message: String,
+    val result: StructuredResultDto,
+)
+
+@Serializable
+data class ConversationMessageDto(val id: String, val role: String, val content: String, val createdAt: String)
+
+@Serializable
+data class ConversationMessagesResponse(
+    val conversationId: String,
+    val title: String? = null,
+    val messages: List<ConversationMessageDto> = emptyList(),
+)
 
 @Serializable
 data class UsageChargeRequest(val skillId: String)

@@ -7,7 +7,10 @@
     <!-- Voice input (MASTER_SPEC.md §11). Requested progressively, only when the user first taps the mic (§16). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Required by the personal.reminder skill on Android 13+ (SKILLS.md). -->
+    <!--
+      Reminders post a notification. Runtime permission on Android 13+ only; on Android 8–12
+      the app-level notification switch governs it (AndroidDeviceAccessPort handles both).
+    -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
@@ -21,11 +24,17 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- location.current: approximate location only, on request (never background/precise). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- alarm.set hands an alarm to the Clock app (AlarmClock.ACTION_SET_ALARM). Normal permission. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
     <!--
-      Only permissions an already-shipped skill actually needs are declared here — see
-      MASTER_SPEC.md §16 "progressive permission requests." Additional permissions
-      (CAMERA, CALENDAR, LOCATION) are added when the Business/Research skills that need
-      them ship (see SKILLS.md "Current catalogue").
+      Least privilege (blueprint §18): only permissions a shipped skill needs are declared.
+      Camera, files, photos, calendar and Bluetooth/Wi-Fi settings use system pickers/intents,
+      so CAMERA, storage/media, calendar and Bluetooth permissions are deliberately NOT declared.
+      Capability status for each lives in shared/capability-registry.json.
     -->
 
     <!--

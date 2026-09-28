@@ -15,6 +15,8 @@ private object Keys {
     val LOCALE = stringPreferencesKey("locale")
     val DARK_THEME = booleanPreferencesKey("dark_theme_override")
     val TTS_VOICE = stringPreferencesKey("tts_voice")
+    val AUTO_SPEAK = booleanPreferencesKey("auto_speak_replies")
+    val CONVERSATION_ID = stringPreferencesKey("conversation_id")
 }
 
 /** Local app preferences only. No backend/API behavior is changed here. */
@@ -30,6 +32,24 @@ class AppPreferences(private val context: Context) {
 
     val ttsVoice: Flow<String> =
         context.dataStore.data.map { it[Keys.TTS_VOICE] ?: "Kore" }
+
+    /** Spoken replies are OFF until the user turns them on (matches the in-app copy). */
+    val autoSpeak: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.AUTO_SPEAK] ?: false }
+
+    /** The server conversation this device is continuing — survives process death. */
+    val conversationId: Flow<String?> =
+        context.dataStore.data.map { it[Keys.CONVERSATION_ID] }
+
+    suspend fun setAutoSpeak(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.AUTO_SPEAK] = enabled }
+    }
+
+    suspend fun setConversationId(id: String?) {
+        context.dataStore.edit { prefs ->
+            if (id == null) prefs.remove(Keys.CONVERSATION_ID) else prefs[Keys.CONVERSATION_ID] = id
+        }
+    }
 
     suspend fun setOnboardingComplete(complete: Boolean) {
         context.dataStore.edit { it[Keys.ONBOARDING_COMPLETE] = complete }

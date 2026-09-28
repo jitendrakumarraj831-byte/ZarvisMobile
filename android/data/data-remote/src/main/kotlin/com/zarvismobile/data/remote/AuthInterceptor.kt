@@ -27,4 +27,8 @@ object TokenStorageKeys {
     const val ACCESS_TOKEN = ACCESS_TOKEN_KEY
     const val REFRESH_TOKEN = "refresh_token"
     const val ACCOUNT_ID = "account_id"
+    const val IS_GUEST = "is_guest"
+    const val EMAIL = "email"
+    /** Set (to the server's reason code) when the server definitively ended the session. */
+    const val SESSION_EXPIRED = "session_expired"
 }

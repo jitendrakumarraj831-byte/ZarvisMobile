@@ -36,6 +36,7 @@ import com.zarvismobile.core.ui.components.StatusPulseBadge
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.domain.entity.ToolResultStatus
 
 /**
  * The full voice/text conversation surface — MASTER_SPEC.md §11, §23. Reached from
@@ -87,7 +88,25 @@ fun ConversationScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     TextButton(onClick = onBack) { Text("Back") }
-                    Text("Chat with ZARVIS", style = MaterialTheme.typography.titleMedium)
+                    Text("Chat with ZARVIS", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    TextButton(onClick = viewModel::startNewConversation) { Text("New chat") }
+                }
+            }
+            uiState.interrupted?.let { action ->
+                ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
+                    Text("ZARVIS was closed before this finished:", style = MaterialTheme.typography.titleSmall)
+                    Text("\"${action.utterance}\"", style = MaterialTheme.typography.bodyLarge)
+                    Text("Nothing was done. Continuing asks for access and confirmation again.", style = MaterialTheme.typography.bodySmall)
+                    Row {
+                        TextButton(onClick = viewModel::resumeInterrupted) { Text("Continue") }
+                        TextButton(onClick = viewModel::dismissInterrupted) { Text("Dismiss") }
+                    }
+                }
+            }
+            uiState.notice?.let { notice ->
+                ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
+                    Text(notice, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = viewModel::dismissNotice) { Text("OK") }
                 }
             }
             LazyColumn(
@@ -109,6 +128,7 @@ fun ConversationScreen(
                 AnimatedVisibility(visible = uiState.voiceState != VoiceState.IDLE) {
                     StatusPulseBadge(label = statusText(uiState.voiceState), glowColor = GlowColorsFor(uiState.voiceState))
                 }
+                uiState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                 Box(contentAlignment = Alignment.Center) {
                     AiOrb(
                         state = uiState.voiceState,
@@ -147,18 +167,35 @@ private fun TurnBubble(turn: ConversationTurn) {
         }
         if (turn.assistantText != null) {
             ZarvisCard(modifier = Modifier.fillMaxWidth(0.88f).align(Alignment.Start)) {
+                turn.status?.let { status ->
+                    Text(
+                        text = statusChip(status),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (status == ToolResultStatus.COMPLETED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 Text(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
 }
 
+/** Blueprint §10 structured status, shown on the reply it belongs to. */
+private fun statusChip(status: ToolResultStatus): String = when (status) {
+    ToolResultStatus.COMPLETED -> "✓ Completed"
+    ToolResultStatus.DENIED -> "Not done — declined"
+    ToolResultStatus.PERMISSION_REQUIRED -> "Needs permission"
+    ToolResultStatus.USER_ACTION_REQUIRED -> "Your action needed"
+    ToolResultStatus.CONFIRMATION_REQUIRED -> "Waiting for your confirmation"
+    ToolResultStatus.UNSUPPORTED -> "Not available"
+    ToolResultStatus.FAILED -> "Failed"
+}
+
 private fun statusText(state: VoiceState): String = when (state) {
     VoiceState.IDLE -> "Tap the orb or type to start"
     VoiceState.LISTENING -> "Listening…"
-    VoiceState.UNDERSTANDING -> "Understanding…"
-    VoiceState.PLANNING -> "Planning…"
-    VoiceState.EXECUTING -> "Executing…"
+    // Only UNDERSTANDING is used while a request is in flight — no simulated planning steps.
+    VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING -> "Working…"
     VoiceState.SUCCESS -> "Done"
     VoiceState.SPEAKING -> "Speaking…"
     VoiceState.ERROR -> "Something went wrong — try again"

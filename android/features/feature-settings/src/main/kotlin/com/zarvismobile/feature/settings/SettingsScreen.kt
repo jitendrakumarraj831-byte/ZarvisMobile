@@ -15,8 +15,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.DarkMode
@@ -55,6 +59,8 @@ import com.zarvismobile.core.ui.theme.ZarvisAccentPink
 import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
 
 private enum class SettingsPage(val title: String, val icon: ImageVector) {
+    Account("Account", Icons.Filled.AccountCircle),
+    Permissions("Permissions & Device Access", Icons.Filled.AdminPanelSettings),
     Voice("Voice", Icons.Filled.VolumeUp),
     Language("Language", Icons.Filled.Language),
     Appearance("Appearance", Icons.Filled.DarkMode),
@@ -77,6 +83,8 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val deleteStatus by viewModel.deleteAccountStatus.collectAsState()
+    val session by viewModel.session.collectAsState()
+    val accountForm by viewModel.accountForm.collectAsState()
     var page by remember { mutableStateOf<SettingsPage?>(null) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showClearConfirmation by remember { mutableStateOf(false) }
@@ -85,9 +93,27 @@ fun SettingsScreen(
 
     when (val selected = page) {
         null -> SettingsHub(uiState.locale, uiState.darkTheme, onBack) { page = it }
+        SettingsPage.Account -> SettingsSubPage(selected, goBack) {
+            AccountSection(
+                session = session,
+                form = accountForm,
+                onLink = viewModel::linkEmail,
+                onSignIn = { email, password -> viewModel.signIn(email, password, onSessionCleared) },
+                onSignOut = { showClearConfirmation = true },
+            )
+        }
+        SettingsPage.Permissions -> PermissionCenterScreen(onBack = goBack)
         SettingsPage.Voice -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Voice input", "Uses the existing Speech-to-Text engine. Start listening from the existing orb or microphone controls.", ZarvisAccentCyan)
-            ReadOnlyCard("Voice output", "Spoken replies use Gemini TTS. The voice below is sent with each synthesis request. There is no Android TTS fallback.", ZarvisAccentViolet)
+            ReadOnlyCard("Voice input", "Android speech recognition, started only when you tap the microphone. No wake word.", ZarvisAccentCyan)
+            GlassSurface(Modifier.fillMaxWidth()) {
+                SettingSwitchRow(
+                    "Speak replies aloud",
+                    if (uiState.autoSpeak) "Replies are spoken with Gemini voice" else "Off — replies are shown as text only",
+                    uiState.autoSpeak,
+                    viewModel::setAutoSpeak,
+                )
+            }
+            ReadOnlyCard("Voice output", "Spoken replies use Gemini TTS. If voice fails, the reply stays on screen as text.", ZarvisAccentViolet)
             Text("Gemini voice", style = MaterialTheme.typography.titleSmall)
             listOf("Kore", "Puck", "Charon", "Aoede", "Fenrir").forEach { voice ->
                 SettingRow(voice, if (uiState.ttsVoice == voice) "Selected" else "Tap to use this voice", uiState.ttsVoice == voice) {
@@ -114,22 +140,23 @@ fun SettingsScreen(
         }
         SettingsPage.Ai -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("AI orchestration", "The existing AndroidOrchestrator and backend API remain the source of AI behavior. There is no client-side model/provider selector in this build.", ZarvisAccentViolet)
-            ReadOnlyCard("Turn state", "The existing IDLE → LISTENING → UNDERSTANDING → PLANNING → EXECUTING → SUCCESS → SPEAKING flow is unchanged.", ZarvisAccentCyan)
+            ReadOnlyCard("Turn state", "The orb shows Listening while the microphone is on, Working while ZARVIS processes a request, and Speaking only while audio is actually playing.", ZarvisAccentCyan)
         }
         SettingsPage.Notifications -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Reminder notifications", "The existing personal.reminder skill posts real Android notifications and re-checks OS notification permission before delivery.", ZarvisAccentPink)
-            ReadOnlyCard("Permission control", "Notification permission is managed by Android OS settings. No non-functional in-app switch is presented.", ZarvisAccentCyan)
+            ReadOnlyCard("Reminder notifications", "Reminders post an Android notification at the time you set. Android 13+ asks for notification permission; on Android 8–12 the app's notification switch in Android Settings controls it.", ZarvisAccentPink)
+            ReadOnlyCard("Reading other apps' notifications", "Not available in this build (planned). ZARVIS does not read or speak other apps' notifications.", ZarvisAccentCyan)
+            ZarvisSecondaryButton("Open Permissions & Device Access", onClick = { page = SettingsPage.Permissions })
         }
         SettingsPage.Privacy -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("Privacy boundary", "Authenticated backend data and task/usage records stay behind the existing API. Provider credentials are not stored in the app.", ZarvisAccentViolet)
             AccountDeleteCard(deleteStatus) { showDeleteConfirmation = true }
         }
         SettingsPage.Security -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Secure storage", "Access and refresh tokens use Android Keystore-backed EncryptedSharedPreferences.", ZarvisAccentCyan)
+            ReadOnlyCard("Secure storage", "Access and refresh tokens use Android Keystore-backed EncryptedSharedPreferences. Refresh tokens rotate on every use; a replayed token ends the session.", ZarvisAccentCyan)
             GlassSurface(Modifier.fillMaxWidth()) {
-                Text("Local session", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Clear local auth/session tokens without deleting the server account.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ZarvisSecondaryButton("Clear local session", onClick = { showClearConfirmation = true })
+                Text("Sign out", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Ends this device's session on the server. Your account and its data are not deleted.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ZarvisSecondaryButton("Sign out", onClick = { showClearConfirmation = true })
             }
         }
         SettingsPage.Data -> SettingsSubPage(selected, goBack) {
@@ -137,10 +164,10 @@ fun SettingsScreen(
             AccountDeleteCard(deleteStatus) { showDeleteConfirmation = true }
         }
         SettingsPage.Protection -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Explicit confirmation", "Account deletion and calls ask before they run.", ZarvisAccentCyan)
-            ReadOnlyCard("Voice stays user-controlled", "Listening starts from a tap. There is no wake word and no continuous listening.", ZarvisAccentViolet)
-            ReadOnlyCard("Phone Agent", "Open app, find contact, and call are the implemented phone skills. System settings are not supported.", ZarvisAccentPink)
-            ReadOnlyCard("No fake guarantees", "A control is shown only when this build can perform it.", ZarvisAccentCyan)
+            ReadOnlyCard("Explain before asking", "Before any Android permission dialog, ZARVIS shows why it needs the access, what data is involved, what it won't do automatically, and how to revoke it. You can choose Not now.", ZarvisAccentCyan)
+            ReadOnlyCard("Permission is not authorization", "Calls always show the exact name and number and wait for your confirmation. Server actions such as opening a pull request use a one-time confirmation for that exact action.", ZarvisAccentViolet)
+            ReadOnlyCard("Android is the authority", "Access is re-checked with Android right before every action and again after you confirm. Revoking in Android Settings takes effect immediately.", ZarvisAccentPink)
+            ReadOnlyCard("Voice stays user-controlled", "Listening starts from a tap. There is no wake word and no continuous listening.", ZarvisAccentCyan)
         }
         SettingsPage.Memory -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("Conversation context", "Conversation state is handled by the existing conversation/orchestrator path. The current API does not expose individual memory browsing or deletion endpoints.", ZarvisAccentCyan)
@@ -170,14 +197,21 @@ fun SettingsScreen(
     if (showClearConfirmation) {
         AlertDialog(
             onDismissRequest = { showClearConfirmation = false },
-            title = { Text("Clear local session?") },
-            text = { Text("This removes the session on this device. Your account is not deleted.") },
+            title = { Text("Sign out?") },
+            text = {
+                Text(
+                    if ((session as? com.zarvismobile.data.repository.SessionState.Active)?.isGuest != false) {
+                        "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email first if you want to keep it."
+                    } else {
+                        "This ends the session on this device. Sign in again with your email to continue."
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     showClearConfirmation = false
-                    viewModel.clearLocalSession()
-                    onSessionCleared()
-                }) { Text("Clear session") }
+                    viewModel.signOut(onSessionCleared)
+                }) { Text("Sign out") }
             },
             dismissButton = { TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") } },
         )
@@ -220,6 +254,8 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                             Text(entry.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Text(
                                 when (entry) {
+                                    SettingsPage.Account -> "Guest, linked email, sign in and out"
+                                    SettingsPage.Permissions -> "What ZARVIS can access, live from Android"
                                     SettingsPage.Voice -> "Speech recognition and spoken replies"
                                     SettingsPage.Language -> "English or Hindi"
                                     SettingsPage.Appearance -> "Aurora light / dark theme"
@@ -230,7 +266,7 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                                     SettingsPage.Data -> "Server data and deletion"
                                     SettingsPage.Memory -> "Conversation context boundary"
                                     SettingsPage.Protection -> "What this build actually enforces"
-                                    SettingsPage.Developer -> "Read-only repository analysis"
+                                    SettingsPage.Developer -> "Repository analysis"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -248,7 +284,10 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
 @Composable
 private fun SettingsSubPage(page: SettingsPage, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     com.zarvismobile.core.ui.components.ZarvisBackground {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onBack) { Text("‹ Back") }
                 Column {

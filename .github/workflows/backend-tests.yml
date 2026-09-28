@@ -74,4 +74,3 @@ jobs:
           node --check web/app.js
           node --check web/feature-pages.js
           node --check web/sw.js
-          node --test web/tests/

@@ -1,10 +1,10 @@
 package com.zarvismobile.data.remote
 
 import com.zarvismobile.core.security.SecureStorage
+import com.zarvismobile.data.remote.dto.ApiErrorResponse
 import com.zarvismobile.data.remote.dto.AuthTokensResponse
 import com.zarvismobile.data.remote.dto.RefreshRequest
-import com.zarvismobile.data.remote.dto.SignupRequest
-import java.util.UUID
+import java.io.IOException
 import kotlinx.serialization.json.Json
 import okhttp3.Authenticator
 import okhttp3.MediaType.Companion.toMediaType
@@ -15,38 +15,36 @@ import okhttp3.Response
 import okhttp3.Route
 
 /**
- * Refreshes an expired access token on a 401 and, if the refresh token itself is rejected
- * (this device's stored account no longer exists server-side — the same "Unknown user"
- * class of failure the web client's `apiFetch` self-heals from, see web/app.js), bootstraps
- * a brand-new guest session instead of leaving the app permanently stuck on 401. Without
- * this, `SessionRepository.ensureSession()` (data-repository module) only ever bootstraps
- * once per install — it returns immediately whenever an account id is already stored,
- * without checking that account still works — and nothing else ever refreshed the access
- * token at all, so this app would have hit exactly the 401s fixed on the web client, just
- * with no recovery path here yet.
+ * Refreshes an expired access token on a 401 (the refresh token rotates on every use).
  *
- * Implemented as an OkHttp [Authenticator] (called only on a 401, given the failed
- * [Response]) rather than folded into [AuthInterceptor], since retrying with a *new* token
- * needs that response to build the retried request from — an [okhttp3.Interceptor] can't
- * cleanly express "redo this with different credentials" the way `Authenticator` is built
- * for.
+ * Outcomes are kept strictly apart so an account is never silently replaced:
+ * - refreshed → retry the request with the new token;
+ * - the server definitively rejected the session (401 with a session_* / refresh_token_reused
+ *   code) → tokens are cleared, [SessionEvents] is marked expired and the UI asks the user to
+ *   sign in or to explicitly start a new guest session;
+ * - network error / 5xx / anything else → nothing is cleared; the request just fails and the
+ *   user sees a connectivity error. The same account is used again on the next attempt.
  *
- * Talks to the auth endpoints with a bare [OkHttpClient] rather than the [ZarvisApi]
- * Retrofit instance this authenticator is attached to — building that Retrofit client
- * requires this authenticator to already exist, so depending on it back would be circular.
+ * Talks to the auth endpoint with a bare [OkHttpClient] because the Retrofit client this
+ * authenticator is attached to cannot be depended on here without a cycle.
  */
 class TokenAuthenticator(
     private val baseUrl: String,
     private val secureStorage: SecureStorage,
+    private val authHttp: OkHttpClient = OkHttpClient(),
 ) : Authenticator {
     private val json = Json { ignoreUnknownKeys = true }
-    private val authHttp = OkHttpClient()
     private val jsonMedia = "application/json".toMediaType()
 
-    override fun authenticate(route: Route?, response: Response): Request? {
-        if (responseCount(response) >= 2) return null // already retried once for this call — give up rather than loop
+    sealed interface RefreshOutcome {
+        data class Refreshed(val accessToken: String) : RefreshOutcome
+        data class Rejected(val code: String) : RefreshOutcome
+        data object Unreachable : RefreshOutcome
+    }
 
-        val newAccessToken = refreshOrBootstrap(response.request) ?: return null
+    override fun authenticate(route: Route?, response: Response): Request? {
+        if (responseCount(response) >= 2) return null // already retried once — don't loop
+        val newAccessToken = refreshOnce(response.request) ?: return null
         return response.request.newBuilder()
             .header("Authorization", "Bearer $newAccessToken")
             .build()
@@ -63,55 +61,69 @@ class TokenAuthenticator(
     }
 
     /**
-     * Synchronized so concurrent 401s (several in-flight requests failing at once) refresh
-     * or bootstrap only once, not once per request — the first caller through re-checks
-     * whether the stored token already moved past the one the failing request used (another
-     * thread got there first) and reuses it instead of hitting the network again, which
-     * would otherwise risk minting a second guest account under concurrent failures.
+     * Synchronized so concurrent 401s refresh once: a caller whose failed request used an
+     * older token than the one now stored reuses the stored token instead of refreshing again
+     * (which would present an already-rotated refresh token and revoke the session).
      */
     @Synchronized
-    private fun refreshOrBootstrap(failedRequest: Request): String? {
+    private fun refreshOnce(failedRequest: Request): String? {
         val tokenOnFailedRequest = failedRequest.header("Authorization")?.removePrefix("Bearer ")
         val currentlyStored = secureStorage.getString(TokenStorageKeys.ACCESS_TOKEN)
         if (currentlyStored != null && currentlyStored != tokenOnFailedRequest) return currentlyStored
 
-        refresh()?.let { return it }
-        return bootstrapGuestSession()
+        return when (val outcome = refresh()) {
+            is RefreshOutcome.Refreshed -> outcome.accessToken
+            is RefreshOutcome.Rejected -> {
+                secureStorage.remove(TokenStorageKeys.ACCESS_TOKEN)
+                secureStorage.remove(TokenStorageKeys.REFRESH_TOKEN)
+                secureStorage.putString(TokenStorageKeys.SESSION_EXPIRED, outcome.code)
+                SessionEvents.markExpired(outcome.code)
+                null
+            }
+            RefreshOutcome.Unreachable -> null
+        }
     }
 
-    private fun refresh(): String? {
-        val refreshToken = secureStorage.getString(TokenStorageKeys.REFRESH_TOKEN) ?: return null
+    fun refresh(): RefreshOutcome {
+        val refreshToken = secureStorage.getString(TokenStorageKeys.REFRESH_TOKEN)
+            ?: return RefreshOutcome.Rejected("session_invalid")
         val body = json.encodeToString(RefreshRequest.serializer(), RefreshRequest(refreshToken)).toRequestBody(jsonMedia)
         val request = Request.Builder().url(baseUrl + "api/v1/auth/refresh").post(body).build()
-        return runCatching { execute(request) }.getOrNull()?.let { storeTokens(it); it.accessToken }
-    }
-
-    private fun bootstrapGuestSession(): String? {
-        val deviceId = UUID.randomUUID().toString()
-        val signup = SignupRequest(
-            email = "guest-$deviceId@device.zarvismobile.local",
-            password = UUID.randomUUID().toString(),
-        )
-        val body = json.encodeToString(SignupRequest.serializer(), signup).toRequestBody(jsonMedia)
-        val request = Request.Builder().url(baseUrl + "api/v1/auth/signup").post(body).build()
-        return runCatching { execute(request) }.getOrNull()?.let {
-            secureStorage.clear()
-            storeTokens(it)
-            it.accessToken
+        return try {
+            authHttp.newCall(request).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                when {
+                    resp.isSuccessful -> {
+                        val tokens = json.decodeFromString(AuthTokensResponse.serializer(), text)
+                        storeTokens(secureStorage, tokens)
+                        RefreshOutcome.Refreshed(tokens.accessToken)
+                    }
+                    resp.code == 401 -> {
+                        val code = runCatching { json.decodeFromString(ApiErrorResponse.serializer(), text).code }.getOrNull()
+                        if (code != null && code in SESSION_ENDED_CODES) RefreshOutcome.Rejected(code) else RefreshOutcome.Unreachable
+                    }
+                    else -> RefreshOutcome.Unreachable
+                }
+            }
+        } catch (e: IOException) {
+            RefreshOutcome.Unreachable
+        } catch (e: IllegalArgumentException) {
+            // Malformed body from a proxy/captive portal: not proof the session ended.
+            RefreshOutcome.Unreachable
         }
     }
 
-    private fun execute(request: Request): AuthTokensResponse? {
-        authHttp.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) return null
-            val bodyText = resp.body?.string() ?: return null
-            return json.decodeFromString(AuthTokensResponse.serializer(), bodyText)
-        }
-    }
+    companion object {
+        val SESSION_ENDED_CODES = setOf("session_invalid", "session_revoked", "refresh_token_reused")
 
-    private fun storeTokens(tokens: AuthTokensResponse) {
-        secureStorage.putString(TokenStorageKeys.ACCESS_TOKEN, tokens.accessToken)
-        secureStorage.putString(TokenStorageKeys.REFRESH_TOKEN, tokens.refreshToken)
-        secureStorage.putString(TokenStorageKeys.ACCOUNT_ID, tokens.accountId)
+        fun storeTokens(secureStorage: SecureStorage, tokens: AuthTokensResponse) {
+            secureStorage.putString(TokenStorageKeys.ACCESS_TOKEN, tokens.accessToken)
+            secureStorage.putString(TokenStorageKeys.REFRESH_TOKEN, tokens.refreshToken)
+            secureStorage.putString(TokenStorageKeys.ACCOUNT_ID, tokens.accountId)
+            secureStorage.putString(TokenStorageKeys.IS_GUEST, tokens.isGuest.toString())
+            tokens.email?.let { secureStorage.putString(TokenStorageKeys.EMAIL, it) }
+            secureStorage.remove(TokenStorageKeys.SESSION_EXPIRED)
+            SessionEvents.clear()
+        }
     }
 }
