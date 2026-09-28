@@ -6,6 +6,14 @@
 
 ---
 
+## 0. Master Product Roadmap
+
+The permanent A→Z product and execution order is defined in `docs/ZARVIS_MASTER_PRODUCT_ROADMAP.md`.
+
+**Immediate engineering priority: Phase 1 — Android Mobile Access + Permission Intelligence.** Later feature families must follow that roadmap and must not bypass or weaken this permission architecture.
+
+---
+
 ## 1. Product Vision
 
 ZARVIS should not behave like an app that silently asks for every possible permission.
