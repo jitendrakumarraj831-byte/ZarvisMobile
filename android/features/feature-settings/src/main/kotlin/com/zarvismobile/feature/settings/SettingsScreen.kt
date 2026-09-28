@@ -143,8 +143,8 @@ fun SettingsScreen(
             ReadOnlyCard("Turn state", "The orb shows Listening while the microphone is on, Working while ZARVIS processes a request, and Speaking only while audio is actually playing.", ZarvisAccentCyan)
         }
         SettingsPage.Notifications -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Reminder notifications", "Reminders post an Android notification at the time you set. Android 13+ asks for notification permission; on Android 8–12 the app's notification switch in Android Settings controls it.", ZarvisAccentPink)
-            ReadOnlyCard("Reading other apps' notifications", "Not available in this build (planned). ZARVIS does not read or speak other apps' notifications.", ZarvisAccentCyan)
+            NotificationSettingsContent()
+            ReadOnlyCard("ZARVIS's own reminders", "Reminders post an Android notification at the time you set. Android 13+ asks for notification permission; on Android 8–12 the app's notification switch in Android Settings controls it.", ZarvisAccentPink)
             ZarvisSecondaryButton("Open Permissions & Device Access", onClick = { page = SettingsPage.Permissions })
         }
         SettingsPage.Privacy -> SettingsSubPage(selected, goBack) {
@@ -260,7 +260,7 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                                     SettingsPage.Language -> "English or Hindi"
                                     SettingsPage.Appearance -> "Aurora light / dark theme"
                                     SettingsPage.Ai -> "Current orchestration behavior"
-                                    SettingsPage.Notifications -> "Android reminder notifications"
+                                    SettingsPage.Notifications -> "Mode, spoken notifications, quiet hours, exclusions"
                                     SettingsPage.Privacy -> "Account and privacy controls"
                                     SettingsPage.Security -> "Secure tokens and local session"
                                     SettingsPage.Data -> "Server data and deletion"

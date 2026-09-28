@@ -24,6 +24,35 @@ enum class AccessState {
 
     /** No runtime permission exists for this on this device/API level. */
     NOT_REQUIRED,
+
+    /**
+     * Special access (notification access, accessibility, usage access, assistant role) that is
+     * currently off. It can only be turned on by the user on its own Android Settings page.
+     */
+    SPECIAL_ACCESS_OFF,
+
+    /** Android on this device cannot provide it at all (API level too old, feature missing). */
+    UNAVAILABLE,
+}
+
+/** The Android Settings page where a given access is changed. */
+enum class SettingsTarget {
+    APP_DETAILS,
+    APP_NOTIFICATIONS,
+    NOTIFICATION_LISTENER,
+    ACCESSIBILITY,
+    USAGE_ACCESS,
+    DEFAULT_ASSISTANT,
+}
+
+/** Where the user turns [permission] on when it is in [state] and only Settings can change it. */
+fun settingsTargetFor(permission: PermissionType, state: AccessState): SettingsTarget = when (permission) {
+    PermissionType.NOTIFICATION_LISTENER -> SettingsTarget.NOTIFICATION_LISTENER
+    PermissionType.ACCESSIBILITY_SERVICE -> SettingsTarget.ACCESSIBILITY
+    PermissionType.USAGE_ACCESS -> SettingsTarget.USAGE_ACCESS
+    PermissionType.ASSISTANT_ROLE -> SettingsTarget.DEFAULT_ASSISTANT
+    PermissionType.NOTIFICATIONS -> if (state == AccessState.SYSTEM_DISABLED) SettingsTarget.APP_NOTIFICATIONS else SettingsTarget.APP_DETAILS
+    else -> SettingsTarget.APP_DETAILS
 }
 
 /** Reads real permission state from the platform. */
@@ -44,14 +73,21 @@ data class RationaleRequest(
     val permissions: List<PermissionType>,
     /** True when only system Settings can grant it — the UI offers "Open settings" instead of "Allow". */
     val requiresSettings: Boolean,
+    /**
+     * Why Settings is needed: a special access that is always granted there, or a runtime
+     * permission Android stopped prompting for (denied permanently / switched off).
+     */
+    val settingsReason: SettingsReason? = null,
 )
+
+enum class SettingsReason { SPECIAL_ACCESS, PERMANENTLY_DENIED, SYSTEM_SWITCH_OFF }
 
 /** Launches the Android system permission dialog and returns once it is dismissed. */
 fun interface SystemPermissionRequester {
     suspend fun request(permissions: List<PermissionType>)
 }
 
-/** Opens this app's page in Android Settings and returns when the user comes back. */
+/** Opens an Android Settings page for this app and returns when the user comes back. */
 fun interface AppSettingsPort {
-    suspend fun openAndAwaitReturn()
+    suspend fun openAndAwaitReturn(target: SettingsTarget)
 }

@@ -13,19 +13,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -33,17 +28,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.app.navigation.ZarvisNavGraph
-import com.zarvismobile.core.tooling.PendingConfirmation
-import com.zarvismobile.core.tooling.PendingRationale
 import com.zarvismobile.core.ui.components.GlassSurface
-import com.zarvismobile.core.ui.components.RiskBadge
-import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.theme.ZarvisTheme
-import com.zarvismobile.domain.access.RationaleChoice
-import com.zarvismobile.domain.capability.CapabilityRegistry
-import com.zarvismobile.domain.entity.ActionClass
 import com.zarvismobile.feature.settings.CredentialsForm
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -54,6 +42,11 @@ class MainActivity : ComponentActivity() {
         ActivityBridge.attach(this)
         enableEdgeToEdge()
         setContent { ZarvisRoot() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ActivityBridge.activate(this)
     }
 
     override fun onDestroy() {
@@ -93,99 +86,8 @@ private fun ZarvisRoot(
             }
         }
 
-        val rationale by permissionViewModel.pendingRationale.collectAsState()
-        rationale?.let { RationaleDialog(it, permissionViewModel.registry) }
-
-        val pending by confirmationViewModel.pending.collectAsState()
-        pending?.let { RiskConfirmationDialog(it) }
+        ZarvisSystemDialogs(permissionViewModel, confirmationViewModel)
     }
-}
-
-/**
- * Blueprint §8/§10 permission explanation, shown BEFORE any Android system dialog:
- * why · what data · what won't happen automatically · how to revoke, with
- * Allow (or Open settings) · Not now · Learn more.
- */
-@Composable
-private fun RationaleDialog(pending: PendingRationale, registry: CapabilityRegistry) {
-    val capability = registry.find(pending.request.capabilityId)
-    if (capability == null) {
-        // Unknown capability: never show a system dialog without an explanation.
-        LaunchedEffect(pending) { pending.respond(RationaleChoice.NOT_NOW) }
-        return
-    }
-    var learnMore by rememberSaveable(pending.request.capabilityId) { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = { pending.respond(RationaleChoice.NOT_NOW) },
-        title = { Text("Allow ${capability.name.lowercase()} access?") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                RiskBadge(level = RiskBadgeLevel.valueOf(capability.risk.name))
-                Section("Why", capability.rationale.why)
-                Section("What data", capability.rationale.data)
-                Section("What ZARVIS won't do automatically", capability.rationale.notAutomatic)
-                Section("How to turn it off", capability.rationale.revoke)
-                if (pending.request.requiresSettings) {
-                    Text(
-                        "Android is no longer showing the permission prompt for this, so it can only be turned on in Android Settings. " +
-                            "ZARVIS will check again when you come back.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                if (learnMore) {
-                    Section("Data exposure", capability.dataExposure)
-                    Section("Supported", capability.supportedActions.joinToString("; ").ifBlank { "—" })
-                    Section("Not supported", capability.unsupportedActions.joinToString("; "))
-                    Section("If you choose Not now", "${capability.denialBehavior} ${capability.fallback}")
-                    Section("Where to change it later", capability.settingsDestination)
-                }
-                TextButton(onClick = { learnMore = !learnMore }) { Text(if (learnMore) "Show less" else "Learn more") }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { pending.respond(RationaleChoice.ALLOW) }) {
-                Text(if (pending.request.requiresSettings) "Open settings" else "Allow")
-            }
-        },
-        dismissButton = { TextButton(onClick = { pending.respond(RationaleChoice.NOT_NOW) }) { Text("Not now") } },
-    )
-}
-
-@Composable
-private fun Section(title: String, body: String) {
-    Column {
-        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-        Text(body, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-/** Shows the exact action (e.g. "Call Mom at +91 …"), never a generic description. */
-@Composable
-private fun RiskConfirmationDialog(pending: PendingConfirmation) {
-    AlertDialog(
-        onDismissRequest = { pending.respond(false) },
-        title = { Text("Confirm this action") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                RiskBadge(level = RiskBadgeLevel.valueOf(pending.request.riskLevel.name))
-                Text(pending.request.summary, style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    when (pending.request.actionClass) {
-                        ActionClass.EXTERNAL_COMMUNICATION -> "This contacts someone or changes something outside this phone."
-                        ActionClass.FINANCIAL -> "This involves money."
-                        ActionClass.DESTRUCTIVE -> "This can't be undone."
-                        ActionClass.SECURITY_SENSITIVE -> "This affects your security or privacy."
-                        else -> "Nothing happens unless you confirm."
-                    } + " Your answer applies to this one action only.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = { pending.respond(true) }) { Text("Confirm") } },
-        dismissButton = { TextButton(onClick = { pending.respond(false) }) { Text("Cancel") } },
-    )
 }
 
 @Composable

@@ -47,8 +47,22 @@ class CapabilityRegistryTest {
     }
 
     @Test
-    fun `planned capabilities are not implemented on Android`() {
-        assertTrue(!registry.get(CapabilityId.NOTIFICATION_READ).implementedOnAndroid)
-        assertTrue(registry.get(CapabilityId.CONTACTS).implementedOnAndroid)
+    fun `special access capabilities map to their settings-only permission types`() {
+        assertEquals(listOf(PermissionType.NOTIFICATION_LISTENER), registry.get(CapabilityId.NOTIFICATION_READ).permissionTypes)
+        assertEquals(listOf(PermissionType.NOTIFICATION_LISTENER), registry.get(CapabilityId.NOTIFICATION_SPEAK).permissionTypes)
+        assertEquals(listOf(PermissionType.ACCESSIBILITY_SERVICE), registry.get(CapabilityId.ACCESSIBILITY).permissionTypes)
+        assertEquals(listOf(PermissionType.ACCESSIBILITY_SERVICE), registry.get(CapabilityId.SCREEN_INTERACTION).permissionTypes)
+        assertEquals(listOf(PermissionType.USAGE_ACCESS), registry.get(CapabilityId.USAGE_STATS).permissionTypes)
+        assertEquals(listOf(PermissionType.ASSISTANT_ROLE), registry.get(CapabilityId.DEFAULT_ASSISTANT).permissionTypes)
+        assertTrue(registry.capabilities.flatMap { it.permissionTypes }.filter { it.specialAccess }.toSet() ==
+            PermissionType.entries.filter { it.specialAccess }.toSet())
+    }
+
+    @Test
+    fun `every capability is implemented or explicitly unsupported on Android - none left planned`() {
+        registry.capabilities.forEach { capability ->
+            assertTrue(capability.android.status != CapabilityStatus.PLANNED, "${capability.id} is still PLANNED")
+            assertTrue(capability.android.note.isNotBlank())
+        }
     }
 }

@@ -6,6 +6,14 @@ import com.zarvismobile.agents.AndroidOrchestrator
 import com.zarvismobile.agents.ConversationIdStore
 import com.zarvismobile.app.ActivityBridge
 import com.zarvismobile.app.BuildConfig
+import com.zarvismobile.app.access.AndroidNotificationReaderPort
+import com.zarvismobile.app.access.AndroidScreenAccessPort
+import com.zarvismobile.app.access.AndroidUsageStatsPort
+import com.zarvismobile.app.access.NotificationSpeaker
+import com.zarvismobile.app.access.SpeakOutcome
+import com.zarvismobile.domain.notification.NotificationSpeechPreview
+import com.zarvismobile.app.access.ZarvisAccessibilityService
+import com.zarvismobile.app.access.ZarvisNotificationListener
 import com.zarvismobile.app.voice.AndroidSpeechToTextEngine
 import com.zarvismobile.app.voice.AndroidTextToSpeechEngine
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
@@ -14,10 +22,13 @@ import com.zarvismobile.core.security.AndroidDeviceAccessPort
 import com.zarvismobile.core.security.AndroidPermissionPort
 import com.zarvismobile.core.security.PermissionRequestLog
 import com.zarvismobile.core.security.SecureStorage
+import com.zarvismobile.core.security.SpecialAccessComponents
+import com.zarvismobile.core.security.SpecialAccessStates
 import com.zarvismobile.core.tooling.ComposeConfirmationPort
 import com.zarvismobile.core.tooling.ComposeRationalePort
 import com.zarvismobile.data.local.ZarvisDatabase
 import com.zarvismobile.data.local.access.DataStoreAccessSnapshotStore
+import com.zarvismobile.data.local.access.DataStoreNotificationSettings
 import com.zarvismobile.data.local.access.DataStorePendingActionStore
 import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.local.reminder.ReminderDao
@@ -41,6 +52,12 @@ import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 import com.zarvismobile.skills.ActivityPorts
 import com.zarvismobile.skills.OnDeviceSkillRegistryFactory
+import com.zarvismobile.skills.SpecialAccessPorts
+import com.zarvismobile.domain.skill.AssistantRolePort
+import com.zarvismobile.domain.skill.NotificationReaderPort
+import com.zarvismobile.domain.skill.NotificationSettingsPort
+import com.zarvismobile.domain.skill.ScreenAccessPort
+import com.zarvismobile.domain.skill.UsageStatsPort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -96,8 +113,60 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideDeviceAccessPort(@ApplicationContext context: Context, log: PermissionRequestLog): DeviceAccessPort =
-        AndroidDeviceAccessPort(context, log) { ActivityBridge.currentActivity() }
+    fun provideSpecialAccessStates(@ApplicationContext context: Context): SpecialAccessStates =
+        SpecialAccessStates(
+            context,
+            SpecialAccessComponents(
+                notificationListener = ZarvisNotificationListener.component(context),
+                accessibilityService = ZarvisAccessibilityService.component(context),
+            ),
+        )
+
+    @Provides
+    @Singleton
+    fun provideDeviceAccessPort(@ApplicationContext context: Context, log: PermissionRequestLog, special: SpecialAccessStates): DeviceAccessPort =
+        AndroidDeviceAccessPort(context, log, special) { ActivityBridge.currentActivity() }
+
+    // --- Special access: notification listener, accessibility, usage access, assistant role --
+
+    @Provides
+    @Singleton
+    fun provideNotificationSettings(@ApplicationContext context: Context): DataStoreNotificationSettings = DataStoreNotificationSettings(context)
+
+    @Provides
+    @Singleton
+    fun provideNotificationSettingsPort(settings: DataStoreNotificationSettings): NotificationSettingsPort = settings
+
+    @Provides
+    @Singleton
+    fun provideNotificationReaderPort(@ApplicationContext context: Context): NotificationReaderPort = AndroidNotificationReaderPort(context)
+
+    @Provides
+    @Singleton
+    fun provideNotificationSpeaker(@ApplicationContext context: Context, settings: NotificationSettingsPort): NotificationSpeaker =
+        NotificationSpeaker(context, settings)
+
+    @Provides
+    @Singleton
+    fun provideNotificationSpeechPreview(speaker: NotificationSpeaker): NotificationSpeechPreview = NotificationSpeechPreview {
+        when (val outcome = speaker.speakSample()) {
+            is SpeakOutcome.Spoken -> "Played a sample with this phone's text-to-speech. Real notifications follow your mode, quiet hours, headphones and lock-screen rules."
+            is SpeakOutcome.Skipped -> "Sample skipped: ${outcome.reason}."
+            is SpeakOutcome.Failed -> "Couldn't play a sample: ${outcome.reason}. Check that a text-to-speech engine is installed in Android Settings."
+        }
+    }
+
+    @Provides
+    @Singleton
+    fun provideScreenAccessPort(@ApplicationContext context: Context): ScreenAccessPort = AndroidScreenAccessPort(context)
+
+    @Provides
+    @Singleton
+    fun provideUsageStatsPort(@ApplicationContext context: Context): UsageStatsPort = AndroidUsageStatsPort(context)
+
+    @Provides
+    @Singleton
+    fun provideAssistantRolePort(special: SpecialAccessStates): AssistantRolePort = AssistantRolePort { special.isDefaultAssistant() }
 
     @Provides
     @Singleton
@@ -150,11 +219,20 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideOnDeviceSkillRegistry(reminderDao: ReminderDao, @ApplicationContext context: Context): SkillRegistry =
+    fun provideOnDeviceSkillRegistry(
+        reminderDao: ReminderDao,
+        @ApplicationContext context: Context,
+        notifications: NotificationReaderPort,
+        notificationSettings: NotificationSettingsPort,
+        screen: ScreenAccessPort,
+        usage: UsageStatsPort,
+        assistantRole: AssistantRolePort,
+    ): SkillRegistry =
         OnDeviceSkillRegistryFactory.create(
             reminderDao,
             context,
             ActivityPorts(documents = ActivityBridge, photos = ActivityBridge, camera = ActivityBridge),
+            SpecialAccessPorts(notifications, notificationSettings, screen, usage, assistantRole),
         )
 
     @Provides

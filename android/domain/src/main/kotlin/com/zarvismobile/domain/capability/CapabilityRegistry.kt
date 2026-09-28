@@ -49,6 +49,8 @@ data class CapabilityDefinition(
     val requiredAccess: String,
     /** Raw Android permission names from the registry. */
     val androidPermissions: List<String>,
+    /** Special access granted on a system Settings page (PermissionType names, e.g. NOTIFICATION_LISTENER). */
+    val androidSpecialAccess: List<String>,
     val androidRequirements: String,
     val risk: RiskLevel,
     val actionClass: ActionClass,
@@ -64,9 +66,11 @@ data class CapabilityDefinition(
     val web: PlatformState,
     val android: PlatformState,
 ) {
-    /** The runtime permission groups ZARVIS requests for this capability. */
+    /** Everything Android must grant for this capability: runtime permissions, then special access. */
     val permissionTypes: List<PermissionType>
-        get() = androidPermissions.mapNotNull { permissionTypeFor(it) }.distinct()
+        get() = (androidPermissions.mapNotNull { permissionTypeFor(it) } +
+            androidSpecialAccess.map { name -> PermissionType.valueOf(name).also { require(it.specialAccess) { "$name is not special access" } } })
+            .distinct()
 
     /** True when this build actually implements something for the capability on Android. */
     val implementedOnAndroid: Boolean
@@ -123,6 +127,7 @@ class CapabilityRegistry(val capabilities: List<CapabilityDefinition>) {
                     name = o.str("name"),
                     requiredAccess = o.str("requiredAccess"),
                     androidPermissions = o.strings("androidPermissions"),
+                    androidSpecialAccess = o.strings("androidSpecialAccess"),
                     androidRequirements = o.str("androidRequirements"),
                     risk = RiskLevel.valueOf(o.str("risk")),
                     actionClass = ActionClass.valueOf(o.str("actionClass")),

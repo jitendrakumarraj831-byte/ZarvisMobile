@@ -43,6 +43,8 @@ import com.zarvismobile.domain.access.AccessResult
 import com.zarvismobile.domain.access.AccessState
 import com.zarvismobile.domain.access.AppSettingsPort
 import com.zarvismobile.domain.access.DeviceAccessPort
+import com.zarvismobile.domain.access.SettingsTarget
+import com.zarvismobile.domain.access.settingsTargetFor
 import com.zarvismobile.domain.access.satisfied
 import com.zarvismobile.domain.capability.CapabilityDefinition
 import com.zarvismobile.domain.capability.CapabilityId
@@ -66,7 +68,9 @@ data class CapabilityRow(
         get() = when {
             !definition.implementedOnAndroid -> "Not available in this build"
             states.isEmpty() -> "No permission held — uses a system screen or picker you control each time"
-            states.values.all { it.satisfied() } -> "Allowed"
+            states.values.any { it == AccessState.UNAVAILABLE } -> "Not available on this phone's Android version"
+            states.values.all { it.satisfied() } -> if (states.keys.any { it.specialAccess }) "On (Android reports it enabled)" else "Allowed"
+            states.values.any { it == AccessState.SPECIAL_ACCESS_OFF } -> "Off — only you can turn it on, in Android Settings"
             states.values.any { it == AccessState.SYSTEM_DISABLED } -> "Turned off in Android settings"
             states.values.any { it == AccessState.PERMANENTLY_DENIED } -> "Blocked — can only be turned on in Android Settings"
             states.values.any { it == AccessState.DENIED } -> "Not allowed — Android can ask again"
@@ -74,7 +78,8 @@ data class CapabilityRow(
         }
 
     val needsAccess: Boolean
-        get() = definition.implementedOnAndroid && states.isNotEmpty() && !states.values.all { it.satisfied() }
+        get() = definition.implementedOnAndroid && states.isNotEmpty() && !states.values.all { it.satisfied() } &&
+            states.values.none { it == AccessState.UNAVAILABLE }
 
     val granted: Boolean
         get() = definition.implementedOnAndroid && states.isNotEmpty() && states.values.all { it.satisfied() }
@@ -116,17 +121,23 @@ class PermissionCenterViewModel @Inject constructor(
                 AccessResult.Granted -> "${capability.name} is allowed. ZARVIS still asks before any action that needs your confirmation."
                 is AccessResult.Declined -> "Nothing changed. ${capability.denialBehavior}"
                 is AccessResult.Denied -> "Android reports ${capability.name.lowercase()} is still off. ${capability.fallback}"
-                is AccessResult.Unsupported -> "${capability.name} isn't available in this build."
+                is AccessResult.Unsupported -> result.reason ?: "${capability.name} isn't available in this build."
             }
             _state.value = _state.value.copy(message = message)
             refresh()
         }
     }
 
-    /** Revoking is done in Android Settings — ZARVIS can't revoke its own permissions silently. */
-    fun openAndroidSettings() {
+    /**
+     * Revoking is done in Android Settings — ZARVIS can't revoke its own access silently. Opens
+     * the exact page for the capability (e.g. Notification access), not just the app page.
+     */
+    fun openAndroidSettings(id: CapabilityId) {
         viewModelScope.launch {
-            appSettings.openAndAwaitReturn()
+            val row = _state.value.rows.firstOrNull { it.definition.id == id }
+            val target = row?.states?.entries?.firstOrNull()?.let { (permission, state) -> settingsTargetFor(permission, state) }
+                ?: SettingsTarget.APP_DETAILS
+            appSettings.openAndAwaitReturn(target)
             refresh()
         }
     }
@@ -168,7 +179,7 @@ fun PermissionCenterScreen(onBack: () -> Unit, viewModel: PermissionCenterViewMo
                 }
             }
             items(state.rows, key = { it.definition.id.wireId }) { row ->
-                CapabilityCard(row, onAllow = { viewModel.allow(row.definition.id) }, onOpenSettings = viewModel::openAndroidSettings)
+                CapabilityCard(row, onAllow = { viewModel.allow(row.definition.id) }, onOpenSettings = { viewModel.openAndroidSettings(row.definition.id) })
             }
         }
     }
@@ -197,8 +208,10 @@ private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettin
             Text("Every action asks for your confirmation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-            if (row.needsAccess) ZarvisPrimaryButton(text = "Allow", onClick = onAllow)
-            if (row.granted) ZarvisSecondaryButton(text = "Revoke in Android Settings", onClick = onOpenSettings)
+            if (row.needsAccess) {
+                ZarvisPrimaryButton(text = if (row.states.keys.any { it.specialAccess }) "Turn on" else "Allow", onClick = onAllow)
+            }
+            if (row.granted) ZarvisSecondaryButton(text = "Turn off in Android Settings", onClick = onOpenSettings)
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Less" else "Learn more") }
         }
         if (expanded) {
@@ -212,6 +225,7 @@ private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettin
                 Detail("Not supported", capability.unsupportedActions.joinToString("; "))
                 Detail("If you say no", capability.denialBehavior + " " + capability.fallback)
                 Detail("Where to change it", capability.settingsDestination)
+                Detail("Android requirements", capability.androidRequirements)
                 Detail("Status on Android", capability.android.note)
             }
         }

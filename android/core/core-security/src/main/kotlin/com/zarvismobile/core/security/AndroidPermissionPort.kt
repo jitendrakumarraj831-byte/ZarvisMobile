@@ -26,6 +26,12 @@ fun PermissionType.androidPermission(sdkInt: Int = Build.VERSION.SDK_INT): Strin
     PermissionType.STORAGE -> null // scoped storage / system pickers — no runtime permission
     PermissionType.CALENDAR -> Manifest.permission.READ_CALENDAR
     PermissionType.LOCATION -> Manifest.permission.ACCESS_COARSE_LOCATION
+    // Special access has no runtime permission dialog; see SpecialAccessStates.
+    PermissionType.NOTIFICATION_LISTENER,
+    PermissionType.ACCESSIBILITY_SERVICE,
+    PermissionType.USAGE_ACCESS,
+    PermissionType.ASSISTANT_ROLE,
+    -> null
 }
 
 /**
@@ -51,10 +57,12 @@ class PermissionRequestLog(context: Context) {
 class AndroidDeviceAccessPort(
     private val context: Context,
     private val requestLog: PermissionRequestLog,
+    private val special: SpecialAccessStates,
     private val currentActivity: () -> Activity?,
 ) : DeviceAccessPort {
 
     override suspend fun state(permission: PermissionType): AccessState {
+        if (permission.specialAccess) return special.state(permission)
         val notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
         val androidPermission = permission.androidPermission()
         if (androidPermission == null) {

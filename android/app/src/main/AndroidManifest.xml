@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Talking to the ZARVIS backend — see MASTER_SPEC.md §9. Not a runtime permission. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -27,6 +28,14 @@
     <!-- location.current: approximate location only, on request (never background/precise). -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!--
+      usage.screen_time (capability usage_stats): granted only by the user on Android's
+      Settings > Usage access page (an app-op), never at install and never by a dialog.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- alarm.set hands an alarm to the Clock app (AlarmClock.ACTION_SET_ALARM). Normal permission. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
@@ -48,6 +57,11 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- device.global_action verifies Home by comparing with the default launcher. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
     </queries>
 
     <application
@@ -67,6 +81,58 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Assistant overlay (capability default_assistant). Handling ACTION_ASSIST is what lets
+          the user choose ZARVIS in Settings > Default apps > Digital assistant app; Android
+          starts it for the assist gesture. Own task, so it opens over the current app.
+        -->
+        <activity
+            android:name=".assist.AssistActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Zarvis.Assist"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Notification access (capabilities notification_read / notification_speak). Only the
+          system can bind it (BIND_NOTIFICATION_LISTENER_SERVICE), and only while the user has
+          granted Notification access in Android Settings.
+        -->
+        <service
+            android:name=".access.ZarvisNotificationListener"
+            android:exported="true"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Accessibility service (capabilities accessibility / screen_interaction). Only the
+          system can bind it (BIND_ACCESSIBILITY_SERVICE), and only while the user has turned it
+          on in Settings > Accessibility. It acts solely on confirmed ToolPipeline actions.
+        -->
+        <service
+            android:name=".access.ZarvisAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/zarvis_accessibility_service" />
+        </service>
 
         <!-- Fires when a personal.reminder alarm comes due (MASTER_SPEC.md §32). Not exported: only AlarmManager, from this app, ever sends it. -->
         <receiver

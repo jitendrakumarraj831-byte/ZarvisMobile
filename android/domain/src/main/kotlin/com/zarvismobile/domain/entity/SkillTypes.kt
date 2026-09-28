@@ -25,8 +25,12 @@ sealed interface SkillResult {
         val evidence: Map<String, String> = emptyMap(),
     ) : SkillResult
 
-    /** [userMessage] is what gets shown/spoken to the user; [reason] is a stable error code for logs. */
-    data class Failure(val reason: String, val userMessage: String) : SkillResult
+    /**
+     * [userMessage] is what gets shown/spoken to the user; [reason] is a stable error code for logs.
+     * [userActionRequired] is true when nothing failed on ZARVIS's side but the user must do
+     * something first (e.g. open the app to read); it reports USER_ACTION_REQUIRED, not FAILED.
+     */
+    data class Failure(val reason: String, val userMessage: String, val userActionRequired: Boolean = false) : SkillResult
 }
 
 fun interface SkillHandler {

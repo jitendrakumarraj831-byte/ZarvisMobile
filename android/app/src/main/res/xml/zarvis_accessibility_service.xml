@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ZARVIS accessibility service (capabilities: accessibility, screen_interaction).
+  Only window-level events are observed (to know which app is in front and whether a
+  confirmed tap changed the screen). No gestures, no key filtering, no touch exploration.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="false"
+    android:notificationTimeout="100"
+    android:description="@string/accessibility_service_description"
+    android:summary="@string/accessibility_service_summary" />

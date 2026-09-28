@@ -14,8 +14,11 @@ sealed interface AccessResult {
     /** The system dialog was shown (or Settings opened) but Android still reports it denied. */
     data class Denied(val capability: CapabilityDefinition, val missing: List<PermissionType>, val permanently: Boolean) : AccessResult
 
-    /** This build has no implementation for the capability on Android. */
-    data class Unsupported(val capability: CapabilityDefinition) : AccessResult
+    /**
+     * Not possible: this build has no implementation for the capability on Android, or this
+     * device cannot provide it ([reason] says which, in user-facing words).
+     */
+    data class Unsupported(val capability: CapabilityDefinition, val reason: String? = null) : AccessResult
 }
 
 /**
@@ -24,7 +27,9 @@ sealed interface AccessResult {
  * Allow / Not Now / Learn More → Android system flow → **verify actual state** → ToolPipeline.
  *
  * Nothing here trusts a stored flag: the decision before asking and the verdict after asking
- * both come from [DeviceAccessPort], i.e. Android itself.
+ * both come from [DeviceAccessPort], i.e. Android itself. Special access (notification access,
+ * accessibility, usage access, assistant role) has no runtime dialog, so "Allow" opens its
+ * exact Android Settings page and the state is re-read when the user comes back.
  */
 class AccessCoordinator(
     private val device: DeviceAccessPort,
@@ -36,20 +41,30 @@ class AccessCoordinator(
         if (!capability.implementedOnAndroid) return AccessResult.Unsupported(capability)
         val required = permissions.distinct()
         val before = states(required)
+        if (before.values.any { it == AccessState.UNAVAILABLE }) {
+            return AccessResult.Unsupported(capability, "This phone's Android version can't provide ${capability.name.lowercase()}.")
+        }
         val missing = before.filterValues { !it.satisfied() }.keys.toList()
         if (missing.isEmpty()) return AccessResult.Granted
 
-        val needsSettings = missing.any { before.getValue(it).needsSettings() }
-        val choice = rationale.explain(RationaleRequest(capability.id.wireId, missing, requiresSettings = needsSettings))
+        val viaSettings = missing.filter { before.getValue(it).needsSettings() }
+        val reason = when {
+            viaSettings.any { before.getValue(it) == AccessState.SPECIAL_ACCESS_OFF } -> SettingsReason.SPECIAL_ACCESS
+            viaSettings.any { before.getValue(it) == AccessState.PERMANENTLY_DENIED } -> SettingsReason.PERMANENTLY_DENIED
+            viaSettings.isNotEmpty() -> SettingsReason.SYSTEM_SWITCH_OFF
+            else -> null
+        }
+        val choice = rationale.explain(
+            RationaleRequest(capability.id.wireId, missing, requiresSettings = viaSettings.isNotEmpty(), settingsReason = reason),
+        )
         if (choice == RationaleChoice.NOT_NOW) return AccessResult.Declined(capability)
 
-        if (needsSettings) {
-            settings.openAndAwaitReturn()
-        } else {
-            requester.request(missing)
-        }
+        val viaDialog = missing - viaSettings.toSet()
+        if (viaDialog.isNotEmpty()) requester.request(viaDialog)
+        // One Settings visit per distinct page (e.g. notification access), in order.
+        viaSettings.map { settingsTargetFor(it, before.getValue(it)) }.distinct().forEach { settings.openAndAwaitReturn(it) }
 
-        // Verify the real state after the system flow — the dialog closing proves nothing.
+        // Verify the real state after the system flow — the dialog or page closing proves nothing.
         val after = states(required)
         val stillMissing = after.filterValues { !it.satisfied() }.keys.toList()
         if (stillMissing.isEmpty()) return AccessResult.Granted
@@ -66,4 +81,5 @@ class AccessCoordinator(
 
 fun AccessState.satisfied(): Boolean = this == AccessState.GRANTED || this == AccessState.NOT_REQUIRED
 
-fun AccessState.needsSettings(): Boolean = this == AccessState.PERMANENTLY_DENIED || this == AccessState.SYSTEM_DISABLED
+fun AccessState.needsSettings(): Boolean =
+    this == AccessState.PERMANENTLY_DENIED || this == AccessState.SYSTEM_DISABLED || this == AccessState.SPECIAL_ACCESS_OFF

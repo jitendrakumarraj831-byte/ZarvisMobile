@@ -2,6 +2,7 @@ package com.zarvismobile.domain.orchestrator
 
 import com.zarvismobile.domain.entity.SkillDefinition
 import com.zarvismobile.domain.entity.SkillInput
+import com.zarvismobile.domain.skill.SpecialAccessSkills
 
 /**
  * Builds the [SkillInput] for a skill [KeywordSkillMatcher] matched, from the raw utterance
@@ -30,6 +31,8 @@ object OnDeviceInputBuilder {
         "phone.open_app" -> SkillInput(mapOf("appName" to subject(utterance, skill)))
         "phone.find_contact" -> SkillInput(mapOf("name" to subject(utterance, skill)))
         "phone.call" -> SkillInput(mapOf("target" to subject(utterance, skill)))
+        "device.global_action" -> SkillInput(mapOf("action" to (SpecialAccessSkills.parseGlobalAction(utterance) ?: "")))
+        "screen.tap" -> SkillInput(mapOf("label" to (SpecialAccessSkills.parseTapLabel(utterance) ?: "")))
         else -> SkillInput(mapOf("utterance" to utterance))
     }
 

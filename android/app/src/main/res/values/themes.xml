@@ -9,4 +9,13 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">@color/ic_launcher_background</item>
     </style>
+
+    <!-- The assistant overlay: translucent so the app the user was in stays visible behind it. -->
+    <style name="Theme.Zarvis.Assist" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
+    </style>
 </resources>

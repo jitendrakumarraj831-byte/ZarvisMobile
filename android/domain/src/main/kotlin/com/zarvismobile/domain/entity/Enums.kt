@@ -1,7 +1,14 @@
 package com.zarvismobile.domain.entity
 
 /** Android runtime permissions / OAuth-style scopes a skill may require. See MASTER_SPEC.md §16. */
-enum class PermissionType {
+enum class PermissionType(
+    /**
+     * True for access Android grants only on a dedicated system Settings page (never through a
+     * runtime permission dialog): notification access, an accessibility service, usage access
+     * and the assistant role.
+     */
+    val specialAccess: Boolean = false,
+) {
     NOTIFICATIONS,
     CONTACTS,
     PHONE_CALL,
@@ -10,6 +17,18 @@ enum class PermissionType {
     STORAGE,
     CALENDAR,
     LOCATION,
+
+    /** NotificationListenerService enabled in Settings > Notification access. */
+    NOTIFICATION_LISTENER(specialAccess = true),
+
+    /** ZARVIS's AccessibilityService turned on in Settings > Accessibility. */
+    ACCESSIBILITY_SERVICE(specialAccess = true),
+
+    /** PACKAGE_USAGE_STATS app-op allowed in Settings > Usage access. */
+    USAGE_ACCESS(specialAccess = true),
+
+    /** ZARVIS holds RoleManager.ROLE_ASSISTANT (chosen in Settings > Default apps). */
+    ASSISTANT_ROLE(specialAccess = true),
 }
 
 /**

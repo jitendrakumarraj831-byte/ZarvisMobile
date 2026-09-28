@@ -45,8 +45,15 @@ object ToolResults {
                 ToolResult(false, ToolResultStatus.UNSUPPORTED, capabilityId, skillId, message, false, null)
             is ToolExecutionOutcome.ValidationFailed ->
                 ToolResult(false, ToolResultStatus.USER_ACTION_REQUIRED, capabilityId, skillId, message, true, null)
-            is ToolExecutionOutcome.ExecutionFailed ->
-                ToolResult(false, ToolResultStatus.FAILED, capabilityId, skillId, message, true, null)
+            is ToolExecutionOutcome.ExecutionFailed -> ToolResult(
+                success = false,
+                status = if (outcome.result.userActionRequired) ToolResultStatus.USER_ACTION_REQUIRED else ToolResultStatus.FAILED,
+                capabilityId = capabilityId,
+                skillId = skillId,
+                userSafeMessage = message,
+                retryable = true,
+                verificationEvidence = null,
+            )
             is ToolExecutionOutcome.VerificationFailed ->
                 ToolResult(false, ToolResultStatus.FAILED, capabilityId, skillId, message, true, null)
         }

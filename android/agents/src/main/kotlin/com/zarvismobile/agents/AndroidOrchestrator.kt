@@ -122,7 +122,7 @@ class AndroidOrchestrator(
                         is AccessResult.Denied -> return accessProblem(skill, cap, ToolResultStatus.PERMISSION_REQUIRED,
                             "${cap.name} access is still off" + (if (result.permanently) " (it can only be turned on in ${cap.settingsDestination})" else "") +
                                 ", so nothing was done. ${cap.fallback}")
-                        is AccessResult.Unsupported -> return unsupported(skill, cap)
+                        is AccessResult.Unsupported -> return unsupported(skill, cap, result.reason)
                     }
                 }
             }
@@ -210,8 +210,9 @@ class AndroidOrchestrator(
             result = ToolResult(false, status, capability.id.wireId, skill.id, message, retryable = true, verificationEvidence = null),
         )
 
-    private fun unsupported(skill: SkillDefinition, capability: CapabilityDefinition): TurnOutcome {
-        val message = "${capability.name} isn't available in this version of ZARVIS. ${capability.android.note}"
+    private fun unsupported(skill: SkillDefinition, capability: CapabilityDefinition, reason: String? = null): TurnOutcome {
+        val message = reason?.let { "$it ${capability.fallback}" }
+            ?: "${capability.name} isn't available in this version of ZARVIS. ${capability.android.note}"
         return TurnOutcome(message, ToolResult(false, ToolResultStatus.UNSUPPORTED, capability.id.wireId, skill.id, message, false, null))
     }
 }

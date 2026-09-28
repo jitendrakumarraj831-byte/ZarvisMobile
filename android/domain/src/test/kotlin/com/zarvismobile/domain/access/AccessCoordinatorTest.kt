@@ -2,6 +2,8 @@ package com.zarvismobile.domain.access
 
 import com.zarvismobile.domain.capability.CapabilityId
 import com.zarvismobile.domain.capability.CapabilityRegistry
+import com.zarvismobile.domain.capability.PlatformState
+import com.zarvismobile.domain.entity.CapabilityStatus
 import com.zarvismobile.domain.entity.PermissionType
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -22,6 +24,7 @@ class AccessCoordinatorTest {
         val rationales = mutableListOf<RationaleRequest>()
         var systemRequests = 0
         var settingsOpened = 0
+        val settingsTargets = mutableListOf<SettingsTarget>()
     }
 
     private fun coordinator(
@@ -37,8 +40,9 @@ class AccessCoordinatorTest {
             recorder.systemRequests++
             perms.forEach { android.states[it] = if (userGrantsInDialog) AccessState.GRANTED else AccessState.DENIED }
         },
-        settings = AppSettingsPort {
+        settings = AppSettingsPort { target ->
             recorder.settingsOpened++
+            recorder.settingsTargets += target
             if (userGrantsInSettings) android.states.replaceAll { _, _ -> AccessState.GRANTED }
         },
     )
@@ -106,8 +110,71 @@ class AccessCoordinatorTest {
     @Test
     fun `a planned capability is reported unsupported without prompting`() = runTest {
         val r = Recorder()
-        val result = coordinator(FakeAndroid(mutableMapOf()), RationaleChoice.ALLOW, r).ensure(registry.get(CapabilityId.NOTIFICATION_READ))
+        val planned = contacts.copy(android = PlatformState(CapabilityStatus.PLANNED, "Not in this build."))
+        val result = coordinator(FakeAndroid(mutableMapOf()), RationaleChoice.ALLOW, r).ensure(planned)
         assertIs<AccessResult.Unsupported>(result)
         assertTrue(r.rationales.isEmpty())
+    }
+
+    private val notificationRead = registry.get(CapabilityId.NOTIFICATION_READ)
+
+    @Test
+    fun `special access - explained, then its own settings page, never a runtime dialog, verified granted`() = runTest {
+        val r = Recorder()
+        val android = FakeAndroid(mutableMapOf(PermissionType.NOTIFICATION_LISTENER to AccessState.SPECIAL_ACCESS_OFF))
+        val result = coordinator(android, RationaleChoice.ALLOW, r, userGrantsInSettings = true).ensure(notificationRead)
+        assertIs<AccessResult.Granted>(result)
+        val rationale = r.rationales.single()
+        assertTrue(rationale.requiresSettings)
+        assertEquals(SettingsReason.SPECIAL_ACCESS, rationale.settingsReason)
+        assertEquals(listOf(SettingsTarget.NOTIFICATION_LISTENER), r.settingsTargets)
+        assertEquals(0, r.systemRequests)
+    }
+
+    @Test
+    fun `special access - Not now opens nothing`() = runTest {
+        val r = Recorder()
+        val android = FakeAndroid(mutableMapOf(PermissionType.ACCESSIBILITY_SERVICE to AccessState.SPECIAL_ACCESS_OFF))
+        val result = coordinator(android, RationaleChoice.NOT_NOW, r).ensure(registry.get(CapabilityId.ACCESSIBILITY))
+        assertIs<AccessResult.Declined>(result)
+        assertTrue(r.settingsTargets.isEmpty() && r.systemRequests == 0)
+    }
+
+    @Test
+    fun `special access - returning from settings without turning it on is denied, not trusted`() = runTest {
+        val r = Recorder()
+        val android = FakeAndroid(mutableMapOf(PermissionType.USAGE_ACCESS to AccessState.SPECIAL_ACCESS_OFF))
+        val result = coordinator(android, RationaleChoice.ALLOW, r, userGrantsInSettings = false).ensure(registry.get(CapabilityId.USAGE_STATS))
+        assertIs<AccessResult.Denied>(result)
+        assertTrue(result.permanently)
+        assertEquals(listOf(SettingsTarget.USAGE_ACCESS), r.settingsTargets)
+    }
+
+    @Test
+    fun `assistant role opens the default apps page`() = runTest {
+        val r = Recorder()
+        val android = FakeAndroid(mutableMapOf(PermissionType.ASSISTANT_ROLE to AccessState.SPECIAL_ACCESS_OFF))
+        coordinator(android, RationaleChoice.ALLOW, r, userGrantsInSettings = true).ensure(registry.get(CapabilityId.DEFAULT_ASSISTANT))
+        assertEquals(listOf(SettingsTarget.DEFAULT_ASSISTANT), r.settingsTargets)
+    }
+
+    @Test
+    fun `unavailable on this device is unsupported with a reason and no prompt`() = runTest {
+        val r = Recorder()
+        val android = FakeAndroid(mutableMapOf(PermissionType.ASSISTANT_ROLE to AccessState.UNAVAILABLE))
+        val result = coordinator(android, RationaleChoice.ALLOW, r).ensure(registry.get(CapabilityId.DEFAULT_ASSISTANT))
+        assertIs<AccessResult.Unsupported>(result)
+        assertTrue(result.reason!!.contains("Android version"))
+        assertTrue(r.rationales.isEmpty() && r.settingsTargets.isEmpty())
+    }
+
+    @Test
+    fun `notifications switched off below Android 13 open the app notification page`() = runTest {
+        val r = Recorder()
+        val reminders = registry.get(CapabilityId.ALARMS)
+        val android = FakeAndroid(mutableMapOf(PermissionType.NOTIFICATIONS to AccessState.SYSTEM_DISABLED))
+        coordinator(android, RationaleChoice.ALLOW, r, userGrantsInSettings = true).ensure(reminders, listOf(PermissionType.NOTIFICATIONS))
+        assertEquals(listOf(SettingsTarget.APP_NOTIFICATIONS), r.settingsTargets)
+        assertEquals(SettingsReason.SYSTEM_SWITCH_OFF, r.rationales.single().settingsReason)
     }
 }
