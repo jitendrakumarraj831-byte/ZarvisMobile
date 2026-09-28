@@ -13,6 +13,7 @@ import com.zarvismobile.app.Device.eventually
 import com.zarvismobile.app.Device.ui
 import com.zarvismobile.domain.notification.NotificationMode
 import com.zarvismobile.domain.notification.NotificationPrivacySettings
+import java.util.regex.Pattern
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -30,17 +31,28 @@ import org.junit.runner.RunWith
 class SettingsUiTest {
     @get:Rule val diagnose = DiagnoseOnFailure()
 
-    /** Finds [text] on the current page, scrolling to the top first and then down through it. */
-    private fun find(text: String, timeoutMs: Long = 10_000): UiObject2? {
-        ui.wait(Until.findObject(By.pkg(APP).text(text)), 2_000)?.let { return it }
-        ui.findObject(By.pkg(APP).scrollable(true))?.let { list -> repeat(20) { if (!list.scroll(Direction.UP, 0.8f)) return@let } }
-        val end = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < end) {
-            ui.findObject(By.pkg(APP).text(text))?.let { return it }
-            val scrollable = ui.findObject(By.pkg(APP).scrollable(true)) ?: break
-            if (!scrollable.scroll(Direction.DOWN, 0.6f)) break
+    /** The app's visible texts — used to tell whether a scroll actually moved (Compose's scroll() result isn't reliable). */
+    private fun visibleTexts(): List<String> = ui.findObjects(By.pkg(APP).text(Pattern.compile(".+", Pattern.DOTALL))).mapNotNull { it.text }
+
+    private fun scrollUntilStuck(direction: Direction, text: String? = null, maxSteps: Int = 25): UiObject2? {
+        var before = visibleTexts()
+        repeat(maxSteps) {
+            text?.let { t -> ui.findObject(By.pkg(APP).text(t))?.let { return it } }
+            val list = ui.findObject(By.pkg(APP).scrollable(true)) ?: return null
+            list.scroll(direction, 0.6f)
+            ui.waitForIdle()
+            val after = visibleTexts()
+            if (after == before) return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
+            before = after
         }
-        return ui.findObject(By.pkg(APP).text(text)) ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found") }
+        return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
+    }
+
+    /** Finds [text] on the current page: from the top, scrolling down through it. */
+    private fun find(text: String): UiObject2? {
+        ui.wait(Until.findObject(By.pkg(APP).text(text)), 2_000)?.let { return it }
+        scrollUntilStuck(Direction.UP)
+        return scrollUntilStuck(Direction.DOWN, text) ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found") }
     }
 
     private fun openSettings() {
@@ -86,7 +98,7 @@ class SettingsUiTest {
             openSettings()
             (find("Permissions & Device Access") ?: error("Permissions page not listed")).click()
             val names = entry.capabilityRegistry().capabilities.map { it.name }
-            for (name in names) assertNotNull("capability \"$name\" shown", find(name, timeoutMs = 20_000))
+            for (name in names) assertNotNull("capability \"$name\" shown", find(name))
             evidence("ui permission_center rendered ${names.size} capabilities: $names")
         }
     }

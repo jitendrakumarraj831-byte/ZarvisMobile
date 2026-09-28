@@ -113,17 +113,26 @@ class NotificationSpeaker(
         return audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in types }
     }
 
-    private suspend fun engine(): TextToSpeech? {
-        tts?.let { existing -> if (ttsReady?.await() == true) return existing }
+    /** The phone's TTS engine, or why it can't be used (no engine installed vs. it didn't start). */
+    private suspend fun engine(): Result<TextToSpeech> {
+        tts?.let { existing -> if (ttsReady?.await() == true) return Result.success(existing) }
+        tts?.shutdown()
         val ready = CompletableDeferred<Boolean>()
         ttsReady = ready
-        tts = TextToSpeech(context) { status -> ready.complete(status == TextToSpeech.SUCCESS) }
-        return if (withTimeoutOrNull(5_000) { ready.await() } == true) tts else null
+        val created = TextToSpeech(context) { status -> ready.complete(status == TextToSpeech.SUCCESS) }
+        tts = created
+        // A cold engine (first use after boot or install) can take several seconds to bind.
+        if (withTimeoutOrNull(ENGINE_START_TIMEOUT_MS) { ready.await() } == true) return Result.success(created)
+        val installed = created.engines.isNotEmpty()
+        created.shutdown()
+        tts = null
+        ttsReady = null
+        return Result.failure(IllegalStateException(if (installed) ENGINE_DID_NOT_START else NO_ENGINE))
     }
 
     /** Returns only once Android reports the utterance actually started (or failed). */
     private suspend fun speak(text: String): SpeakOutcome {
-        val engine = engine() ?: return SpeakOutcome.Failed("no text-to-speech engine available")
+        val engine = engine().getOrElse { return SpeakOutcome.Failed(it.message ?: NO_ENGINE) }
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val attributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
@@ -171,5 +180,8 @@ class NotificationSpeaker(
         const val TAG = "ZarvisNotifications"
         const val DEDUPE_WINDOW_MS = 60_000L
         const val RECENT_LIMIT = 20
+        const val ENGINE_START_TIMEOUT_MS = 20_000L
+        const val NO_ENGINE = "no text-to-speech engine available"
+        const val ENGINE_DID_NOT_START = "the text-to-speech engine did not start"
     }
 }
