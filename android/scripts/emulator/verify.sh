@@ -5,6 +5,7 @@
 #   B. process death while an action waits on the user (two separate processes)
 #   C. adb lifecycle scenarios (revocation kills the process)
 #   D. special access + device capabilities against the real system services
+#   E. the Settings UI (Notifications page, Permission Center), driven like a user
 # All output goes to build/emulator-evidence/; exits non-zero on any failure.
 set -uo pipefail
 
@@ -73,7 +74,9 @@ done
 # Keep feeding GPS fixes while phase D runs (a single fix goes stale before the location test).
 ( while true; do adb emu geo fix 87.2677 26.2987 >/dev/null 2>&1; sleep 3; done ) &
 GEO_PID=$!
-run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest,$APP.SettingsUiTest"
+run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest"
+# E: the Settings UI in a fresh process, independent of D's accessibility-service toggling.
+run_classes E "$APP.SettingsUiTest"
 
 kill "$GEO_PID" 2>/dev/null || true
 sleep 1
