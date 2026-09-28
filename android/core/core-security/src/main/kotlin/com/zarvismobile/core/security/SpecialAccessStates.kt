@@ -2,6 +2,7 @@ package com.zarvismobile.core.security
 
 import android.Manifest
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
@@ -9,7 +10,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
-import androidx.core.app.NotificationManagerCompat
 import com.zarvismobile.domain.access.AccessState
 import com.zarvismobile.domain.entity.PermissionType
 
@@ -40,8 +40,22 @@ class SpecialAccessStates(
 
     private fun on(enabled: Boolean) = if (enabled) AccessState.GRANTED else AccessState.SPECIAL_ACCESS_OFF
 
-    fun notificationListenerEnabled(): Boolean =
-        NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+    /**
+     * Asked of Android on every call. NotificationManagerCompat.getEnabledListenerPackages is not
+     * used: it caches the list and keeps the stale copy when the setting is cleared, so a
+     * revocation would read as still granted.
+     */
+    fun notificationListenerEnabled(): Boolean {
+        val mine = components.notificationListener
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            if (manager != null) return manager.isNotificationListenerAccessGranted(mine)
+        }
+        val enabled = Settings.Secure.getString(context.contentResolver, ENABLED_NOTIFICATION_LISTENERS).orEmpty()
+        return enabled.split(':').any { entry ->
+            ComponentName.unflattenFromString(entry.trim())?.let { it.packageName == mine.packageName && it.className == mine.className } == true
+        }
+    }
 
     fun accessibilityServiceEnabled(): Boolean {
         val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
@@ -82,5 +96,10 @@ class SpecialAccessStates(
         } catch (e: SecurityException) {
             AccessState.UNAVAILABLE
         }
+    }
+
+    private companion object {
+        /** Settings.Secure key Android keeps the enabled notification listeners in (hidden constant). */
+        const val ENABLED_NOTIFICATION_LISTENERS = "enabled_notification_listeners"
     }
 }

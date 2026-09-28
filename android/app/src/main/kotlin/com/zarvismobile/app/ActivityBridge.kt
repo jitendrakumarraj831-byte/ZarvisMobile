@@ -127,9 +127,11 @@ object ActivityBridge : SystemPermissionRequester, AppSettingsPort, DocumentPick
         val names = permissions.mapNotNull { it.androidPermission() }.distinct()
         val entry = current ?: return
         if (names.isEmpty()) return
-        awaitResult(entry) { entry.permission.launch(names.toTypedArray()) }
-        // Recorded after the dialog so "never asked" vs "denied permanently" stays accurate.
-        names.forEach { requestLog?.markRequested(it) }
+        val answered = awaitResult(entry) { entry.permission.launch(names.toTypedArray()) }.getOrNull() as? Map<*, *>
+        // Recorded after the dialog, and only for permissions Android actually answered: a prompt
+        // closed without an answer (empty result — e.g. the dialog was dismissed or interrupted)
+        // must not make a later check read "denied permanently" and send the user to Settings.
+        names.filter { answered?.containsKey(it) == true }.forEach { requestLog?.markRequested(it) }
     }
 
     override suspend fun openAndAwaitReturn(target: SettingsTarget) {

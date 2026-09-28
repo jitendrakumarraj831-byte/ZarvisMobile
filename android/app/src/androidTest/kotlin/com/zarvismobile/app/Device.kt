@@ -79,6 +79,14 @@ object Device {
         evidence("environment: dismissed Android system error dialog \"$title\" (not a ZARVIS dialog)")
     }
 
+    fun systemUiRunning(): Boolean = shell("pidof com.android.systemui").isNotBlank()
+
+    /** After Android's System UI crashed and restarted, wait until it (and a window) is back. */
+    fun awaitSystemReady(timeoutMs: Long = 20_000) {
+        dismissSystemErrorDialogs()
+        eventually(timeoutMs, stepMs = 500) { systemUiRunning() && ui.currentPackageName != null }
+    }
+
     /** Waits for [selector] (dismissing Android crash dialogs); on timeout records what was on screen. */
     fun waitFor(selector: BySelector, timeoutMs: Long = 15_000): UiObject2? {
         val end = System.currentTimeMillis() + timeoutMs

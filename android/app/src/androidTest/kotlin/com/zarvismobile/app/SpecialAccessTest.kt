@@ -376,9 +376,18 @@ class SpecialAccessTest {
         assertEquals(ToolResultStatus.COMPLETED, setup.result?.status)
         evidence("default_assistant role held -> ${setup.result?.verificationEvidence}")
 
-        ui.pressHome()
-        shell("input keyevent KEYCODE_ASSIST")
-        assertTrue("assist gesture brought ZARVIS to the front", eventually(15_000) { ui.currentPackageName == APP })
+        // The assist key is routed through Android's System UI; if that crashed and restarted
+        // (seen on the API 26 image), press it again once System UI is back.
+        var opened = false
+        for (attempt in 1..2) {
+            Device.awaitSystemReady()
+            ui.pressHome()
+            shell("input keyevent KEYCODE_ASSIST")
+            opened = eventually(15_000) { ui.currentPackageName == APP }
+            if (opened) break
+            evidence("default_assistant attempt $attempt: ZARVIS not in front (front=${ui.currentPackageName}, systemui running=${Device.systemUiRunning()})")
+        }
+        assertTrue("assist gesture brought ZARVIS to the front", opened)
         // The overlay starts listening at once, so on a fresh install ZARVIS first explains the
         // microphone (§10). Answer Not now: the overlay must stay usable with typed input.
         ui.wait(Until.findObject(By.pkg(APP).text("Not now")), 5_000)?.click()
