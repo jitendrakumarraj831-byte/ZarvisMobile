@@ -1,4 +1,4 @@
-import type { EntitlementLevel, PermissionType, Task } from "../domain/types.js";
+import type { ActionClass, EntitlementLevel, PermissionType, RiskLevel, Task } from "../domain/types.js";
 
 export class InsufficientCreditsError extends Error {
   constructor(accountId: string) {
@@ -7,11 +7,61 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
+export class EmailTakenError extends Error {
+  constructor() {
+    super("An account with this email already exists");
+    this.name = "EmailTakenError";
+  }
+}
+
 export interface User {
   id: string;
   email: string;
   passwordHash: string;
+  /** A device-bootstrapped guest with a generated email; can be linked to a real email. */
+  isGuest: boolean;
   createdAt: Date;
+}
+
+/** One signed-in device/browser. Refresh tokens rotate; only the latest one is valid. */
+export interface AuthSession {
+  id: string;
+  userId: string;
+  accountId: string;
+  /** sha256 of the current refresh token's `jti` — the raw token is never stored. */
+  refreshTokenHash: string;
+  createdAt: Date;
+  expiresAt: Date;
+  lastUsedAt: Date;
+  revokedAt?: Date;
+}
+
+export type ConfirmationStatus = "PENDING" | "APPROVED" | "DECLINED";
+
+/** A server-issued, account-bound, single-use, expiring approval for one exact tool call. */
+export interface ConfirmationRecord {
+  id: string;
+  accountId: string;
+  skillId: string;
+  input: Record<string, unknown>;
+  inputHash: string;
+  action: string;
+  riskLevel: RiskLevel;
+  actionClass: ActionClass;
+  conversationId?: string;
+  status: ConfirmationStatus;
+  createdAt: Date;
+  expiresAt: Date;
+  resolvedAt?: Date;
+}
+
+/** A user's own GitHub credential. The token is only ever stored encrypted. */
+export interface GitHubConnection {
+  accountId: string;
+  encryptedToken: string;
+  githubLogin: string;
+  scopes: string;
+  connectedAt: Date;
 }
 
 export interface Account {
@@ -62,7 +112,9 @@ export interface ConversationMessage {
  * container.ts). See MASTER_SPEC.md §31 and DEVELOPMENT.md.
  */
 export interface Store {
-  createUser(email: string, passwordHash: string): Promise<User>;
+  createUser(email: string, passwordHash: string, isGuest?: boolean): Promise<User>;
+  /** Links a guest to a real email/password (isGuest becomes false). Throws EmailTakenError. */
+  updateUserCredentials(userId: string, email: string, passwordHash: string): Promise<User>;
   findUserByEmail(email: string): Promise<User | undefined>;
   findUserById(id: string): Promise<User | undefined>;
 
@@ -103,6 +155,30 @@ export interface Store {
 
   grantedPermissions(accountId: string): Promise<Set<PermissionType>>;
   grantPermission(accountId: string, permission: PermissionType): Promise<void>;
+
+  createSession(session: AuthSession): Promise<AuthSession>;
+  getSession(sessionId: string): Promise<AuthSession | undefined>;
+  /** Atomic compare-and-set of the refresh hash; false when `expectedHash` is not current or the session is revoked/expired. */
+  rotateSession(sessionId: string, expectedHash: string, newHash: string, newExpiresAt: Date, now: Date): Promise<boolean>;
+  revokeSession(sessionId: string, now: Date): Promise<void>;
+
+  createConfirmation(record: ConfirmationRecord): Promise<ConfirmationRecord>;
+  getConfirmation(accountId: string, confirmationId: string): Promise<ConfirmationRecord | undefined>;
+  /**
+   * Atomically moves a PENDING, unexpired confirmation owned by `accountId` to `status`.
+   * Returns undefined when it is missing, owned by someone else, expired or already resolved —
+   * which is what makes an approval single-use.
+   */
+  resolveConfirmation(
+    accountId: string,
+    confirmationId: string,
+    status: Exclude<ConfirmationStatus, "PENDING">,
+    now: Date,
+  ): Promise<ConfirmationRecord | undefined>;
+
+  saveGitHubConnection(connection: GitHubConnection): Promise<void>;
+  getGitHubConnection(accountId: string): Promise<GitHubConnection | undefined>;
+  deleteGitHubConnection(accountId: string): Promise<void>;
 
   createTask(task: Task): Promise<Task>;
   getTask(taskId: string): Promise<Task | undefined>;

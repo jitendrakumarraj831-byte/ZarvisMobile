@@ -39,6 +39,7 @@ export function createAutomationCreateWorkflowSkill(taskService: TaskService): S
     requiredEntitlement: "FREE",
     usageCost: { value: 1, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "LOW_IMPACT",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["goal", "steps"], properties: { goal: "string", steps: "string" } },

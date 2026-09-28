@@ -21,6 +21,7 @@ export function createCreativeWriteMessageSkill(generator: ContentGenerator): Sk
     requiredEntitlement: "FREE",
     usageCost: { value: 1, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "READ_ONLY",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["prompt"], properties: { prompt: "string" } },

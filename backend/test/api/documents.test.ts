@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { buildContainer } from "../../src/container.js";
+import { MockGitHubClient } from "../../src/github/githubClient.js";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
 import { buildServer } from "../../src/server.js";
 import { buildDocxFixture, buildPdfFixture } from "../documents/fixtures.js";
@@ -11,7 +12,7 @@ describe("POST /api/v1/documents/extract", () => {
   let token: string;
 
   beforeEach(async () => {
-    app = buildServer(buildContainer(new InMemoryStore()));
+    app = buildServer(buildContainer(new InMemoryStore(), { githubClientFactory: (token) => new MockGitHubClient({ token }) }));
     const res = await request(app).post("/api/v1/auth/signup").send({ email: "docs@example.com", password: "password123" });
     token = res.body.accessToken;
   });
@@ -51,9 +52,18 @@ describe("POST /api/v1/documents/extract", () => {
     const res = await request(app)
       .post("/api/v1/documents/extract")
       .set("Authorization", `Bearer ${token}`)
-      .attach("file", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "photo.png", contentType: "image/png" });
+      .attach("file", Buffer.from([0x50, 0x4b, 0x03, 0x04]), { filename: "archive.zip", contentType: "application/zip" });
     expect(res.status).toBe(415);
     expect(res.body.error).toBe("unsupported_file_type");
+  });
+
+  it("reports image analysis as unavailable (503) when no vision provider is configured", async () => {
+    const res = await request(app)
+      .post("/api/v1/documents/extract")
+      .set("Authorization", `Bearer ${token}`)
+      .attach("file", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "photo.png", contentType: "image/png" });
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("image_analysis_unavailable");
   });
 
   it("returns a generic, honest error for a corrupt PDF — never a stack trace", async () => {

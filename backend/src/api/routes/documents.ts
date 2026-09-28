@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 import { classifyDocumentType, extractDocumentText, DocumentExtractionError } from "../../documents/extractText.js";
 import { logger } from "../../security/redact.js";
 import { env } from "../../config/env.js";
@@ -63,8 +64,8 @@ async function analyzeImageWithGemini(buffer: Buffer, mimeType: string): Promise
       let response: Response;
       try {
         response = await fetch(
-          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + env.geminiApiKey,
-          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent",
+          { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.geminiApiKey }, body: JSON.stringify(body) },
         );
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -102,10 +103,13 @@ async function analyzeImageWithGemini(buffer: Buffer, mimeType: string): Promise
 
 export function documentsRouter(): Router {
   const router = Router();
+  // Extraction and image analysis are not credit-charged; this per-account limit bounds cost.
+  const limit = rateLimit({ name: "documents", windowMs: 60 * 1000, max: 20, keyBy: "account" });
 
   router.post(
     "/extract",
     requireAuth,
+    limit,
     (req, res, next) => {
       upload.single("file")(req, res, (err: unknown) => {
         if (!err) {
@@ -124,6 +128,11 @@ export function documentsRouter(): Router {
       }
 
       if (IMAGE_MIME_TYPES.has(file.mimetype)) {
+        if (!env.geminiApiKey) {
+          // Honest capability state: images are supported only when a vision provider is configured.
+          res.status(503).json({ error: "image_analysis_unavailable" });
+          return;
+        }
         try {
           const text = await analyzeImageWithGemini(file.buffer, file.mimetype);
           if (!text) { res.status(422).json({ error: "empty_document" }); return; }

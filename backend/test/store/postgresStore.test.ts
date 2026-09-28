@@ -84,4 +84,60 @@ describe.skipIf(!TEST_DATABASE_URL)("PostgresStore", () => {
     expect(await store.findUserById(user.id)).toBeUndefined();
     expect(await store.listTasksForAccount(account.id)).toEqual([]);
   });
+
+  it("rotates a session refresh hash atomically: exactly one of two concurrent rotations wins", async () => {
+    const user = await store.createUser(`session-${Date.now()}@example.com`, "hashed");
+    const account = await store.createAccountForUser(user.id);
+    const now = new Date();
+    const later = new Date(now.getTime() + 60_000);
+    const session = await store.createSession({
+      id: crypto.randomUUID(), userId: user.id, accountId: account.id, refreshTokenHash: "h0",
+      createdAt: now, expiresAt: later, lastUsedAt: now,
+    });
+    const results = await Promise.all([
+      store.rotateSession(session.id, "h0", "h1", later, now),
+      store.rotateSession(session.id, "h0", "h2", later, now),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    await store.revokeSession(session.id, now);
+    expect((await store.getSession(session.id))?.revokedAt).toBeInstanceOf(Date);
+    const current = (await store.getSession(session.id))!.refreshTokenHash;
+    expect(await store.rotateSession(session.id, current, "h3", later, now)).toBe(false);
+  });
+
+  it("resolves a confirmation exactly once, only for its owner, only before expiry", async () => {
+    const user = await store.createUser(`confirm-${Date.now()}@example.com`, "hashed");
+    const account = await store.createAccountForUser(user.id);
+    const now = new Date();
+    const base = {
+      accountId: account.id, skillId: "developer.implement", input: { repoUrl: "https://github.com/a/b" }, inputHash: "abc",
+      action: "do it", riskLevel: "HIGH" as const, actionClass: "EXTERNAL_COMMUNICATION" as const, status: "PENDING" as const, createdAt: now,
+    };
+    const live = await store.createConfirmation({ ...base, id: crypto.randomUUID(), expiresAt: new Date(now.getTime() + 60_000) });
+    const expired = await store.createConfirmation({ ...base, id: crypto.randomUUID(), expiresAt: new Date(now.getTime() - 1) });
+
+    expect(await store.resolveConfirmation(crypto.randomUUID(), live.id, "APPROVED", now)).toBeUndefined();
+    const results = await Promise.all([
+      store.resolveConfirmation(account.id, live.id, "APPROVED", now),
+      store.resolveConfirmation(account.id, live.id, "APPROVED", now),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(results.find(Boolean)!.input).toEqual({ repoUrl: "https://github.com/a/b" });
+    expect(await store.resolveConfirmation(account.id, expired.id, "APPROVED", now)).toBeUndefined();
+  });
+
+  it("links a guest user's credentials and cascades new tables on account deletion", async () => {
+    const user = await store.createUser(`guest-${crypto.randomUUID()}@device.zarvismobile.local`, "hashed", true);
+    const account = await store.createAccountForUser(user.id);
+    expect((await store.findUserById(user.id))?.isGuest).toBe(true);
+    const linked = await store.updateUserCredentials(user.id, `linked-${Date.now()}@example.com`, "hashed2");
+    expect(linked.isGuest).toBe(false);
+
+    const now = new Date();
+    await store.createSession({ id: crypto.randomUUID(), userId: user.id, accountId: account.id, refreshTokenHash: "h", createdAt: now, expiresAt: now, lastUsedAt: now });
+    await store.saveGitHubConnection({ accountId: account.id, encryptedToken: "v1:x", githubLogin: "a", scopes: "", connectedAt: now });
+    await store.deleteAccount(account.id);
+    expect(await store.getGitHubConnection(account.id)).toBeUndefined();
+    expect(await store.findUserById(user.id)).toBeUndefined();
+  });
 });

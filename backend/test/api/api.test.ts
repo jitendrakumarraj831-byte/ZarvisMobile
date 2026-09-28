@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { buildContainer } from "../../src/container.js";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
+import { MockGitHubClient } from "../../src/github/githubClient.js";
 import { buildServer } from "../../src/server.js";
 
 describe("API integration", () => {
   let app: Express;
 
   beforeEach(() => {
-    app = buildServer(buildContainer(new InMemoryStore()));
+    app = buildServer(buildContainer(new InMemoryStore(), { githubClientFactory: (token) => new MockGitHubClient({ token }) }));
   });
 
   async function signupAndGetToken(email = "demo@example.com"): Promise<string> {
@@ -35,7 +36,10 @@ describe("API integration", () => {
     expect(res.status).toBe(200);
     const ids = res.body.skills.map((s: { id: string }) => s.id);
     expect(ids).toEqual(expect.arrayContaining(["web.search", "docs.summarize", "developer.analyze_repo"]));
-    expect(res.body.skills.every((s: { upgradeRequired: boolean }) => s.upgradeRequired === false)).toBe(true);
+    // A new account is on TRIAL: every skill is usable except the PRO-only developer.implement.
+    for (const skill of res.body.skills as Array<{ id: string; upgradeRequired: boolean }>) {
+      expect(skill.upgradeRequired).toBe(skill.id === "developer.implement");
+    }
   });
 
   it("returns a resolved entitlement snapshot for the new trial account", async () => {

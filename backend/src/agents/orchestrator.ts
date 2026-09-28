@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
+import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
+import { stableJson } from "../util/stableJson.js";
 import type { ConversationMessage as StoredConversationMessage, Store } from "../store/store.js";
 import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
@@ -11,7 +13,6 @@ import { ZARVIS_ABOUT_RESPONSE_EN, ZARVIS_ABOUT_RESPONSE_HI, ZARVIS_CREATOR_RESP
 export interface TurnRequest {
   accountId: string;
   utterance: string;
-  confirmed?: boolean;
   locale?: string;
   /** Client-supplied display name; never an identity/auth claim. */
   userName?: string;
@@ -23,11 +24,25 @@ export interface TurnRequest {
   conversationId?: string;
 }
 
+export interface TurnToolCall {
+  skillId: string;
+  outcome: ToolExecutionOutcome;
+  /** Blueprint §10 structured result for the same outcome. */
+  result: StructuredToolResult;
+}
+
 export interface TurnResult {
   message: string;
-  toolCalls: Array<{ skillId: string; outcome: ToolExecutionOutcome }>;
+  toolCalls: TurnToolCall[];
   conversationId: string;
 }
+
+/** Real progress of a turn, emitted only when the stage actually happens (no simulated steps). */
+export type TurnEvent =
+  | { type: "conversation"; conversationId: string }
+  | { type: "thinking"; step: number }
+  | { type: "tool_started"; skillId: string }
+  | { type: "tool_finished"; skillId: string; status: StructuredToolResult["status"] };
 
 const MAX_AGENT_STEPS = 5;
 const MAX_TOOL_RESULT_CHARS = 8000;
@@ -51,7 +66,7 @@ export class Orchestrator {
     private readonly store: Store,
   ) {}
 
-  async runTurn(request: TurnRequest): Promise<TurnResult> {
+  async runTurn(request: TurnRequest, onEvent: (event: TurnEvent) => void = () => {}): Promise<TurnResult> {
     const conversation = request.conversationId
       ? await this.store.getConversation(request.accountId, request.conversationId)
       : undefined;
@@ -78,6 +93,7 @@ export class Orchestrator {
       persistedMessages.push(...seed);
     }
 
+    onEvent({ type: "conversation", conversationId: activeConversation.id });
     await this.store.appendConversationMessages([{
       id: randomUUID(),
       conversationId: activeConversation.id,
@@ -123,11 +139,11 @@ export class Orchestrator {
     const context: SkillExecutionContext = {
       accountId: request.accountId,
       taskId: undefined,
+      conversationId: activeConversation.id,
       locale: request.locale ?? "en",
-      confirmed: request.confirmed,
     };
 
-    const results: Array<{ skillId: string; outcome: ToolExecutionOutcome }> = [];
+    const results: TurnToolCall[] = [];
     const executedToolRequests = new Set<string>();
     const messages: ConversationMessage[] = [
       ...persistedMessages.map((message) => ({
@@ -138,6 +154,7 @@ export class Orchestrator {
     ];
 
     for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
+      onEvent({ type: "thinking", step: step + 1 });
       const aiResponse = await this.provider.generate({
         systemPrompt: buildSystemPrompt(request, step, results.length > 0),
         messages,
@@ -182,9 +199,20 @@ export class Orchestrator {
           skillId: call.skillId,
           input: { values: call.input },
         };
+        onEvent({ type: "tool_started", skillId: call.skillId });
         const outcome = await this.pipeline.execute(toolCall, context);
-        results.push({ skillId: call.skillId, outcome });
+        const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
+        results.push({ skillId: call.skillId, outcome, result });
+        onEvent({ type: "tool_finished", skillId: call.skillId, status: result.status });
         executedAny = true;
+
+        // A pending confirmation ends the turn: nothing else runs until the user approves or
+        // declines that exact action, and the model gets no chance to re-plan around it.
+        if (outcome.kind === "confirmation_required") {
+          const message = results.map((r) => explainOutcome(r.outcome)).join("\n");
+          await this.persistAssistantMessage(activeConversation.id, message);
+          return { message, toolCalls: results, conversationId: activeConversation.id };
+        }
 
         messages.push({
           role: "tool",
@@ -260,8 +288,8 @@ function getZarvisProfileResponse(utterance: string, locale?: string): string | 
 
   const aboutQuestion =
     /\b(what\s+is\s+zarvis|tell\s+me\s+about\s+zarvis|about\s+zarvis|what\s+can\s+you\s+do|what\s+are\s+you)\b/.test(normalized) ||
-    /जार्विस\s*(क्या\s+है|के\s+बारे\s+में|क्या\s+कर\s+सकते)/.test(normalized) ||
-    /आप\s*(क्या\s+हैं|क्या\s+कर\s+सकते)/.test(normalized);
+    /(zarvis|jarvis|जार्विस|ज़ार्विस)\s*(क्या\s+है|के\s+बारे\s+में|क्या\s+कर\s+सकत)/.test(normalized) ||
+    /आप\s*(क्या\s+हैं|क्या\s+कर\s+सकत)/.test(normalized);
 
   if (!creatorQuestion && !aboutQuestion) return undefined;
   const replyLanguage = detectReplyLanguage(normalized, locale);
@@ -360,8 +388,10 @@ export function explainOutcome(outcome: ToolExecutionOutcome): string {
       return `This needs a permission that isn't granted yet: ${outcome.missing.join(", ")}.`;
     case "entitlement_denied":
       return explainEntitlementDenial(outcome.decision);
+    case "confirmation_required":
+      return `I need your confirmation before I do this: ${outcome.confirmation.action} — approve or decline it below. Nothing has been done yet.`;
     case "confirmation_declined":
-      return "This action needs your confirmation before I can proceed — please confirm and I'll go ahead.";
+      return "You declined this action, so it was not performed.";
     case "execution_failed":
       return outcome.result.userMessage;
     case "verification_failed":
@@ -380,17 +410,4 @@ function explainEntitlementDenial(
     case "OUT_OF_CREDITS":
       return "You're out of credits for this action right now.";
   }
-}
-
-/**
- * Compact deterministic serialization used only to detect an exact duplicate tool request.
- * Tool outcomes can contain Dates or nested objects, so this intentionally handles the small
- * JSON-compatible shapes used by the domain without depending on object identity.
- */
-function stableJson(value: unknown): string {
-  if (value === undefined) return "undefined";
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
-  if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
-  const record = value as Record<string, unknown>;
-  return "{" + Object.keys(record).sort().map((key) => JSON.stringify(key) + ":" + stableJson(record[key])).join(",") + "}";
 }

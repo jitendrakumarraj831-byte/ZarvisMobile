@@ -6,8 +6,14 @@ export interface SearchResult {
   snippet: string;
 }
 
+export interface SearchResponse {
+  /** The provider's grounded answer text (empty when the provider returns only links). */
+  answer: string;
+  results: SearchResult[];
+}
+
 export interface SearchProvider {
-  search(query: string): Promise<SearchResult[]>;
+  search(query: string): Promise<SearchResponse>;
 }
 
 /**
@@ -21,12 +27,12 @@ export class GeminiSearchProvider implements SearchProvider {
     private readonly baseUrl = "https://generativelanguage.googleapis.com/v1beta",
   ) {}
 
-  async search(query: string): Promise<SearchResult[]> {
-    const response = await fetch(
-      `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent?key=${this.apiKey}`,
+  async search(query: string): Promise<SearchResponse> {
+    const response = await fetchWithTimeout(
+      `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
         body: JSON.stringify({
           contents: [{
             parts: [{
@@ -38,6 +44,7 @@ export class GeminiSearchProvider implements SearchProvider {
           generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
         }),
       },
+      60_000,
     );
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
@@ -56,11 +63,21 @@ export class GeminiSearchProvider implements SearchProvider {
       results.push({
         title: web.title || new URL(web.uri).hostname,
         url: web.uri,
-        snippet: answer.slice(0, 500),
+        snippet: "",
       });
       if (results.length >= 8) break;
     }
-    return results;
+    return { answer, results };
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -75,8 +92,10 @@ interface GeminiSearchResponse {
 
 /** Deterministic fallback used only when GEMINI_API_KEY is not configured (local/tests). */
 export class MockSearchProvider implements SearchProvider {
-  async search(query: string): Promise<SearchResult[]> {
-    return [
+  async search(query: string): Promise<SearchResponse> {
+    return {
+      answer: `[Mock search — no live provider configured] No real answer for "${query}".`,
+      results: [
       {
         title: `Mock result 1 for "${query}"`,
         url: "https://example.com/result-1",
@@ -87,7 +106,8 @@ export class MockSearchProvider implements SearchProvider {
         url: "https://example.com/result-2",
         snippet: "Configure GEMINI_API_KEY to enable live Google Search grounding.",
       },
-    ];
+      ],
+    };
   }
 }
 
@@ -102,6 +122,7 @@ export function createWebSearchSkill(provider: SearchProvider): SkillDefinition 
     requiredEntitlement: "FREE",
     usageCost: { value: 2, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "READ_ONLY",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["query"], properties: { query: "string" } },
@@ -110,16 +131,18 @@ export function createWebSearchSkill(provider: SearchProvider): SkillDefinition 
       if (!query) {
         return { kind: "failure", reason: "missing_query", userMessage: "What would you like me to search for?" };
       }
-      const results = await provider.search(query);
+      const { answer, results } = await provider.search(query);
       if (results.length === 0) {
+        // No grounding sources means the answer can't be attributed — never present it as sourced.
         return { kind: "failure", reason: "no_results", userMessage: `I couldn't find sourced web results for "${query}".` };
       }
+      const sources = results.slice(0, 5).map((result, index) => `[${index + 1}] ${result.title} — ${result.url}`).join("\n");
       return {
         kind: "success",
-        output: { query, results },
-        summary:
-          `Found ${results.length} live web source(s) for "${query}". Top sources: ` +
-          results.slice(0, 3).map((result) => `${result.title} — ${result.url}`).join(" | "),
+        output: { query, answer, results },
+        // The model receives the grounded answer AND its sources, so its reply can be based
+        // on what the search actually returned instead of guessing from titles alone.
+        summary: `${answer.trim() || "(The search returned sources but no summary text.)"}\n\nSources:\n${sources}`,
       };
     },
   };

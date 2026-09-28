@@ -1,0 +1,77 @@
+name: Backend + Web checks
+
+# Runs the full backend test suite (including the Postgres-backed store and Phase 1 security
+# API tests against a real Postgres 16), both typechecks, the capability-registry parity
+# check, and the web client's syntax/unit checks.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zarvis_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Typecheck backend (src + tests)
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Backend tests (in-memory + real Postgres)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/zarvis_test
+        run: npm test
+
+      - name: Capability registry JSON is up to date
+        working-directory: backend
+        run: |
+          npm run capabilities:export
+          git diff --exit-code -- ../shared/capability-registry.json
+
+      - name: Install root (Vercel entrypoint) dependencies
+        run: npm ci
+
+      - name: Typecheck Vercel entrypoint (api/ + backend/src)
+        run: npx tsc -p tsconfig.json --noEmit
+
+      - name: Web client checks
+        run: |
+          node --check web/app.js
+          node --check web/feature-pages.js
+          node --check web/sw.js
+          node --test web/tests/

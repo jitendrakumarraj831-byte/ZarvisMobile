@@ -3,6 +3,8 @@ import { AIContentSummarizer, createDocsSummarizeSkill, NaiveSummarizer } from "
 import { createWebSearchSkill, MockSearchProvider } from "../../src/skills/webSearch.js";
 import { createDeveloperAnalyzeRepoSkill } from "../../src/skills/developerAnalyzeRepo.js";
 import { MockGitHubClient } from "../../src/github/githubClient.js";
+import { GitHubAccessService } from "../../src/github/githubAccess.js";
+import { InMemoryStore } from "../../src/store/inMemoryStore.js";
 import { MockContentGenerator } from "../../src/ai/contentGenerator.js";
 
 const context = { accountId: "acc-1" };
@@ -20,6 +22,7 @@ describe("web.search skill", () => {
     expect(result.kind).toBe("success");
     if (result.kind === "success") {
       expect(result.summary).toContain("https://");
+      expect(result.summary).toContain("Sources:");
     }
   });
 });
@@ -50,11 +53,12 @@ describe("docs.summarize skill with a live content generator", () => {
 });
 
 describe("developer.analyze_repo skill", () => {
-  const skill = createDeveloperAnalyzeRepoSkill(new MockGitHubClient());
+  const skill = createDeveloperAnalyzeRepoSkill(
+    new GitHubAccessService(new InMemoryStore(), null, (token) => new MockGitHubClient({ token })),
+  );
 
   it("fails cleanly when no repo URL is given", async () => {
-    const result = await skill.handler({ values: { repoUrl: "" } }, context);
-    expect(result).toMatchObject({ kind: "failure", reason: "missing_repo_url" });
+    await expect(skill.handler({ values: { repoUrl: "" } }, context)).rejects.toMatchObject({ reason: "invalid_repo_url" });
   });
 
   it("returns a structural summary for a repo URL", async () => {

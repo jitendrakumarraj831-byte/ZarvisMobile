@@ -3,7 +3,7 @@ import { env } from "../config/env.js";
 import type { Store } from "../store/store.js";
 import { TaskService } from "../tasks/taskService.js";
 import { SkillRegistry } from "../tooling/skillRegistry.js";
-import { RealGitHubClient } from "../github/githubClient.js";
+import type { GitHubAccessService } from "../github/githubAccess.js";
 import { AIContentGenerator, MockContentGenerator, type ContentGenerator } from "../ai/contentGenerator.js";
 import { createAutomationCancelWorkflowSkill } from "./automationCancelWorkflow.js";
 import { createAutomationCreateWorkflowSkill } from "./automationCreateWorkflow.js";
@@ -40,7 +40,7 @@ function contentGenerator(label: string, systemPrompt: string): ContentGenerator
  * status of each. Adding one is always this same pattern: write the SkillDefinition,
  * register it here, never touch the Orchestrator.
  */
-export function buildSkillRegistry(store: Store): SkillRegistry {
+export function buildSkillRegistry(store: Store, githubAccess: GitHubAccessService): SkillRegistry {
   const registry = new SkillRegistry();
   const taskService = new TaskService(store);
 
@@ -48,9 +48,8 @@ export function buildSkillRegistry(store: Store): SkillRegistry {
   registry.register(
     createDocsSummarizeSkill(new AIContentSummarizer(contentGenerator("document summary", DOCS_SUMMARIZE_SYSTEM_PROMPT))),
   );
-  const githubClient = new RealGitHubClient(env.githubToken);
-  registry.register(createDeveloperAnalyzeRepoSkill(githubClient));
-  registry.register(createDeveloperImplementSkill(githubClient, contentGenerator("developer implementation", DEVELOPER_IMPLEMENT_SYSTEM_PROMPT)));
+  registry.register(createDeveloperAnalyzeRepoSkill(githubAccess));
+  registry.register(createDeveloperImplementSkill(githubAccess, contentGenerator("developer implementation", DEVELOPER_IMPLEMENT_SYSTEM_PROMPT)));
   registry.register(
     createBusinessSocialPostSkill(contentGenerator("social media post", BUSINESS_SOCIAL_POST_SYSTEM_PROMPT)),
   );

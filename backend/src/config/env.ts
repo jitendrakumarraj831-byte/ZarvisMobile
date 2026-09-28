@@ -53,10 +53,9 @@ export const env = {
       : process.env.GEMINI_TTS_MODEL.trim(),
   /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
-  githubAppId: process.env.GITHUB_APP_ID,
-  githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
-  /** Optional GitHub token for private repositories and higher API rate limits. */
-  githubToken: process.env.GITHUB_TOKEN,
+  isProduction: process.env.NODE_ENV === "production",
+  /** base64 32-byte AES key for per-user integration credentials (security/secretBox.ts). */
+  integrationEncryptionKey: process.env.INTEGRATION_ENCRYPTION_KEY,
   playBillingServiceAccountJson: process.env.PLAY_BILLING_SERVICE_ACCOUNT_JSON,
   /** Must match the Android app's applicationId — see android/app/build.gradle.kts. */
   playBillingPackageName: process.env.PLAY_BILLING_PACKAGE_NAME || "com.zarvismobile.app",

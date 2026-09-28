@@ -23,7 +23,9 @@ describe("GeminiProvider.generate", () => {
   it("sends a well-formed request and maps a text response", async () => {
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
       expect(url).toContain("models/gemini-2.0-flash:generateContent");
-      expect(url).toContain("key=test-key");
+      // The API key travels in a header, never in the URL (URLs end up in logs).
+      expect(url).not.toContain("key=");
+      expect(init.headers).toMatchObject({ "x-goog-api-key": "test-key" });
       const body = JSON.parse(init.body as string);
       expect(body.systemInstruction.parts[0].text).toBe("You are ZARVIS.");
       expect(body.contents).toEqual([{ role: "user", parts: [{ text: "find the best phone under 20000" }] }]);
@@ -99,11 +101,12 @@ describe("GeminiProvider.streamGenerate", () => {
           expect(url).toContain("models/gemini-2.0-flash:streamGenerateContent");
           return new Response("quota", { status: 429, statusText: "Too Many Requests" });
         }
-        if (calls === 2) {
+        if (calls === 2 || calls === 3) {
+          // Three attempts per model before moving on.
           expect(url).toContain("models/gemini-2.0-flash:streamGenerateContent");
           return new Response("still busy", { status: 503, statusText: "Service Unavailable" });
         }
-        expect(url).toContain("models/gemini-3.7-flash:streamGenerateContent");
+        expect(url).toContain("models/gemini-3.8-flash:streamGenerateContent");
         return new Response(stream, { status: 200 });
       }),
     );
@@ -118,7 +121,7 @@ describe("GeminiProvider.streamGenerate", () => {
       { delta: "Recovered", done: false },
       { delta: "", done: true },
     ]);
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
   });
 
   it("yields incremental text deltas parsed from the SSE stream", async () => {

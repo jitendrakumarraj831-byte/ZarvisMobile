@@ -21,6 +21,7 @@ export function createBusinessCustomerReplySkill(generator: ContentGenerator): S
     requiredEntitlement: "FREE",
     usageCost: { value: 1, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "READ_ONLY",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["customerMessage"], properties: { customerMessage: "string" } },

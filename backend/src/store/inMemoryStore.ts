@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { PermissionType, Task } from "../domain/types.js";
 import {
+  EmailTakenError,
   InsufficientCreditsError,
-  type Account, type Conversation, type ConversationMessage, type Store, type TrialRecord, type UsageEntry, type User
+  type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
+  type ConversationMessage, type GitHubConnection, type Store, type TrialRecord, type UsageEntry, type User
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -26,15 +28,92 @@ export class InMemoryStore implements Store {
   private readonly conversations = new Map<string, Conversation>();
   private readonly conversationMessages = new Map<string, ConversationMessage[]>();
   private readonly purchaseTokens = new Set<string>();
+  private readonly sessions = new Map<string, AuthSession>();
+  private readonly confirmations = new Map<string, ConfirmationRecord>();
+  private readonly githubConnections = new Map<string, GitHubConnection>();
 
-  async createUser(email: string, passwordHash: string): Promise<User> {
+  async createUser(email: string, passwordHash: string, isGuest = false): Promise<User> {
     if (this.usersByEmail.has(email)) {
-      throw new Error(`A user with email '${email}' already exists`);
+      throw new EmailTakenError();
     }
-    const user: User = { id: randomUUID(), email, passwordHash, createdAt: new Date() };
+    const user: User = { id: randomUUID(), email, passwordHash, isGuest, createdAt: new Date() };
     this.usersById.set(user.id, user);
     this.usersByEmail.set(email, user.id);
     return user;
+  }
+
+  async updateUserCredentials(userId: string, email: string, passwordHash: string): Promise<User> {
+    const user = this.usersById.get(userId);
+    if (!user) throw new Error(`Cannot update unknown user '${userId}'`);
+    const owner = this.usersByEmail.get(email);
+    if (owner && owner !== userId) throw new EmailTakenError();
+    this.usersByEmail.delete(user.email);
+    const updated: User = { ...user, email, passwordHash, isGuest: false };
+    this.usersById.set(userId, updated);
+    this.usersByEmail.set(email, userId);
+    return updated;
+  }
+
+  async createSession(session: AuthSession): Promise<AuthSession> {
+    this.sessions.set(session.id, { ...session });
+    return session;
+  }
+
+  async getSession(sessionId: string): Promise<AuthSession | undefined> {
+    const session = this.sessions.get(sessionId);
+    return session ? { ...session } : undefined;
+  }
+
+  async rotateSession(sessionId: string, expectedHash: string, newHash: string, newExpiresAt: Date, now: Date): Promise<boolean> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.revokedAt || session.expiresAt <= now || session.refreshTokenHash !== expectedHash) return false;
+    session.refreshTokenHash = newHash;
+    session.expiresAt = newExpiresAt;
+    session.lastUsedAt = now;
+    return true;
+  }
+
+  async revokeSession(sessionId: string, now: Date): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session && !session.revokedAt) session.revokedAt = now;
+  }
+
+  async createConfirmation(record: ConfirmationRecord): Promise<ConfirmationRecord> {
+    this.confirmations.set(record.id, structuredClone(record));
+    return record;
+  }
+
+  async getConfirmation(accountId: string, confirmationId: string): Promise<ConfirmationRecord | undefined> {
+    const record = this.confirmations.get(confirmationId);
+    return record && record.accountId === accountId ? structuredClone(record) : undefined;
+  }
+
+  async resolveConfirmation(
+    accountId: string,
+    confirmationId: string,
+    status: Exclude<ConfirmationStatus, "PENDING">,
+    now: Date,
+  ): Promise<ConfirmationRecord | undefined> {
+    const record = this.confirmations.get(confirmationId);
+    if (!record || record.accountId !== accountId || record.status !== "PENDING" || record.expiresAt <= now) {
+      return undefined;
+    }
+    record.status = status;
+    record.resolvedAt = now;
+    return structuredClone(record);
+  }
+
+  async saveGitHubConnection(connection: GitHubConnection): Promise<void> {
+    this.githubConnections.set(connection.accountId, { ...connection });
+  }
+
+  async getGitHubConnection(accountId: string): Promise<GitHubConnection | undefined> {
+    const connection = this.githubConnections.get(accountId);
+    return connection ? { ...connection } : undefined;
+  }
+
+  async deleteGitHubConnection(accountId: string): Promise<void> {
+    this.githubConnections.delete(accountId);
   }
 
   async findUserByEmail(email: string): Promise<User | undefined> {
@@ -89,6 +168,13 @@ export class InMemoryStore implements Store {
     }
     this.trials.delete(accountId);
     this.creditBalances.delete(accountId);
+    this.githubConnections.delete(accountId);
+    for (const [sessionId, session] of this.sessions) {
+      if (session.accountId === accountId) this.sessions.delete(sessionId);
+    }
+    for (const [confirmationId, record] of this.confirmations) {
+      if (record.accountId === accountId) this.confirmations.delete(confirmationId);
+    }
     this.permissions.delete(accountId);
     for (const [conversationId, conversation] of this.conversations) {
       if (conversation.accountId === accountId) {

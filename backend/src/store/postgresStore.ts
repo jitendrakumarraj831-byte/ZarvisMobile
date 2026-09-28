@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { Pool, type QueryResultRow } from "pg";
 import type { PermissionType, Task } from "../domain/types.js";
 import {
+  EmailTakenError,
   InsufficientCreditsError,
-  type Account, type Conversation, type ConversationMessage, type Store, type TrialRecord, type UsageEntry, type User
+  type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
+  type ConversationMessage, type GitHubConnection, type Store, type TrialRecord, type UsageEntry, type User
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -74,6 +76,44 @@ const SCHEMA = `
     product_id TEXT NOT NULL,
     consumed_at TIMESTAMPTZ NOT NULL
   );
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE;
+  UPDATE users SET is_guest = TRUE
+    WHERE is_guest = FALSE
+      AND (email LIKE 'guest-%@device.zarvismobile.local' OR email LIKE 'guest-%@device.zarvismobile.com');
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    refresh_token_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    last_used_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ
+  );
+  CREATE TABLE IF NOT EXISTS confirmations (
+    id UUID PRIMARY KEY,
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL,
+    input JSONB NOT NULL,
+    input_hash TEXT NOT NULL,
+    action TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    action_class TEXT NOT NULL,
+    conversation_id UUID,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ
+  );
+  CREATE TABLE IF NOT EXISTS github_connections (
+    account_id UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    encrypted_token TEXT NOT NULL,
+    github_login TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    connected_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS auth_sessions_account_idx ON auth_sessions (account_id);
+  CREATE INDEX IF NOT EXISTS confirmations_account_idx ON confirmations (account_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS conversation_messages_conversation_created_idx
     ON conversation_messages (conversation_id, created_at);
   CREATE INDEX IF NOT EXISTS conversations_account_updated_idx
@@ -122,21 +162,125 @@ export class PostgresStore implements Store {
     return this.pool.query<T>(text, params);
   }
 
-  async createUser(email: string, passwordHash: string): Promise<User> {
+  async createUser(email: string, passwordHash: string, isGuest = false): Promise<User> {
     const id = randomUUID();
     const createdAt = new Date();
     try {
       await this.query(
-        "INSERT INTO users (id, email, password_hash, created_at) VALUES ($1, $2, $3, $4)",
-        [id, email, passwordHash, createdAt],
+        "INSERT INTO users (id, email, password_hash, is_guest, created_at) VALUES ($1, $2, $3, $4, $5)",
+        [id, email, passwordHash, isGuest, createdAt],
       );
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new Error(`A user with email '${email}' already exists`);
+        throw new EmailTakenError();
       }
       throw err;
     }
-    return { id, email, passwordHash, createdAt };
+    return { id, email, passwordHash, isGuest, createdAt };
+  }
+
+  async updateUserCredentials(userId: string, email: string, passwordHash: string): Promise<User> {
+    try {
+      const { rows } = await this.query<UserRow>(
+        "UPDATE users SET email = $2, password_hash = $3, is_guest = FALSE WHERE id = $1 RETURNING *",
+        [userId, email, passwordHash],
+      );
+      if (!rows[0]) throw new Error(`Cannot update unknown user '${userId}'`);
+      return toUser(rows[0]);
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new EmailTakenError();
+      throw err;
+    }
+  }
+
+  async createSession(session: AuthSession): Promise<AuthSession> {
+    await this.query(
+      `INSERT INTO auth_sessions (id, user_id, account_id, refresh_token_hash, created_at, expires_at, last_used_at, revoked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [session.id, session.userId, session.accountId, session.refreshTokenHash, session.createdAt, session.expiresAt,
+        session.lastUsedAt, session.revokedAt ?? null],
+    );
+    return session;
+  }
+
+  async getSession(sessionId: string): Promise<AuthSession | undefined> {
+    const { rows } = await this.query<SessionRow>("SELECT * FROM auth_sessions WHERE id = $1", [sessionId]);
+    return rows[0] ? toSession(rows[0]) : undefined;
+  }
+
+  async rotateSession(sessionId: string, expectedHash: string, newHash: string, newExpiresAt: Date, now: Date): Promise<boolean> {
+    const { rowCount } = await this.query(
+      `UPDATE auth_sessions SET refresh_token_hash = $3, expires_at = $4, last_used_at = $5
+       WHERE id = $1 AND refresh_token_hash = $2 AND revoked_at IS NULL AND expires_at > $5`,
+      [sessionId, expectedHash, newHash, newExpiresAt, now],
+    );
+    return rowCount === 1;
+  }
+
+  async revokeSession(sessionId: string, now: Date): Promise<void> {
+    await this.query("UPDATE auth_sessions SET revoked_at = $2 WHERE id = $1 AND revoked_at IS NULL", [sessionId, now]);
+  }
+
+  async createConfirmation(record: ConfirmationRecord): Promise<ConfirmationRecord> {
+    await this.query(
+      `INSERT INTO confirmations (id, account_id, skill_id, input, input_hash, action, risk_level, action_class,
+         conversation_id, status, created_at, expires_at, resolved_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [record.id, record.accountId, record.skillId, JSON.stringify(record.input), record.inputHash, record.action,
+        record.riskLevel, record.actionClass, record.conversationId ?? null, record.status, record.createdAt,
+        record.expiresAt, record.resolvedAt ?? null],
+    );
+    return record;
+  }
+
+  async getConfirmation(accountId: string, confirmationId: string): Promise<ConfirmationRecord | undefined> {
+    const { rows } = await this.query<ConfirmationRow>(
+      "SELECT * FROM confirmations WHERE id = $1 AND account_id = $2",
+      [confirmationId, accountId],
+    );
+    return rows[0] ? toConfirmation(rows[0]) : undefined;
+  }
+
+  async resolveConfirmation(
+    accountId: string,
+    confirmationId: string,
+    status: Exclude<ConfirmationStatus, "PENDING">,
+    now: Date,
+  ): Promise<ConfirmationRecord | undefined> {
+    const { rows } = await this.query<ConfirmationRow>(
+      `UPDATE confirmations SET status = $3, resolved_at = $4
+       WHERE id = $1 AND account_id = $2 AND status = 'PENDING' AND expires_at > $4
+       RETURNING *`,
+      [confirmationId, accountId, status, now],
+    );
+    return rows[0] ? toConfirmation(rows[0]) : undefined;
+  }
+
+  async saveGitHubConnection(connection: GitHubConnection): Promise<void> {
+    await this.query(
+      `INSERT INTO github_connections (account_id, encrypted_token, github_login, scopes, connected_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (account_id) DO UPDATE SET encrypted_token = EXCLUDED.encrypted_token,
+         github_login = EXCLUDED.github_login, scopes = EXCLUDED.scopes, connected_at = EXCLUDED.connected_at`,
+      [connection.accountId, connection.encryptedToken, connection.githubLogin, connection.scopes, connection.connectedAt],
+    );
+  }
+
+  async getGitHubConnection(accountId: string): Promise<GitHubConnection | undefined> {
+    const { rows } = await this.query<GitHubConnectionRow>("SELECT * FROM github_connections WHERE account_id = $1", [accountId]);
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      accountId: row.account_id,
+      encryptedToken: row.encrypted_token,
+      githubLogin: row.github_login,
+      scopes: row.scopes,
+      connectedAt: row.connected_at,
+    };
+  }
+
+  async deleteGitHubConnection(accountId: string): Promise<void> {
+    await this.query("DELETE FROM github_connections WHERE account_id = $1", [accountId]);
   }
 
   async findUserByEmail(email: string): Promise<User | undefined> {
@@ -206,6 +350,9 @@ export class PostgresStore implements Store {
         throw new Error(`Cannot delete unknown account '${accountId}'`);
       }
       await client.query("DELETE FROM usage_ledger WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM auth_sessions WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM confirmations WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM github_connections WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM account_permissions WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM trials WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM credit_balances WHERE account_id = $1", [accountId]);
@@ -399,7 +546,74 @@ interface UserRow {
   id: string;
   email: string;
   password_hash: string;
+  is_guest: boolean;
   created_at: Date;
+}
+
+interface SessionRow {
+  id: string;
+  user_id: string;
+  account_id: string;
+  refresh_token_hash: string;
+  created_at: Date;
+  expires_at: Date;
+  last_used_at: Date;
+  revoked_at: Date | null;
+}
+
+interface ConfirmationRow {
+  id: string;
+  account_id: string;
+  skill_id: string;
+  input: Record<string, unknown>;
+  input_hash: string;
+  action: string;
+  risk_level: ConfirmationRecord["riskLevel"];
+  action_class: ConfirmationRecord["actionClass"];
+  conversation_id: string | null;
+  status: ConfirmationStatus;
+  created_at: Date;
+  expires_at: Date;
+  resolved_at: Date | null;
+}
+
+interface GitHubConnectionRow {
+  account_id: string;
+  encrypted_token: string;
+  github_login: string;
+  scopes: string;
+  connected_at: Date;
+}
+
+function toSession(row: SessionRow): AuthSession {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    accountId: row.account_id,
+    refreshTokenHash: row.refresh_token_hash,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    lastUsedAt: row.last_used_at,
+    revokedAt: row.revoked_at ?? undefined,
+  };
+}
+
+function toConfirmation(row: ConfirmationRow): ConfirmationRecord {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    skillId: row.skill_id,
+    input: row.input,
+    inputHash: row.input_hash,
+    action: row.action,
+    riskLevel: row.risk_level,
+    actionClass: row.action_class,
+    conversationId: row.conversation_id ?? undefined,
+    status: row.status,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    resolvedAt: row.resolved_at ?? undefined,
+  };
 }
 
 interface AccountRow {
@@ -452,7 +666,7 @@ interface ConversationMessageRow {
 }
 
 function toUser(row: UserRow): User {
-  return { id: row.id, email: row.email, passwordHash: row.password_hash, createdAt: row.created_at };
+  return { id: row.id, email: row.email, passwordHash: row.password_hash, isGuest: row.is_guest, createdAt: row.created_at };
 }
 
 function toAccount(row: AccountRow): Account {
@@ -496,36 +710,39 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Hosted Postgres (Vercel Postgres/Neon, Supabase, Heroku, ...) requires TLS but node-pg's
- * default strict certificate verification rejects their certs in most Node runtimes,
- * failing every query with "self-signed certificate in certificate chain" — the standard
- * fix, per every one of those providers' own node-postgres docs, is to keep the channel
- * encrypted but skip chain verification via an explicit `ssl: { rejectUnauthorized: false }`.
+ * TLS for hosted Postgres. Certificate verification is ON by default (a MITM on the database
+ * connection would otherwise see every credential hash, token hash and conversation). Hosted
+ * providers that present publicly-trusted certificates (Neon, Vercel Postgres, most managed
+ * services) work with this default. For a provider with a private CA, set POSTGRES_CA_CERT to
+ * its PEM. `POSTGRES_SSL_MODE=no-verify` is an explicit, logged opt-out for providers where
+ * neither is possible; it is never silently applied.
  *
- * That alone isn't enough, though: these providers' connection strings already carry
- * `?sslmode=require`, and `pg`/`pg-connection-string` parses that itself — as of a recent
- * pg-connection-string version, 'require' (like 'prefer' and 'verify-ca') is aliased to
- * 'verify-full', which does full certificate-chain verification and *overrides* whatever
- * `ssl` object is passed alongside `connectionString`, silently reintroducing the exact
- * failure the explicit `ssl` option was meant to avoid (verified directly against a real
- * `pg.Client`: passing both yields `ssl: {}`, i.e. strict verification, not our override).
- * Stripping `sslmode` from the string before handing it to `Pool` is what lets our own
- * `ssl` config actually take effect.
- *
- * The override applies even for `ssl: false`: a local test run against this repo's own
- * Postgres 16 install (which, like most distro packages, enables TLS out of the box with a
- * self-signed cert) reproduced the identical failure with a `?sslmode=require` connection
- * string and an explicit `ssl: false` — the string's `sslmode` still won and forced
- * verify-full against that self-signed cert. So `sslmode` is stripped unconditionally, for
- * both branches, and our own explicit `ssl` decision (false for local, `{ rejectUnauthorized:
- * false }` for a real remote host) is what actually takes effect either way.
+ * `sslmode` is stripped from the connection string because pg-connection-string's own parsing
+ * of it overrides the explicit `ssl` object passed alongside (verified against a real
+ * pg.Client), so our explicit decision below is the only one that takes effect.
  */
-function poolConfigFor(connectionString: string): {
+export function poolConfigFor(
+  connectionString: string,
+  sslMode = process.env.POSTGRES_SSL_MODE,
+  caCert = process.env.POSTGRES_CA_CERT,
+): {
   connectionString: string;
-  ssl: false | { rejectUnauthorized: false };
+  ssl: false | { rejectUnauthorized: boolean; ca?: string };
 } {
   const url = new URL(connectionString);
   const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
   url.searchParams.delete("sslmode");
-  return { connectionString: url.toString(), ssl: isLocal ? false : { rejectUnauthorized: false } };
+  if (isLocal || sslMode === "disable") {
+    return { connectionString: url.toString(), ssl: false };
+  }
+  if (sslMode === "no-verify") {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        message: "POSTGRES_SSL_MODE=no-verify: database TLS certificate verification is DISABLED by explicit configuration",
+      }),
+    );
+    return { connectionString: url.toString(), ssl: { rejectUnauthorized: false } };
+  }
+  return { connectionString: url.toString(), ssl: caCert ? { rejectUnauthorized: true, ca: caCert } : { rejectUnauthorized: true } };
 }

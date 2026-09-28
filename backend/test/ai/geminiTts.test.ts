@@ -4,7 +4,7 @@ import { GeminiTtsProvider } from "../../src/ai/geminiTts.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("GeminiTtsProvider.synthesize", () => {
-  it("requests Gemini 3.8 TTS and returns its WAV bytes unchanged", async () => {
+  it("requests Gemini TTS with the documented voice config and passes WAV through unchanged", async () => {
     const wav = Buffer.from("RIFF-test-wav", "ascii");
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
       expect(url).toContain("models/gemini-3.8-flash-tts:generateContent");
@@ -13,7 +13,7 @@ describe("GeminiTtsProvider.synthesize", () => {
       expect(body.contents).toEqual([{ role: "user", parts: [{ text: "hello" }] }]);
       expect(body.generationConfig).toEqual({
         responseModalities: ["AUDIO"],
-        speechConfig: { voiceConfig: { voice: "Kore" } },
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } },
       });
       return new Response(
         JSON.stringify({
@@ -42,6 +42,34 @@ describe("GeminiTtsProvider.synthesize", () => {
     const provider = new GeminiTtsProvider("test-key", "gemini-3.8-flash-tts", "Kore");
     await expect(provider.synthesize("hi")).resolves.toEqual(wav);
     expect(calls).toBe(3);
+  });
+
+  it("wraps raw L16 PCM in a valid WAV header", async () => {
+    const pcm = Buffer.from([1, 0, 2, 0, 3, 0, 4, 0]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { data: pcm.toString("base64"), mimeType: "audio/L16;codec=pcm;rate=24000" } }] } }],
+    }), { status: 200 })));
+    const provider = new GeminiTtsProvider("test-key", "gemini-3.8-flash-tts", "Kore");
+    const wav = await provider.synthesize("hi");
+    expect(wav.subarray(0, 4).toString("ascii")).toBe("RIFF");
+    expect(wav.subarray(8, 12).toString("ascii")).toBe("WAVE");
+    expect(wav.readUInt32LE(24)).toBe(24000);
+    expect(wav.readUInt16LE(34)).toBe(16);
+    expect(wav.readUInt32LE(40)).toBe(pcm.length);
+    expect(wav.subarray(44)).toEqual(pcm);
+  });
+
+  it("moves to the next model on 404 but stops on other permanent errors", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      urls.push(url);
+      return urls.length === 1
+        ? new Response("not found", { status: 404, statusText: "Not Found" })
+        : new Response("bad request", { status: 400, statusText: "Bad Request" });
+    }));
+    const provider = new GeminiTtsProvider("test-key", "custom-tts", "Kore");
+    await expect(provider.synthesize("hi")).rejects.toThrow(/400/);
+    expect(urls).toHaveLength(2);
   });
 
   it("does not retry permanent 400 errors", async () => {

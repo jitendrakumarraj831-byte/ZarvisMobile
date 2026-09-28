@@ -1,0 +1,616 @@
+{
+  "version": 1,
+  "capabilities": [
+    {
+      "id": "microphone",
+      "name": "Microphone",
+      "requiredAccess": "Record audio while you are speaking to ZARVIS.",
+      "androidPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "androidRequirements": "A speech recognition service must be installed (SpeechRecognizer.isRecognitionAvailable).",
+      "risk": "MEDIUM",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "Audio is converted to text by the device's speech service; the text is sent to the ZARVIS backend as your request.",
+      "supportedActions": [
+        "Speech-to-text after you tap the microphone"
+      ],
+      "unsupportedActions": [
+        "Wake word",
+        "Background or continuous listening",
+        "Recording audio to a file"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Voice input is disabled; typing keeps working.",
+      "fallback": "Type your request.",
+      "revocationHandling": "Checked every time listening starts; a revoked permission returns you to text input.",
+      "settingsDestination": "Android Settings > Apps > ZARVIS > Permissions > Microphone",
+      "rationale": {
+        "why": "To turn what you say into a request when you tap the microphone.",
+        "data": "Your voice while listening is active. Nothing is recorded when the microphone is off.",
+        "notAutomatic": "ZARVIS never listens in the background and has no wake word.",
+        "revoke": "Turn off Microphone for ZARVIS in Android Settings at any time."
+      },
+      "platforms": {
+        "web": {
+          "status": "PARTIAL",
+          "note": "Browser speech recognition after you tap Speak, where the browser supports it (e.g. Chrome)."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Android SpeechRecognizer after a tap. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "contacts",
+      "name": "Contacts",
+      "requiredAccess": "Read contact names and phone numbers stored on this phone.",
+      "androidPermissions": [
+        "android.permission.READ_CONTACTS"
+      ],
+      "androidRequirements": "ContactsContract provider.",
+      "risk": "MEDIUM",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "The matching contact's name and number are read on the device and shown to you. They are not uploaded.",
+      "supportedActions": [
+        "Find a contact's number by name",
+        "Resolve a name before a call you confirm"
+      ],
+      "unsupportedActions": [
+        "Sharing contacts",
+        "Editing or deleting contacts",
+        "Uploading your address book"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Name lookups stop; calling a raw phone number still works with Phone permission.",
+      "fallback": "Say or type the phone number instead of a name.",
+      "revocationHandling": "Checked before every lookup; a revoked permission returns PERMISSION_REQUIRED.",
+      "settingsDestination": "Android Settings > Apps > ZARVIS > Permissions > Contacts",
+      "rationale": {
+        "why": "To find the number of a person you name, for example \"find Mom's number\".",
+        "data": "Contact names and phone numbers, read on your phone only for the name you asked about.",
+        "notAutomatic": "ZARVIS does not upload, share or change your contacts.",
+        "revoke": "Turn off Contacts for ZARVIS in Android Settings at any time."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Browsers cannot read your phone's contacts. Use the Android app."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Name lookup via ContactsContract. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "phone_call",
+      "name": "Phone calls",
+      "requiredAccess": "Place a phone call from this phone.",
+      "androidPermissions": [
+        "android.permission.CALL_PHONE"
+      ],
+      "androidRequirements": "Telephony hardware and a dialer that handles ACTION_CALL.",
+      "risk": "HIGH",
+      "actionClass": "EXTERNAL_COMMUNICATION",
+      "dataExposure": "The number you confirm is passed to the phone's dialer. Call charges may apply.",
+      "supportedActions": [
+        "Call a number or a named contact after you confirm the exact number"
+      ],
+      "unsupportedActions": [
+        "Calling without your confirmation",
+        "Answering, recording or ending calls",
+        "Reading call history"
+      ],
+      "confirmation": "PER_ACTION",
+      "denialBehavior": "No call is placed. ZARVIS can show the number so you can dial it yourself.",
+      "fallback": "Dial the number yourself.",
+      "revocationHandling": "Checked immediately before the call; a revoked permission returns PERMISSION_REQUIRED.",
+      "settingsDestination": "Android Settings > Apps > ZARVIS > Permissions > Phone",
+      "rationale": {
+        "why": "To place a call you ask for, after you confirm who and which number.",
+        "data": "The phone number you confirm.",
+        "notAutomatic": "Phone permission never lets ZARVIS call anyone without a separate confirmation for that exact call.",
+        "revoke": "Turn off Phone for ZARVIS in Android Settings at any time."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Browsers cannot place phone calls. Use the Android app."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "ACTION_CALL after a per-call confirmation showing the resolved number. Verification is limited to the dialer accepting the intent. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "notification_read",
+      "name": "Notification access",
+      "requiredAccess": "Read notifications from other apps (Notification Listener).",
+      "androidPermissions": [],
+      "androidRequirements": "A NotificationListenerService enabled by the user in system settings.",
+      "risk": "HIGH",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "Notification content from other apps, which can include messages and one-time codes.",
+      "supportedActions": [],
+      "unsupportedActions": [
+        "Reading other apps' notifications (not implemented in this build)"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Not requested in this build.",
+      "fallback": "Open the app that sent the notification.",
+      "revocationHandling": "Not applicable until implemented.",
+      "settingsDestination": "Android Settings > Notifications > Device & app notifications",
+      "rationale": {
+        "why": "Planned for Notification Intelligence (blueprint Phase 12).",
+        "data": "Notification text from other apps.",
+        "notAutomatic": "This build never reads other apps' notifications.",
+        "revoke": "Nothing to revoke — the access is not requested."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Browsers cannot read other apps' notifications."
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "No notification listener exists in this build. Planned for Phase 12."
+        }
+      }
+    },
+    {
+      "id": "notification_speak",
+      "name": "Spoken notifications",
+      "requiredAccess": "Speak notification summaries aloud.",
+      "androidPermissions": [],
+      "androidRequirements": "Depends on Notification access.",
+      "risk": "MEDIUM",
+      "actionClass": "LOW_IMPACT",
+      "dataExposure": "Notification content spoken through the speaker or headphones.",
+      "supportedActions": [],
+      "unsupportedActions": [
+        "Speaking notifications (not implemented in this build)"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Not requested in this build.",
+      "fallback": "Read notifications on screen.",
+      "revocationHandling": "Not applicable until implemented.",
+      "settingsDestination": "ZARVIS Settings > Notifications (planned)",
+      "rationale": {
+        "why": "Planned for Notification Intelligence (blueprint Phase 12).",
+        "data": "Notification content.",
+        "notAutomatic": "OTP, banking and authentication alerts will not be spoken by default.",
+        "revoke": "Nothing to revoke — the feature is not active."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Not available in a browser."
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "Not implemented. Planned for Phase 12."
+        }
+      }
+    },
+    {
+      "id": "camera",
+      "name": "Camera",
+      "requiredAccess": "Take a photo using the phone's camera app.",
+      "androidPermissions": [],
+      "androidRequirements": "A camera app that handles ACTION_IMAGE_CAPTURE. ZARVIS does not declare the CAMERA permission.",
+      "risk": "MEDIUM",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "Only a small preview of the photo you take is returned to ZARVIS; it is shown to you and not uploaded or stored.",
+      "supportedActions": [
+        "Take a photo with the system camera and show a preview"
+      ],
+      "unsupportedActions": [
+        "Recording video",
+        "Taking photos without you pressing the shutter",
+        "Uploading or analyzing the photo (later phase)"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "If you cancel the camera, nothing is captured.",
+      "fallback": "Choose an existing photo instead.",
+      "revocationHandling": "No runtime permission is held; each capture is a separate user action.",
+      "settingsDestination": "Not applicable — ZARVIS uses the system camera app.",
+      "rationale": {
+        "why": "To capture a photo when you ask.",
+        "data": "The photo you take, as a preview.",
+        "notAutomatic": "ZARVIS never opens the camera by itself and never takes a photo without you pressing the shutter.",
+        "revoke": "There is no standing permission; just cancel the camera app."
+      },
+      "platforms": {
+        "web": {
+          "status": "PLANNED",
+          "note": "Browser camera capture is not implemented."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "System camera capture preview only; no storage or analysis. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "files",
+      "name": "Files",
+      "requiredAccess": "Open a document you choose with the system file picker.",
+      "androidPermissions": [],
+      "androidRequirements": "Storage Access Framework (ACTION_OPEN_DOCUMENT). No storage permission.",
+      "risk": "MEDIUM",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "Only the file you pick. Its name, type and size are shown to you.",
+      "supportedActions": [
+        "Pick one document and show its name, type and size"
+      ],
+      "unsupportedActions": [
+        "Browsing your storage",
+        "Reading files you did not pick",
+        "Uploading the file from Android (later phase)"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "If you cancel the picker, nothing is read.",
+      "fallback": "Paste the text instead.",
+      "revocationHandling": "Access is per-pick; nothing persists after the action.",
+      "settingsDestination": "Not applicable — the system picker grants one-time access.",
+      "rationale": {
+        "why": "To work with a document you choose.",
+        "data": "Only the file you select.",
+        "notAutomatic": "ZARVIS cannot see any other file, and picking a file does not upload it.",
+        "revoke": "Nothing to revoke — access ends with the action."
+      },
+      "platforms": {
+        "web": {
+          "status": "PARTIAL",
+          "note": "Browser file picker; PDF/DOCX/text are extracted by the backend for the chat. Files are not stored."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "System document picker; shows the chosen file's metadata only. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "photos",
+      "name": "Photos",
+      "requiredAccess": "Choose a photo with the system photo picker.",
+      "androidPermissions": [],
+      "androidRequirements": "Android Photo Picker (PickVisualMedia). No media permission.",
+      "risk": "MEDIUM",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "Only the photo you pick.",
+      "supportedActions": [
+        "Pick one photo and show its details"
+      ],
+      "unsupportedActions": [
+        "Browsing your gallery",
+        "Reading photos you did not pick",
+        "Uploading from Android (later phase)"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "If you cancel the picker, nothing is read.",
+      "fallback": "Describe the photo in text.",
+      "revocationHandling": "Access is per-pick; nothing persists.",
+      "settingsDestination": "Not applicable — the system picker grants one-time access.",
+      "rationale": {
+        "why": "To work with a photo you choose.",
+        "data": "Only the photo you select.",
+        "notAutomatic": "ZARVIS cannot see your gallery.",
+        "revoke": "Nothing to revoke — access ends with the action."
+      },
+      "platforms": {
+        "web": {
+          "status": "PARTIAL",
+          "note": "Attach an image; it is analyzed by the backend's Gemini vision model when configured."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "System photo picker; shows the chosen photo's metadata only. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "location",
+      "name": "Location",
+      "requiredAccess": "Your approximate (coarse) location when you ask for it.",
+      "androidPermissions": [
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ],
+      "androidRequirements": "Location services turned on; LocationManager.",
+      "risk": "HIGH",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "Approximate latitude/longitude, shown to you. Not uploaded or stored.",
+      "supportedActions": [
+        "Show your approximate current location"
+      ],
+      "unsupportedActions": [
+        "Precise location",
+        "Background location",
+        "Tracking or sharing your location"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Location is not read.",
+      "fallback": "Tell ZARVIS the place by name.",
+      "revocationHandling": "Checked before every read; a revoked permission returns PERMISSION_REQUIRED.",
+      "settingsDestination": "Android Settings > Apps > ZARVIS > Permissions > Location",
+      "rationale": {
+        "why": "To answer \"where am I\" style requests.",
+        "data": "Your approximate location, only when you ask.",
+        "notAutomatic": "ZARVIS never reads location in the background and never shares it.",
+        "revoke": "Turn off Location for ZARVIS in Android Settings at any time."
+      },
+      "platforms": {
+        "web": {
+          "status": "PLANNED",
+          "note": "Browser geolocation is not implemented."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Coarse location on request via LocationManager. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "bluetooth",
+      "name": "Bluetooth",
+      "requiredAccess": "Open Bluetooth settings so you can connect a device.",
+      "androidPermissions": [],
+      "androidRequirements": "Settings.ACTION_BLUETOOTH_SETTINGS. No Bluetooth permission is declared.",
+      "risk": "MEDIUM",
+      "actionClass": "LOW_IMPACT",
+      "dataExposure": "None — the system settings screen handles pairing.",
+      "supportedActions": [
+        "Open Bluetooth settings"
+      ],
+      "unsupportedActions": [
+        "Scanning, pairing or connecting devices automatically",
+        "Turning Bluetooth on or off silently"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Not applicable.",
+      "fallback": "Open Bluetooth from the quick settings panel.",
+      "revocationHandling": "No permission is held.",
+      "settingsDestination": "Android Settings > Connected devices",
+      "rationale": {
+        "why": "To take you to Bluetooth settings when you ask.",
+        "data": "None.",
+        "notAutomatic": "ZARVIS does not pair or connect devices for you.",
+        "revoke": "Nothing to revoke."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Not available in the browser."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "System settings flow only (USER_ACTION_REQUIRED). Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "alarms",
+      "name": "Alarms & reminders",
+      "requiredAccess": "Post reminder notifications, and hand alarms to the Clock app.",
+      "androidPermissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "androidRequirements": "POST_NOTIFICATIONS is a runtime permission only on Android 13+; on Android 8–12 notifications are controlled by the app's notification setting. Alarms use AlarmClock.ACTION_SET_ALARM (normal SET_ALARM permission).",
+      "risk": "LOW",
+      "actionClass": "LOW_IMPACT",
+      "dataExposure": "Reminder text is stored on this phone only.",
+      "supportedActions": [
+        "Create a reminder at a time you state",
+        "List reminders",
+        "Hand an alarm to the Clock app for you to save"
+      ],
+      "unsupportedActions": [
+        "Guessing a time you did not state",
+        "Deleting alarms in the Clock app"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Reminders are not created, because they could not notify you.",
+      "fallback": "Set the alarm in the Clock app yourself.",
+      "revocationHandling": "Re-checked when the reminder fires; if notifications were turned off, nothing is shown.",
+      "settingsDestination": "Android Settings > Apps > ZARVIS > Notifications",
+      "rationale": {
+        "why": "To notify you at the time you set a reminder for.",
+        "data": "The reminder text and time, stored on your phone.",
+        "notAutomatic": "ZARVIS only notifies you about reminders you created.",
+        "revoke": "Turn off notifications for ZARVIS in Android Settings at any time."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Browser notifications are not implemented."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Reminders via AlarmManager + notification; alarms via the Clock app. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar",
+      "requiredAccess": "Open a pre-filled event in your calendar app for you to save.",
+      "androidPermissions": [],
+      "androidRequirements": "A calendar app that handles Intent.ACTION_INSERT on CalendarContract.Events. No calendar permission is declared.",
+      "risk": "MEDIUM",
+      "actionClass": "LOW_IMPACT",
+      "dataExposure": "The event title and time are passed to your calendar app.",
+      "supportedActions": [
+        "Open a pre-filled new event for you to review and save"
+      ],
+      "unsupportedActions": [
+        "Reading your calendar",
+        "Saving events without you",
+        "Editing or deleting events"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Not applicable.",
+      "fallback": "Add the event in your calendar app yourself.",
+      "revocationHandling": "No permission is held.",
+      "settingsDestination": "Not applicable — your calendar app saves the event.",
+      "rationale": {
+        "why": "To prepare an event you describe.",
+        "data": "The event details you gave.",
+        "notAutomatic": "The event is only saved if you tap Save in your calendar app.",
+        "revoke": "Nothing to revoke."
+      },
+      "platforms": {
+        "web": {
+          "status": "PLANNED",
+          "note": "Calendar integrations are planned for the Integrations Hub."
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Pre-filled insert flow (USER_ACTION_REQUIRED). Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+        }
+      }
+    },
+    {
+      "id": "accessibility",
+      "name": "Accessibility service",
+      "requiredAccess": "An accessibility service that can read and act on the screen.",
+      "androidPermissions": [],
+      "androidRequirements": "AccessibilityService enabled by the user; restricted by Google Play policy.",
+      "risk": "VERY_HIGH",
+      "actionClass": "SECURITY_SENSITIVE",
+      "dataExposure": "Everything shown on screen.",
+      "supportedActions": [],
+      "unsupportedActions": [
+        "Any accessibility automation (not implemented)"
+      ],
+      "confirmation": "PER_ACTION",
+      "denialBehavior": "Not requested.",
+      "fallback": "Use the supported phone actions.",
+      "revocationHandling": "Not applicable.",
+      "settingsDestination": "Android Settings > Accessibility",
+      "rationale": {
+        "why": "Not used in this build.",
+        "data": "Screen content.",
+        "notAutomatic": "Accessibility would never mean universal automation.",
+        "revoke": "Nothing to revoke."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Not available in a browser."
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "No accessibility service exists in this build."
+        }
+      }
+    },
+    {
+      "id": "usage_stats",
+      "name": "Usage access",
+      "requiredAccess": "See which apps you use and for how long.",
+      "androidPermissions": [],
+      "androidRequirements": "PACKAGE_USAGE_STATS special access granted in system settings.",
+      "risk": "HIGH",
+      "actionClass": "READ_ONLY",
+      "dataExposure": "App usage history.",
+      "supportedActions": [],
+      "unsupportedActions": [
+        "Reading app usage (not implemented)"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Not requested.",
+      "fallback": "None needed.",
+      "revocationHandling": "Not applicable.",
+      "settingsDestination": "Android Settings > Apps > Special app access > Usage access",
+      "rationale": {
+        "why": "Not used in this build.",
+        "data": "App usage history.",
+        "notAutomatic": "Not requested.",
+        "revoke": "Nothing to revoke."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Not available in a browser."
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "Not implemented; the special access is not declared."
+        }
+      }
+    },
+    {
+      "id": "default_assistant",
+      "name": "Default assistant",
+      "requiredAccess": "Be selected as the phone's default digital assistant.",
+      "androidPermissions": [],
+      "androidRequirements": "RoleManager.ROLE_ASSISTANT and a VoiceInteractionService.",
+      "risk": "HIGH",
+      "actionClass": "SECURITY_SENSITIVE",
+      "dataExposure": "Assist gesture context.",
+      "supportedActions": [],
+      "unsupportedActions": [
+        "Acting as the default assistant (not implemented)"
+      ],
+      "confirmation": "NONE",
+      "denialBehavior": "Not requested.",
+      "fallback": "Open ZARVIS from the launcher.",
+      "revocationHandling": "Not applicable.",
+      "settingsDestination": "Android Settings > Apps > Default apps > Digital assistant app",
+      "rationale": {
+        "why": "Not used in this build.",
+        "data": "Assist context.",
+        "notAutomatic": "Not requested.",
+        "revoke": "Nothing to revoke."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Not available in a browser."
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "No VoiceInteractionService exists in this build."
+        }
+      }
+    },
+    {
+      "id": "screen_interaction",
+      "name": "Screen interaction",
+      "requiredAccess": "Read or interact with other apps' screens.",
+      "androidPermissions": [],
+      "androidRequirements": "Accessibility or MediaProjection; both require explicit system consent.",
+      "risk": "VERY_HIGH",
+      "actionClass": "SECURITY_SENSITIVE",
+      "dataExposure": "Other apps' screen content.",
+      "supportedActions": [],
+      "unsupportedActions": [
+        "Reading or tapping other apps' screens (not implemented)"
+      ],
+      "confirmation": "PER_ACTION",
+      "denialBehavior": "Not requested.",
+      "fallback": "Use the supported phone actions.",
+      "revocationHandling": "Not applicable.",
+      "settingsDestination": "Android Settings > Accessibility",
+      "rationale": {
+        "why": "Not used in this build.",
+        "data": "Screen content.",
+        "notAutomatic": "Not requested.",
+        "revoke": "Nothing to revoke."
+      },
+      "platforms": {
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Not available in a browser."
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "Not implemented in this build."
+        }
+      }
+    }
+  ]
+}

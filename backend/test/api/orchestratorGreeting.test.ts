@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { buildContainer } from "../../src/container.js";
+import { MockGitHubClient } from "../../src/github/githubClient.js";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
 import { buildServer } from "../../src/server.js";
 
@@ -9,7 +10,7 @@ describe("orchestrator conversational greetings", () => {
   let app: Express;
 
   beforeEach(() => {
-    app = buildServer(buildContainer(new InMemoryStore()));
+    app = buildServer(buildContainer(new InMemoryStore(), { githubClientFactory: (token) => new MockGitHubClient({ token }) }));
   });
 
   async function signupAndGetToken(): Promise<string> {
@@ -55,6 +56,9 @@ describe("orchestrator conversational greetings", () => {
 
     expect(first.status).toBe(200);
     expect(first.body.toolCalls[0]?.skillId).toBe("developer.analyze_repo");
+    // No repository URL was given, so none is invented: the call stops at validation.
+    expect(first.body.toolCalls[0]?.outcome.kind).toBe("validation_failed");
+    expect(first.body.toolCalls[0]?.result.status).toBe("USER_ACTION_REQUIRED");
 
     const second = await request(app)
       .post("/api/v1/orchestrator/turn")

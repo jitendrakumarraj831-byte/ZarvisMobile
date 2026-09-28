@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { resolveGeminiVoice, type GeminiTtsProvider } from "../../ai/geminiTts.js";
+import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 
 /**
  * POST /api/v1/tts/synthesize — speaks a reply using Gemini's native audio voice (see
@@ -11,10 +13,13 @@ import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddle
  */
 export function ttsRouter(provider: GeminiTtsProvider | null): Router {
   const router = Router();
+  // TTS is not charged credits; this per-account limit is the cost guard against abuse.
+  const limit = rateLimit({ name: "tts", windowMs: 60 * 1000, max: 40, keyBy: "account" });
 
   router.post(
     "/synthesize-stream",
     requireAuth,
+    limit,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
       if (!provider) {
         res.status(503).json({ error: "Live voice synthesis isn't configured on this server (GEMINI_API_KEY missing)." });
@@ -35,7 +40,7 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
       try {
         first = await iterator.next();
       } catch (error) {
-        console.error("[tts] Gemini synthesis failed before audio:", error);
+        logger.error("Gemini TTS failed before audio", { error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
         if (!res.headersSent) {
           res.status(502).json({ error: "Gemini TTS synthesis failed. Please try again." });
         } else if (!res.destroyed) {
@@ -45,7 +50,7 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
       }
 
       if (first.done || !first.value?.length) {
-        console.error("[tts] Gemini returned no audio data");
+        logger.error("Gemini TTS returned no audio data");
         res.status(502).json({ error: "Gemini TTS returned no audio data. Please try again." });
         return;
       }
@@ -76,7 +81,7 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
         // Headers/audio may already be on the wire, so a JSON error cannot be sent here.
         // Log the real Gemini/backend error and close cleanly; the client will stop at the
         // last valid PCM frame instead of receiving a browser-level "network error".
-        console.error("[tts] Gemini stream interrupted after audio started:", error);
+        logger.error("Gemini TTS stream interrupted after audio started", { error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
       } finally {
         if (!res.destroyed) res.end();
       }
@@ -86,6 +91,7 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
   router.post(
     "/synthesize",
     requireAuth,
+    limit,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
       if (!provider) {
         res.status(503).json({ error: "Live voice synthesis isn't configured on this server (GEMINI_API_KEY missing)." });
@@ -98,7 +104,14 @@ export function ttsRouter(provider: GeminiTtsProvider | null): Router {
       }
       // No usage/credit ledger entry is charged for this call yet (see SUBSCRIPTIONS.md) —
       // this length cap is the only cost guard in this pass, not a real entitlement check.
-      const wav = await provider.synthesize(text.slice(0, 2000), resolveGeminiVoice(voice, provider.defaultVoice));
+      let wav: Buffer;
+      try {
+        wav = await provider.synthesize(text.slice(0, 2000), resolveGeminiVoice(voice, provider.defaultVoice));
+      } catch (error) {
+        logger.error("Gemini TTS synthesis failed", { error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
+        res.status(502).json({ error: "Voice synthesis failed. The reply is still shown as text.", code: "tts_failed", retryable: true });
+        return;
+      }
       res.set("Content-Type", "audio/wav");
       res.send(wav);
     }),

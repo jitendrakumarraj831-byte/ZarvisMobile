@@ -15,6 +15,7 @@ function skill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
     requiredEntitlement: "FREE",
     usageCost: { value: 0, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "READ_ONLY",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: [] },

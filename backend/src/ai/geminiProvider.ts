@@ -41,8 +41,8 @@ export class GeminiProvider implements AIProvider {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const body = toGeminiRequestBody(request);
         const res = await fetchWithTimeout(
-          `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${this.apiKey}`,
-          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+          `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
+          { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body: JSON.stringify(body) },
           90_000,
         );
         if (res.ok) {
@@ -76,10 +76,10 @@ export class GeminiProvider implements AIProvider {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const body = toGeminiRequestBody(request);
         const res = await fetchWithTimeout(
-          `${this.baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
+          `${this.baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
           {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
             body: JSON.stringify(body),
           },
           120_000,

@@ -1,5 +1,7 @@
 import type {
   AccountEntitlementSnapshot,
+  ActionClass,
+  PendingConfirmationView,
   PermissionType,
   RiskLevel,
   SkillExecutionContext,
@@ -26,12 +28,27 @@ export interface UsagePort {
 
 export interface ConfirmationRequest {
   skillId: string;
-  summary: string;
+  skillName: string;
+  /** Exactly what this call will do — the user confirms this text, not a generic description. */
+  action: string;
   riskLevel: RiskLevel;
+  actionClass: ActionClass;
+  /** The exact validated input; an approval is bound to its hash. */
+  input: Record<string, unknown>;
 }
 
+export type ConfirmationDecision =
+  | { approved: true }
+  | { approved: false; pending: PendingConfirmationView };
+
+/**
+ * Decides whether one specific call may run. The server implementation
+ * (security/confirmationService.ts) approves only a call carrying a grant that was consumed
+ * from a server-issued, account-bound, single-use, expiring confirmation for this exact skill
+ * and input; everything else gets a new pending confirmation back.
+ */
 export interface ConfirmationPort {
-  confirm(request: ConfirmationRequest, context: SkillExecutionContext): Promise<boolean>;
+  confirm(request: ConfirmationRequest, context: SkillExecutionContext): Promise<ConfirmationDecision>;
 }
 
 export interface ClockPort {

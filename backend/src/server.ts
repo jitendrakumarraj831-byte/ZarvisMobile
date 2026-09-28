@@ -6,6 +6,10 @@ import type { Container } from "./container.js";
 import { accountRouter } from "./api/routes/account.js";
 import { authRouter } from "./api/routes/auth.js";
 import { billingRouter } from "./api/routes/billing.js";
+import { capabilitiesRouter } from "./api/routes/capabilities.js";
+import { confirmationsRouter } from "./api/routes/confirmations.js";
+import { conversationsRouter } from "./api/routes/conversations.js";
+import { integrationsRouter } from "./api/routes/integrations.js";
 import { developerRouter } from "./api/routes/developer.js";
 import { entitlementsRouter } from "./api/routes/entitlements.js";
 import { orchestratorRouter } from "./api/routes/orchestrator.js";
@@ -15,6 +19,7 @@ import { ttsRouter } from "./api/routes/tts.js";
 import { usageRouter } from "./api/routes/usage.js";
 import { defaultModelConfig } from "./ai/providerFactory.js";
 import { corsMiddleware } from "./security/cors.js";
+import { securityHeaders } from "./security/headers.js";
 import { logger } from "./security/redact.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -44,6 +49,13 @@ function getDocumentsRouter(): Promise<Router | null> {
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
   const app = express();
+  // Behind exactly one proxy hop (Vercel's edge / a load balancer): use its X-Forwarded-For
+  // entry as req.ip for rate limiting, and never trust client-supplied deeper hops.
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
+  // Every requireAuth check validates the server-side session through this service.
+  app.locals.authService = container.authService;
+  app.use(securityHeaders);
   app.use(corsMiddleware);
   // Vercel's Node.js runtime (api/index.ts) can pre-parse a JSON request body onto `req.body`
   // and drain the underlying stream before Express ever sees the request — a well-known
@@ -73,7 +85,14 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/entitlements", entitlementsRouter(container.entitlementPort));
   app.use("/api/v1/tasks", tasksRouter(container.taskService));
   app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
-  app.use("/api/v1/developer", developerRouter(container.pipeline));
+  app.use("/api/v1/developer", developerRouter(container.pipeline, container.registry));
+  app.use(
+    "/api/v1/confirmations",
+    confirmationsRouter(container.confirmationService, container.pipeline, container.registry, container.store),
+  );
+  app.use("/api/v1/integrations", integrationsRouter(container.githubAccess));
+  app.use("/api/v1/capabilities", capabilitiesRouter());
+  app.use("/api/v1/conversations", conversationsRouter(container.store));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
   // Keep document parsing isolated from the startup-critical API. If its dependencies cannot
@@ -120,8 +139,6 @@ export function buildServer(container: Container): Express {
       code = "database_connection_error";
     } else if (/password authentication failed|SASL|authentication failed|database .* does not exist|no pg_hba/i.test(message)) {
       code = "database_configuration_error";
-    } else if (/Unknown account|Invalid or expired refresh token|Not a refresh token/i.test(message)) {
-      code = "auth_session_invalid";
     }
 
     res.status(status).json({

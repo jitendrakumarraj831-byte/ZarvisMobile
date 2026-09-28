@@ -84,8 +84,9 @@ function fillInput(tool: ToolDefinition, utterance: string): Record<string, unkn
         values[field] = utterance;
         break;
       case "repoUrl": {
+        // Only a URL the user actually typed — never an invented placeholder repository.
         const match = utterance.match(/https?:\/\/\S+/);
-        values[field] = match?.[0] ?? "https://github.com/example/demo-repo";
+        if (match) values[field] = match[0];
         break;
       }
       case "client": {
