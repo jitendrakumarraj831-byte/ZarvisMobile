@@ -17,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -27,19 +28,24 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class SettingsUiTest {
+    @get:Rule val diagnose = DiagnoseOnFailure()
 
+    /** Finds [text] on the current page, scrolling to the top first and then down through it. */
     private fun find(text: String, timeoutMs: Long = 10_000): UiObject2? {
         ui.wait(Until.findObject(By.pkg(APP).text(text)), 2_000)?.let { return it }
+        ui.findObject(By.pkg(APP).scrollable(true))?.let { list -> repeat(20) { if (!list.scroll(Direction.UP, 0.8f)) return@let } }
         val end = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < end) {
             ui.findObject(By.pkg(APP).text(text))?.let { return it }
-            val scrollable = ui.findObject(By.pkg(APP).scrollable(true)) ?: return null
-            if (!scrollable.scroll(Direction.DOWN, 0.6f)) return ui.findObject(By.pkg(APP).text(text))
+            val scrollable = ui.findObject(By.pkg(APP).scrollable(true)) ?: break
+            if (!scrollable.scroll(Direction.DOWN, 0.6f)) break
         }
-        return null
+        return ui.findObject(By.pkg(APP).text(text)) ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found") }
     }
 
     private fun openSettings() {
+        // Nothing left over from an earlier test (e.g. the assistant overlay) may sit on top.
+        if (ui.currentPackageName == APP && ui.hasObject(By.pkg(APP).text("Close"))) ui.pressBack()
         ui.wait(Until.hasObject(By.pkg(APP)), 15_000)
         // Onboarding appears on a fresh install; skip it like a user would.
         ui.wait(Until.findObject(By.pkg(APP).text("Skip")), 5_000)?.click()
@@ -57,7 +63,10 @@ class SettingsUiTest {
             }
             evidence("ui settings>notifications all section 12 controls rendered")
 
-            ui.pressBack() // back to the hub, then reopen to start at the top
+            // System Back returns to the settings list (not out of Settings), then reopen at the top.
+            ui.pressBack()
+            assertNotNull("system Back returns to the settings hub", find("Permissions & Device Access"))
+            evidence("ui settings>notifications system Back -> settings hub")
             (find("Notifications") ?: error("hub")).click()
             (find("Contact + app") ?: error("mode option")).click()
             assertTrue(eventually { runBlocking { entry.notificationSettings().current().mode } == NotificationMode.CONTACT_AND_APP })

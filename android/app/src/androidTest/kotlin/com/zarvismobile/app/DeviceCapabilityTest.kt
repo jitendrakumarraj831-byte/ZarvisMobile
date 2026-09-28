@@ -2,6 +2,10 @@ package com.zarvismobile.app
 
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.provider.AlarmClock
+import android.provider.CalendarContract
+import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.zarvismobile.agents.TurnOutcome
@@ -24,8 +28,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.FixMethodOrder
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
@@ -38,6 +44,7 @@ import org.junit.runners.MethodSorters
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class DeviceCapabilityTest {
+    @get:Rule val diagnose = DiagnoseOnFailure()
 
     private fun turn(utterance: String, confirm: Boolean? = true): TurnOutcome = runBlocking {
         val responders = CoroutineScope(Dispatchers.Default)
@@ -85,30 +92,73 @@ class DeviceCapabilityTest {
         if (outcome.result?.status == ToolResultStatus.COMPLETED) assertTrue(outcome.message.contains("approximate location"))
     }
 
+    /**
+     * Which apps on this device can handle the intent, asked of the package manager as the
+     * shell (the app's own query would be filtered by Android 11+ package visibility).
+     */
+    private fun handlers(action: String, data: String? = null, type: String? = null): List<String> {
+        val args = buildString {
+            append("-a $action")
+            data?.let { append(" -d $it") }
+            type?.let { append(" -t $it") }
+        }
+        val out = shell("cmd package query-activities $args -c android.intent.category.DEFAULT")
+        return Regex("""packageName=([A-Za-z0-9_.]+)""").findAll(out).map { it.groupValues[1] }.distinct().toList()
+            .also { if (it.isEmpty()) Device.diagnose("no handler for $args: ${out.take(300)}") }
+    }
+
+    /** The app Android put in front — or, when several apps qualify, its own "Open with" chooser. */
+    private fun handedOffTo(expected: List<String>): String? {
+        var front: String? = null
+        eventually(10_000) {
+            front = ui.currentPackageName
+            front in expected || (expected.size > 1 && front == "android")
+        }
+        return front?.takeIf { it in expected || (expected.size > 1 && it == "android") }
+    }
+
     @Test
     fun c_alarmIsHandedToTheClockApp() {
+        val clocks = handlers(AlarmClock.ACTION_SET_ALARM)
         val outcome = turn("set an alarm for 6:30 am")
-        assertEquals(ToolResultStatus.USER_ACTION_REQUIRED, outcome.result?.status)
-        assertTrue("Clock app opened", eventually(10_000) { ui.currentPackageName?.contains("clock") == true })
-        evidence("alarm -> USER_ACTION_REQUIRED, ${ui.currentPackageName} opened")
+        assertEquals(outcome.message, ToolResultStatus.USER_ACTION_REQUIRED, outcome.result?.status)
+        val front = handedOffTo(clocks)
+        assertNotNull("clock app (one of $clocks) opened; front=${ui.currentPackageName}", front)
+        evidence("alarm -> USER_ACTION_REQUIRED, handed to $front (handlers=$clocks)")
         ui.pressBack()
         ui.pressHome()
     }
 
     @Test
     fun d_bluetoothOpensSettingsAndNeverChangesIt() {
+        val settings = handlers(Settings.ACTION_BLUETOOTH_SETTINGS)
         val outcome = turn("open bluetooth settings")
-        assertEquals(ToolResultStatus.USER_ACTION_REQUIRED, outcome.result?.status)
-        assertTrue(eventually(10_000) { ui.currentPackageName == "com.android.settings" })
-        evidence("bluetooth -> USER_ACTION_REQUIRED, Settings opened")
+        if (settings.isEmpty()) {
+            // This image has no Bluetooth settings page (no Bluetooth hardware): ZARVIS must say
+            // so instead of claiming it opened anything.
+            assertEquals(outcome.message, ToolResultStatus.FAILED, outcome.result?.status)
+            evidence("bluetooth -> FAILED honestly (no ACTION_BLUETOOTH_SETTINGS handler on this device): ${outcome.message}")
+        } else {
+            assertEquals(outcome.message, ToolResultStatus.USER_ACTION_REQUIRED, outcome.result?.status)
+            assertTrue("Settings opened; front=${ui.currentPackageName}", eventually(10_000) { ui.currentPackageName in settings })
+            evidence("bluetooth -> USER_ACTION_REQUIRED, ${ui.currentPackageName} opened")
+        }
         ui.pressHome()
     }
 
     @Test
     fun e_calendarHandsOffOrSaysNoCalendarApp() {
+        val calendars = handlers(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI.toString(), "vnd.android.cursor.dir/event")
         val outcome = turn("add a meeting tomorrow at 5 pm to my calendar")
-        evidence("calendar -> ${outcome.result?.status}: ${outcome.message} front=${ui.currentPackageName}")
-        assertTrue(outcome.result?.status == ToolResultStatus.USER_ACTION_REQUIRED || outcome.message.contains("No calendar app"))
+        if (calendars.isEmpty()) {
+            assertTrue(outcome.message, outcome.message.contains("No calendar app"))
+            evidence("calendar -> no calendar app on this device, said so: ${outcome.message}")
+        } else {
+            assertEquals(outcome.message, ToolResultStatus.USER_ACTION_REQUIRED, outcome.result?.status)
+            val front = handedOffTo(calendars)
+            assertNotNull("calendar app (one of $calendars) opened; front=${ui.currentPackageName}", front)
+            evidence("calendar -> USER_ACTION_REQUIRED, handed to $front (handlers=$calendars)")
+        }
         ui.pressBack()
         ui.pressHome()
     }

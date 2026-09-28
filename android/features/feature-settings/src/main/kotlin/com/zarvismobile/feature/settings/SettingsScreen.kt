@@ -1,5 +1,6 @@
 package com.zarvismobile.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -90,6 +91,8 @@ fun SettingsScreen(
     var showClearConfirmation by remember { mutableStateOf(false) }
 
     val goBack: () -> Unit = { page = null }
+    // System Back on a settings page returns to the settings list, like the on-screen back arrow.
+    BackHandler(enabled = page != null, onBack = goBack)
 
     when (val selected = page) {
         null -> SettingsHub(uiState.locale, uiState.darkTheme, onBack) { page = it }

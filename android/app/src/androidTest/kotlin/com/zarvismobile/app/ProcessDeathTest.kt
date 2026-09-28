@@ -15,6 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -31,6 +32,8 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ProcessDeathPhase1 {
+    @get:Rule val diagnose = DiagnoseOnFailure()
+
     @Test
     fun killTheProcessWhileAnActionWaitsForTheUser() {
         ActivityScenario.launch(MainActivity::class.java)
@@ -50,6 +53,8 @@ class ProcessDeathPhase1 {
 
 @RunWith(AndroidJUnit4::class)
 class ProcessDeathPhase2 {
+    @get:Rule val diagnose = DiagnoseOnFailure()
+
     @Test
     fun theInterruptedActionIsOfferedNotRun() = runBlocking {
         val decision = entry.orchestrator().checkInterruptedAction()

@@ -48,6 +48,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.FixMethodOrder
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
@@ -60,6 +61,7 @@ import org.junit.runners.MethodSorters
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class SpecialAccessTest {
+    @get:Rule val diagnose = DiagnoseOnFailure()
 
     private fun state(permission: PermissionType) = runBlocking { entry.deviceAccessPort().state(permission) }
 
@@ -80,7 +82,8 @@ class SpecialAccessTest {
 
     private fun postShellNotification(tag: String, title: String, text: String) {
         // Single tokens: executeShellCommand splits on whitespace without shell quoting.
-        shell("cmd notification post -t $title $tag $text")
+        val out = shell("cmd notification post -t $title $tag $text").trim()
+        if (out.isNotEmpty()) evidence("shell notification post $tag -> $out")
     }
 
     private fun openClock(): String {
@@ -91,11 +94,12 @@ class SpecialAccessTest {
 
     // --- notification_read ---------------------------------------------------------------
 
+    /** What the user's switch on Android's "Notification access" page does (cmd exists since Android 8.0). */
     private fun setListener(enabled: Boolean) {
-        if (sdk >= 28) {
-            shell("cmd notification ${if (enabled) "allow_listener" else "disallow_listener"} ${Device.listenerComponent}")
-        } else {
-            shell("settings put secure enabled_notification_listeners ${if (enabled) Device.listenerComponent else "null"}")
+        val out = shell("cmd notification ${if (enabled) "allow_listener" else "disallow_listener"} ${Device.listenerComponent}")
+        if (out.contains("Unknown", ignoreCase = true) || out.contains("usage", ignoreCase = true)) {
+            if (enabled) shell("settings put secure enabled_notification_listeners ${Device.listenerComponent}")
+            else shell("settings delete secure enabled_notification_listeners")
         }
     }
 
@@ -126,10 +130,14 @@ class SpecialAccessTest {
         if (sdk >= 28) {
             postShellNotification("zarvis_msg", "Asha", "Dinner_tonight?")
             postShellNotification("zarvis_otp", "Bank", "OTP:482913")
-            val active = runBlocking { entry.notificationReader().active() }
-            assertTrue(active is ActiveNotifications.Available)
-            val items = (active as ActiveNotifications.Available).items
-            assertTrue("shell notifications visible", items.count { it.packageName == "com.android.shell" } >= 2)
+            // Posting is asynchronous: wait until Android shows both to the listener.
+            var seen = emptyList<String>()
+            val visible = eventually(15_000, stepMs = 500) {
+                val active = runBlocking { entry.notificationReader().active() }
+                seen = (active as? ActiveNotifications.Available)?.items?.map { "${it.packageName}:${it.key}" } ?: listOf("$active")
+                seen.count { it.startsWith("com.android.shell:") && (it.contains("zarvis_msg") || it.contains("zarvis_otp")) } >= 2
+            }
+            assertTrue("shell notifications visible to the listener: $seen", visible)
 
             val outcome = turn("read my notifications")
             assertEquals(ToolResultStatus.COMPLETED, outcome.result?.status)
@@ -166,18 +174,33 @@ class SpecialAccessTest {
             }
         }
         val sample = runBlocking { speaker.speakSample() }
-        assertTrue("real TTS engine started speaking: $sample", sample is SpeakOutcome.Spoken)
-        evidence("notification_speak sample=$sample")
+        // Some emulator images ship without any text-to-speech engine. ZARVIS must then say so
+        // (Failed), never claim it spoke; on images with an engine it must really start speaking.
+        val noEngine = sample == SpeakOutcome.Failed("no text-to-speech engine available")
+        val engines = Regex("""packageName=([A-Za-z0-9_.]+)""")
+            .findAll(shell("cmd package query-services -a android.intent.action.TTS_SERVICE")).map { it.groupValues[1] }.toSet()
+        evidence("notification_speak sample=$sample installed_tts_engines=$engines")
+        assertTrue("real TTS engine started speaking: $sample", sample is SpeakOutcome.Spoken || noEngine)
+        // "No engine" is only acceptable when Android itself reports none installed.
+        if (noEngine) assertTrue("reported no engine but Android lists $engines", engines.isEmpty())
 
         if (sdk >= 28) {
+            /** The decision for exactly this notification (matched by its tag in Android's key). */
             fun postAndAwait(tag: String, title: String, text: String): SpeakOutcome? {
-                val before = speaker.lastOutcome.value
                 postShellNotification(tag, title, text)
-                eventually(15_000) { speaker.lastOutcome.value != null && speaker.lastOutcome.value !== before }
-                return speaker.lastOutcome.value
+                var outcome: SpeakOutcome? = null
+                eventually(15_000) {
+                    outcome = speaker.recentOutcomes.value.lastOrNull { (key, _) -> key.contains("|$tag|") }?.second
+                    outcome != null
+                }
+                return outcome
             }
             val spoken = postAndAwait("zarvis_speak1", "Ravi", "Running_late")
-            assertTrue("new notification spoken: $spoken", spoken is SpeakOutcome.Spoken)
+            if (noEngine) {
+                assertEquals(SpeakOutcome.Failed("no text-to-speech engine available"), spoken)
+            } else {
+                assertTrue("new notification spoken: $spoken (recent=${speaker.recentOutcomes.value})", spoken is SpeakOutcome.Spoken)
+            }
             assertEquals(SpeakOutcome.Skipped("security or banking alert"), postAndAwait("zarvis_speak2", "Bank", "OTP:112233"))
 
             runBlocking { entry.notificationSettings().update { it.copy(quietHours = QuietHours(true, now, (now + 60) % (24 * 60))) } }
@@ -188,7 +211,7 @@ class SpecialAccessTest {
 
             runBlocking { entry.notificationSettings().update { it.copy(headphonesOnly = false, excludedPackages = setOf("com.android.shell")) } }
             assertEquals(SpeakOutcome.Skipped("app is excluded"), postAndAwait("zarvis_speak5", "Ravi", "Excluded_test"))
-            evidence("notification_speak live notification spoken; OTP/quiet hours/headphones/exclusion skipped")
+            evidence("notification_speak live notification ${if (noEngine) "reached TTS (image has no engine -> Failed, reported honestly)" else "spoken"}; OTP/quiet hours/headphones/exclusion skipped")
         }
         runBlocking { entry.notificationSettings().update { it.copy(speakEnabled = false, excludedPackages = emptySet()) } }
         val off = turn("speak my notifications")
@@ -203,7 +226,10 @@ class SpecialAccessTest {
     fun c_revokingNotificationAccessIsDetectedAndEnforced() {
         runBlocking { entry.revocationDetector().check() } // records "granted"
         setListener(false)
-        assertTrue(eventually(15_000) { state(PermissionType.NOTIFICATION_LISTENER) == AccessState.SPECIAL_ACCESS_OFF })
+        assertTrue(
+            "listener state after revoking: ${state(PermissionType.NOTIFICATION_LISTENER)} setting=${shell("settings get secure enabled_notification_listeners").trim()}",
+            eventually(15_000) { state(PermissionType.NOTIFICATION_LISTENER) == AccessState.SPECIAL_ACCESS_OFF },
+        )
         val report = runBlocking { entry.revocationDetector().check() }
         assertTrue("revocation detected: $report", PermissionType.NOTIFICATION_LISTENER in report.revoked)
         val blocked = runBlocking {
@@ -339,10 +365,15 @@ class SpecialAccessTest {
 
         ui.pressHome()
         shell("input keyevent KEYCODE_ASSIST")
-        val opened = ui.wait(Until.hasObject(By.pkg(APP).text("Close")), 15_000) == true
-        assertTrue("assist gesture opened ZARVIS's overlay", opened)
+        assertTrue("assist gesture brought ZARVIS to the front", eventually(15_000) { ui.currentPackageName == APP })
+        // The overlay starts listening at once, so on a fresh install ZARVIS first explains the
+        // microphone (§10). Answer Not now: the overlay must stay usable with typed input.
+        ui.wait(Until.findObject(By.pkg(APP).text("Not now")), 5_000)?.click()
+        val close = Device.waitFor(By.pkg(APP).text("Close"))
+        assertNotNull("assist gesture opened ZARVIS's overlay", close)
         evidence("default_assistant KEYCODE_ASSIST -> AssistActivity shown over ${ui.launcherPackageName}")
-        ui.pressBack()
+        close!!.click()
+        assertTrue("overlay closed", eventually(10_000) { ui.currentPackageName != APP })
 
         setAssistant(false)
         assertTrue(eventually { state(PermissionType.ASSISTANT_ROLE) == AccessState.SPECIAL_ACCESS_OFF })

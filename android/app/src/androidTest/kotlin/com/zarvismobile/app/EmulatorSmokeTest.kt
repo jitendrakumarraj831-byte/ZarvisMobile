@@ -8,12 +8,15 @@ import com.zarvismobile.domain.capability.CapabilityId
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /** Proves the packaged registry and live permission reads work on a real Android runtime. */
 @RunWith(AndroidJUnit4::class)
 class EmulatorSmokeTest {
+    @get:Rule val diagnose = DiagnoseOnFailure()
+
     private val entry = EntryPointAccessors.fromApplication(
         ApplicationProvider.getApplicationContext<ZarvisApplication>(),
         VerificationEntryPoint::class.java,

@@ -57,6 +57,11 @@ class NotificationSpeaker(
     /** What happened to the most recent notification (decision only, never its content). */
     val lastOutcome: StateFlow<SpeakOutcome?> = _lastOutcome.asStateFlow()
 
+    private val _recent = MutableStateFlow<List<Pair<String, SpeakOutcome>>>(emptyList())
+
+    /** Decisions for the last few notifications by Android notification key (never content). */
+    val recentOutcomes: StateFlow<List<Pair<String, SpeakOutcome>>> = _recent.asStateFlow()
+
     fun onNotificationPosted(snapshot: NotificationSnapshot) {
         scope.launch { handle(snapshot) }
     }
@@ -64,7 +69,7 @@ class NotificationSpeaker(
     suspend fun handle(snapshot: NotificationSnapshot): SpeakOutcome = mutex.withLock {
         val now = System.currentTimeMillis()
         recentKeys.entries.removeAll { now - it.value > DEDUPE_WINDOW_MS }
-        if (recentKeys.containsKey(snapshot.key)) return@withLock SpeakOutcome.Skipped("update of a notification already handled").also(::log)
+        if (recentKeys.containsKey(snapshot.key)) return@withLock SpeakOutcome.Skipped("update of a notification already handled").also { record(snapshot.key, it) }
         val decision = NotificationPrivacy.speakDecision(snapshot, settings.current(), currentContext())
         val outcome = when (decision) {
             is SpeakDecision.Skip -> SpeakOutcome.Skipped(decision.reason)
@@ -73,8 +78,13 @@ class NotificationSpeaker(
                 speak(decision.text)
             }
         }
-        log(outcome)
+        record(snapshot.key, outcome)
         outcome
+    }
+
+    private fun record(key: String, outcome: SpeakOutcome) {
+        _recent.value = (_recent.value + (key to outcome)).takeLast(RECENT_LIMIT)
+        log(outcome)
     }
 
     /** Speaks a fixed sample so the user can hear how spoken notifications sound (Settings). */
@@ -160,5 +170,6 @@ class NotificationSpeaker(
     private companion object {
         const val TAG = "ZarvisNotifications"
         const val DEDUPE_WINDOW_MS = 60_000L
+        const val RECENT_LIMIT = 20
     }
 }

@@ -18,6 +18,7 @@ log() { echo "[verify api$API] $*"; }
 
 adb wait-for-device
 adb shell getprop ro.build.version.sdk | tee "$OUT/sdk.txt"
+adb logcat -G 16M || true
 adb logcat -c || true
 (adb logcat -v time > "$OUT/logcat.txt" 2>&1 &)
 adb shell settings put system screen_off_timeout 1800000 || true
@@ -64,10 +65,17 @@ for scenario in scripts/emulator/scenarios/*.sh; do
   cat "$OUT/scenario-$name.txt"
 done
 
+# Keep feeding GPS fixes while phase D runs (a single fix goes stale before the location test).
+( while true; do adb emu geo fix 87.2677 26.2987 >/dev/null 2>&1; sleep 3; done ) &
+GEO_PID=$!
 run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest,$APP.SettingsUiTest"
 
+kill "$GEO_PID" 2>/dev/null || true
 sleep 1
 adb logcat -d > "$OUT/logcat-final.txt" 2>&1 || true
-grep -h "ZARVIS_EVIDENCE" "$OUT/logcat-final.txt" "$OUT"/scenario-*.txt 2>/dev/null | sed 's/^.*ZARVIS_EVIDENCE/ZARVIS_EVIDENCE/' | sort -u > "$OUT/evidence.txt" || true
+cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" "$OUT"/scenario-*.txt 2>/dev/null | grep -h "ZARVIS_EVIDENCE" 2>/dev/null | sed 's/^.*ZARVIS_EVIDENCE/ZARVIS_EVIDENCE/' | sort -u > "$OUT/evidence.txt" || true
 log "evidence:"; cat "$OUT/evidence.txt"
+# What was on screen whenever a wait timed out or a test failed.
+cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -h "ZARVIS_DIAG" | sed 's/^.*ZARVIS_DIAG/ZARVIS_DIAG/' | cut -c1-1500 | awk "!seen[\$0]++" > "$OUT/diagnostics.txt" || true
+log "diagnostics:"; cat "$OUT/diagnostics.txt"
 exit $FAIL

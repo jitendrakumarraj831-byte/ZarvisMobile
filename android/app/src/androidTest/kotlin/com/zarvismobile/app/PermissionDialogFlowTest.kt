@@ -26,6 +26,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.FixMethodOrder
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
@@ -38,6 +39,8 @@ import org.junit.runners.MethodSorters
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class PermissionDialogFlowTest {
+    @get:Rule val diagnose = DiagnoseOnFailure()
+
     private lateinit var scenario: ActivityScenario<MainActivity>
     private val registry get() = entry.capabilityRegistry()
 
