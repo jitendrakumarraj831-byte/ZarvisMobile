@@ -64,7 +64,7 @@ for scenario in scripts/emulator/scenarios/*.sh; do
   cat "$OUT/scenario-$name.txt"
 done
 
-run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest"
+run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest,$APP.SettingsUiTest"
 
 sleep 1
 adb logcat -d > "$OUT/logcat-final.txt" 2>&1 || true

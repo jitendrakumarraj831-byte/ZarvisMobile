@@ -582,6 +582,29 @@ export const CAPABILITIES: readonly CapabilityDefinition[] = [
   },
 ];
 
+/**
+ * What the shared Brain is told about device capabilities (blueprint §1 "one Brain, multiple
+ * clients"; §9 "the LLM proposes, the policy layer decides"). Generated from this registry so
+ * the model's picture of what exists can never drift from what the clients actually do.
+ */
+export function deviceCapabilitiesForPrompt(): string {
+  const lines = CAPABILITIES.map((c) => {
+    const where = [
+      c.platforms.android.status === "WORKING" || c.platforms.android.status === "PARTIAL" ? "Android app" : null,
+      c.platforms.web.status === "WORKING" || c.platforms.web.status === "PARTIAL" ? "web" : null,
+    ].filter(Boolean);
+    return `- ${c.name}: ${where.length ? `available in the ${where.join(" and ")}` : "not available anywhere yet"}` +
+      (c.confirmation === "PER_ACTION" ? "; each action needs the user's explicit confirmation" : "") + ".";
+  });
+  return (
+    "Device capabilities (phone features) are executed only by the ZARVIS client on the user's own device, " +
+    "after the user grants Android/browser access — never by you and never through your tools. " +
+    "If the user asks for one here, do not claim you did it or can see the data: say which app can do it " +
+    "(and that the phone will ask for access) or give the manual way. Capability registry:\n" +
+    lines.join("\n")
+  );
+}
+
 export function findCapability(id: string): CapabilityDefinition | undefined {
   return CAPABILITIES.find((capability) => capability.id === id);
 }

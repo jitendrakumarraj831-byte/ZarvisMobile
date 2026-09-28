@@ -4,9 +4,9 @@ name: Android emulator verification
 # Phase 1 capabilities against the actual platform: real permission dialogs, real
 # special-access settings, real system services. Evidence lines (ZARVIS_EVIDENCE ...) are
 # printed to the log and uploaded as an artifact per API level.
+# Pull requests only (plus manual runs): each emulator matrix takes ~15 minutes per API level,
+# so a branch push that also has a PR would otherwise run it twice.
 on:
-  push:
-    branches: ["**"]
   pull_request:
   workflow_dispatch:
 

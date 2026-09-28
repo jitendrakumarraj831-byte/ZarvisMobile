@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
 import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
@@ -348,6 +349,8 @@ function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools:
     "'kya haal hai', and 'kal ka weather kaisa rahega' should receive a natural Hindi/Hinglish " +
     "reply rather than an English-only reply. If the user mixes Hindi and English, preserve that " +
     "natural mix. Do not switch languages just because the browser locale is English.";
+
+  prompt += " " + deviceCapabilitiesForPrompt();
 
   prompt +=
     ` Respond in ${replyLanguage === "hi" ? "Hindi/Hinglish" : "English"} based on the current user message. ` +
