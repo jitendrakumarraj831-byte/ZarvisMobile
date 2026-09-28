@@ -74,3 +74,63 @@ jobs:
           node --check web/app.js
           node --check web/feature-pages.js
           node --check web/sw.js
+          node --check web/logic.js
+          node --test web/tests/*.test.js
+
+  web-e2e:
+    # Real browser (Chromium) against the real backend + Postgres, with a local GitHub API stub.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zarvis_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm install -g playwright@1.56.1
+          npx -y playwright@1.56.1 install --with-deps chromium
+
+      - name: Start GitHub API stub and backend
+        run: |
+          nohup node web/e2e/github-stub.cjs > /tmp/stub.log 2>&1 &
+          cd backend
+          PORT=3100 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/zarvis_e2e \
+            CORS_ORIGINS=http://localhost:3100 GITHUB_API_BASE_URL=http://localhost:3200 \
+            nohup npx tsx src/index.ts > /tmp/backend.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf --max-time 2 http://localhost:3100/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/backend.log; exit 1
+
+      - name: Run Phase 1 browser E2E
+        env:
+          ZARVIS_URL: http://localhost:3100
+          E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/zarvis_e2e
+          NODE_PATH: /usr/local/lib/node_modules
+        run: node web/e2e/phase1.e2e.cjs
+
+      - name: Backend log on failure
+        if: failure()
+        run: cat /tmp/backend.log || true

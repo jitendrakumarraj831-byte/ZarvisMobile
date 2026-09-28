@@ -11,8 +11,8 @@
  * MASTER_SPEC.md Product Principle #4 forbids; a real network failure there should surface
  * as the honest error app.js already shows, not a stale cache hit.
  */
-const CACHE_NAME = "zarvis-shell-v4";
-const SHELL_FILES = ["/", "/index.html", "/app.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE_NAME = "zarvis-shell-v5";
+const SHELL_FILES = ["/", "/index.html", "/app.js", "/logic.js", "/feature-pages.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES)));
@@ -35,7 +35,7 @@ self.addEventListener("fetch", (event) => {
   // cache:"no-store" so an old HTTP cache entry cannot win after a new deployment; the
   // current successful response is still copied into the service-worker cache for offline
   // fallback. The SW itself is registered with updateViaCache:"none" in app.js.
-  const isJavaScript = url.pathname === "/app.js";
+  const isJavaScript = url.pathname.endsWith(".js");
   const request = isJavaScript ? new Request(event.request, { cache: "no-store" }) : event.request;
   event.respondWith(
     fetch(request)

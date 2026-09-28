@@ -164,6 +164,7 @@ describe.each(STORES)("Phase 1 security (API, %s)", (_label, makeStore) => {
       expect(res.status).toBe(200);
       expect(res.body.kind).toBe("confirmation_required");
       expect(res.body.structured.status).toBe("CONFIRMATION_REQUIRED");
+      expect(res.body.confirmation.action).toContain("As GitHub user alice");
       expect(res.body.confirmation.action).toContain("acme/demo");
       expect(res.body.confirmation.action).toContain("add a README badge");
     });
@@ -230,16 +231,26 @@ describe.each(STORES)("Phase 1 security (API, %s)", (_label, makeStore) => {
       expect((await request(app).get("/api/v1/integrations/github").set(auth(tokens.accessToken))).body.connected).toBe(false);
     });
 
-    it("an approved implement is still refused when the user's GitHub identity cannot push", async () => {
+    it("implement is refused before any confirmation when the user's GitHub identity cannot push", async () => {
       const tokens = await guest();
       await container.store.updateAccountPlan(tokens.accountId, "PRO");
       await request(app).post("/api/v1/integrations/github").set(auth(tokens.accessToken)).send({ token: "ghp_" + "n".repeat(36) });
-      const pending = await request(app)
+      const res = await request(app)
         .post("/api/v1/developer/implement")
         .set(auth(tokens.accessToken))
         .send({ repoUrl: "https://github.com/someone-else/repo", requirement: "x" });
-      const approve = await request(app).post(`/api/v1/confirmations/${pending.body.confirmation.id}/approve`).set(auth(tokens.accessToken));
-      expect(approve.body.outcome).toMatchObject({ kind: "execution_failed", result: { reason: "not_authorized" } });
+      expect(res.body).toMatchObject({ kind: "execution_failed", result: { reason: "not_authorized" } });
+      expect(res.body.structured.status).toBe("FAILED");
+    });
+
+    it("implement without a connected GitHub account is refused with an honest reason, no confirmation issued", async () => {
+      const tokens = await guest();
+      await container.store.updateAccountPlan(tokens.accountId, "PRO");
+      const res = await request(app)
+        .post("/api/v1/developer/implement")
+        .set(auth(tokens.accessToken))
+        .send({ repoUrl: "https://github.com/acme/demo", requirement: "x" });
+      expect(res.body).toMatchObject({ kind: "execution_failed", result: { reason: "github_not_connected" } });
     });
   });
 

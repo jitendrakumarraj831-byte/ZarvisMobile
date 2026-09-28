@@ -39,7 +39,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
   const githubAccess = new GitHubAccessService(
     store,
     secretBox,
-    options.githubClientFactory ?? ((token) => new RealGitHubClient(token)),
+    options.githubClientFactory ?? ((token) => new RealGitHubClient(token, env.githubApiBaseUrl)),
   );
   const registry = buildSkillRegistry(store, githubAccess);
   const entitlementPort = new StoreEntitlementPort(store);

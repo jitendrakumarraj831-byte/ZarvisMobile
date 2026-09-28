@@ -26,15 +26,27 @@
 
   const API_BASE = resolveApiBase();
 
-  // Sent with every orchestrator turn so replies can address the user by name (see
-  // backend/src/agents/orchestrator.ts's TurnRequest.userName) — just a display label the
-  // model uses, never an identity/auth claim; the account itself is authenticated by the
-  // bearer token regardless of what this says. Defaults to the product owner's own name
-  // for this single-account deployment; editable later by writing localStorage directly
-  // (no settings screen yet — see MASTER_SPEC.md §32 "No login screen yet").
-  if (!localStorage.getItem(STORAGE_KEYS.userName)) {
-    localStorage.setItem(STORAGE_KEYS.userName, "Jitendra Kumar");
-  }
+  // A display name used to be pre-filled here with a fixed person's name for every visitor.
+  // Nothing in the UI ever set it, so it is removed rather than sent with requests.
+  try {
+    localStorage.removeItem(STORAGE_KEYS.userName);
+  } catch {}
+
+  const Logic = window.ZarvisLogic;
+  // Declared before init() runs: populateVoiceSelect() uses it during startup, and a `const`
+  // declared further down would still be in its temporal dead zone at that point.
+  const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"];
+  // Also declared up front for the same reason (used by the session code during init()).
+  class SessionEndedError extends Error {}
+  let refreshInFlight = null;
+  let capabilityCache = null;
+  const SESSION_GATE_COPY = {
+    signed_out: ["You're signed out", "Sign in with your email, or start a new guest account on this browser."],
+    account_deleted: ["Your account was deleted", "Start a new guest account, or sign in to a different account."],
+    refresh_token_reused: ["Your session was ended for your security", "A sign-in token was used twice, so ZARVIS ended the session. ZARVIS did not create a new account for you."],
+  };
+
+  const SESSION_KEYS = { isGuest: "zarvis.isGuest", email: "zarvis.email", ended: "zarvis.sessionEnded" };
 
   const COPY = {
     en: {
@@ -312,7 +324,10 @@
       ["capability pages", setupCapabilityPages],
       ["plans", setupPlans],
       ["settings", setupSettings],
+      ["session gate", setupSessionGate],
+      ["account", setupAccountPanel],
       ["developer", setupDeveloper],
+      ["github", setupGithubConnect],
     ];
     for (const [name, initialize] of optionalInitializers) {
       try {
@@ -324,7 +339,9 @@
 
     try {
       await ensureSession();
+      void restoreConversation();
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
+      if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
         if (result.status === "rejected") console.error("Zarvis startup data failed:", result.reason);
       }
@@ -334,6 +351,7 @@
         return;
       }
     } catch (err) {
+      if (err instanceof SessionEndedError) return; // the session gate is showing
       console.error("Zarvis session bootstrap failed:", err);
       addErrorBubble(COPY[state.lang].bootError, () => location.reload());
       setOrbState("ERROR");
@@ -402,46 +420,67 @@
     el.settingsVoiceToggle.textContent = state.speak ? "Spoken replies: On" : "Spoken replies: Off";
   }
 
-  // ---- Session (guest account bootstrap + refresh) -------------------------------------
+  // ---- Session (guest bootstrap, refresh rotation, explicit sign-in) ---------------------
+  // The server rotates refresh tokens on every use and revokes the whole session if an old
+  // one is replayed. So: (1) refreshes are de-duplicated within this tab and serialized
+  // across tabs with the Web Locks API, and (2) a failed refresh NEVER creates a new account
+  // silently — only an explicit session_* code ends the session, and then the user chooses
+  // (sign in, or start a new guest account). Network/5xx failures keep the same account.
 
   async function ensureSession() {
     if (localStorage.getItem(STORAGE_KEYS.accessToken)) return;
+    const ended = localStorage.getItem(SESSION_KEYS.ended);
+    if (ended) {
+      showSessionGate(ended);
+      throw new SessionEndedError(ended);
+    }
     await createGuestSession();
   }
 
   async function createGuestSession() {
-    const deviceId = crypto.randomUUID();
-    const email = `guest-${deviceId}@device.zarvismobile.com`;
-    const password = crypto.randomUUID() + crypto.randomUUID();
-    const res = await fetch(`${API_BASE}/auth/signup`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    const res = await fetch(`${API_BASE}/auth/guest`, { method: "POST" });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`Guest signup failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
+      throw new Error(`Guest account creation failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
     }
-    const tokens = await res.json();
-    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
-    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+    storeTokens(await res.json());
   }
 
-  // `attempt` walks three stages: 0 = the original call; 1 = retried once after a
-  // successful token refresh; 2 = retried once more after bootstrapping a brand-new guest
-  // account. That last stage matters on its own, not just as a refresh fallback: if the
-  // account this browser's stored tokens point to no longer exists server-side (e.g. the
-  // backend's user data was reset, migrated to a different store, or this is a stale token
-  // from before that migration), /auth/refresh 401s for the exact same "unknown user"
-  // reason the original call did — refreshing can never recover from that. Without this,
-  // a browser that bootstrapped a guest account before such a reset is stuck on 401 for
-  // every request forever, since ensureSession() only ever signs up when *no* token is
-  // stored at all, not when the stored one has gone stale.
-  async function apiFetch(path, options = {}, attempt = 0) {
+  function storeTokens(tokens) {
+    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
+    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+    localStorage.setItem(SESSION_KEYS.isGuest, String(tokens.isGuest !== false));
+    if (tokens.email) localStorage.setItem(SESSION_KEYS.email, tokens.email);
+    else localStorage.removeItem(SESSION_KEYS.email);
+    localStorage.removeItem(SESSION_KEYS.ended);
+  }
+
+  function clearSessionTokens() {
+    for (const key of [STORAGE_KEYS.accessToken, STORAGE_KEYS.refreshToken, STORAGE_KEYS.conversationId, SESSION_KEYS.isGuest]) {
+      localStorage.removeItem(key);
+    }
+    state.conversationId = null;
+    state.history = [];
+  }
+
+  /** Ends the session locally (tokens are useless now) and asks the user what to do next. */
+  function endSession(reason) {
+    clearSessionTokens();
+    localStorage.setItem(SESSION_KEYS.ended, reason);
+    showSessionGate(reason);
+  }
+
+  async function apiFetch(path, options = {}, retried = false) {
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
-    // A FormData body (the document-upload flow) must NOT get a manual content-type — the
-    // browser sets its own multipart boundary automatically, and overriding it here would
-    // break the upload. Every other caller still sends plain JSON, unchanged.
+    if (!accessToken) {
+      const ended = localStorage.getItem(SESSION_KEYS.ended);
+      if (ended) {
+        showSessionGate(ended);
+        throw new SessionEndedError(ended);
+      }
+    }
+    // A FormData body (document upload) must NOT get a manual content-type: the browser sets
+    // its own multipart boundary.
     const isFormData = options.body instanceof FormData;
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -451,30 +490,443 @@
         ...(options.headers || {}),
       },
     });
-    if (res.status !== 401 || attempt >= 2) return res;
+    if (res.status !== 401 || retried) return res;
 
-    if (attempt === 0 && (await tryRefresh())) {
-      return apiFetch(path, options, 1);
+    const outcome = await refreshSession(accessToken);
+    if (outcome.kind === "refreshed") return apiFetch(path, options, true);
+    if (outcome.kind === "session_ended") {
+      endSession(outcome.code);
+      throw new SessionEndedError(outcome.code);
     }
-    localStorage.removeItem(STORAGE_KEYS.accessToken);
-    localStorage.removeItem(STORAGE_KEYS.refreshToken);
-    await createGuestSession();
-    return apiFetch(path, options, 2);
+    return res; // unreachable: surface the failure honestly; the same account is kept.
   }
 
-  async function tryRefresh() {
+  /** Refreshes once per tab, serialized across tabs; reuses a token another tab already rotated. */
+  function refreshSession(tokenOnFailedRequest) {
+    if (!refreshInFlight) {
+      const run = async () => {
+        const stored = localStorage.getItem(STORAGE_KEYS.accessToken);
+        if (stored && stored !== tokenOnFailedRequest) return { kind: "refreshed" };
+        return doRefresh();
+      };
+      const locked = navigator.locks?.request ? navigator.locks.request("zarvis-refresh", run) : run();
+      refreshInFlight = Promise.resolve(locked).finally(() => {
+        refreshInFlight = null;
+      });
+    }
+    return refreshInFlight;
+  }
+
+  async function doRefresh() {
     const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
-    if (!refreshToken) return false;
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
+    if (!refreshToken) return { kind: "session_ended", code: "session_invalid" };
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch {
+      return { kind: "unreachable" };
+    }
+    if (res.ok) {
+      storeTokens(await res.json());
+      return { kind: "refreshed" };
+    }
+    const body = await res.json().catch(() => ({}));
+    return Logic.classifyRefreshFailure(res.status, body.code) === "session_ended"
+      ? { kind: "session_ended", code: body.code }
+      : { kind: "unreachable" };
+  }
+
+
+  function showSessionGate(reason) {
+    const gate = document.getElementById("session-gate");
+    if (!gate || !gate.hidden) return;
+    const [title, body] = SESSION_GATE_COPY[reason] || [
+      "Your session has ended",
+      "You were signed out on the server (for example from another device). ZARVIS did not create a new account for you.",
+    ];
+    document.getElementById("session-gate-title").textContent = title;
+    document.getElementById("session-gate-body").textContent = body;
+    const email = localStorage.getItem(SESSION_KEYS.email);
+    if (email) document.getElementById("session-gate-email").value = email;
+    document.getElementById("session-gate-error").hidden = true;
+    gate.hidden = false;
+    document.getElementById("session-gate-email").focus();
+  }
+
+  function setupSessionGate() {
+    const gate = document.getElementById("session-gate");
+    const errorNode = document.getElementById("session-gate-error");
+    const fail = (message) => {
+      errorNode.textContent = message;
+      errorNode.hidden = false;
+    };
+    document.getElementById("session-gate-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("session-gate-email").value.trim();
+      const password = document.getElementById("session-gate-password").value;
+      try {
+        await signInWithEmail(email, password);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
     });
-    if (!res.ok) return false;
-    const tokens = await res.json();
-    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
-    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
-    return true;
+    document.getElementById("session-gate-guest").addEventListener("click", async () => {
+      try {
+        clearSessionTokens();
+        await createGuestSession();
+        location.reload();
+      } catch (err) {
+        console.error(err);
+        fail("Couldn't reach ZARVIS. Check your connection and try again.");
+      }
+    });
+    gate.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") event.preventDefault(); // the gate must be answered
+    });
+  }
+
+  function authErrorMessage(status, code) {
+    if (code === "email_taken") return "That email already belongs to another ZARVIS account. Sign in with it instead.";
+    if (code === "invalid_credentials") return "Email or password is incorrect.";
+    if (code === "not_guest") return "This account already has a sign-in email.";
+    if (code === "rate_limited" || status === 429) return "Too many attempts. Wait a few minutes and try again.";
+    if (status === 400) return "Check the email address, and use a password of at least 8 characters.";
+    return "That didn't work (HTTP " + status + "). Try again.";
+  }
+
+  async function signInWithEmail(email, password) {
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch {
+      throw new Error("Couldn't reach ZARVIS. Check your connection and try again.");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(authErrorMessage(res.status, body.code));
+    clearSessionTokens();
+    storeTokens(body);
+  }
+
+  async function signOut() {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.warn("Server sign-out failed; clearing this browser's session anyway:", err);
+    }
+    endSession("signed_out");
+  }
+
+  // ---- Account settings (link guest → email for cross-device continuity) ----------------
+
+  async function refreshAccountPanel() {
+    const status = document.getElementById("account-status");
+    const linkForm = document.getElementById("account-link-form");
+    const signinNote = document.getElementById("account-signin-note");
+    const signinTitle = document.getElementById("account-signin-title");
+    if (!status) return;
+    try {
+      const res = await apiFetch("/auth/me");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const me = await res.json();
+      localStorage.setItem(SESSION_KEYS.isGuest, String(me.isGuest));
+      if (me.email) localStorage.setItem(SESSION_KEYS.email, me.email);
+      status.textContent = me.isGuest
+        ? "Guest account on this browser. It has no sign-in email yet, so it only exists here. Link an email to use the same account on your phone or another browser."
+        : "Signed in as " + me.email + ". Use this email on your phone or another browser to continue the same conversations and tasks.";
+      linkForm.hidden = !me.isGuest;
+      signinNote.hidden = !me.isGuest;
+      signinTitle.textContent = me.isGuest ? "Or sign in to a different account" : "Sign in to a different account";
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      status.textContent = "Couldn't load account details. Check your connection.";
+    }
+  }
+
+  function setupAccountPanel() {
+    const errorNode = document.getElementById("account-error");
+    const infoNode = document.getElementById("account-info");
+    const show = (node, text) => {
+      errorNode.hidden = true;
+      infoNode.hidden = true;
+      node.textContent = text;
+      node.hidden = false;
+    };
+    document.getElementById("account-link-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("account-link-email").value.trim();
+      const password = document.getElementById("account-link-password").value;
+      try {
+        const res = await apiFetch("/auth/link", { method: "POST", body: JSON.stringify({ email, password }) });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(authErrorMessage(res.status, body.code));
+        show(infoNode, "Linked. Sign in with " + body.email + " on your phone or another browser to continue with this same account.");
+        document.getElementById("account-link-password").value = "";
+        await refreshAccountPanel();
+      } catch (err) {
+        if (!(err instanceof SessionEndedError)) show(errorNode, err.message);
+      }
+    });
+    document.getElementById("account-signin-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("account-signin-email").value.trim();
+      const password = document.getElementById("account-signin-password").value;
+      try {
+        await signInWithEmail(email, password);
+        location.reload();
+      } catch (err) {
+        show(errorNode, err.message);
+      }
+    });
+  }
+
+  // ---- Conversation recovery ---------------------------------------------------------------
+  // After a reload (or on another browser signed into the same account) only real,
+  // server-persisted messages are shown — nothing is reconstructed or invented.
+
+  async function restoreConversation() {
+    if (!state.conversationId || el.conversation.children.length > 0) return;
+    try {
+      const res = await apiFetch(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
+      if (res.status === 404) {
+        state.conversationId = null;
+        localStorage.removeItem(STORAGE_KEYS.conversationId);
+        return;
+      }
+      if (!res.ok) return;
+      const body = await res.json();
+      for (const message of body.messages || []) {
+        addBubble(message.role === "user" ? "user" : "assistant", message.content);
+        state.history.push({ role: message.role, content: message.content });
+      }
+      state.history = state.history.slice(-12);
+      if ((body.messages || []).length) state.firstTurn = false;
+    } catch (err) {
+      if (!(err instanceof SessionEndedError)) console.warn("Conversation restore failed:", err);
+    }
+  }
+
+  // ---- Permissions & Device Access (Phase 1 capability registry) -------------------------
+
+  async function microphonePermissionState() {
+    try {
+      if (!navigator.permissions?.query) return null;
+      const status = await navigator.permissions.query({ name: "microphone" });
+      return status.state;
+    } catch {
+      return null; // e.g. Firefox/Safari don't expose it — reported as "browser decides".
+    }
+  }
+
+  async function renderPermissionCenter() {
+    const list = document.getElementById("permission-center-list");
+    if (!list) return;
+    list.textContent = "Loading…";
+    try {
+      if (!capabilityCache) {
+        const res = await fetch(`${API_BASE}/capabilities`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        capabilityCache = (await res.json()).capabilities;
+      }
+    } catch (err) {
+      console.error(err);
+      list.textContent = "Couldn't load the capability list. Check your connection.";
+      return;
+    }
+    const mic = await microphonePermissionState();
+    list.textContent = "";
+    for (const capability of capabilityCache) {
+      const item = document.createElement("article");
+      item.className = "capability-item";
+      item.dataset.capability = capability.id;
+
+      const header = document.createElement("header");
+      const name = document.createElement("strong");
+      name.textContent = capability.name;
+      const risk = document.createElement("span");
+      risk.className = "z-badge";
+      risk.textContent = Logic.riskLabel(capability.risk);
+      header.append(name, risk);
+
+      const status = document.createElement("p");
+      status.className = "capability-status";
+      status.textContent =
+        "Web: " + Logic.capabilityStatusLabel(capability.platforms.web.status) +
+        " · Android: " + Logic.capabilityStatusLabel(capability.platforms.android.status);
+
+      const access = document.createElement("p");
+      access.className = "capability-access";
+      access.textContent = Logic.webAccessSummary(capability, mic);
+
+      item.append(header, status, access);
+      if (capability.confirmation === "PER_ACTION") {
+        const note = document.createElement("small");
+        note.textContent = "Every action asks for your confirmation.";
+        item.appendChild(note);
+      }
+
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "Learn more";
+      const dl = document.createElement("dl");
+      const rows = [
+        ["Why", capability.rationale.why],
+        ["What data", capability.rationale.data],
+        ["What ZARVIS won't do automatically", capability.rationale.notAutomatic],
+        ["How to revoke", capability.rationale.revoke],
+        ["On the web", capability.platforms.web.note],
+        ["On Android", capability.platforms.android.note],
+        ["Supported", capability.supportedActions.join("; ") || "—"],
+        ["Not supported", capability.unsupportedActions.join("; ")],
+        ["If you say no", capability.denialBehavior + " " + capability.fallback],
+      ];
+      for (const [label, value] of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.append(dt, dd);
+      }
+      details.append(summary, dl);
+      item.appendChild(details);
+      list.appendChild(item);
+    }
+  }
+
+  // ---- Server-issued confirmations -------------------------------------------------------
+  // A higher-risk action returns `confirmation_required` with a one-time id bound to that
+  // exact action. Approve/decline resolves *that id*; nothing is ever re-sent with a flag.
+
+  function renderConfirmationCard(confirmation, container = el.conversation) {
+    const card = document.createElement("div");
+    card.className = "confirm-card";
+    card.dataset.confirmationId = confirmation.id;
+    card.setAttribute("role", "group");
+    card.setAttribute("aria-label", "Confirmation needed");
+
+    const title = document.createElement("strong");
+    title.textContent = "Confirm this action · " + Logic.riskLabel(confirmation.riskLevel);
+    const action = document.createElement("p");
+    action.className = "confirm-action";
+    action.textContent = confirmation.action;
+    const note = document.createElement("small");
+    const expires = new Date(confirmation.expiresAt);
+    note.textContent = "Nothing has been done yet. This approval works once, for this action only" +
+      (Number.isNaN(expires.getTime()) ? "." : ", until " + expires.toLocaleTimeString() + ".");
+
+    const actions = document.createElement("div");
+    actions.className = "modal-actions";
+    const decline = document.createElement("button");
+    decline.type = "button";
+    decline.className = "zarvis-btn zarvis-btn-secondary";
+    decline.textContent = "Decline";
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "zarvis-btn zarvis-btn-primary";
+    approve.textContent = "Approve";
+    actions.append(decline, approve);
+
+    const resolve = async (verb) => {
+      approve.disabled = true;
+      decline.disabled = true;
+      approve.textContent = verb === "approve" ? "Running…" : "Approve";
+      try {
+        const res = await apiFetch(`/confirmations/${encodeURIComponent(confirmation.id)}/${verb}`, { method: "POST" });
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 404) {
+          note.textContent = "This confirmation expired or was already used. Nothing was run. Ask again if you still want it.";
+          return;
+        }
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        actions.remove();
+        note.textContent = Logic.toolStatusLabel(body.result?.status) + ".";
+        if (container === el.conversation) addBubble("assistant", body.message || "Done.");
+        else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error");
+      } catch (err) {
+        if (err instanceof SessionEndedError) return;
+        console.error(err);
+        note.textContent = "Couldn't reach ZARVIS, so nothing was confirmed. Try again.";
+        approve.disabled = false;
+        decline.disabled = false;
+        approve.textContent = "Approve";
+      }
+    };
+    approve.addEventListener("click", () => void resolve("approve"));
+    decline.addEventListener("click", () => void resolve("decline"));
+
+    card.append(title, action, note, actions);
+    container.appendChild(card);
+    if (container === el.conversation) scrollConversationToBottom();
+    return card;
+  }
+
+  // ---- GitHub connection (Developer Agent runs as the user's own GitHub identity) -------
+
+  async function refreshGithubStatus() {
+    const statusNode = document.getElementById("github-status");
+    const form = document.getElementById("github-connect-form");
+    const disconnect = document.getElementById("github-disconnect-btn");
+    if (!statusNode) return;
+    try {
+      const res = await apiFetch("/integrations/github");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const status = await res.json();
+      if (!status.available) {
+        statusNode.textContent = "GitHub connection isn't configured on this server. Public repositories can still be analyzed.";
+        form.hidden = true;
+        disconnect.hidden = true;
+      } else if (status.connected) {
+        statusNode.textContent = "Connected as " + status.login + ". Analysis and pull requests run as this GitHub account.";
+        form.hidden = true;
+        disconnect.hidden = false;
+      } else {
+        statusNode.textContent = "Not connected. Public repositories can be analyzed anonymously; private repositories and pull requests need your own token.";
+        form.hidden = false;
+        disconnect.hidden = true;
+      }
+    } catch (err) {
+      if (!(err instanceof SessionEndedError)) statusNode.textContent = "Couldn't check the GitHub connection.";
+    }
+  }
+
+  function setupGithubConnect() {
+    const form = document.getElementById("github-connect-form");
+    if (!form) return;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = document.getElementById("github-token-input");
+      const statusNode = document.getElementById("github-status");
+      const token = input.value.trim();
+      if (!token) return;
+      statusNode.textContent = "Verifying with GitHub…";
+      try {
+        const res = await apiFetch("/integrations/github", { method: "POST", body: JSON.stringify({ token }) });
+        const body = await res.json().catch(() => ({}));
+        input.value = "";
+        if (!res.ok) {
+          statusNode.textContent = body.error || "GitHub connection failed.";
+          return;
+        }
+        await refreshGithubStatus();
+      } catch (err) {
+        if (!(err instanceof SessionEndedError)) statusNode.textContent = "Couldn't reach ZARVIS.";
+      }
+    });
+    document.getElementById("github-disconnect-btn").addEventListener("click", async () => {
+      try {
+        await apiFetch("/integrations/github", { method: "DELETE" });
+      } finally {
+        await refreshGithubStatus();
+      }
+    });
   }
 
   // ---- Skill catalogue -------------------------------------------------------------------
@@ -689,7 +1141,6 @@
     work: document.getElementById("view-work"),
   };
   const WORK_VIEWS = new Set(["capabilities", "phone", "files", "research", "creative", "business", "developer", "plans", "feature"]);
-  const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"];
 
   function setupBottomNav() {
     document.body.dataset.activeView = state.activeView;
@@ -876,6 +1327,7 @@
     }
     if (view === "activity") refreshActivity();
     if (view === "home") renderHomeActivity();
+    if (view === "developer") void refreshGithubStatus();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
@@ -1002,12 +1454,15 @@
     });
     el.settingsClearSessionBtn.addEventListener("click", () => {
       haptic();
+      const isGuest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
       showConfirmModal({
-        title: "Clear local session?",
-        body: "This removes the session on this device and starts a fresh guest session after reload. Your account is not deleted.",
-        confirmLabel: "Clear session",
-        destructive: false,
-        onConfirm: clearLocalSession,
+        title: "Sign out?",
+        body: isGuest
+          ? "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email in Account first if you want to keep it."
+          : "This ends the session on this browser. Sign in again with your email to continue.",
+        confirmLabel: "Sign out",
+        destructive: isGuest,
+        onConfirm: () => void signOut(),
       });
     });
     el.settingsDeleteBtn.addEventListener("click", () => {
@@ -1033,6 +1488,8 @@
     for (const panel of document.querySelectorAll("[data-settings-panel]")) {
       panel.hidden = panel.dataset.settingsPanel !== page;
     }
+    if (page === "account") void refreshAccountPanel();
+    if (page === "permissions") void renderPermissionCenter();
     el.settingsPanelBack?.focus?.();
   }
 
@@ -1090,25 +1547,14 @@
     for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
   }
 
-  /** Clears only the session tokens (keeps language/voice preferences) so the next reload
-   * bootstraps a fresh guest account — the web equivalent of Android's "Clear local
-   * session," which does the same thing to its own token storage. */
-  function clearLocalSession() {
-    localStorage.removeItem(STORAGE_KEYS.accessToken);
-    localStorage.removeItem(STORAGE_KEYS.refreshToken);
-    localStorage.removeItem(STORAGE_KEYS.conversationId);
-    state.conversationId = null;
-    state.history = [];
-    location.reload();
-  }
-
   async function deleteAccount() {
     el.settingsDeleteBtn.disabled = true;
     el.settingsDeleteBtn.textContent = "Deleting…";
     try {
       const res = await apiFetch("/account", { method: "DELETE" });
       if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
-      clearLocalSession(); // reloads — a fresh guest session bootstraps on the next load
+      localStorage.removeItem(SESSION_KEYS.email);
+      endSession("account_deleted"); // the user chooses: new guest or sign in — never automatic
     } catch (err) {
       console.error(err);
       el.settingsDeleteBtn.disabled = false;
@@ -1141,55 +1587,40 @@
     });
   }
 
+  /** Asks the server for a one-time confirmation of this exact change, then shows it. */
   async function implementRepo() {
     const repoUrl = el.developerRepoInput.value.trim();
     const requirement = el.developerRequirementInput.value.trim();
+    el.developerResult.innerHTML = "";
     if (!repoUrl || !requirement) {
       renderDeveloperMessage("Repository URL and implementation requirement are both required.", "error");
       return;
     }
-    showConfirmModal({
-      title: "Open a pull request?",
-      body: "ZARVIS will create a branch, change bounded text files, and open a pull request. It will not merge. This needs a PRO plan and a configured GitHub token.",
-      confirmLabel: "Implement",
-      destructive: false,
-      onConfirm: () => { void submitImplementation(repoUrl, requirement); },
-    });
-  }
-
-  async function submitImplementation(repoUrl, requirement) {
     el.developerImplementBtn.disabled = true;
-    el.developerImplementBtn.textContent = "Implementing…";
-    setDeveloperStage("implement", "Running", "z-badge-info");
+    setDeveloperStage("implement", "Checking", "z-badge-info");
     try {
-      const res = await apiFetch("/developer/implement", { method: "POST", body: JSON.stringify({ repoUrl, requirement, confirmed: true }) });
+      const res = await apiFetch("/developer/implement", { method: "POST", body: JSON.stringify({ repoUrl, requirement }) });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.kind !== "success") {
-        setDeveloperStage("implement", "Couldn't complete", "z-badge-off");
-        renderDeveloperMessage(body.error || body.result?.userMessage || body.userMessage || "Implementation failed; no change was reported as committed.", "error");
+      if (res.ok && body.kind === "confirmation_required") {
+        setDeveloperStage("implement", "Waiting for you", "z-badge-info");
+        renderConfirmationCard(body.confirmation, el.developerResult);
         return;
       }
-      setDeveloperStage("implement", "Completed", "z-badge-ok");
-      const output = body.result?.output || {};
-      renderDeveloperMessage(body.result?.summary || "Implementation complete.", "success");
-      if (output.pullRequest?.url) {
-        const link = document.createElement("a");
-        link.className = "zarvis-btn zarvis-btn-secondary";
-        link.href = output.pullRequest.url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = "Open PR #" + output.pullRequest.number;
-        el.developerResult.appendChild(link);
-      }
+      setDeveloperStage("implement", "Couldn't start", "z-badge-off");
+      renderDeveloperMessage(
+        body.structured?.userSafeMessage || body.error || "This change can't run right now (HTTP " + res.status + ").",
+        "error",
+      );
     } catch (err) {
+      if (err instanceof SessionEndedError) return;
       console.error(err);
-      setDeveloperStage("implement", "Couldn't complete", "z-badge-off");
-      renderDeveloperMessage("Developer Agent could not reach the backend.", "error");
+      setDeveloperStage("implement", "Couldn't start", "z-badge-off");
+      renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerImplementBtn.disabled = false;
-      el.developerImplementBtn.textContent = "Implement and open PR";
     }
   }
+
   async function analyzeRepo() {
     const repoUrl = el.developerRepoInput.value.trim();
     el.developerResult.innerHTML = "";
@@ -1203,7 +1634,7 @@
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.kind !== "success") {
         setDeveloperStage("analyze", "Couldn't complete", "z-badge-off");
-        renderDeveloperMessage(body.error || body.userMessage || `Analysis failed (${res.status}).`, "error");
+        renderDeveloperMessage(body.structured?.userSafeMessage || body.error || `Analysis failed (${res.status}).`, "error");
         return;
       }
       setDeveloperStage("analyze", "Completed", "z-badge-ok");
@@ -1704,6 +2135,9 @@
     setOrbState("UNDERSTANDING");
     const isFirstTurn = state.firstTurn;
     const startedAt = performance.now();
+    // Declared outside `try` because `finally` below uses them.
+    const ttsQueue = [];
+    let ttsStartTimer = null;
 
     try {
       // Create/resume the AudioContext directly from the user's voice gesture before the
@@ -1716,17 +2150,14 @@
           console.warn("Gemini streaming audio context unavailable:", audioError);
         }
       }
-      setOrbState("EXECUTING");
       const res = await apiFetch("/orchestrator/turn-stream", {
         method: "POST",
         body: JSON.stringify({
           utterance,
           locale: state.lang,
-          userName: localStorage.getItem(STORAGE_KEYS.userName),
           isFirstTurn,
           conversationId: state.conversationId,
           history: state.history.slice(-12),
-          confirmed: options.confirmed === true,
         }),
         signal: controller.signal,
       });
@@ -1745,9 +2176,7 @@
       let fullMessage = "";
       let assistantNode = null;
       let sentenceBuffer = "";
-      const ttsQueue = [];
       const ttsTasks = new Set();
-      let ttsStartTimer = null;
       let firstTextAt = 0;
       let ttsPrimed = false;
 
@@ -1758,7 +2187,7 @@
           !controller.signal.aborted
         ) {
           const next = ttsQueue.shift();
-          const task = speakGeminiStream(next, controller.signal);
+          const task = speakGeminiStream(next.text, controller.signal, next.ticket);
           ttsTasks.add(task);
           task.catch((err) => {
             if (err?.name !== "AbortError") console.warn("Gemini TTS segment failed:", err);
@@ -1772,7 +2201,9 @@
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
         if (!clean || !isVoice || !state.speak) return;
-        ttsQueue.push(clean);
+        // The ticket is taken at enqueue time, so playback order == reply order even when a
+        // later segment's audio downloads first.
+        ttsQueue.push({ text: clean, ticket: ttsSegments.next() });
         if (immediate || ttsPrimed) {
           ttsPrimed = true;
           drainTts();
@@ -1808,13 +2239,29 @@
           localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
           return;
         }
+        // Real backend stages only (model step / tool started / tool finished) — no simulated steps.
+        if (event === "progress" && data) {
+          if (data.type === "tool_started") {
+            setOrbState("EXECUTING");
+            showProgress(thinkingNode, "Using " + data.skillId + "…");
+          } else if (data.type === "tool_finished") {
+            showProgress(thinkingNode, data.skillId + ": " + Logic.toolStatusLabel(data.status));
+          } else if (data.type === "thinking" && data.step > 1) {
+            setOrbState("UNDERSTANDING");
+            showProgress(thinkingNode, "Reviewing the result…");
+          }
+          return;
+        }
+        if (event === "error") {
+          throw new Error(data?.error || "The request could not be completed.");
+        }
         if (event === "delta" && typeof data?.text === "string") {
           fullMessage += data.text;
           sentenceBuffer += data.text;
           if (!assistantNode) {
             thinkingNode.remove();
             assistantNode = addBubble("assistant", "", utterance);
-            setOrbState("SPEAKING");
+            // "Speaking" is set by the audio pipeline only when sound actually starts.
           }
           renderFormattedText(assistantNode, fullMessage);
           scrollConversationToBottom();
@@ -1849,7 +2296,7 @@
           renderHomeActivity();
           state.firstTurn = false;
           recordLatency(utterance, Math.round(performance.now() - startedAt), true);
-          renderToolActivity(data?.toolCalls, utterance, assistantNode);
+          renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           await drainTts();
@@ -1859,26 +2306,9 @@
       };
 
       const processBuffer = async (flush = false) => {
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-        for (const raw of events) {
-          let event = "message";
-          let data = "";
-          for (const line of raw.split("\n")) {
-            if (line.startsWith("event:")) event = line.slice(6).trim();
-            if (line.startsWith("data:")) data += line.slice(5).trim();
-          }
-          if (data) await consumeEvent(event, JSON.parse(data));
-        }
-        if (flush && buffer.trim()) {
-          let event = "message", data = "";
-          for (const line of buffer.split("\n")) {
-            if (line.startsWith("event:")) event = line.slice(6).trim();
-            if (line.startsWith("data:")) data += line.slice(5).trim();
-          }
-          if (data) await consumeEvent(event, JSON.parse(data));
-          buffer = "";
-        }
+        const parsed = Logic.parseSseEvents(buffer, flush);
+        buffer = parsed.rest;
+        for (const { event, data } of parsed.events) await consumeEvent(event, data);
       };
 
       while (true) {
@@ -1894,6 +2324,10 @@
       }
     } catch (err) {
       if (err?.name === "AbortError") return;
+      if (err instanceof SessionEndedError) {
+        setOrbState("IDLE");
+        return;
+      }
       console.error(err);
       addErrorBubble(COPY[state.lang].bootError, utterance);
       setOrbState("ERROR");
@@ -1903,12 +2337,15 @@
         clearTimeout(ttsStartTimer);
         ttsStartTimer = null;
       }
+      // Segments that will never be played must release their turn, or later speech would wait forever.
+      for (const item of ttsQueue.splice(0)) item.ticket.done();
       if (!thinkingNode.isConnected) {
         // no-op; the real assistant bubble is already rendered
       } else {
         thinkingNode.remove();
       }
       if (currentTurnController === controller) currentTurnController = null;
+      updateComposerMode(); // Send/Stop must reflect that no turn is in flight any more
     }
   }
 
@@ -1990,87 +2427,62 @@
     return body;
   }
 
-  const TOOL_OUTCOMES = {
-    success: { label: "Completed", tone: "success", detail: "The skill finished. The reply includes its result." },
-    confirmation_declined: { label: "Needs confirmation", tone: "confirm", detail: "This action has not run." },
-    execution_failed: { label: "Couldn't complete", tone: "failed", detail: "The skill reported a failure." },
-    verification_failed: { label: "Couldn't complete", tone: "failed", detail: "Verification failed, so the action was not completed." },
-    skill_not_found: { label: "Unavailable", tone: "failed", detail: "ZARVIS does not have a skill for that." },
-    validation_failed: { label: "Needs details", tone: "confirm", detail: "Some required details were missing." },
-    permission_denied: { label: "Permission required", tone: "confirm", detail: "A required permission is not granted." },
-    entitlement_denied: { label: "Unavailable on this plan", tone: "failed", detail: "This account cannot run that skill." },
+  const TOOL_TONES = {
+    COMPLETED: "success",
+    USER_ACTION_REQUIRED: "confirm",
+    CONFIRMATION_REQUIRED: "confirm",
+    PERMISSION_REQUIRED: "confirm",
+    DENIED: "failed",
+    UNSUPPORTED: "failed",
+    FAILED: "failed",
   };
 
-  function renderToolActivity(toolCalls, utterance) {
+  /** One row per tool call, from the backend's structured result (blueprint §10). */
+  function renderToolActivity(toolCalls) {
     if (!Array.isArray(toolCalls) || toolCalls.length === 0) return;
     for (const call of toolCalls) {
-      const kind = call?.outcome?.kind || "unknown";
-      const outcome = TOOL_OUTCOMES[kind] || { label: "Reported", tone: "", detail: "ZARVIS returned a tool result." };
+      if (call?.outcome?.kind === "confirmation_required" && call.outcome.confirmation) {
+        renderConfirmationCard(call.outcome.confirmation);
+        continue;
+      }
+      const statusCode = call?.result?.status || (call?.outcome?.kind === "success" ? "COMPLETED" : "FAILED");
       const row = document.createElement("div");
       row.className = "z-card z-card-tool tool-row";
-      row.dataset.status = kind;
-      row.dataset.tone = outcome.tone;
+      row.dataset.status = statusCode;
+      row.dataset.tone = TOOL_TONES[statusCode] || "";
       const top = document.createElement("div");
       top.className = "tool-row-top";
       const title = document.createElement("strong");
       title.textContent = call.skillId || "Tool";
       const status = document.createElement("span");
       status.className = "z-badge";
-      status.textContent = outcome.label;
+      status.textContent = Logic.toolStatusLabel(statusCode);
       top.append(title, status);
       row.appendChild(top);
       const note = document.createElement("p");
       note.className = "stage-note";
-      const summary = call?.outcome?.result?.summary || call?.outcome?.result?.userMessage;
-      const brief = summary ? String(summary).replace(/\s+/g, " ").slice(0, 180) : "";
-      note.textContent = brief ? outcome.detail + " " + brief : outcome.detail;
+      const message = call?.result?.userSafeMessage || "";
+      note.textContent = String(message).replace(/\s+/g, " ").slice(0, 220);
       row.appendChild(note);
-      if (kind === "confirmation_declined" && utterance) {
-        const confirm = document.createElement("button");
-        confirm.type = "button";
-        confirm.className = "zarvis-btn zarvis-btn-primary";
-        confirm.textContent = "Confirm and continue";
-        confirm.addEventListener("click", () => {
-          confirm.disabled = true;
-          runTurn(utterance, false, { confirmed: true });
-        });
-        row.appendChild(confirm);
-      }
       el.conversation.appendChild(row);
     }
     scrollConversationToBottom();
   }
 
-  /** Render a safe subset of Markdown used by ZARVIS replies without exposing arbitrary HTML. */
-  function renderFormattedText(container, text) {
-    const escaped = String(text ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/\x27/g, "&#39;");
-    const lines = escaped.split(/\r?\n/);
-    const html = [];
-    let inList = false;
-    for (const line of lines) {
-      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-      if (bullet) {
-        if (!inList) { html.push("<ul class=\"reply-list\">"); inList = true; }
-        html.push(`<li>${formatInlineMarkdown(bullet[1])}</li>`);
-        continue;
-      }
-      if (inList) { html.push("</ul>"); inList = false; }
-      if (!line.trim()) html.push('<div class="reply-spacer" aria-hidden="true"></div>');
-      else html.push(`<div class="reply-line">${formatInlineMarkdown(line)}</div>`);
+  function showProgress(thinkingNode, text) {
+    if (!thinkingNode?.isConnected) return;
+    let note = thinkingNode.querySelector(".progress-note");
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "progress-note";
+      thinkingNode.appendChild(note);
     }
-    if (inList) html.push("</ul>");
-    container.innerHTML = html.join("");
+    note.textContent = text;
   }
 
-  function formatInlineMarkdown(line) {
-    return line
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  /** Render a safe subset of Markdown (all input escaped first — see web/logic.js, tested). */
+  function renderFormattedText(container, text) {
+    container.innerHTML = Logic.formatReplyHtml(text);
   }
 
   /** A transient "thinking" placeholder shown for the UNDERSTANDING/EXECUTING span of a
@@ -2647,7 +3059,6 @@
   // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node, force = false) {
     if ((!state.speak && !force) || !text) return;
-    setOrbState("SPEAKING");
     if (node) attachWaveform(node);
     try {
       await speakWithGemini(text);
@@ -2682,6 +3093,8 @@
       activeAudio = audio;
       try {
         await new Promise((resolve, reject) => {
+          // "Speaking" only once the browser reports audio is actually playing.
+          audio.addEventListener("playing", () => setOrbState("SPEAKING"), { once: true });
           audio.addEventListener("ended", resolve, { once: true });
           audio.addEventListener("pause", resolve, { once: true });
           audio.addEventListener("error", () => reject(new Error("Gemini audio playback failed")), { once: true });
@@ -2702,18 +3115,28 @@
   const TTS_MIN_START_AHEAD_SECONDS = 0.06;
   const TTS_MAX_CONCURRENT_STREAMS = 2;
 
-  async function speakGeminiStream(text, signal) {
-    setOrbState("SPEAKING");
+  const ttsSegments = Logic.createOrderedSegments();
+
+  /**
+   * Streams one reply segment as raw 24 kHz PCM. Up to TTS_MAX_CONCURRENT_STREAMS segments
+   * may download at once, but each waits for its [ticket] before scheduling any audio, and
+   * schedules strictly after the previous segment's audio — so segments never overlap.
+   */
+  async function speakGeminiStream(text, signal, ticket = ttsSegments.next()) {
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
     activeTtsController = controller;
+    let myTurn = false;
+    ticket.ready.then(() => {
+      myTurn = true;
+    });
 
     try {
       const res = await apiFetch("/tts/synthesize-stream", {
         method: "POST",
         body: JSON.stringify({ text, voice: selectedTtsVoice() }),
-        signal,
+        signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
@@ -2721,54 +3144,43 @@
         throw new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
       }
 
-      const audioContext =
-        activeAudioContext || new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
+      const audioContext = activeAudioContext || new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
       activeAudioContext = audioContext;
       if (audioContext.state === "suspended") await audioContext.resume();
 
       const reader = res.body.getReader();
-
-      // HTTP fetch chunks are arbitrary byte ranges, not PCM-frame boundaries.
-      // Keep one trailing byte until the next read so Int16 samples never become
-      // misaligned when a network chunk ends on an odd byte.
+      // Network chunks are arbitrary byte ranges; keep a trailing odd byte for the next read
+      // so 16-bit samples never become misaligned.
       let pendingByte = null;
-
-      // Gemini streaming TTS is raw 16-bit little-endian PCM. Build a small jitter
-      // buffer before scheduling the first samples; otherwise a slow network read can
-      // make the AudioContext timeline catch up and create an audible gap.
       const pendingPcm = [];
       let pendingBytes = 0;
       let primed = false;
-      let scheduledUntil = Math.max(
-        audioContext.currentTime + TTS_PREROLL_SECONDS,
-        ttsScheduledUntil,
-      );
+      let scheduledUntil = null;
 
       const schedulePcm = (bytes) => {
         if (!bytes?.byteLength) return;
         const usableLength = bytes.byteLength - (bytes.byteLength % 2);
         if (usableLength <= 0) return;
-
         const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, usableLength / 2);
         const buffer = audioContext.createBuffer(1, pcm.length, TTS_SAMPLE_RATE);
         const channel = buffer.getChannelData(0);
-        for (let i = 0; i < pcm.length; i += 1) {
-          channel[i] = pcm[i] / 32768;
-        }
+        for (let i = 0; i < pcm.length; i += 1) channel[i] = pcm[i] / 32768;
 
         const source = audioContext.createBufferSource();
         source.buffer = buffer;
         source.connect(audioContext.destination);
-
-        // Never schedule into the past. The initial 650 ms preroll provides
-        // headroom for normal Gemini/network jitter.
-        scheduledUntil = Math.max(
-          scheduledUntil,
-          audioContext.currentTime + TTS_MIN_START_AHEAD_SECONDS,
-        );
+        const earliest = audioContext.currentTime + TTS_MIN_START_AHEAD_SECONDS;
+        if (scheduledUntil === null) {
+          // First audio of this segment: start after everything already scheduled.
+          scheduledUntil = Math.max(earliest, ttsScheduledUntil);
+          const startsInMs = Math.max(0, (scheduledUntil - audioContext.currentTime) * 1000);
+          setTimeout(() => {
+            if (!controller.signal.aborted) setOrbState("SPEAKING");
+          }, startsInMs);
+        }
+        scheduledUntil = Math.max(scheduledUntil, earliest);
         source.start(scheduledUntil);
         scheduledUntil += buffer.duration;
-
         ttsSources.add(source);
         source.onended = () => ttsSources.delete(source);
         ttsScheduledUntil = scheduledUntil;
@@ -2791,7 +3203,6 @@
         const { value, done } = await reader.read();
         if (done) break;
         if (!value?.byteLength) continue;
-
         let bytes = value;
         if (pendingByte !== null) {
           const merged = new Uint8Array(bytes.byteLength + 1);
@@ -2800,18 +3211,17 @@
           bytes = merged;
           pendingByte = null;
         }
-
         if (bytes.byteLength % 2 !== 0) {
           pendingByte = bytes[bytes.byteLength - 1];
           bytes = bytes.subarray(0, bytes.byteLength - 1);
         }
         if (!bytes.byteLength) continue;
-
         pendingPcm.push(bytes);
         pendingBytes += bytes.byteLength;
 
-        // Hold roughly 650 ms of PCM before the first schedule operation.
-        // Afterwards each network chunk is scheduled contiguously.
+        // Buffer ~TTS_PREROLL_SECONDS before the first schedule to absorb network jitter, and
+        // never schedule before it is this segment's turn.
+        if (!myTurn) continue;
         const bufferedSeconds = pendingBytes / 2 / TTS_SAMPLE_RATE;
         if (!primed && bufferedSeconds >= TTS_PREROLL_SECONDS) {
           flushPending();
@@ -2820,14 +3230,12 @@
           flushPending();
         }
       }
-
-      if (pendingByte !== null) {
-        // A valid PCM stream must contain complete 16-bit samples. Do not invent
-        // a sample from a lone trailing byte.
-        pendingByte = null;
-      }
-      flushPending();
+      // A lone trailing byte is not a complete sample; it is dropped, not invented.
+      pendingByte = null;
+      await ticket.ready;
+      if (!controller.signal.aborted) flushPending();
     } finally {
+      ticket.done();
       signal?.removeEventListener("abort", onAbort);
       if (activeTtsController === controller) activeTtsController = null;
     }

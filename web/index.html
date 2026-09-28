@@ -233,13 +233,23 @@
         <section class="stage" id="view-developer" hidden>
           <div class="view-header">
             <h2>Developer Agent</h2>
-            <p>Analyze is read-only. Implement opens a pull request after you confirm, and only when this account is PRO and the server has a GitHub token. There is no separate verify agent.</p>
+            <p>Analyze is read-only. Implement opens a pull request as <em>your</em> GitHub account after you approve that exact action, and only on a PRO plan. There is no separate verify agent, and ZARVIS never merges.</p>
           </div>
           <div class="dev-stage" id="developer-stages" aria-label="Developer stages">
             <article class="z-card z-card-status" data-stage="analyze"><span class="z-badge z-badge-ok">Available</span><strong>Analyze</strong><small>Read-only repository report.</small></article>
             <article class="z-card z-card-status" data-stage="plan"><span class="z-badge z-badge-info">Included</span><strong>Plan</strong><small>Part of implement. Not a separate run.</small></article>
-            <article class="z-card z-card-status" data-stage="implement"><span class="z-badge z-badge-ok">Available</span><strong>Implement</strong><small>Pull request after you confirm. PRO required.</small></article>
+            <article class="z-card z-card-status" data-stage="implement"><span class="z-badge z-badge-ok">Available</span><strong>Implement</strong><small>Pull request after you confirm. PRO + connected GitHub required.</small></article>
             <article class="z-card z-card-status is-unavailable" data-stage="verify"><span class="z-badge z-badge-off">Not supported</span><strong>Verify</strong><small>No separate verification agent.</small></article>
+          </div>
+          <div class="z-card github-connect" id="github-connect">
+            <strong>Your GitHub account</strong>
+            <small id="github-status" aria-live="polite">Checking…</small>
+            <form id="github-connect-form" class="stack-form" hidden>
+              <label for="github-token-input">Personal access token (stored encrypted; never shown again)</label>
+              <input id="github-token-input" class="text-input-block" type="password" autocomplete="off" spellcheck="false" />
+              <button type="submit" class="zarvis-btn zarvis-btn-secondary">Connect GitHub</button>
+            </form>
+            <button type="button" class="zarvis-btn zarvis-btn-secondary" id="github-disconnect-btn" hidden>Disconnect GitHub</button>
           </div>
           <label for="developer-repo-input">GitHub repository URL</label>
           <input id="developer-repo-input" class="text-input-block" type="url" placeholder="https://github.com/owner/repo" autocomplete="off" />
@@ -292,16 +302,16 @@
           </div>
           <div class="settings-grid" id="settings-grid">
             <p class="settings-group-label">Account</p>
-            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="account"><span class="z-card-copy"><strong>Account</strong><small>Guest session on this browser</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="account"><span class="z-card-copy"><strong>Account</strong><small>Guest, linked email, sign in</small></span><b aria-hidden="true">›</b></button>
             <p class="settings-group-label">Preferences</p>
             <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="voice"><span class="z-card-copy"><strong>AI &amp; Voice</strong><small>Spoken replies and Gemini voice</small></span><b aria-hidden="true">›</b></button>
             <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="appearance"><span class="z-card-copy"><strong>Appearance</strong><small>Light or dim</small></span><b aria-hidden="true">›</b></button>
             <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="language"><span class="z-card-copy"><strong>Language</strong><small>English or Hindi</small></span><b aria-hidden="true">›</b></button>
             <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="notifications"><span class="z-card-copy"><strong>Notifications</strong><small>Not available on the web</small></span><b aria-hidden="true">›</b></button>
             <p class="settings-group-label">Trust</p>
-            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="permissions"><span class="z-card-copy"><strong>Permissions</strong><small>Microphone here. Phone on Android</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="permissions"><span class="z-card-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access, on web and Android</small></span><b aria-hidden="true">›</b></button>
             <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="privacy"><span class="z-card-copy"><strong>Privacy</strong><small>Delete this account</small></span><b aria-hidden="true">›</b></button>
-            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="security"><span class="z-card-copy"><strong>Security</strong><small>Clear this browser session</small></span><b aria-hidden="true">›</b></button>
+            <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="security"><span class="z-card-copy"><strong>Security</strong><small>Sign out of this browser</small></span><b aria-hidden="true">›</b></button>
             <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="protection"><span class="z-card-copy"><strong>Rules &amp; Protection</strong><small>Confirmations that are actually enforced</small></span><b aria-hidden="true">›</b></button>
             <button type="button" class="z-card z-card-settings settings-entry" data-settings-page="data"><span class="z-card-copy"><strong>Data</strong><small>Deletion. Export is unavailable</small></span><b aria-hidden="true">›</b></button>
             <p class="settings-group-label">Product</p>
@@ -317,7 +327,27 @@
             </div>
             <section class="settings-panel zarvis-card" data-settings-panel="account" hidden>
               <h3 class="card-title">Account</h3>
-              <p class="card-desc">This browser uses a guest account created automatically. There is no email sign-in screen in this version.</p>
+              <p class="card-desc" id="account-status" aria-live="polite">Loading…</p>
+              <p class="card-error" id="account-error" role="alert" hidden></p>
+              <p class="card-desc account-info" id="account-info" hidden></p>
+              <form id="account-link-form" class="stack-form" hidden>
+                <strong>Link an email to this account</strong>
+                <small>Keeps this guest account (conversations, tasks, credits) and lets you sign in on your phone or another browser.</small>
+                <label for="account-link-email">Email</label>
+                <input id="account-link-email" class="text-input-block" type="email" autocomplete="username" required />
+                <label for="account-link-password">Password (8+ characters)</label>
+                <input id="account-link-password" class="text-input-block" type="password" autocomplete="new-password" minlength="8" required />
+                <button type="submit" class="zarvis-btn zarvis-btn-primary">Link email</button>
+              </form>
+              <form id="account-signin-form" class="stack-form">
+                <strong id="account-signin-title">Sign in with email</strong>
+                <small id="account-signin-note" hidden>Signing in switches this browser to that account. This guest account's data is not merged.</small>
+                <label for="account-signin-email">Email</label>
+                <input id="account-signin-email" class="text-input-block" type="email" autocomplete="username" required />
+                <label for="account-signin-password">Password</label>
+                <input id="account-signin-password" class="text-input-block" type="password" autocomplete="current-password" minlength="8" required />
+                <button type="submit" class="zarvis-btn zarvis-btn-secondary">Sign in</button>
+              </form>
             </section>
             <section class="settings-panel zarvis-card" data-settings-panel="voice" hidden>
               <h3 class="card-title">AI &amp; Voice</h3>
@@ -347,8 +377,9 @@
               <p class="card-desc">Web notifications are not available. Task status stays in Tasks.</p>
             </section>
             <section class="settings-panel zarvis-card" data-settings-panel="permissions" hidden>
-              <h3 class="card-title">Permissions</h3>
-              <p class="card-desc">The microphone is requested by the browser when you tap Speak. Contacts and phone calls are Android permissions and are not requested here.</p>
+              <h3 class="card-title">Permissions &amp; Device Access</h3>
+              <p class="card-desc">Every ZARVIS capability, what it can really do on the web and on Android, and what this browser currently allows. Allowing access never authorizes an action by itself — sensitive actions still ask you each time.</p>
+              <div class="capability-list" id="permission-center-list" aria-live="polite"></div>
             </section>
             <section class="settings-panel zarvis-card" data-settings-panel="privacy" hidden>
               <h3 class="card-title">Privacy</h3>
@@ -358,15 +389,16 @@
             </section>
             <section class="settings-panel zarvis-card" data-settings-panel="security" hidden>
               <h3 class="card-title">Security</h3>
-              <p class="card-desc">Clear local session removes tokens from this browser and starts a new guest session after reload.</p>
-              <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-clear-session-btn">Clear local session</button>
+              <p class="card-desc">Sign out ends this browser's session on the server. Refresh tokens rotate on every use; if an old one is replayed, the session is ended for your safety.</p>
+              <button type="button" class="zarvis-btn zarvis-btn-secondary" id="settings-clear-session-btn">Sign out</button>
             </section>
             <section class="settings-panel zarvis-card protection-panel" data-settings-panel="protection" hidden>
               <h3 class="card-title">Rules &amp; Protection</h3>
               <p class="card-desc">These are the checks the current product actually performs.</p>
               <div class="protection-list">
                 <article class="protection-rule"><div><strong>Account deletion</strong><small>Asks for confirmation in this browser before calling delete.</small></div></article>
-                <article class="protection-rule"><div><strong>Developer implement</strong><small>Requires an explicit confirm and a PRO entitlement. The server uses one configured GitHub token.</small></div></article>
+                <article class="protection-rule"><div><strong>One-time confirmations</strong><small>Actions like opening a pull request return a server-issued confirmation for that exact action. It works once, expires after 10 minutes, and only for your account.</small></div></article>
+                <article class="protection-rule"><div><strong>Your own GitHub identity</strong><small>The Developer Agent uses the GitHub token you connect, never a shared server token, and writes only where GitHub says you can push.</small></div></article>
                 <article class="protection-rule"><div><strong>Voice</strong><small>Listening starts from a tap. There is no wake word.</small></div></article>
                 <article class="protection-rule"><div><strong>Files</strong><small>A document is read only after you attach it.</small></div></article>
               </div>
@@ -437,6 +469,23 @@
       </div>
     </div>
   </div>
+  <div class="modal-overlay" id="session-gate" hidden>
+    <div class="modal-card session-gate-card" role="dialog" aria-modal="true" aria-labelledby="session-gate-title" aria-describedby="session-gate-body">
+      <h3 id="session-gate-title">Your session has ended</h3>
+      <p id="session-gate-body">You were signed out on the server. ZARVIS did not create a new account for you.</p>
+      <p class="card-error" id="session-gate-error" role="alert" hidden></p>
+      <form id="session-gate-form" class="stack-form" autocomplete="on">
+        <label for="session-gate-email">Email</label>
+        <input id="session-gate-email" class="text-input-block" type="email" autocomplete="username" required />
+        <label for="session-gate-password">Password</label>
+        <input id="session-gate-password" class="text-input-block" type="password" autocomplete="current-password" minlength="8" required />
+        <button type="submit" class="zarvis-btn zarvis-btn-primary" id="session-gate-signin">Sign in</button>
+      </form>
+      <p class="card-desc" id="session-gate-guest-note">Or start a new, empty guest account on this browser.</p>
+      <button type="button" class="zarvis-btn zarvis-btn-secondary" id="session-gate-guest">Start a new guest account</button>
+    </div>
+  </div>
+  <script src="./logic.js"></script>
   <script src="./feature-pages.js"></script>
   <script src="./app.js"></script>
 </body>

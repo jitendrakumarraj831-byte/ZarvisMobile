@@ -82,13 +82,32 @@ export class ToolPipeline {
       return { kind: "entitlement_denied", decision };
     }
 
-    // 5. Policy + confirmation. The policy can only add a requirement, never remove one.
+    // 5. Prepare — check preconditions and describe the exact action before any confirmation.
+    let action = describeAction(skill, call.input);
+    if (skill.prepare) {
+      let prepared;
+      try {
+        prepared = await skill.prepare(call.input, context);
+      } catch (err) {
+        prepared = {
+          kind: "failed" as const,
+          failure:
+            err instanceof SkillUserError
+              ? { kind: "failure" as const, reason: err.reason, userMessage: err.userMessage }
+              : { kind: "failure" as const, reason: "prepare_error", userMessage: `${skill.name} couldn't check its requirements, so nothing was done. Please try again.` },
+        };
+      }
+      if (prepared.kind === "failed") return { kind: "execution_failed", result: prepared.failure };
+      action = truncate(prepared.description);
+    }
+
+    // 6. Policy + confirmation. The policy can only add a requirement, never remove one.
     if (requiresConfirmation(skill)) {
       const confirmation = await this.confirmationPort.confirm(
         {
           skillId: skill.id,
           skillName: skill.name,
-          action: describeAction(skill, call.input),
+          action,
           riskLevel: skill.riskLevel,
           actionClass: skill.actionClass,
           input: call.input.values,
@@ -100,7 +119,7 @@ export class ToolPipeline {
       }
     }
 
-    // 6. Execution — a thrown error is an honest failure, never an unhandled 500 that
+    // 7. Execution — a thrown error is an honest failure, never an unhandled 500 that
     // takes the whole conversation turn down with it.
     let result: SkillResult;
     try {
@@ -124,7 +143,7 @@ export class ToolPipeline {
       return { kind: "execution_failed", result };
     }
 
-    // 7. Verification — never report success on an empty/absent result
+    // 8. Verification — never report success on an empty/absent result
     if (result.summary.trim().length === 0) {
       return { kind: "verification_failed", skillId: skill.id, reason: "Skill reported success with no result summary" };
     }
@@ -159,5 +178,9 @@ export function describeAction(skill: SkillDefinition, input: SkillInput): strin
       Object.entries(input.values)
         .map(([key, value]) => `${key} = ${typeof value === "string" ? value : JSON.stringify(value)}`)
         .join("; ");
+  return truncate(text);
+}
+
+function truncate(text: string): string {
   return text.length > MAX_ACTION_DESCRIPTION_CHARS ? text.slice(0, MAX_ACTION_DESCRIPTION_CHARS - 1) + "…" : text;
 }

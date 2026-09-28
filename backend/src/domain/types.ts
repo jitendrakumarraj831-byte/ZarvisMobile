@@ -80,6 +80,10 @@ export type SkillResult =
   | { kind: "success"; output: Record<string, unknown>; summary: string }
   | { kind: "failure"; reason: string; userMessage: string };
 
+export type PreparedAction =
+  | { kind: "ready"; description: string }
+  | { kind: "failed"; failure: Extract<SkillResult, { kind: "failure" }> };
+
 export type SkillHandler = (input: SkillInput, context: SkillExecutionContext) => Promise<SkillResult>;
 
 export interface SkillDefinition {
@@ -101,6 +105,12 @@ export interface SkillDefinition {
   inputSchema: JsonSchema;
   /** Human-readable description of exactly what this call will do, shown in confirmations. */
   describeAction?: (input: SkillInput) => string;
+  /**
+   * Optional pre-confirmation check (mirrors Android's SkillPreparer): verifies preconditions
+   * (e.g. the user's GitHub identity can push) and returns the exact action to confirm, so a
+   * user is never asked to approve something that cannot run or is described inaccurately.
+   */
+  prepare?: (input: SkillInput, context: SkillExecutionContext) => Promise<PreparedAction>;
   handler: SkillHandler;
 }
 

@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "commonjs",
+  "description": "Browser client files; CommonJS so web/logic.js and web/tests run under node --test."
+}

@@ -278,6 +278,9 @@ body[data-active-view] .stage:not([hidden]) { animation: rise var(--motion); }
   transition: background var(--motion), transform var(--motion);
 }
 .zarvis-btn-secondary { background: var(--surface-soft); }
+/* Must come after .zarvis-btn (same specificity) or primary buttons lose their fill. */
+.zarvis-btn.zarvis-btn-primary { background: var(--text); color: var(--bg); border-color: transparent; }
+[data-appearance="dim"] .zarvis-btn.zarvis-btn-primary { color: #12110f; background: var(--accent); }
 .zarvis-btn-danger { background: transparent; color: var(--red); border-color: rgba(180, 35, 58, 0.35); }
 
 .action-grid, .home-grid, .work-grid, .feature-hub-grid, .plan-cards, .status-grid, .settings-grid {
@@ -614,3 +617,23 @@ body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- Phase 1: session gate, account, permission center, confirmations ---- */
+.stack-form { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+.stack-form small { color: var(--muted); }
+.session-gate-card { max-width: 420px; width: calc(100% - 32px); max-height: calc(100vh - 32px); overflow-y: auto; }
+.account-info { color: var(--green); }
+.capability-list { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); }
+.capability-item { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: var(--card-pad); background: var(--surface); }
+.capability-item header { display: flex; justify-content: space-between; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; }
+.capability-item .capability-status { font-size: 0.85rem; color: var(--accent); margin: 4px 0; }
+.capability-item .capability-access { margin: 4px 0; }
+.capability-item details { margin-top: var(--space-2); }
+.capability-item details dl { margin: var(--space-2) 0 0; }
+.capability-item details dt { font-weight: 600; margin-top: var(--space-2); }
+.capability-item details dd { margin: 2px 0 0; color: var(--muted); }
+.confirm-card { border: 1px solid var(--warning); border-radius: var(--radius); padding: var(--card-pad); background: var(--surface); margin: var(--space-2) 0; }
+.confirm-card .confirm-action { font-weight: 600; margin: var(--space-2) 0; }
+.confirm-card .modal-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.github-connect { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--card-pad); margin-bottom: var(--space-3); }
+.progress-note { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }

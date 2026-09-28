@@ -28,6 +28,34 @@ Rules:
  * 3. the ToolPipeline requires a server-issued confirmation for this exact repo + requirement.
  * It never merges.
  */
+async function checkWriteAccess(github: GitHubAccessService, repoUrl: string, accountId: string) {
+  try {
+    parseRepoUrl(repoUrl);
+  } catch (err) {
+    throw new SkillUserError("invalid_repo_url", err instanceof Error ? err.message : "Please provide a GitHub repository URL.");
+  }
+  const { client, login } = await github.clientFor(accountId);
+  if (!login) {
+    throw new SkillUserError(
+      "github_not_connected",
+      "Connect your own GitHub account in Developer settings first. ZARVIS only writes to repositories your GitHub account can push to.",
+    );
+  }
+  let access;
+  try {
+    access = await client.getRepoAccess(repoUrl);
+  } catch (err) {
+    if (err instanceof GitHubApiError && (err.status === 404 || err.status === 401 || err.status === 403)) {
+      throw new SkillUserError("repo_unavailable", `${login} can't access ${repoUrl}. No changes were made.`);
+    }
+    throw err;
+  }
+  if (!access.canPush) {
+    throw new SkillUserError("not_authorized", `GitHub reports that ${login} does not have write access to ${access.fullName}. No changes were made.`);
+  }
+  return { client, login, fullName: access.fullName };
+}
+
 export function createDeveloperImplementSkill(github: GitHubAccessService, generator: ContentGenerator): SkillDefinition {
   return {
     id: "developer.implement",
@@ -43,41 +71,20 @@ export function createDeveloperImplementSkill(github: GitHubAccessService, gener
     requiresConfirmation: true,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["repoUrl", "requirement"], properties: { repoUrl: "string", requirement: "string" } },
-    describeAction: (input) =>
-      `Using your connected GitHub account, create a new branch in ${String(input.values.repoUrl ?? "").trim()}, ` +
-      `commit AI-generated changes (at most 6 text files) for: "${String(input.values.requirement ?? "").trim()}", ` +
-      `and open a pull request for your review. Nothing is merged.`,
+    prepare: async (input, context) => {
+      const { login, fullName } = await checkWriteAccess(github, String(input.values.repoUrl ?? "").trim(), context.accountId);
+      return {
+        kind: "ready",
+        description:
+          `As GitHub user ${login}, create a new branch in ${fullName}, commit AI-generated changes (at most 6 text files) ` +
+          `for: "${String(input.values.requirement ?? "").trim()}", and open a pull request for your review. Nothing is merged.`,
+      };
+    },
     handler: async (input, context) => {
       const repoUrl = String(input.values.repoUrl ?? "").trim();
       const requirement = String(input.values.requirement ?? "").trim();
-      try {
-        parseRepoUrl(repoUrl);
-      } catch (err) {
-        throw new SkillUserError("invalid_repo_url", err instanceof Error ? err.message : "Please provide a GitHub repository URL.");
-      }
-      const { client, login } = await github.clientFor(context.accountId);
-      if (!login) {
-        throw new SkillUserError(
-          "github_not_connected",
-          "Connect your own GitHub account in Developer settings first. ZARVIS only writes to repositories your GitHub account can push to.",
-        );
-      }
-      let access;
-      try {
-        access = await client.getRepoAccess(repoUrl);
-      } catch (err) {
-        if (err instanceof GitHubApiError && (err.status === 404 || err.status === 401 || err.status === 403)) {
-          throw new SkillUserError("repo_unavailable", `${login} can't access ${repoUrl}. No changes were made.`);
-        }
-        throw err;
-      }
-      if (!access.canPush) {
-        throw new SkillUserError(
-          "not_authorized",
-          `GitHub reports that ${login} does not have write access to ${access.fullName}. No changes were made.`,
-        );
-      }
-
+      // Re-checked at execution time: access can change between confirmation and approval.
+      const { client, login } = await checkWriteAccess(github, repoUrl, context.accountId);
       const repoContext = await client.getImplementationContext(repoUrl);
       const raw = await generator.generate(JSON.stringify({ requirement, repository: repoContext }, null, 2));
       let plan: { summary: string; steps: string[]; files: Array<{ path: string; content: string }>; tests: string[] };

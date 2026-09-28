@@ -2,7 +2,7 @@
   "version": 2,
   "headers": [
     {
-      "source": "/(app\\.js|sw\\.js|index\\.html)",
+      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|sw\\.js|index\\.html)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -62,6 +62,14 @@
     {
       "src": "^/app\\.js$",
       "dest": "/web/app.js"
+    },
+    {
+      "src": "^/logic\\.js$",
+      "dest": "/web/logic.js"
+    },
+    {
+      "src": "^/feature-pages\\.js$",
+      "dest": "/web/feature-pages.js"
     },
     {
       "src": "^/styles\\.css$",

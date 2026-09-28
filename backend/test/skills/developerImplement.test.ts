@@ -47,13 +47,22 @@ const validPlan = JSON.stringify({ summary: "ok", steps: ["edit"], tests: ["npm 
 
 describe("developer.implement skill", () => {
   it("is explicitly high-risk, external, confirmation-gated and describes the exact action", async () => {
-    const { service } = await access(client());
+    const { service } = await access(client({ canPush: true }));
     const skill = createDeveloperImplementSkill(service, { generate: vi.fn() } as unknown as ContentGenerator);
     expect(skill.riskLevel).toBe("HIGH");
     expect(skill.actionClass).toBe("EXTERNAL_COMMUNICATION");
     expect(skill.requiresConfirmation).toBe(true);
     expect(skill.requiredEntitlement).toBe("PRO");
-    expect(skill.describeAction!({ values: { repoUrl: REPO, requirement: "fix login" } })).toContain("fix login");
+    expect(await skill.prepare!({ values: { repoUrl: REPO, requirement: "fix login" } }, { accountId: "a1" })).toEqual({
+      kind: "ready",
+      description: expect.stringContaining('As GitHub user alice, create a new branch in acme/demo'),
+    });
+  });
+
+  it("prepare refuses before any confirmation when the user can't push", async () => {
+    const { service } = await access(client({ canPush: false }));
+    const skill = createDeveloperImplementSkill(service, { generate: vi.fn() } as unknown as ContentGenerator);
+    await expect(skill.prepare!({ values: { repoUrl: REPO, requirement: "x" } }, { accountId: "a1" })).rejects.toMatchObject({ reason: "not_authorized" });
   });
 
   it("refuses when the user has not connected their own GitHub account (no shared server token)", async () => {

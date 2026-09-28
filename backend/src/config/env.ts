@@ -54,6 +54,8 @@ export const env = {
   /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
   isProduction: process.env.NODE_ENV === "production",
+  /** GitHub REST API base URL (override only for GitHub Enterprise Server or a local test stub). */
+  githubApiBaseUrl: process.env.GITHUB_API_BASE_URL?.trim() || "https://api.github.com",
   /** base64 32-byte AES key for per-user integration credentials (security/secretBox.ts). */
   integrationEncryptionKey: process.env.INTEGRATION_ENCRYPTION_KEY,
   playBillingServiceAccountJson: process.env.PLAY_BILLING_SERVICE_ACCOUNT_JSON,
