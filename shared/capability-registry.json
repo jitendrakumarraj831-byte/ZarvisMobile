@@ -425,7 +425,7 @@
         "android.permission.POST_NOTIFICATIONS"
       ],
       "androidSpecialAccess": [],
-      "androidRequirements": "POST_NOTIFICATIONS is a runtime permission only on Android 13+; on Android 8–12 notifications are controlled by the app's notification setting. Alarms use AlarmClock.ACTION_SET_ALARM (normal SET_ALARM permission).",
+      "androidRequirements": "POST_NOTIFICATIONS is a runtime permission only on Android 13+; on Android 8–12 notifications are controlled by the app's notification setting. Reminders use an exact alarm on Android 8–12, and on 13+ when you allow ZARVIS in Settings > Alarms & reminders; without that, Android may deliver a reminder up to 10 minutes late. Alarms use AlarmClock.ACTION_SET_ALARM (normal SET_ALARM permission).",
       "risk": "LOW",
       "actionClass": "LOW_IMPACT",
       "dataExposure": "Reminder text is stored on this phone only.",

@@ -102,8 +102,9 @@ async function send(page, text) {
     assert.match(call, /Every action asks for your confirmation/);
     const mic = await pageA.locator('[data-capability="microphone"] .capability-access').innerText();
     assert.ok(mic.length > 0);
-    const planned = await pageA.locator('[data-capability="notification_read"]').innerText();
-    assert.match(planned, /Android: Planned/);
+    const notifications = await pageA.locator('[data-capability="notification_read"]').innerText();
+    assert.match(notifications, /Web: Unsupported · Android: Partial/);
+    assert.match(notifications, /Browsers can't read other apps' notifications/);
     const listText = await pageA.locator("#permission-center-list").innerText();
     assert.ok(!/: Working/.test(listText), "nothing claims WORKING without device verification");
   });

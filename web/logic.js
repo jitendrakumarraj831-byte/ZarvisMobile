@@ -136,8 +136,12 @@
    */
   function webAccessSummary(capability, microphoneState) {
     const web = capability.platforms.web;
-    if (web.status === "UNSUPPORTED") return "Not available in the browser — use the Android app.";
-    if (web.status === "PLANNED") return "Not available on the web yet.";
+    const androidAlternative = capability.platforms.android.status === "UNSUPPORTED" || capability.platforms.android.status === "PLANNED"
+      ? ""
+      : " Available in the ZARVIS Android app.";
+    // The registry's own reason, verbatim — never a generic "not available".
+    if (web.status === "UNSUPPORTED") return web.note + androidAlternative;
+    if (web.status === "PLANNED") return "Not available on the web yet. " + web.note + androidAlternative;
     if (capability.id === "microphone") {
       if (microphoneState === "granted") return "Allowed by this browser.";
       if (microphoneState === "denied") return "Blocked in this browser's site settings.";

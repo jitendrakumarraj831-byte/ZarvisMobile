@@ -36,6 +36,14 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!--
+      Reminders fire on time only with an exact alarm. Granted by default on Android 12; on
+      Android 13+ the user allows it in Settings > Apps > Special app access > Alarms &
+      reminders. Without it reminders use a bounded 10-minute window (see
+      AndroidReminderAlarmPort). Not needed below Android 12.
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <!-- alarm.set hands an alarm to the Clock app (AlarmClock.ACTION_SET_ALARM). Normal permission. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 

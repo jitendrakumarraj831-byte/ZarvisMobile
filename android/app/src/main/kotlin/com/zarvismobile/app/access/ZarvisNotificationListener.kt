@@ -63,6 +63,8 @@ class ZarvisNotificationListener : NotificationListenerService() {
 
 /** Converts what Android reported into the domain snapshot; null for notifications ZARVIS ignores. */
 object NotificationSnapshots {
+    private const val EXTRA_APP_INFO = "android.appInfo"
+
     fun from(sbn: StatusBarNotification, context: Context): NotificationSnapshot? {
         val n = sbn.notification ?: return null
         if (sbn.packageName == context.packageName) return null // ZARVIS's own (e.g. reminders)
@@ -97,10 +99,11 @@ object NotificationSnapshots {
     @Suppress("DEPRECATION")
     private fun appLabel(sbn: StatusBarNotification, context: Context): String {
         val pm = context.packageManager
+        // Notification.Builder stores the posting app's ApplicationInfo under this (hidden) key.
         val fromExtras = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            sbn.notification.extras.getParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, ApplicationInfo::class.java)
+            sbn.notification.extras.getParcelable(EXTRA_APP_INFO, ApplicationInfo::class.java)
         } else {
-            sbn.notification.extras.getParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO)
+            sbn.notification.extras.getParcelable<ApplicationInfo>(EXTRA_APP_INFO)
         }
         val info = fromExtras ?: try {
             pm.getApplicationInfo(sbn.packageName, 0)

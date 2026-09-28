@@ -53,7 +53,11 @@ test("web permission summaries are truthful for every capability in the shared r
   for (const capability of registry.capabilities) {
     const summary = L.webAccessSummary(capability, "prompt");
     assert.ok(summary.length > 0);
-    if (capability.platforms.web.status === "UNSUPPORTED") assert.match(summary, /Android app/);
+    if (capability.platforms.web.status === "UNSUPPORTED") {
+      // The exact registry reason is shown, plus where it does work.
+      assert.ok(summary.startsWith(capability.platforms.web.note), capability.id);
+      assert.match(summary, /Android app/);
+    }
   }
   const mic = registry.capabilities.find((c) => c.id === "microphone");
   assert.match(L.webAccessSummary(mic, "denied"), /Blocked/);

@@ -91,10 +91,8 @@ class AndroidLocationPort(private val context: Context) : LocationPort {
         if (!LocationManagerCompat.isLocationEnabled(manager)) {
             LocationResult.Unavailable("Location is turned off on this phone. Turn it on in quick settings, then ask again.", userActionRequired = true)
         } else {
-            val provider = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-                .firstOrNull { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
-                ?: LocationManager.PASSIVE_PROVIDER
-            val location = freshFix(provider) ?: lastKnown()
+            val provider = usableProviders().firstOrNull { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
+            val location = provider?.let { freshFix(it) } ?: lastKnown()
             if (location == null) {
                 LocationResult.Unavailable("I couldn't get a location fix right now. Try again in a moment.", userActionRequired = false)
             } else {
@@ -126,7 +124,19 @@ class AndroidLocationPort(private val context: Context) : LocationPort {
 
     @SuppressLint("MissingPermission")
     private fun lastKnown(): Location? =
-        listOf(LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER, LocationManager.GPS_PROVIDER)
+        usableProviders()
             .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
             .maxByOrNull { it.time }
+
+    /**
+     * Providers the granted permission may use. Before Android 12 the GPS and passive providers
+     * require ACCESS_FINE_LOCATION, which ZARVIS deliberately doesn't hold; from Android 12 a
+     * coarse-only app gets an approximate fix from any provider.
+     */
+    private fun usableProviders(): List<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        } else {
+            listOf(LocationManager.NETWORK_PROVIDER)
+        }
 }

@@ -21,6 +21,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,6 +52,10 @@ class NotificationSpeaker(
     private val recentKeys = LinkedHashMap<String, Long>()
     private var tts: TextToSpeech? = null
     private var ttsReady: CompletableDeferred<Boolean>? = null
+    private val _lastOutcome = MutableStateFlow<SpeakOutcome?>(null)
+
+    /** What happened to the most recent notification (decision only, never its content). */
+    val lastOutcome: StateFlow<SpeakOutcome?> = _lastOutcome.asStateFlow()
 
     fun onNotificationPosted(snapshot: NotificationSnapshot) {
         scope.launch { handle(snapshot) }
@@ -146,6 +153,7 @@ class NotificationSpeaker(
     }
 
     private fun log(outcome: SpeakOutcome) {
+        _lastOutcome.value = outcome
         Log.i(TAG, "ZARVIS_EVIDENCE notification_speak $outcome")
     }
 
