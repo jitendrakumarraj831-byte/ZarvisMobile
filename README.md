@@ -243,30 +243,24 @@ For example:
 
 ---
 
-# Documentation
+# Root documentation
 
-The complete product specification is maintained in the root master blueprint:
+All permanent Markdown documentation is kept in the repository root so the project is easy to understand directly from GitHub.
 
-**[ZARVIS_MASTER_PRODUCT_BLUEPRINT.md](./ZARVIS_MASTER_PRODUCT_BLUEPRINT.md)**
+| File | Purpose |
+|---|---|
+| [ZARVIS_MASTER_PRODUCT_BLUEPRINT.md](./ZARVIS_MASTER_PRODUCT_BLUEPRINT.md) | **Authoritative A→Z product, UX, architecture and execution blueprint** |
+| [MASTER_SPEC.md](./MASTER_SPEC.md) | Master-spec navigation/compatibility entry point |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System and shared Brain architecture |
+| [SECURITY.md](./SECURITY.md) | Security, risk and authorization rules |
+| [PRIVACY.md](./PRIVACY.md) | Privacy and notification privacy rules |
+| [AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md) | AI, planning, agents and execution boundary |
+| [SKILLS.md](./SKILLS.md) | Skill model and capability contracts |
+| [DEVELOPER_AGENT.md](./DEVELOPER_AGENT.md) | Developer Agent workflow and safety |
+| [SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md) | Billing, credits and entitlement rules |
+| [DEVELOPMENT.md](./DEVELOPMENT.md) | Development and verification rules |
 
-That document contains:
-
-- product vision
-- shared Brain architecture
-- Web specification
-- Android specification
-- page layouts
-- content placement
-- agent architecture
-- permission model
-- security model
-- feature roadmap
-- testing strategy
-- UX states
-- execution rules
-- production definition of done
-
-**Do not create separate permanent roadmap/spec/status documents unless explicitly requested. Update the master blueprint when the product architecture changes.**
+**Documentation rule:** `ZARVIS_MASTER_PRODUCT_BLUEPRINT.md` remains the single authoritative source of truth. Supporting root-level MD files must not contradict it.
 
 ---
 
