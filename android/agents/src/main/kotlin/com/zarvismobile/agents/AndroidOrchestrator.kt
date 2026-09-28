@@ -42,6 +42,9 @@ data class TurnOutcome(val message: String, val result: ToolResult? = null)
 
 data class RestoredMessage(val role: String, val content: String)
 
+/** Re-issued confirmations (action changed after approval) the user is asked about per turn. */
+private const val MAX_CONFIRMATION_ROUNDS = 3
+
 /**
  * The Android half of the request lifecycle (blueprint §9):
  *
@@ -143,29 +146,38 @@ class AndroidOrchestrator(
         )
         response.conversationId?.let { conversations.set(it) }
         val lastResult = response.toolCalls.lastOrNull()?.result?.toDomain()
-        val pending = response.toolCalls.firstNotNullOfOrNull { it.outcome.confirmation }
+        var pending = response.toolCalls.firstNotNullOfOrNull { it.outcome.confirmation }
             ?: return TurnOutcome(message = response.message, result = lastResult)
 
-        val approved = confirmationPort.confirm(
-            ConfirmationRequest(
-                skillId = pending.skillId,
-                summary = pending.action,
-                riskLevel = runCatching { RiskLevel.valueOf(pending.riskLevel) }.getOrDefault(RiskLevel.HIGH),
-                actionClass = runCatching { ActionClass.valueOf(pending.actionClass) }.getOrDefault(ActionClass.SECURITY_SENSITIVE),
-            ),
-        )
-        val resolution = try {
-            if (approved) api.approveConfirmation(pending.id) else api.declineConfirmation(pending.id)
-        } catch (e: retrofit2.HttpException) {
-            if (e.code() == 404) {
-                return TurnOutcome(
-                    message = "That confirmation expired or was already used, so nothing was run. Ask again if you still want it.",
-                    result = ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Confirmation expired.", true, null),
-                )
+        // If what would run changed after approval (e.g. a different GitHub identity), the
+        // server issues a new confirmation naming the new action; the user decides again.
+        repeat(MAX_CONFIRMATION_ROUNDS) {
+            val approved = confirmationPort.confirm(
+                ConfirmationRequest(
+                    skillId = pending.skillId,
+                    summary = pending.action,
+                    riskLevel = runCatching { RiskLevel.valueOf(pending.riskLevel) }.getOrDefault(RiskLevel.HIGH),
+                    actionClass = runCatching { ActionClass.valueOf(pending.actionClass) }.getOrDefault(ActionClass.SECURITY_SENSITIVE),
+                ),
+            )
+            val resolution = try {
+                if (approved) api.approveConfirmation(pending.id) else api.declineConfirmation(pending.id)
+            } catch (e: retrofit2.HttpException) {
+                if (e.code() == 404) {
+                    return TurnOutcome(
+                        message = "That confirmation expired or was already used, so nothing was run. Ask again if you still want it.",
+                        result = ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Confirmation expired.", true, null),
+                    )
+                }
+                throw e
             }
-            throw e
+            pending = resolution.outcome?.confirmation
+                ?: return TurnOutcome(message = resolution.message, result = resolution.result.toDomain())
         }
-        return TurnOutcome(message = resolution.message, result = resolution.result.toDomain())
+        return TurnOutcome(
+            message = "The action kept changing before it could run, so nothing was done. Please ask again.",
+            result = ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Action changed repeatedly.", true, null),
+        )
     }
 
     /** phone.call by raw number needs only Phone; by name it also needs Contacts. */

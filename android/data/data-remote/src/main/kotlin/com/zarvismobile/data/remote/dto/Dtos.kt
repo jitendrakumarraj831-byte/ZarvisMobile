@@ -106,6 +106,8 @@ data class ConfirmationResolutionResponse(
     val confirmationId: String,
     val message: String,
     val result: StructuredResultDto,
+    /** confirmation_required again when what would run changed since approval. */
+    val outcome: OutcomeDto? = null,
 )
 
 @Serializable

@@ -74,6 +74,8 @@ export interface ConfirmationGrant {
   confirmationId: string;
   skillId: string;
   inputHash: string;
+  /** The exact action text the user approved; the prepared action must still match it. */
+  action: string;
 }
 
 export type SkillResult =

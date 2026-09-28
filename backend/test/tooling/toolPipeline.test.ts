@@ -311,6 +311,37 @@ describe("ToolPipeline + ServerConfirmationService (single-action confirmations)
     expect(calls).toHaveLength(0);
   });
 
+  it("if the prepared action changed after approval (e.g. another GitHub identity), it asks again and runs nothing", async () => {
+    let identity = "alice";
+    const skill = lowRiskSkill({
+      id: "developer.identity",
+      riskLevel: "HIGH",
+      actionClass: "EXTERNAL_COMMUNICATION",
+      requiresConfirmation: true,
+      prepare: async () => ({ kind: "ready", description: `As GitHub user ${identity}, open a PR` }),
+      handler: async (input) => {
+        calls.push(input.values);
+        return { kind: "success", output: {}, summary: "done" };
+      },
+    });
+    const registry = new SkillRegistry();
+    registry.register(skill);
+    const p = new ToolPipeline(registry, new FakePermissionPort(), new FakeEntitlementPort(proSnapshot), new FakeUsagePort(), service, clock);
+    const first = await p.execute({ id: "1", skillId: "developer.identity", input: { values: { query: "x" } } }, context);
+    if (first.kind !== "confirmation_required") throw new Error("expected confirmation");
+    expect(first.confirmation.action).toBe("As GitHub user alice, open a PR");
+    const approved = await service.approve("acc-1", first.confirmation.id);
+
+    identity = "mallory";
+    const outcome = await p.execute(
+      { id: "2", skillId: "developer.identity", input: { values: approved!.record.input } },
+      { accountId: "acc-1", confirmationGrant: approved!.grant },
+    );
+    expect(outcome.kind).toBe("confirmation_required");
+    if (outcome.kind === "confirmation_required") expect(outcome.confirmation.action).toBe("As GitHub user mallory, open a PR");
+    expect(calls).toHaveLength(0);
+  });
+
   it("another account cannot approve or decline someone else's confirmation", async () => {
     const pending = await requestPending();
     expect(await service.approve("acc-2", pending.id)).toBeUndefined();

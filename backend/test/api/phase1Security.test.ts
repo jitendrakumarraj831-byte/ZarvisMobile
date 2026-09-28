@@ -31,7 +31,8 @@ describe.each(STORES)("Phase 1 security (API, %s)", (_label, makeStore) => {
     container = buildContainer(makeStore(), {
       githubClientFactory: (token) => {
         githubClients.push(token);
-        return new MockGitHubClient({ token, login: "alice", canPush: token === "ghp_" + "p".repeat(36) });
+        const bob = token === "ghp_" + "q".repeat(36);
+        return new MockGitHubClient({ token, login: bob ? "bob" : "alice", canPush: bob || token === "ghp_" + "p".repeat(36) });
       },
     });
     app = buildServer(container);
@@ -193,6 +194,28 @@ describe.each(STORES)("Phase 1 security (API, %s)", (_label, makeStore) => {
       const replay = await request(app).post(`/api/v1/confirmations/${id}/approve`).set(auth(tokens.accessToken));
       expect(replay.status).toBe(404);
       expect(replay.body.code).toBe("confirmation_unavailable");
+    });
+
+    it("if a different GitHub identity is connected after confirming, approval runs nothing and asks again", async () => {
+      const tokens = await proAccountWithGitHub();
+      const pending = await request(app)
+        .post("/api/v1/developer/implement")
+        .set(auth(tokens.accessToken))
+        .send({ repoUrl: "https://github.com/acme/demo", requirement: "add a README badge" });
+      expect(pending.body.confirmation.action).toContain("As GitHub user alice");
+
+      const reconnect = await request(app)
+        .post("/api/v1/integrations/github")
+        .set(auth(tokens.accessToken))
+        .send({ token: "ghp_" + "q".repeat(36) });
+      expect(reconnect.status).toBe(200);
+
+      const approve = await request(app).post(`/api/v1/confirmations/${pending.body.confirmation.id}/approve`).set(auth(tokens.accessToken));
+      expect(approve.status).toBe(200);
+      expect(approve.body.outcome.kind).toBe("confirmation_required");
+      expect(approve.body.outcome.confirmation.action).toContain("As GitHub user bob");
+      expect(approve.body.result.status).toBe("CONFIRMATION_REQUIRED");
+      expect(approve.body.outcome.confirmation.id).not.toBe(pending.body.confirmation.id);
     });
 
     it("decline runs nothing and the confirmation cannot be approved afterwards", async () => {

@@ -27,7 +27,9 @@ export class ServerConfirmationService implements ConfirmationPort {
   async confirm(request: ConfirmationRequest, context: SkillExecutionContext): Promise<ConfirmationDecision> {
     const inputHash = hashInput(request.input);
     const grant = context.confirmationGrant;
-    if (grant && grant.skillId === request.skillId && grant.inputHash === inputHash) {
+    // The action text is part of the grant: if what would happen now differs from what the
+    // user approved (e.g. a different GitHub identity was connected meanwhile), ask again.
+    if (grant && grant.skillId === request.skillId && grant.inputHash === inputHash && grant.action === request.action) {
       return { approved: true };
     }
     const now = this.clock.now();
@@ -55,7 +57,7 @@ export class ServerConfirmationService implements ConfirmationPort {
     if (!record) return undefined;
     // Defense in depth: the stored hash must still match the stored input.
     if (hashInput(record.input) !== record.inputHash) return undefined;
-    return { record, grant: { confirmationId: record.id, skillId: record.skillId, inputHash: record.inputHash } };
+    return { record, grant: { confirmationId: record.id, skillId: record.skillId, inputHash: record.inputHash, action: record.action } };
   }
 
   async decline(accountId: string, confirmationId: string): Promise<ConfirmationRecord | undefined> {

@@ -847,6 +847,12 @@
         }
         if (!res.ok) throw new Error("HTTP " + res.status);
         actions.remove();
+        if (body.outcome?.kind === "confirmation_required" && body.outcome.confirmation) {
+          // What would run changed after approval (e.g. another GitHub account was connected).
+          note.textContent = "The action changed before it ran, so nothing was done. Please review it again.";
+          renderConfirmationCard(body.outcome.confirmation, container);
+          return;
+        }
         note.textContent = Logic.toolStatusLabel(body.result?.status) + ".";
         if (container === el.conversation) addBubble("assistant", body.message || "Done.");
         else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error");
