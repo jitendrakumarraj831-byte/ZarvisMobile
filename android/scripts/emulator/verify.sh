@@ -61,10 +61,10 @@ run_classes() {
 }
 
 if [ "$API" -lt 28 ]; then
-  # Android 8.x image: System UI crashes (NPE in StatusBar.onKeyguardOccludedChanged, a platform
-  # bug -- stacks printed at the end) the first few times an ActivityScenario launch toggles the
-  # keyguard's "occluded" state; its "System UI has stopped" dialog then covers Android's
-  # permission dialogs. Run the warm-up (not evidence) until System UI stops crashing.
+  # Android 8.x image: System UI crashes (NPE in StatusBar.onKeyguardOccludedChanged via
+  # KeyguardViewMediator.handleSetOccluded, a platform bug -- stacks printed at the end) when
+  # Android shows its permission dialog; the "System UI has stopped" dialog then covers it.
+  # Run the warm-up (not evidence) until System UI stops crashing, if it ever does.
   log "settling System UI (Android 8.x platform crash)"
   for attempt in 1 2 3 4 5; do
     before=$(adb logcat -d 2>/dev/null | grep -c "Process: com.android.systemui")
@@ -78,7 +78,34 @@ if [ "$API" -lt 28 ]; then
   adb shell am force-stop $APP
 fi
 
-run_classes A "$APP.EmulatorSmokeTest,$APP.PermissionDialogFlowTest"
+# Did Android's runtime-permission dialog ever appear during the warm-up, and does System UI
+# still crash? If it never appeared and System UI kept crashing on every attempt, the dialog
+# cannot be shown on this image at all (Android 8.x platform bug, stacks printed at the end).
+DIALOG_BLOCKED=0
+if [ "$API" -lt 28 ]; then
+  shown=$(adb logcat -d 2>/dev/null | grep -c "permission dialog shown=true")
+  crashes=$(adb logcat -d 2>/dev/null | grep -c "Process: com.android.systemui")
+  log "warm-up: Android permission dialog seen $shown time(s); System UI crashes $crashes"
+  if [ "$shown" -eq 0 ] && [ "$crashes" -gt 0 ]; then DIALOG_BLOCKED=1; fi
+fi
+
+if [ "$DIALOG_BLOCKED" -eq 1 ]; then
+  # Everything that does not need Android's own dialog must still pass.
+  run_classes A "$APP.EmulatorSmokeTest,$APP.PermissionDialogFlowTest#a_notNowShowsNoSystemDialogAndChangesNothing,$APP.PermissionDialogFlowTest#e_notificationsFollowTheAndroidVersion"
+  # The tests that need Android's dialog still run, but on this image they cannot pass and are
+  # reported as blocked by the platform -- never as passed.
+  log "instrumentation A-dialog (Android's permission dialog cannot be displayed on this image)"
+  timeout 1200 adb shell am instrument -w -r -e class "$APP.PermissionDialogFlowTest#b_learnMoreThenDenyInTheRealDialogIsVerifiedDenied,$APP.PermissionDialogFlowTest#c_allowInTheRealDialogIsVerifiedGranted,$APP.PermissionDialogFlowTest#d_permanentDenialLeadsToSettingsAndStaysDenied,$APP.PermissionDialogFlowTest#f_microphoneDeniedKeepsTextInput" "$RUNNER" > "$OUT/instr-A-dialog.txt" 2>&1
+  grep -E "INSTRUMENTATION_STATUS: test=|^OK|Tests run|FAILURES" "$OUT/instr-A-dialog.txt" | head -40
+  if grep -q "^OK (" "$OUT/instr-A-dialog.txt"; then
+    log "A-dialog PASSED (the dialog was displayed after all)"
+  else
+    log "A-dialog PLATFORM-BLOCKED: runtime-permission dialog flow UNVERIFIED on API $API (System UI crashes whenever Android shows the dialog); not counted as a pass"
+    echo "ZARVIS_EVIDENCE sdk=$API permission_dialog_flow UNVERIFIED platform-blocked (System UI NPE in StatusBar.onKeyguardOccludedChanged each time Android shows GrantPermissionsActivity)" >> "$OUT/platform-blocked.txt"
+  fi
+else
+  run_classes A "$APP.EmulatorSmokeTest,$APP.PermissionDialogFlowTest"
+fi
 
 run_classes B1 "$APP.ProcessDeathPhase1" expect-crash
 sleep 2
@@ -106,7 +133,7 @@ run_classes E "$APP.SettingsUiTest"
 kill "$GEO_PID" 2>/dev/null || true
 sleep 1
 adb logcat -d > "$OUT/logcat-final.txt" 2>&1 || true
-cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" "$OUT"/scenario-*.txt 2>/dev/null | grep -h "ZARVIS_EVIDENCE" 2>/dev/null | sed 's/^.*ZARVIS_EVIDENCE/ZARVIS_EVIDENCE/' | sort -u > "$OUT/evidence.txt" || true
+cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" "$OUT"/scenario-*.txt "$OUT/platform-blocked.txt" 2>/dev/null | grep -h "ZARVIS_EVIDENCE" 2>/dev/null | sed 's/^.*ZARVIS_EVIDENCE/ZARVIS_EVIDENCE/' | sort -u > "$OUT/evidence.txt" || true
 log "evidence:"; cat "$OUT/evidence.txt"
 # What was on screen whenever a wait timed out or a test failed.
 cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -h "ZARVIS_DIAG" | sed 's/^.*ZARVIS_DIAG/ZARVIS_DIAG/' | cut -c1-1500 | awk "!seen[\$0]++" > "$OUT/diagnostics.txt" || true

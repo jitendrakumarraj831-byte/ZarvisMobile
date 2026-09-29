@@ -21,13 +21,21 @@ adb shell ps -A -o PID,PPID,USER,S,STIME,NAME | grep -i zarvis | sed "s/^/ps bef
 # What Android's activity manager itself tracks for the package (a process it does not track
 # cannot be killed by force-stop or a permission revoke).
 adb shell dumpsys activity processes $APP | grep -E "ProcessRecord|pid=" | head -10 | sed "s/^/am before: /"
-before=$(app_pids)
+# The process ActivityManager runs ZARVIS in (its active "*APP*" record). Other live processes
+# with the same name can be leftovers of earlier instrumentation runs (seen on API 26: started
+# during the process-death phase, no active app record, not killable even by force-stop); they
+# are printed above but are not the app the user is running.
+am_app_pid() { adb shell dumpsys activity processes $APP | tr -d '\r' | grep '\*APP\*' | sed -n 's/.*ProcessRecord{[^ ]* \([0-9]*\):.*/\1/p' | head -1; }
+before=$(am_app_pid)
+[ -z "$before" ] && before=$(app_pids)
 adb shell pm revoke $APP android.permission.RECORD_AUDIO
 sleep 3
 adb shell ps -A -o PID,PPID,USER,S,STIME,NAME | grep -i zarvis | sed "s/^/ps after: /"
 adb shell dumpsys activity processes $APP | grep -E "ProcessRecord|pid=" | head -10 | sed "s/^/am after: /"
 after=$(app_pids)
-echo "ZARVIS_EVIDENCE sdk=$API revoke pid_before=$before pid_after=${after:-none}"
+leftovers=$(echo " $after " | sed "s/ $before / /" | xargs)
+alive=no; for now in $after; do [ "$now" = "$before" ] && alive=yes; done
+echo "ZARVIS_EVIDENCE sdk=$API revoke app_pid_before=$before app_pid_alive_after=$alive other_live_same_name=${leftovers:-none}"
 if [ -z "$before" ]; then echo "app process was not running before the revoke"; exit 1; fi
 for pid in $before; do
   for now in $after; do
