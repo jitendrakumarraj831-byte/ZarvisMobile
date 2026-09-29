@@ -48,10 +48,21 @@ object Device {
 
     /** Logs what is on screen (package + visible texts) so a CI failure explains itself. */
     fun diagnose(label: String) {
-        val texts = runCatching { ui.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL))).mapNotNull { o -> o.text?.takeIf { it.isNotBlank() }?.let { "${o.applicationPackage}:$it" } } }
-            .getOrDefault(emptyList())
-        val res = runCatching { ui.findObjects(By.res(Pattern.compile(".*:id/.*"))).map { it.resourceName } }.getOrDefault(emptyList())
-        val line = "ZARVIS_DIAG sdk=$sdk $label front=${ui.currentPackageName} texts=${texts.take(40)} ids=${res.distinct().take(40)}"
+        // The raw window hierarchy (what UI Automator itself sees), reduced to ZARVIS's nodes that
+        // carry text, a description or scrolling — robust to nodes changing mid-query.
+        val xml = runCatching { java.io.ByteArrayOutputStream().also { ui.dumpWindowHierarchy(it) }.toString("UTF-8") }.getOrDefault("")
+        val node = Regex("""<node [^>]*>""")
+        fun attr(n: String, a: String) = Regex("""$a="([^"]*)"""").find(n)?.groupValues?.get(1).orEmpty()
+        val appNodes = node.findAll(xml).map { it.value }.filter { attr(it, "package") == APP }.toList()
+        val shown = appNodes.mapNotNull { n ->
+            val t = attr(n, "text").ifEmpty { attr(n, "content-desc") }
+            when {
+                t.isNotEmpty() -> t
+                attr(n, "scrollable") == "true" -> "[scrollable ${attr(n, "class").substringAfterLast('.')}]"
+                else -> null
+            }
+        }
+        val line = "ZARVIS_DIAG sdk=$sdk $label front=${ui.currentPackageName} appNodes=${appNodes.size} shown=${shown.take(40)}"
         Log.w("ZarvisVerify", line)
         println(line)
     }
