@@ -63,8 +63,21 @@ class SettingsUiTest {
         val x = ui.displayWidth / 2
         val low = ui.displayHeight * 7 / 10
         val high = ui.displayHeight * 3 / 10
-        if (direction == Direction.DOWN) ui.swipe(x, low, x, high, 25) else ui.swipe(x, high, x, low, 25)
-        ui.waitForIdle()
+        // Slow drag (≈0.4 s) so the list barely flings, then wait until it stops: in Compose a tap
+        // on a list that is still moving only stops the scroll and never reaches the row.
+        if (direction == Direction.DOWN) ui.swipe(x, low, x, high, 80) else ui.swipe(x, high, x, low, 80)
+        awaitSettled()
+    }
+
+    /** Waits until two consecutive snapshots of the page are identical (the list stopped moving). */
+    private fun awaitSettled() {
+        var previous = visibleTexts()
+        repeat(15) {
+            Thread.sleep(200)
+            val now = visibleTexts()
+            if (now == previous) return
+            previous = now
+        }
     }
 
     /** Finds [text] on the current page: from the top, scrolling down through it. */
@@ -80,7 +93,9 @@ class SettingsUiTest {
     /** Finds and clicks [text]; a node that recomposed between finding and clicking is found again. */
     private fun tap(text: String, what: String) {
         repeat(3) {
-            val node = find(text) ?: error(what)
+            find(text) ?: error(what)
+            awaitSettled()
+            val node = ui.findObject(By.pkg(APP).text(text)) ?: error(what)
             try {
                 node.click()
                 return
