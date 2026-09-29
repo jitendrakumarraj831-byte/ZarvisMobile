@@ -24,7 +24,14 @@ adb logcat -c || true
 (adb logcat -v time > "$OUT/logcat.txt" 2>&1 &)
 adb shell settings put system screen_off_timeout 1800000 || true
 adb shell svc power stayon true || true
-adb shell wm dismiss-keyguard || true
+# No lock screen at all. On the API 26 image, every keyguard "occluded" change (e.g. from
+# `wm dismiss-keyguard`, or an activity shown over the keyguard) crashes System UI with an NPE in
+# StatusBar.onKeyguardOccludedChanged (null NavigationBarFragment) -- an Android 8.0 platform
+# bug, see the crash stacks printed at the end. With the keyguard disabled that path never runs.
+adb shell locksettings set-disabled true 2>/dev/null || adb shell cmd lock_settings set-disabled true 2>/dev/null || true
+adb shell settings put secure lockscreen.disabled 1 || true
+adb shell input keyevent KEYCODE_WAKEUP || true
+if [ "$API" -ge 28 ]; then adb shell wm dismiss-keyguard || true; else adb shell input keyevent 82 || true; fi
 
 log "installing"
 adb install -r app/build/outputs/apk/debug/app-debug.apk || { log "install failed"; exit 1; }
