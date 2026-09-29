@@ -50,15 +50,18 @@ class SettingsUiTest {
                 compose.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty() ||
                 compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().isNotEmpty()
         }
-        // A lazy list only composes what is near the screen: scroll it until the row exists.
-        if (compose.onAllNodes(match).fetchSemanticsNodes().isEmpty() &&
-            compose.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty()
-        ) {
+        // A lazy list only composes what is near the screen, and also prefetches rows just below
+        // it (composed, yet not displayed): always scroll the list to the row.
+        if (compose.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty()) {
             compose.onAllNodes(hasScrollToIndexAction()).onFirst().performScrollToNode(match)
         }
         val node = compose.onAllNodes(match).onFirst()
         runCatching { node.performScrollTo() } // a plain scrolling column: bring it fully on screen
-        return node.assertIsDisplayed()
+        try {
+            return node.assertIsDisplayed()
+        } catch (e: AssertionError) {
+            throw AssertionError("\"$text\" exists but is not displayed after scrolling to it", e)
+        }
     }
 
     private fun tap(text: String) {
