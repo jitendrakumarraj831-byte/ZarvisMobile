@@ -1,35 +1,24 @@
 # ZARVIS — Phase 1 Handoff Report
 
-Branch: `claude/laughing-shannon-m3zu32` · PR: jitendrakumarraj831-byte/ZarvisMobile#78 (draft)
-Source of truth: `ZARVIS_MASTER_PRODUCT_BLUEPRINT.md` §10–§12 and §13 "Phase 1". Starting point: `DEEP_SCAN_REPORT.md`.
+Branch: `claude/laughing-shannon-m3zu32` · PR: jitendrakumarraj831-byte/ZarvisMobile#78 (**draft — do not merge**)
+Source of truth: `ZARVIS_MASTER_PRODUCT_BLUEPRINT.md` (§10–§12, §13 "Phase 1", §22A gate). Starting point: `DEEP_SCAN_REPORT.md`.
 
 ## Verdict: **FAIL — Phase 1 is NOT complete. Do not start Phase 2.**
 
-The blueprint (§11) says each Android capability must be **implemented *and verified***. The code
-foundation is in place and passes every automated check. But Phase 1 cannot pass for three reasons:
+Green CI is not the gate. The §22A gate requires, among other things, that *relevant
+real-device tests pass*, that *capability status is truthful*, and that *documentation matches
+implementation*. Status against the gate:
 
-1. **No real-device verification has been done.** It could not be done from this environment:
-   there was no Android device, no emulator, and no Android SDK download (dl.google.com is
-   blocked). Every Android capability therefore stays `PARTIAL`, and nothing is marked `WORKING`.
-2. **Six registry capabilities are not implemented at all** and are honestly `PLANNED`:
-   `notification_read`, `notification_speak`, `accessibility`, `usage_stats`,
-   `default_assistant`, `screen_interaction`. This also means the §12 Notification Privacy
-   modes don't exist yet.
-3. **Live integrations are unverified here:** Gemini and TTS with a real key, real GitHub
-   write access, and Play Billing.
+| §22A requirement | Status |
+|---|---|
+| All 16 capabilities implemented (or honestly UNSUPPORTED/PLANNED per platform) | Done — every Android capability is implemented; Web statuses are honest |
+| Emulator verification on Android 8.0 / 11 / 14 | Done with the gaps listed in §4 (Android 8.0 permission dialog is platform-blocked; location never produced a fix) |
+| **Real-device verification** | **Not done — no physical device was available. Blocks PASS.** |
+| Capability status truthful | Yes — every Android capability is `PARTIAL`; nothing is `WORKING` |
+| Live integrations (Gemini, TTS with a real key, real GitHub write, Play Billing) | **Not verified** — stubs/mocks only |
+| Regression suites | Green (see §4.2) |
 
-What *is* true: every Critical/High item from the deep scan is fixed and covered by tests. The
-Phase 1 foundation below is built:
-
-- capability registry;
-- permission intelligence;
-- risk/action policy;
-- server-issued single-action confirmations;
-- structured results;
-- revocation detection and process-death recovery;
-- account continuity.
-
-It is verified on the backend, on Web (real browser), and in Android JVM tests and builds.
+Nothing is promoted to `WORKING` until it passes on a real device.
 
 ---
 
@@ -42,8 +31,8 @@ It is verified on the backend, on Web (real browser), and in Android JVM tests a
 | Auth / account continuity | Server-side sessions (`auth_sessions`); rotating refresh tokens with reuse detection that revokes the session; server-side logout; guest → email linking; the same account on other devices. | `phase1Security.test.ts` (in-memory + Postgres); Web E2E steps 6–7 |
 | GitHub Developer Agent used a shared server token (any user could write anywhere) | Each account uses its own GitHub token (AES-256-GCM encrypted, never returned). Implement requires GitHub-reported `permissions.push` on that repo, checked *before* a confirmation is issued. There is no server token. | `phase1Security` "per-user GitHub authorization"; Web E2E steps 11–12 (0 writes) |
 | Client-controlled `confirmed: true` flag | Server-issued confirmations: bound to the account, the skill, the input hash, and (new in the regression scan) the exact approved action text. Single use, 10-minute expiry, atomic PENDING→APPROVED/DECLINED. Clients cannot skip them. | `toolPipeline.test.ts` confirmation suite; `phase1Security` confirmations (replay, other account, expiry, identity change) |
-| Android 8–12 notification / reminder crash path | `POST_NOTIFICATIONS` is treated as a runtime permission only on API ≥ 33. Below that, `areNotificationsEnabled()` is the real state and Settings is the destination. | Android `AccessCoordinatorTest`; CI debug + release builds. **Not run on an API 26–32 device.** |
-| 8 failing backend tests | Root causes fixed: tests no longer hit live GitHub; Hindi regex; model drift; TTS 4xx retry; image 503. | 219/219 |
+| Android 8–12 notification / reminder crash path | `POST_NOTIFICATIONS` is treated as a runtime permission only on API ≥ 33. Below that, `areNotificationsEnabled()` is the real state and Settings is the destination. | Android `AccessCoordinatorTest`; emulator: API 26/30 read `areNotificationsEnabled` with no prompt, API 34 shows the POST_NOTIFICATIONS dialog. **Not run on a real device.** |
+| 8 failing backend tests | Root causes fixed: tests no longer hit live GitHub; Hindi regex; model drift; TTS 4xx retry; image 503. | 221/221 |
 | TTS / audio | Correct Gemini `prebuiltVoiceConfig` request shape and PCM→WAV wrapping. 404 falls back to the next model; 4xx stops. Web plays segments strictly in order; "Speaking" only shows while audio actually plays. Android `onPlaybackStarted` drives SPEAKING; auto-speak is off by default. | `geminiTts.test.ts`; `web/tests/logic.test.js` (ordered segments). **No live-key playback test.** |
 | Postgres TLS verification disabled | Verification is on by default. `POSTGRES_CA_CERT` supported; `POSTGRES_SSL_MODE=no-verify` is an explicit opt-out. | `postgresTls.test.ts` |
 | Missing security headers / CSP | Strict CSP plus nosniff, frame, referrer and permissions policies (server and `vercel.json`). | `phase1Security`; Web E2E "no CSP violations" |
@@ -104,6 +93,20 @@ It is verified on the backend, on Web (real browser), and in Android JVM tests a
 | Settings flows | Bluetooth and system settings |
 | Alarms, calendar | Alarm via the Clock app, calendar insert (both USER_ACTION_REQUIRED) |
 
+**Android special access (all behind the same rationale → Settings → re-read flow):**
+
+| Capability | Implementation |
+|---|---|
+| `notification_read` | `NotificationListenerService`; §12 modes (off / app + type / contact + app / contact + app + preview / available content); sensitive and OTP content hidden; excluded apps; per-action confirmation before reading |
+| `notification_speak` | On-device `TextToSpeech` driven by the listener; skips excluded apps, security/banking alerts (unless included), quiet hours, locked phone and headphones-only rules; on/off by voice; honest "engine did not start" |
+| `accessibility` | `AccessibilityService` global actions (Back, Home, Notifications, …), each verified by the window that appears afterwards; per-action confirmation |
+| `screen_interaction` | Reads and taps nodes of the foreground app; skips password fields; refuses to read or tap security surfaces (Settings, permission controller, package installer, System UI, Play Store) and hides sensitive apps (banking, UPI, wallets, authenticators, password managers); verifies that a tap changed the screen |
+| `usage_stats` | `UsageStatsManager` foreground time today, gated on the app-op |
+| `default_assistant` | `ACTION_ASSIST` activity; role read back through `RoleManager` (API 29+) or the secure setting; only opens as the assistant while it holds the role |
+
+Settings > Notifications exposes every §12 control; Settings > Permissions & Device Access lists
+all 16 capabilities with live Android state and the Android/Web status from the registry.
+
 **Shared Brain integration:**
 - A backend action needing confirmation returns a server confirmation.
 - Android and Web show the exact action and approve/decline *that id*. If the action changed
@@ -116,58 +119,151 @@ It is verified on the backend, on Web (real browser), and in Android JVM tests a
 
 ## 3. Capability status (truthful; nothing is `WORKING`)
 
-| Capability | Risk | Confirmation | Android | Web | Note |
+Every Android capability is implemented and `PARTIAL` in `shared/capability-registry.json`
+(the backend, Web and Android all read this file). The note on each says it is not yet verified
+on a real device. Web statuses: `microphone`, `files`, `photos` PARTIAL; `camera`, `location`,
+`calendar` PLANNED; the rest UNSUPPORTED with the reason shown to the user.
+
+| Capability | Risk | Confirmation | Android | Web | Emulator result (8.0 / 11 / 14) |
 |---|---|---|---|---|---|
-| `microphone` | MEDIUM | NONE | PARTIAL | PARTIAL | SpeechRecognizer after a tap; not device-verified |
-| `contacts` | MEDIUM | NONE | PARTIAL | UNSUPPORTED | ContactsContract lookup; not device-verified |
-| `phone_call` | HIGH | PER_ACTION | PARTIAL | UNSUPPORTED | ACTION_CALL after confirming the resolved number; not device-verified |
-| `notification_read` | HIGH | PER_ACTION | PLANNED | UNSUPPORTED | No NotificationListenerService |
-| `notification_speak` | MEDIUM | NONE | PLANNED | UNSUPPORTED | Not implemented; §12 privacy modes absent |
-| `camera` | MEDIUM | NONE | PARTIAL | PLANNED | System capture preview only |
-| `files` | MEDIUM | NONE | PARTIAL | PARTIAL | Document picker, metadata only |
-| `photos` | MEDIUM | NONE | PARTIAL | PARTIAL | Photo picker, metadata only |
-| `location` | MEDIUM | NONE | PARTIAL | PLANNED | Coarse, on request |
-| `bluetooth` | MEDIUM | NONE | PARTIAL | UNSUPPORTED | Settings flow only |
-| `alarms` | LOW | NONE | PARTIAL | UNSUPPORTED | AlarmManager reminders + Clock app |
-| `calendar` | MEDIUM | NONE | PARTIAL | PLANNED | Pre-filled insert flow |
-| `accessibility` | VERY_HIGH | PER_ACTION | PLANNED | UNSUPPORTED | No accessibility service |
-| `usage_stats` | HIGH | PER_ACTION | PLANNED | UNSUPPORTED | Not declared |
-| `default_assistant` | HIGH | PER_ACTION | PLANNED | UNSUPPORTED | No VoiceInteractionService |
-| `screen_interaction` | VERY_HIGH | PER_ACTION | PLANNED | UNSUPPORTED | Not implemented |
+| `microphone` | MEDIUM | NONE | PARTIAL | PARTIAL | permission flow: **blocked** / pass / pass; deny keeps text input |
+| `contacts` | MEDIUM | NONE | PARTIAL | UNSUPPORTED | Allow / Not Now / Learn More + Deny: **blocked** / pass / pass |
+| `phone_call` | HIGH | PER_ACTION | PARTIAL | UNSUPPORTED | call placed only after ZARVIS confirmation (dialer accepted ACTION_CALL, telephony call state 2): pass ×3; permanent denial → Settings: **blocked** / pass / pass |
+| `notification_read` | HIGH | PER_ACTION | PARTIAL | UNSUPPORTED | Settings page, grant, listener bind, revoke detected: pass ×3. §12 filtering of real notifications (3 shown, 1 sensitive hidden): API 30/34 only — API 26 has no shell `cmd notification post`, so 0 notifications were read there |
+| `notification_speak` | MEDIUM | NONE | PARTIAL | UNSUPPORTED | skip rules (excluded app, headphones, quiet hours, security alerts, off) and voice on/off: pass. Real TTS output (`Spoken(chars=65)`): API 26 and 34. **API 30: the Google TTS engine is installed and visible but never started; ZARVIS reports "the text-to-speech engine did not start" instead of claiming speech** |
+| `camera` | MEDIUM | NONE | PARTIAL | PLANNED | not driven on the emulator (system capture UI) — unverified |
+| `files` | MEDIUM | NONE | PARTIAL | PARTIAL | not driven on the emulator (system picker) — unverified on Android |
+| `photos` | MEDIUM | NONE | PARTIAL | PARTIAL | not driven on the emulator (system picker) — unverified on Android |
+| `location` | MEDIUM | NONE | PARTIAL | PLANNED | **FAILED on all three** — honest "couldn't get a fix", even with `geo fix` injected. Unverified |
+| `bluetooth` | MEDIUM | NONE | PARTIAL | UNSUPPORTED | API 30/34: opens Bluetooth Settings, never toggles it. API 26 image has no `BLUETOOTH_SETTINGS` handler → honest FAILED ("This phone couldn't open Bluetooth settings") |
+| `alarms` | LOW | NONE | PARTIAL | UNSUPPORTED | handed to the Clock app; reminder notification delivered: pass ×3 |
+| `calendar` | MEDIUM | NONE | PARTIAL | PLANNED | handed to the calendar app, or honest "no calendar app": pass ×3 |
+| `accessibility` | VERY_HIGH | PER_ACTION | PARTIAL | UNSUPPORTED | service bind, global BACK/HOME/NOTIFICATIONS verified by the resulting window, revoke gates the pipeline: pass ×3 |
+| `usage_stats` | HIGH | PER_ACTION | PARTIAL | UNSUPPORTED | real UsageStatsManager foreground time; revoke via appops detected: pass ×3 |
+| `default_assistant` | MEDIUM | NONE | PARTIAL | UNSUPPORTED | role held/removed read back, `KEYCODE_ASSIST` opens ZARVIS's assist screen only while it is the assistant: pass ×3 |
+| `screen_interaction` | VERY_HIGH | PER_ACTION | PARTIAL | UNSUPPORTED | reads Clock app, taps "Timer" and verifies the window changed; Settings (security surface) refused: pass ×3 |
 
-## 4. Verification results (this session)
+"pass ×3" = passed on API 26, 30 and 34 emulators. Emulator passes are **not** real-device
+verification.
 
-| # | Check | Result |
+## 4. Verification results
+
+### 4.1 Emulator verification (Android 8.0 / 11 / 14)
+
+CI workflow `.github/workflows/android-emulator.yml` boots Google-APIs emulators for **API 26
+(x86), API 30 (x86_64) and API 34 (x86_64)**, installs the debug app and the instrumentation
+APK, and runs `android/scripts/emulator/verify.sh`. Every test drives the real Android system
+(real permission dialogs, real Settings pages, real services, real dialer, real Clock app) and
+re-reads the state from Android afterwards. Each claim is printed as a `ZARVIS_EVIDENCE` line in
+the job log.
+
+| Phase | What it proves | API 26 (8.0) | API 30 (11) | API 34 (14) |
+|---|---|---|---|---|
+| A — `EmulatorSmokeTest`, `PermissionDialogFlowTest` | registry packaged, every state readable; Not Now → no system dialog; Learn More + Deny → DENIED; Allow → GRANTED; Deny twice → PERMANENTLY_DENIED → Settings → still denied; mic denied keeps text input; notifications per API level | **Platform-blocked** (see 4.3): Not Now and notifications-per-API pass; the 4 dialog tests are reported `UNVERIFIED`, never passed | pass | pass |
+| B — `ProcessDeathTest` (two instrumentation runs) | process killed while a call waits for permission; new process *offers* "call 5551234", does not run it; dismissal clears it | pass | pass | pass |
+| C — `revoke-kills-process.sh` | `pm revoke RECORD_AUDIO` while backgrounded: Android kills ZARVIS's live process; on restart the banner says "Microphone access was turned off in Android settings" | pass (active app process killed; see note) | pass | pass |
+| D — `SpecialAccessTest`, `DeviceCapabilityTest` (13 tests) | notification access, spoken notifications, usage access, accessibility + screen interaction, default assistant, call, location, alarm, Bluetooth, calendar, reminder | 13/13 pass | 13/13 pass | 13/13 pass |
+| E — `SettingsUiTest` | Settings > Notifications: all §12 controls render, taps persist, system Back returns to the hub; Permission Center lists all 16 capabilities with live state | pass | pass | **not yet passing** — see the runs below |
+
+Runs used as evidence (all on PR #78):
+
+| Run | Commit | API 26 | API 30 | API 34 |
+|---|---|---|---|---|
+| [36523259172](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36523259172) | 6fee2d8 | warm-up proves the dialog crash (5→25 crashes, dialog never shown); B, D 13/13, E 2/2 | all phases pass | A–D pass; E failed (scroll) |
+| [36524899277](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36524899277) | e83f464 | job green: A 3/3 + 4 dialog tests `UNVERIFIED platform-blocked` (26 System UI crashes, 0 dialogs); B, C, D 13/13, E 2/2 | job green: all phases | A–D pass; E failed (page-sized scroll skipped rows) |
+
+Note on C, API 26: ActivityManager's active `*APP*` record (pid 9133) was killed by the revoke
+and no longer exists. One more process with the same name (pid 9006) stayed alive; it is the
+process ActivityManager logged as `Spurious death for ProcessRecord{... 9006 ...}` when phase
+B1 killed the app, i.e. an Android 8 bookkeeping leftover that holds no ZARVIS activity. It is
+printed in the evidence line (`other_live_same_name=9006`), not hidden.
+
+"pass" means the test asserted Android's own state after the action. A pass does not mean the
+capability is `WORKING`: no capability is promoted without a real device.
+
+### 4.2 Regression suites (re-run after the last change)
+
+| Suite | Result |
+|---|---|
+| Backend `vitest` (in-memory + real Postgres 16) | **221 / 221** |
+| Backend `tsc --noEmit`, root/Vercel `tsc` | clean |
+| Registry export in sync (`capabilities:export` + `git diff --exit-code shared`) | in sync |
+| Web `node --check` (app, logic, sw) + logic unit tests | clean, **6 / 6** |
+| Web Playwright E2E in Chromium (real backend + Postgres + GitHub API stub) | **14 / 14**, no console/CSP errors |
+| Android `:domain:test` | **117 / 117** |
+| Android data-layer JVM tests, `assembleDebug`/`assembleRelease`/`bundleRelease` | CI (`android-build.yml`) — the Android SDK cannot be downloaded in this sandbox |
+
+Security, denial/revoke and lifecycle suites are unchanged from the previous report and still
+run inside the numbers above (`phase1Security.test.ts`, `postgresTls.test.ts`,
+`AccessCoordinatorTest`, `RevocationAndRecoveryTest`, confirmation replay/expiry/identity tests).
+
+### 4.3 Android 8.0: the permission-dialog failure is the emulator image, not ZARVIS
+
+Evidence (API 26 job log, run 36523259172, and every earlier API 26 run):
+
+```
+FATAL EXCEPTION: main
+Process: com.android.systemui
+java.lang.NullPointerException: Attempt to invoke virtual method
+  'void com.android.systemui.statusbar.phone.NavigationBarFragment.onKeyguardOccludedChanged(boolean)'
+  on a null object reference
+  at com.android.systemui.statusbar.phone.StatusBar.onKeyguardOccludedChanged(StatusBar.java:3843)
+  at com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager.setOccluded(StatusBarKeyguardViewManager.java:277)
+  at com.android.systemui.keyguard.KeyguardViewMediator.handleSetOccluded(KeyguardViewMediator.java:1176)
+  at com.android.systemui.keyguard.KeyguardViewMediator$4.handleMessage(KeyguardViewMediator.java:1531)
+  at android.os.Handler.dispatchMessage / Looper.loop / ActivityThread.main / ZygoteInit.main
+```
+
+- Every frame is in System UI; there is no ZARVIS frame. The null field is System UI's own
+  navigation-bar fragment.
+- It is triggered only when Android shows its own `GrantPermissionsActivity`. Ruled out one at
+  a time: disabling the lock screen (`locksettings set-disabled true`) did not stop it; launching
+  activities with `am start` did not trigger it; launching through `ActivityScenario` did not
+  trigger it; requesting a permission did, every time.
+- A dedicated warm-up (`SystemWarmUp`, not evidence) requested one permission 4 times per
+  attempt, 5 attempts: System UI crashed 5 more times on every attempt (5 → 25 in total) and
+  the permission dialog was never displayed (`permission dialog shown=false` in all rounds).
+  It never settles, so this is a property of the image.
+- Android 11 and 14 run the identical ZARVIS code and pass all permission-dialog tests.
+
+Deterministic strategy (`verify.sh`): on API < 28, after the warm-up, if the permission dialog
+never appeared and System UI crashed, phase A runs the tests that do not need Android's dialog
+as normal, runs the four dialog tests separately, and records
+`ZARVIS_EVIDENCE sdk=26 permission_dialog_flow UNVERIFIED platform-blocked (...)`. Those four
+results are never counted as passes; the runtime-permission flow on Android 8.x stays
+unverified until it is run on a real Android 8/9 device.
+
+### 4.4 Bugs found by the emulator runs and fixed in ZARVIS
+
+| Bug (real, in product code) | Found on | Fix |
 |---|---|---|
-| 1 | Backend tests (in-memory + real Postgres 16) | **219 / 219 pass**, locally and in CI |
-| 2 | Typechecks (backend `tsc`, root/Vercel `tsc`) | clean |
-| 3 | Web checks: `node --check`, logic unit tests, **Playwright E2E in Chromium against the real backend + Postgres + GitHub API stub** | 6/6 unit, **14/14 E2E**, no console/CSP errors, no horizontal overflow at 390 px. Also in CI (`web-e2e` job) |
-| 4 | Android: `:domain` JVM tests | **91 / 91** (local + CI) |
-| 4b | Android: `:data:data-remote` + `:data:data-repository` JVM tests (real OkHttp/Retrofit vs MockWebServer) | pass in CI |
-| 4c | Android: `:app:assembleDebug`, `assembleRelease`, `bundleRelease` (all modules compile, manifest assertions) | pass in CI |
-| 5 | Security tests | `phase1Security.test.ts`: sessions, rotation/replay, logout, guest/link rules, confirmations (replay, cross-account, expiry, decline, identity change), GitHub authz, encrypted tokens, rate limits, CSP. `postgresTls.test.ts`. |
-| 6 | Denial / revoke tests | `AccessCoordinatorTest` (Allow / Not Now / Learn More, deny, permanent deny → Settings, API <33 notifications), `RevocationAndRecoveryTest`, pipeline permission-denied paths, Web E2E sign-out revocation |
-| 7 | Failure / lifecycle tests | handler throws, prepare fails, refresh network failure / 5xx / captive portal, token replay, process-death offer/expiry, conversation restore, confirmation expiry |
-| 8 | Deep regression scan | **1 High found and fixed:** a confirmation could run as a different GitHub identity if the account was reconnected between confirming and approving. The grant is now bound to the exact action text (§6). Route auth audit: only auth endpoints and the public registry are unauthenticated, by design. |
-| 9–10 | Full re-verification after fixes | All rows above re-run green after the last change |
+| Permission recorded as "requested" even when Android returned no answer (dialog dismissed/covered) → next request misread as **permanently denied** | API 26 | `ActivityBridge.request` marks only the permissions Android actually answered |
+| Notification-access revocation not detected (stale `NotificationManagerCompat` listener cache) | API 26 | `SpecialAccessStates` reads `isNotificationListenerAccessGranted` (API 27+) or the secure setting fresh |
+| "No TTS engine" on Android 11+ although Google TTS is installed (package visibility) | API 30 | `<queries>` for `TTS_SERVICE`; engine start timeout with an honest message |
+| Screen reading/tapping saw only the topmost window of a multi-window app (Clock popup) | API 34 | Reads and taps across all of the foreground app's windows |
+| Settings sub-page: system Back left Settings instead of returning to the hub | phase E | `BackHandler` in `SettingsScreen` |
+
+Test-harness problems (not product bugs) fixed along the way: UiAutomation unbinding ZARVIS's
+accessibility service (now `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`); `am start -W` hanging
+behind the Android 8 crash dialog; Android 14 edge swipes acting as Home; page scrolling via the
+accessibility scroll action on ZARVIS's own window; the revoke check reading ActivityManager's
+active process record instead of every process with the package name.
 
 ## 5. Real-device status
 
-**Not done — this blocks PASS.** None of these has been run on a real phone or emulator:
+**Not done — this blocks PASS.** No physical Android device was available to this session;
+everything in §4.1 ran on emulators. Still needed on real hardware:
 
-- runtime permission dialogs;
-- Settings round-trips;
-- revocation on resume;
-- process-death recovery;
-- reminder notifications on API 26–32 and 33+;
-- calling, pickers, camera, location, alarms and calendar intents;
-- SpeechRecognizer and TTS playback.
+- at least one Android 8/9 device (runtime-permission dialogs are unverifiable on the API 26
+  emulator image, §4.3), one Android 11/12 device and one Android 13+ device;
+- every capability through Allow, Not Now, Learn More, Deny, Deny twice → Settings,
+  revoke-while-backgrounded and kill-while-confirming;
+- location with a real GNSS/network fix (never produced on any emulator);
+- camera capture, document picker and photo picker (not driven on emulators);
+- spoken notifications through a real speaker/headphones, including the headphones-only rule;
+- default assistant from the real long-press/assist gesture of an OEM launcher.
 
-Required device matrix: at least one API 26–28 device, one API 31/32 device, and one API 33+
-device. Run every capability through Allow, Not Now, Deny, Deny-twice → Settings,
-revoke-while-backgrounded, and kill-while-confirming.
-
-## 6. Bugs fixed (beyond the Critical/High table)
+## 6. Other bugs fixed (earlier in this PR)
 
 **Web:**
 - Every chat turn threw in `finally` because the TTS variables were block-scoped.
@@ -192,16 +288,20 @@ revoke-while-backgrounded, and kill-while-confirming.
 
 ## 7. Known limitations
 
-- Real-device verification is missing (§5).
-- `notification_read` / `notification_speak` / §12 privacy modes, `accessibility`,
-  `usage_stats`, `default_assistant` and `screen_interaction` are `PLANNED`.
+- No real-device verification (§5).
+- Android 8.x runtime-permission dialog flow: unverified (emulator platform bug, §4.3).
+- Location: no fix on any emulator even with injected coordinates; ZARVIS reports the failure
+  honestly. Unverified.
+- Spoken notifications on the API 30 image: the TTS engine never starts; reported as a
+  failure, not as speech.
+- Camera / files / photos pickers are not driven by the emulator tests.
+- `notification_read` §12 filtering of real notifications is only exercised on API 30/34
+  (API 26 has no shell notification poster).
 - The rate limiter is in-memory per instance; serverless instances do not share limits.
-- There are no Android instrumented/UI tests (Compose screens, dialogs, `ActivityBridge`).
-  Only domain and data-layer JVM tests exist.
 - Gemini, TTS, GitHub and Play Billing are tested against stubs/mocks only. The live paths need
   real credentials.
-- Web Permission Center: only the microphone is a browser permission. Other capabilities are
-  labelled per the registry (mostly UNSUPPORTED/PLANNED on the web).
+- Web Permission Center: only the microphone is a browser permission; the others are labelled
+  per the registry (mostly UNSUPPORTED/PLANNED on the web).
 
 ## 8. Exact verification commands
 
@@ -231,17 +331,20 @@ cd android
 ./gradlew :domain:test
 ./gradlew :data:data-remote:testDebugUnitTest :data:data-repository:testDebugUnitTest
 ./gradlew :app:assembleDebug -Pzarvis.devApiHost=10.0.2.2 :app:assembleRelease :app:bundleRelease
+
+# Android emulator verification (CI: .github/workflows/android-emulator.yml)
+cd android
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pzarvis.devApiHost=10.0.2.2
+bash scripts/emulator/verify.sh <api-level>   # with one emulator attached; prints ZARVIS_EVIDENCE lines
 ```
 
 CI runs all of the above on every push to the PR: `.github/workflows/backend-tests.yml` (backend,
-web, web-e2e) and `.github/workflows/android-build.yml`.
+web, web-e2e), `.github/workflows/android-build.yml` and `.github/workflows/android-emulator.yml`.
 
 ## 9. To reach Phase 1 PASS
 
 1. Run the real-device matrix in §5 and record the evidence per capability. Promote a capability
    to `WORKING` only with that evidence.
-2. Implement and verify, or formally re-scope with a blueprint change, the six `PLANNED`
-   capabilities and §12 notification privacy.
-3. Add Android instrumented tests for the rationale dialog, Permission Center, confirmation
-   dialog and the session-expired screen.
-4. Verify live TTS/Gemini and a real GitHub PR on a test repo.
+2. Verify the Android 8.x runtime-permission flow on a real Android 8/9 device.
+3. Get a real location fix on a device (and re-check the emulator failure).
+4. Verify live TTS/Gemini and a real GitHub PR on a test repo; Play Billing in a test track.
