@@ -46,7 +46,7 @@ class SettingsUiTest {
         repeat(maxSteps) {
             text?.let { t -> ui.findObject(By.pkg(APP).text(t))?.let { return it } }
             if (!ui.hasObject(By.pkg(APP).scrollable(true))) return null
-            swipePage(direction)
+            if (!swipePage(direction)) return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
             val after = visibleTexts()
             if (after == before) return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
             before = after
@@ -55,18 +55,15 @@ class SettingsUiTest {
     }
 
     /**
-     * Scrolls with a swipe confined to the middle of the screen. UiObject2.scroll() starts the
-     * swipe at the list's edge, which on gesture-navigation devices (Android 14 default) lands
-     * in the system gesture area and sends the user Home.
+     * Scrolls the page with the accessibility scroll action (as TalkBack does) rather than a
+     * swipe: touch gestures proved unreliable here (an edge swipe is Android 14's Home gesture,
+     * a fast one leaves the list flinging so the next tap only stops it, and a slow drag did not
+     * scroll at all on the API 34 image). Returns false when the page cannot scroll further.
      */
-    private fun swipePage(direction: Direction) {
-        val x = ui.displayWidth / 2
-        val low = ui.displayHeight * 7 / 10
-        val high = ui.displayHeight * 3 / 10
-        // Slow drag (≈0.4 s) so the list barely flings, then wait until it stops: in Compose a tap
-        // on a list that is still moving only stops the scroll and never reaches the row.
-        if (direction == Direction.DOWN) ui.swipe(x, low, x, high, 80) else ui.swipe(x, high, x, low, 80)
+    private fun swipePage(direction: Direction): Boolean {
+        val moved = Device.accessibilityScroll(forward = direction == Direction.DOWN)
         awaitSettled()
+        return moved
     }
 
     /** Waits until two consecutive snapshots of the page are identical (the list stopped moving). */

@@ -34,6 +34,25 @@ object Device {
     val app: ZarvisApplication get() = ApplicationProvider.getApplicationContext()
     val entry: VerificationEntryPoint get() = EntryPointAccessors.fromApplication(app, VerificationEntryPoint::class.java)
 
+    /**
+     * Scrolls ZARVIS's first scrollable node with the accessibility scroll action (what TalkBack
+     * uses) instead of a touch gesture, so no system gesture can intercept it. False at the end.
+     */
+    fun accessibilityScroll(forward: Boolean): Boolean {
+        val root = automation.rootInActiveWindow ?: return false
+        val queue = ArrayDeque<android.view.accessibility.AccessibilityNodeInfo>().apply { add(root) }
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node.isScrollable && node.packageName?.toString() == APP) {
+                val action = if (forward) android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                return node.performAction(action)
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return false
+    }
+
     /** Runs a command as the shell user (what `adb shell` can do), returning its output. */
     fun shell(command: String): String {
         val pfd: ParcelFileDescriptor = automation.executeShellCommand(command)
