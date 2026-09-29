@@ -2,6 +2,7 @@ package com.zarvismobile.app
 
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
@@ -12,9 +13,6 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.Until
-import com.zarvismobile.app.Device.APP
 import com.zarvismobile.app.Device.entry
 import com.zarvismobile.app.Device.evidence
 import com.zarvismobile.app.Device.eventually
@@ -33,8 +31,8 @@ import org.junit.runner.RunWith
  * changes real stored settings, and Settings > Permissions & Device Access shows every
  * capability with its live state.
  *
- * Home is opened and left with UI Automator; inside Settings, rows are reached with Compose's
- * own scroll-to-node and tapped with injected touches. Blind page-by-page accessibility
+ * Rows are reached with Compose's own scroll-to-node and tapped with injected touches; system
+ * Back is a real key press. Blind page-by-page accessibility
  * scrolling proved non-deterministic on the 320x640 API 34 image (rows further down a lazy
  * list were never composed, or went stale between finding and tapping).
  */
@@ -69,13 +67,21 @@ class SettingsUiTest {
     }
 
     private fun openSettings() {
+        // While a Compose test rule is active, the app's frame clock only advances inside Compose
+        // test calls, so Home is driven through them too (UI Automator waits would see no frames).
+        val skip = hasText("Skip")
+        val settings = hasContentDescription("Settings")
+        val close = hasText("Close")
+        compose.waitUntil(20_000) {
+            listOf(skip, settings, close).any { compose.onAllNodes(it).fetchSemanticsNodes().isNotEmpty() }
+        }
         // Nothing left over from an earlier test (e.g. the assistant overlay) may sit on top.
-        if (ui.currentPackageName == APP && ui.hasObject(By.pkg(APP).text("Close"))) ui.pressBack()
-        ui.wait(Until.hasObject(By.pkg(APP)), 15_000)
+        if (compose.onAllNodes(close).fetchSemanticsNodes().isNotEmpty()) { ui.pressBack(); compose.waitForIdle() }
         // Onboarding appears on a fresh install; skip it like a user would.
-        ui.wait(Until.findObject(By.pkg(APP).text("Skip")), 5_000)?.click()
-        (ui.wait(Until.findObject(By.pkg(APP).desc("Settings")), 15_000) ?: error("Settings button not on Home")).click()
-        ui.wait(Until.hasObject(By.pkg(APP).text("Settings")), 15_000)
+        if (compose.onAllNodes(skip).fetchSemanticsNodes().isNotEmpty()) compose.onAllNodes(skip).onFirst().performClick()
+        compose.waitUntil(20_000) { compose.onAllNodes(settings).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(settings).onFirst().performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Settings")).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test
