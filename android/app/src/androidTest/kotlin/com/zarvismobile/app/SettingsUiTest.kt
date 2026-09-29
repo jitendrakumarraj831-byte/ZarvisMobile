@@ -60,8 +60,12 @@ class SettingsUiTest {
      * a fast one leaves the list flinging so the next tap only stops it, and a slow drag did not
      * scroll at all on the API 34 image). Returns false when the page cannot scroll further.
      */
+    /** What each scroll attempt returned, for the failure diagnostics. */
+    private val scrollLog = mutableListOf<String>()
+
     private fun swipePage(direction: Direction): Boolean {
         val moved = Device.accessibilityScroll(forward = direction == Direction.DOWN)
+        scrollLog += "${if (direction == Direction.DOWN) "down" else "up"}=$moved"
         awaitSettled()
         return moved
     }
@@ -88,7 +92,7 @@ class SettingsUiTest {
         // be skipped going down, so search back up too (the boundaries then fall elsewhere).
         return scrollUntilStuck(Direction.DOWN, text)
             ?: scrollUntilStuck(Direction.UP, text)
-            ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found") }
+            ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found; scrolls ${scrollLog.takeLast(12)}") }
     }
 
     /** Finds and clicks [text]; a node that recomposed between finding and clicking is found again. */
@@ -96,7 +100,8 @@ class SettingsUiTest {
         repeat(3) {
             find(text) ?: error(what)
             awaitSettled()
-            val node = ui.findObject(By.pkg(APP).text(text)) ?: error(what)
+            // The list may still have been moving when the node was found; look again.
+            val node = ui.findObject(By.pkg(APP).text(text)) ?: return@repeat
             try {
                 node.click()
                 return
@@ -104,6 +109,7 @@ class SettingsUiTest {
                 ui.waitForIdle()
             }
         }
+        Device.diagnose("SettingsUiTest: \"$text\" kept moving under the tap")
         error("$what: \"$text\" kept changing under the tap")
     }
 

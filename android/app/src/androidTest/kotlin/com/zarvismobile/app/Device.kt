@@ -39,18 +39,27 @@ object Device {
      * uses) instead of a touch gesture, so no system gesture can intercept it. False at the end.
      */
     fun accessibilityScroll(forward: Boolean): Boolean {
-        val root = automation.rootInActiveWindow ?: return false
-        val queue = ArrayDeque<android.view.accessibility.AccessibilityNodeInfo>().apply { add(root) }
+        // The active window is not always ZARVIS's (a heads-up notification or System UI window can
+        // hold accessibility focus), so look through every window ZARVIS owns, and scroll its
+        // largest scrollable node — the page itself rather than a nested row.
+        val roots = (runCatching { automation.windows.mapNotNull { it.root } }.getOrDefault(emptyList()) +
+            listOfNotNull(automation.rootInActiveWindow)).filter { it.packageName?.toString() == APP }
+        var best: android.view.accessibility.AccessibilityNodeInfo? = null
+        var bestArea = -1L
+        val bounds = android.graphics.Rect()
+        val queue = ArrayDeque(roots)
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             if (node.isScrollable && node.packageName?.toString() == APP) {
-                val action = if (forward) android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-                else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-                return node.performAction(action)
+                node.getBoundsInScreen(bounds)
+                val area = bounds.width().toLong() * bounds.height()
+                if (area > bestArea) { best = node; bestArea = area }
             }
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
-        return false
+        val action = if (forward) android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        return best?.performAction(action) ?: false
     }
 
     /** Runs a command as the shell user (what `adb shell` can do), returning its output. */
