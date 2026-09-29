@@ -13,9 +13,9 @@ implementation*. Status against the gate:
 |---|---|
 | All 16 capabilities implemented (or honestly UNSUPPORTED/PLANNED per platform) | Done — every Android capability is implemented; Web statuses are honest |
 | Emulator verification on Android 8.0 / 11 / 14 | All three jobs green on 3c501d9, with the gaps listed in §4 (Android 8.0 permission dialog is platform-blocked and reported UNVERIFIED; location never produced a fix) |
-| **Real-device verification** | **Not done — no physical device was available. Blocks PASS.** |
+| **Real-device verification** | **Not done — this cloud session cannot reach a phone (no adb, no USB). A safe device driver is ready (§5.1); it must be run on a computer with a phone attached. Blocks PASS.** |
 | Capability status truthful | Yes — every Android capability is `PARTIAL`; nothing is `WORKING` |
-| Live integrations (Gemini, TTS with a real key, real GitHub write, Play Billing) | **Not verified** — stubs/mocks only |
+| Live integrations (Gemini TTS with a real key, real GitHub write, Play Billing) | **Not verified** — stubs/mocks only; opt-in live tests for Gemini TTS and GitHub are ready but need test credentials (§5.3); Play Billing has no Android client yet |
 | Regression suites | Green (see §4.2) |
 
 Nothing is promoted to `WORKING` until it passes on a real device.
@@ -189,7 +189,7 @@ capability is `WORKING`: no capability is promoted without a real device.
 
 | Suite | Result |
 |---|---|
-| Backend `vitest` (in-memory + real Postgres 16) | **221 / 221** |
+| Backend `vitest` (in-memory + real Postgres 16) | **221 / 221** passed; the 2 opt-in live tests skipped (no credentials) |
 | Backend `tsc --noEmit`, root/Vercel `tsc` | clean |
 | Registry export in sync (`capabilities:export` + `git diff --exit-code shared`) | in sync |
 | Web `node --check` (app, logic, sw) + logic unit tests | clean, **6 / 6** |
@@ -256,17 +256,63 @@ active process record instead of every process with the package name.
 
 ## 5. Real-device status
 
-**Not done — this blocks PASS.** No physical Android device was available to this session;
-everything in §4.1 ran on emulators. Still needed on real hardware:
+**Not done — this blocks PASS.** This session runs in a cloud container: `adb` is not installed,
+there is no USB bus (`/dev/bus/usb` does not exist) and no device farm credentials, so no
+physical phone can be reached from it. Nothing below is claimed as verified.
 
-- at least one Android 8/9 device (runtime-permission dialogs are unverifiable on the API 26
-  emulator image, §4.3), one Android 11/12 device and one Android 13+ device;
-- every capability through Allow, Not Now, Learn More, Deny, Deny twice → Settings,
-  revoke-while-backgrounded and kill-while-confirming;
-- location with a real GNSS/network fix (never produced on any emulator);
-- camera capture, document picker and photo picker (not driven on emulators);
-- spoken notifications through a real speaker/headphones, including the headphones-only rule;
-- default assistant from the real long-press/assist gesture of an OEM launcher.
+### 5.1 How to run it (ready, not yet run)
+
+`android/scripts/device/verify-device.sh` runs the same phases A–E as the emulator CI against
+a real phone plugged into the computer that runs it (with the backend on `localhost:3000`):
+
+```bash
+cd backend && PORT=3000 npm run dev          # terminal 1
+cd android && ZARVIS_DEVICE_RESET_OK=1 bash scripts/device/verify-device.sh   # terminal 2
+# optional: ZARVIS_TEST_CALL_NUMBER=<a number you own> to include the real-call test
+```
+
+The emulator driver would have been harmful on a personal phone, so device mode differs:
+
+| Emulator behaviour | On a physical phone |
+|---|---|
+| Disables the lock screen | Never touched; the phone must be unlocked by its owner |
+| `adb emu geo fix` fake GPS | Real location; coordinates redacted from the logs |
+| Calls 5551234 for real | No call unless `ZARVIS_TEST_CALL_NUMBER` is given; otherwise recorded `UNVERIFIED` (JUnit assumption, never a pass) |
+| Overwrites notification access, accessibility services and the default assistant | Current values saved first and restored on exit (also on failure / Ctrl-C); the restore is re-read and any difference printed with what to re-select |
+| Backend at `10.0.2.2` | Debug build pointed at `127.0.0.1` + `adb reverse tcp:3000` |
+
+It refuses to run on an emulator, with more than one device, without the backend, or without
+explicit consent (`ZARVIS_DEVICE_RESET_OK=1`, since ZARVIS is uninstalled for a fresh-install
+run). Run here, it stops at "adb not found".
+
+### 5.2 What a device run must cover (the §22A real-device gate)
+
+| Item | Covered by | Emulator result | Real device |
+|---|---|---|---|
+| Runtime permission Allow / Not Now / Learn More + Deny | Phase A | pass (11, 14); 8.0 platform-blocked | **not run** |
+| Permanently denied → Settings → still denied | Phase A | pass (11, 14) | **not run** |
+| Revocation from Settings while backgrounded | Phase C | pass ×3 | **not run** |
+| Process death while an action waits; offered, not run | Phase B | pass ×3 | **not run** |
+| Permission Center (16 capabilities, live state) | Phase E | pass ×3 | **not run** |
+| Notification access, §12 privacy modes, OTP/banking hidden | Phase D | pass (11, 14; 8.0 without real notifications) | **not run** |
+| Spoken notifications | Phase D | real speech on 8.0 and 14; engine never started on 11 | **not run** |
+| Location | Phase D | **no fix on any emulator** | **not run** |
+| Special access: accessibility, screen interaction, usage, default assistant | Phase D | pass ×3 | **not run** |
+| Structured tool results + Brain → capability → permission → ToolPipeline → execution → verification | Phases A–D (every test goes through `orchestrator.handleTurn` / `ToolPipeline` and asserts status + `verificationEvidence`) | pass ×3 | **not run** |
+| Phone call placed only after ZARVIS's confirmation | Phase D | pass ×3 (emulator dialer) | **not run** (needs a number the tester owns) |
+| Truthful capability states | registry + Phase E | every Android capability `PARTIAL`, none `WORKING` | promote to `WORKING` only after a device pass |
+
+Required device matrix: at least one Android 8/9 phone (the only way to verify the runtime
+permission dialogs on 8.x), one Android 11/12 and one Android 13+. Camera, document and photo
+pickers are not driven by the harness and need a manual check on the device.
+
+### 5.3 External integrations
+
+| Integration | Needed for Phase 1? | State | How to verify safely |
+|---|---|---|---|
+| Gemini TTS with a real key | Not a Phase 1 capability (voice is Phase 3), but part of "live paths unverified" | Unit-tested against mocked HTTP only; no key in this environment | `backend/test/live/geminiTts.live.test.ts` — opt-in (`ZARVIS_LIVE_TESTS=1 GEMINI_API_KEY=<test key>`); checks a real WAV of plausible length. Skipped here |
+| Real authorized GitHub write / PR | Developer-agent authorization (deep-scan Critical item) | Tested against a local GitHub stub (E2E) only | `backend/test/live/githubWrite.live.test.ts` — opt-in with a token scoped to a throwaway sandbox repo you own (`ZARVIS_LIVE_GITHUB_TOKEN`, `ZARVIS_LIVE_GITHUB_TEST_REPO`); checks push access, branch, commit and PR, then closes the PR and deletes the branch; refuses the ZARVIS repo. Skipped here |
+| Google Play Billing | Not a Phase 1 capability | Backend verifier (Play Developer API v3) unit-tested with mocks; production without credentials fails closed. **The Android app has no Play Billing client at all** (the subscription screen says "pricing coming soon") | Needs a Play Console app, a subscription product, a license-tester account, a Play-distributed build and `PLAY_BILLING_SERVICE_ACCOUNT_JSON` — none exist for this repository; cannot be tested honestly yet |
 
 ## 6. Other bugs fixed (earlier in this PR)
 
@@ -303,8 +349,10 @@ everything in §4.1 ran on emulators. Still needed on real hardware:
 - `notification_read` §12 filtering of real notifications is only exercised on API 30/34
   (API 26 has no shell notification poster).
 - The rate limiter is in-memory per instance; serverless instances do not share limits.
-- Gemini, TTS, GitHub and Play Billing are tested against stubs/mocks only. The live paths need
-  real credentials.
+- Gemini TTS and GitHub are tested against stubs/mocks only; opt-in live tests exist
+  (`backend/test/live/`) but have not been run (no test credentials here).
+- Play Billing: the Android app has no Play Billing client; the backend verifier has never
+  been exercised against Google's API. Not a Phase 1 capability.
 - Web Permission Center: only the microphone is a browser permission; the others are labelled
   per the registry (mostly UNSUPPORTED/PLANNED on the web).
 
@@ -341,6 +389,15 @@ cd android
 cd android
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pzarvis.devApiHost=10.0.2.2
 bash scripts/emulator/verify.sh <api-level>   # with one emulator attached; prints ZARVIS_EVIDENCE lines
+
+# Physical phone (on a computer with the phone attached; see §5.1)
+ZARVIS_DEVICE_RESET_OK=1 bash scripts/device/verify-device.sh
+
+# Opt-in live integration checks (test credentials only; skipped otherwise)
+cd backend
+ZARVIS_LIVE_TESTS=1 GEMINI_API_KEY=... npx vitest run test/live/geminiTts.live.test.ts
+ZARVIS_LIVE_TESTS=1 ZARVIS_LIVE_GITHUB_TOKEN=... ZARVIS_LIVE_GITHUB_TEST_REPO=https://github.com/<you>/<sandbox> \
+  npx vitest run test/live/githubWrite.live.test.ts
 ```
 
 CI runs all of the above on every push to the PR: `.github/workflows/backend-tests.yml` (backend,
@@ -348,8 +405,11 @@ web, web-e2e), `.github/workflows/android-build.yml` and `.github/workflows/andr
 
 ## 9. To reach Phase 1 PASS
 
-1. Run the real-device matrix in §5 and record the evidence per capability. Promote a capability
-   to `WORKING` only with that evidence.
+1. Run `scripts/device/verify-device.sh` on the device matrix in §5.2 and record the evidence
+   per capability. Promote a capability to `WORKING` only with that evidence.
 2. Verify the Android 8.x runtime-permission flow on a real Android 8/9 device.
 3. Get a real location fix on a device (and re-check the emulator failure).
-4. Verify live TTS/Gemini and a real GitHub PR on a test repo; Play Billing in a test track.
+4. Run the opt-in live tests with test credentials: Gemini TTS, and a GitHub write on a
+   throwaway sandbox repo.
+5. Play Billing (outside Phase 1): add a Play Billing client to the app, then verify with a
+   license tester on a Play test track.

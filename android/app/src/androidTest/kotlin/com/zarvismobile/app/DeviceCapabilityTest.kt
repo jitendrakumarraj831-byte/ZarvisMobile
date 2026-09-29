@@ -30,6 +30,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
@@ -61,23 +62,33 @@ class DeviceCapabilityTest {
 
     @Test
     fun a_callIsPlacedOnlyAfterTappingConfirmInZarvisDialog() {
+        // On a physical phone this places a real call, so it only runs with a number its owner
+        // supplied (`-e callNumber …`, e.g. their own second phone); otherwise nothing is dialled
+        // and the capability is recorded as unverified on this device.
+        val number = Device.arg("callNumber") ?: if (Device.isEmulator) "5551234" else null
+        if (number == null) {
+            evidence("phone_call UNVERIFIED on this physical device: no test number given (-e callNumber); no call placed")
+            Assume.assumeTrue("no test number for a real call", false)
+        }
+        number!!
         shell("pm grant $APP android.permission.CALL_PHONE")
         ActivityScenario.launch(MainActivity::class.java).use {
             // Cancel in the real dialog: nothing is dialled.
-            val cancelled = CoroutineScope(Dispatchers.Default).async { entry.orchestrator().handleTurn("call 5551234", "emulator-verification") }
+            val cancelled = CoroutineScope(Dispatchers.Default).async { entry.orchestrator().handleTurn("call $number", "emulator-verification") }
             val cancel = Device.waitFor(Device.appText("Cancel")) ?: error("confirmation dialog not shown")
-            assertTrue("dialog names the exact number", ui.hasObject(androidx.test.uiautomator.By.pkg(APP).textContains("5551234")))
+            assertTrue("dialog names the exact number", ui.hasObject(androidx.test.uiautomator.By.pkg(APP).textContains(number)))
             cancel.click()
             val declined = runBlocking { withTimeout(30_000) { cancelled.await() } }
             assertEquals(ToolResultStatus.DENIED, declined.result?.status)
             assertFalse("no call after Cancel", callActive())
 
             // Confirm in the real dialog: the dialer places the call.
-            val confirmed = CoroutineScope(Dispatchers.Default).async { entry.orchestrator().handleTurn("call 5551234", "emulator-verification") }
+            val confirmed = CoroutineScope(Dispatchers.Default).async { entry.orchestrator().handleTurn("call $number", "emulator-verification") }
             (Device.waitFor(Device.appText("Confirm")) ?: error("confirmation dialog not shown")).click()
             val placed = runBlocking { withTimeout(30_000) { confirmed.await() } }
             assertTrue("call state OFFHOOK", eventually(15_000) { callActive() })
-            evidence("phone_call confirm -> ${placed.result?.status} ${placed.result?.verificationEvidence}; telephony mCallState=2")
+            val shown = if (Device.isEmulator) placed.result?.verificationEvidence.toString() else "{number=<redacted>}"
+            evidence("phone_call confirm -> ${placed.result?.status} $shown; telephony mCallState=2")
             shell("input keyevent KEYCODE_ENDCALL")
             assertTrue(eventually(15_000) { !callActive() })
         }
@@ -87,7 +98,10 @@ class DeviceCapabilityTest {
     fun b_locationReportsARealFixOrAnHonestReason() {
         shell("pm grant $APP android.permission.ACCESS_COARSE_LOCATION")
         val outcome = turn("where am i")
-        evidence("location -> ${outcome.result?.status}: ${outcome.message} evidence=${outcome.result?.verificationEvidence}")
+        // A phone's real position never goes into the logs.
+        val redact = { text: String -> if (Device.isEmulator) text else text.replace(Regex("""-?\d{1,3}\.\d+"""), "<redacted>") }
+        evidence("location -> ${outcome.result?.status}: ${redact(outcome.message)} evidence=${redact(outcome.result?.verificationEvidence.toString())}")
+        evidence("location fix_obtained=${outcome.result?.status == ToolResultStatus.COMPLETED} on ${if (Device.isEmulator) "emulator" else "physical device"}")
         assertTrue(outcome.result?.status == ToolResultStatus.COMPLETED || outcome.result?.status == ToolResultStatus.FAILED)
         if (outcome.result?.status == ToolResultStatus.COMPLETED) assertTrue(outcome.message.contains("approximate location"))
     }

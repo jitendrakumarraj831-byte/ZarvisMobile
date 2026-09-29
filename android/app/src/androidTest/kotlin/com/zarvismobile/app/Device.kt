@@ -30,6 +30,13 @@ object Device {
     private val automation: UiAutomation
         get() = InstrumentationRegistry.getInstrumentation().getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
 
+    /** True on an Android emulator; false on a physical phone. */
+    val isEmulator: Boolean
+        get() = Build.HARDWARE in setOf("ranchu", "goldfish") || Build.FINGERPRINT.startsWith("generic") || Build.PRODUCT.startsWith("sdk")
+
+    /** An instrumentation argument (`am instrument -e name value`), or null when not given. */
+    fun arg(name: String): String? = InstrumentationRegistry.getArguments().getString(name)?.trim()?.ifEmpty { null }
+
     val ui: UiDevice get() = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
     val app: ZarvisApplication get() = ApplicationProvider.getApplicationContext()
     val entry: VerificationEntryPoint get() = EntryPointAccessors.fromApplication(app, VerificationEntryPoint::class.java)

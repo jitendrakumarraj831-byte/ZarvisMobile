@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Phase 1 on-device verification driver (run inside the emulator-runner, cwd = android/).
+# Also runs on a physical phone through scripts/device/verify-device.sh, which sets
+# ZARVIS_PHYSICAL_DEVICE=1: then nothing emulator-only (lock-screen changes, `adb emu`) is run.
 # Installs the app + instrumentation and runs, in order:
 #   A. fresh-install permission flows (real runtime dialogs)
 #   B. process death while an action waits on the user (two separate processes)
@@ -15,7 +17,11 @@ mkdir -p "$OUT"
 APP=com.zarvismobile.app
 RUNNER="$APP.test/androidx.test.runner.AndroidJUnitRunner"
 FAIL=0
-log() { echo "[verify api$API] $*"; }
+DEVICE="${ZARVIS_PHYSICAL_DEVICE:-0}"
+# Extra instrumentation arguments, e.g. "-e callNumber <a number you own>" on a physical phone.
+INSTR_ARGS="${ZARVIS_INSTR_ARGS:-}"
+KIND=$([ "$DEVICE" = 1 ] && echo device || echo api)
+log() { echo "[verify $KIND$API] $*"; }
 
 adb wait-for-device
 adb shell getprop ro.build.version.sdk | tee "$OUT/sdk.txt"
@@ -28,23 +34,29 @@ adb shell svc power stayon true || true
 # `wm dismiss-keyguard`, or an activity shown over the keyguard) crashes System UI with an NPE in
 # StatusBar.onKeyguardOccludedChanged (null NavigationBarFragment) -- an Android 8.0 platform
 # bug, see the crash stacks printed at the end. With the keyguard disabled that path never runs.
-adb shell locksettings set-disabled true || adb shell cmd lock_settings set-disabled true || true
-adb shell settings put secure lockscreen.disabled 1 || true
+# Never on a physical phone: its owner's lock screen is left exactly as it is (the device driver
+# asks for the phone to be unlocked instead).
+if [ "$DEVICE" != 1 ]; then
+  adb shell locksettings set-disabled true || adb shell cmd lock_settings set-disabled true || true
+  adb shell settings put secure lockscreen.disabled 1 || true
+fi
 adb shell input keyevent KEYCODE_WAKEUP || true
-if [ "$API" -ge 28 ]; then adb shell wm dismiss-keyguard || true; else adb shell input keyevent 82 || true; fi
+if [ "$DEVICE" != 1 ]; then
+  if [ "$API" -ge 28 ]; then adb shell wm dismiss-keyguard || true; else adb shell input keyevent 82 || true; fi
+fi
 
 log "installing"
 adb install -r app/build/outputs/apk/debug/app-debug.apk || { log "install failed"; exit 1; }
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || { log "test install failed"; exit 1; }
-# Emulator GPS fix for the location check (Forbesganj, Bihar).
-adb emu geo fix 87.2677 26.2987 || true
+# Emulator GPS fix for the location check (Forbesganj, Bihar). A phone uses its real location.
+[ "$DEVICE" = 1 ] || adb emu geo fix 87.2677 26.2987 || true
 
 # run_classes NAME CLASSES [expect-crash]
 run_classes() {
   local name="$1" classes="$2" expect_crash="${3:-}"
   log "instrumentation $name"
   # A hard limit per phase, so a hang still leaves evidence and diagnostics in the job log.
-  timeout 1200 adb shell am instrument -w -r -e class "$classes" "$RUNNER" > "$OUT/instr-$name.txt" 2>&1
+  timeout 1200 adb shell am instrument -w -r $INSTR_ARGS -e class "$classes" "$RUNNER" > "$OUT/instr-$name.txt" 2>&1
   if [ $? -eq 124 ]; then
     log "$name TIMED OUT after 20 min; last output:"; tail -40 "$OUT/instr-$name.txt"
     adb shell am force-stop "$APP" || true
@@ -124,13 +136,16 @@ for scenario in scripts/emulator/scenarios/*.sh; do
 done
 
 # Keep feeding GPS fixes while phase D runs (a single fix goes stale before the location test).
-( while true; do adb emu geo fix 87.2677 26.2987 >/dev/null 2>&1; sleep 3; done ) &
-GEO_PID=$!
+GEO_PID=""
+if [ "$DEVICE" != 1 ]; then
+  ( while true; do adb emu geo fix 87.2677 26.2987 >/dev/null 2>&1; sleep 3; done ) &
+  GEO_PID=$!
+fi
 run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest"
 # E: the Settings UI in a fresh process, independent of D's accessibility-service toggling.
 run_classes E "$APP.SettingsUiTest"
 
-kill "$GEO_PID" 2>/dev/null || true
+[ -n "$GEO_PID" ] && kill "$GEO_PID" 2>/dev/null || true
 sleep 1
 adb logcat -d > "$OUT/logcat-final.txt" 2>&1 || true
 cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" "$OUT"/scenario-*.txt "$OUT/platform-blocked.txt" 2>/dev/null | grep -h "ZARVIS_EVIDENCE" 2>/dev/null | sed 's/^.*ZARVIS_EVIDENCE/ZARVIS_EVIDENCE/' | sort -u > "$OUT/evidence.txt" || true
