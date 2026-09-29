@@ -10,6 +10,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.zarvismobile.agents.TurnOutcome
 import com.zarvismobile.app.Device.APP
+import com.zarvismobile.app.Device.awaitSystemReady
 import com.zarvismobile.app.Device.entry
 import com.zarvismobile.app.Device.evidence
 import com.zarvismobile.app.Device.eventually
@@ -207,12 +208,25 @@ class DeviceCapabilityTest {
             eventually(15_000) { ui.currentPackageName == APP } // ZARVIS is in front before the turn starts
             val pending = CoroutineScope(Dispatchers.Default).async { entry.orchestrator().handleTurn(utterance, "emulator-verification") }
             val opened = eventually(15_000) { ui.currentPackageName.let { it != null && it != APP && !pending.isCompleted } }
+            if (opened) awaitSystemReady(5_000) // a crash dialog is not the picker; read what is really in front
             val front = ui.currentPackageName
             if (opened) {
-                // Leave without choosing anything, the way a user cancels.
-                repeat(4) { if (ui.currentPackageName != APP && !pending.isCompleted) { ui.pressBack(); Thread.sleep(1_500) } }
+                // Leave without choosing anything, the way a user cancels. An Android crash dialog
+                // (the API 26 image's System UI) can cover the picker; it is dismissed first, as a
+                // user would, and Back is pressed again until ZARVIS has the result.
+                eventually(25_000, stepMs = 1_500) {
+                    awaitSystemReady(5_000)
+                    if (!pending.isCompleted && ui.currentPackageName != APP) ui.pressBack()
+                    pending.isCompleted
+                }
             }
-            val outcome = runBlocking { withTimeout(30_000) { pending.await() } }
+            val outcome = try {
+                runBlocking { withTimeout(10_000) { pending.await() } }
+            } finally {
+                // Leave no picker/camera behind for the next test (only if it is still in front).
+                front?.takeIf { opened && it == ui.currentPackageName && it != APP && it != "android" && it != "com.android.systemui" }
+                    ?.let { shell("am force-stop $it"); evidence("$label: $it was still open after the result; force-stopped") }
+            }
             val status = outcome.result?.status
             assertTrue("$label: never COMPLETED without a choice (got $status: ${outcome.message})", status != ToolResultStatus.COMPLETED)
             if (opened) {

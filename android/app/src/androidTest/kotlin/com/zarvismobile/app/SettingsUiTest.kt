@@ -13,9 +13,12 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.zarvismobile.app.Device.awaitSystemReady
+import com.zarvismobile.app.Device.diagnose
 import com.zarvismobile.app.Device.entry
 import com.zarvismobile.app.Device.evidence
 import com.zarvismobile.app.Device.eventually
+import com.zarvismobile.app.Device.shell
 import com.zarvismobile.app.Device.ui
 import com.zarvismobile.domain.notification.NotificationMode
 import com.zarvismobile.domain.notification.NotificationPrivacySettings
@@ -99,7 +102,15 @@ class SettingsUiTest {
             evidence("ui settings>notifications all section 12 controls rendered")
 
             // System Back returns to the settings list (not out of Settings), then reopen at the top.
+            // Back is pressed only once Android's System UI is up (it crash-restarts on the API 26
+            // image); if ZARVIS is not in front afterwards, record whether System UI restarted.
+            awaitSystemReady()
+            val systemUiBefore = shell("pidof com.android.systemui").trim()
             ui.pressBack()
+            compose.waitForIdle()
+            if (ui.currentPackageName != Device.APP) {
+                diagnose("after Back: ZARVIS not in front; systemui pid ${systemUiBefore} -> ${shell("pidof com.android.systemui").trim()}")
+            }
             reveal("Permissions & Device Access")
             evidence("ui settings>notifications system Back -> settings hub")
             tap("Notifications")
