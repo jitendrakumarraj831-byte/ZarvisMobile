@@ -86,4 +86,8 @@ log "evidence:"; cat "$OUT/evidence.txt"
 # What was on screen whenever a wait timed out or a test failed.
 cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -h "ZARVIS_DIAG" | sed 's/^.*ZARVIS_DIAG/ZARVIS_DIAG/' | cut -c1-1500 | awk "!seen[\$0]++" > "$OUT/diagnostics.txt" || true
 log "diagnostics:"; cat "$OUT/diagnostics.txt"
+# Crashes of other processes during the run (e.g. System UI), with their stacks: tells whether
+# anything ZARVIS did appears in them.
+log "crashes during the run:"
+cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -A 25 "FATAL EXCEPTION" | grep -v "^--$" | awk '!seen[$0]++' | cut -c1-300 | head -120
 exit $FAIL

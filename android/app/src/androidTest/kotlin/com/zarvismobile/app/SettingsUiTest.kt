@@ -45,14 +45,26 @@ class SettingsUiTest {
         var before = visibleTexts()
         repeat(maxSteps) {
             text?.let { t -> ui.findObject(By.pkg(APP).text(t))?.let { return it } }
-            val list = ui.findObject(By.pkg(APP).scrollable(true)) ?: return null
-            list.scroll(direction, 0.6f)
-            ui.waitForIdle()
+            if (!ui.hasObject(By.pkg(APP).scrollable(true))) return null
+            swipePage(direction)
             val after = visibleTexts()
             if (after == before) return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
             before = after
         }
         return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
+    }
+
+    /**
+     * Scrolls with a swipe confined to the middle of the screen. UiObject2.scroll() starts the
+     * swipe at the list's edge, which on gesture-navigation devices (Android 14 default) lands
+     * in the system gesture area and sends the user Home.
+     */
+    private fun swipePage(direction: Direction) {
+        val x = ui.displayWidth / 2
+        val low = ui.displayHeight * 7 / 10
+        val high = ui.displayHeight * 3 / 10
+        if (direction == Direction.DOWN) ui.swipe(x, low, x, high, 25) else ui.swipe(x, high, x, low, 25)
+        ui.waitForIdle()
     }
 
     /** Finds [text] on the current page: from the top, scrolling down through it. */
