@@ -327,6 +327,9 @@ dependencies {
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.uiautomator)
+    // Compose's own scroll-to-node inside Settings (lazy lists only compose rows near the screen).
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.junit4)
     androidTestImplementation(libs.coroutines.test)
 }
