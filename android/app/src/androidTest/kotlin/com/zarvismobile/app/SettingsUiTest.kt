@@ -45,6 +45,13 @@ class SettingsUiTest {
         var before = visibleTexts()
         repeat(maxSteps) {
             text?.let { t -> ui.findObject(By.pkg(APP).text(t))?.let { return it } }
+            // A page-sized scroll can jump over a row sitting just outside the viewport, so if the
+            // row exists off screen, have Android bring it into view.
+            if (text != null && Device.showOnScreen(text)) {
+                scrollLog += "show=$text"
+                awaitSettled()
+                ui.findObject(By.pkg(APP).text(text))?.let { return it }
+            }
             if (!ui.hasObject(By.pkg(APP).scrollable(true))) return null
             if (!swipePage(direction)) return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
             val after = visibleTexts()

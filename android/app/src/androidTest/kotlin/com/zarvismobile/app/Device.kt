@@ -38,12 +38,34 @@ object Device {
      * Scrolls ZARVIS's first scrollable node with the accessibility scroll action (what TalkBack
      * uses) instead of a touch gesture, so no system gesture can intercept it. False at the end.
      */
-    fun accessibilityScroll(forward: Boolean): Boolean {
-        // The active window is not always ZARVIS's (a heads-up notification or System UI window can
-        // hold accessibility focus), so look through every window ZARVIS owns, and scroll its
-        // largest scrollable node — the page itself rather than a nested row.
-        val roots = (runCatching { automation.windows.mapNotNull { it.root } }.getOrDefault(emptyList()) +
+    /**
+     * ZARVIS's window roots. The active window is not always ZARVIS's (a heads-up notification or
+     * System UI window can hold accessibility focus), so this looks through every window.
+     */
+    private fun appRoots(): List<android.view.accessibility.AccessibilityNodeInfo> =
+        (runCatching { automation.windows.mapNotNull { it.root } }.getOrDefault(emptyList()) +
             listOfNotNull(automation.rootInActiveWindow)).filter { it.packageName?.toString() == APP }
+
+    /**
+     * Asks Android to bring ZARVIS's node labelled [text] on screen (ACTION_SHOW_ON_SCREEN, what
+     * TalkBack uses when it moves focus to an off-screen item). Unlike UI Automator, this also sees
+     * nodes that exist but are scrolled out of view. False when no such node exists yet.
+     */
+    fun showOnScreen(text: String): Boolean {
+        val queue = ArrayDeque(appRoots())
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node.text?.toString() == text || node.contentDescription?.toString() == text) {
+                return node.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return false
+    }
+
+    fun accessibilityScroll(forward: Boolean): Boolean {
+        // Scroll ZARVIS's largest scrollable node — the page itself rather than a nested row.
+        val roots = appRoots()
         var best: android.view.accessibility.AccessibilityNodeInfo? = null
         var bestArea = -1L
         val bounds = android.graphics.Rect()
