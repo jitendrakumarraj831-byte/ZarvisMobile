@@ -22,12 +22,32 @@ say() { echo "[build-apks] $*"; }
 
 if grep -q $'\r' gradlew 2>/dev/null; then
   say "gradlew has Windows (CRLF) line endings, so bash cannot run it."
-  say "Fix: git config core.autocrlf false && git rm --cached -r -q . && git reset --hard   (see .gitattributes)"
+  say "Fix (commit or stash your own changes first — this re-checks-out the tree):"
+  say "  git config core.autocrlf false && git rm --cached -r -q . && git reset --hard   (see .gitattributes)"
   exit 1
 fi
 
 JAVA_BIN="${JAVA_HOME:+$JAVA_HOME/bin/}"
-say "java: $("${JAVA_BIN}java" -version 2>&1 | head -1)"
+if ! java_version=$("${JAVA_BIN}java" -version 2>&1 | head -1) || [ -z "$java_version" ]; then
+  say "java not found. Install JDK 17 and set JAVA_HOME (the build uses jvmToolchain(17))."
+  exit 1
+fi
+say "java: $java_version"
+case "$java_version" in
+  *'"17'*) ;;
+  *) say "note: Gradle runs on this JDK, but the modules compile with a JDK 17 toolchain; if the build says"
+     say "      'No matching toolchains found', install JDK 17 and point JAVA_HOME at it." ;;
+esac
+
+# A daemon left over from an earlier stuck build can be reused and hang the new one (a new Gradle
+# daemon reconnects to a wedged Kotlin compile daemon). Start from fresh daemons unless told not to.
+if [ "${ZARVIS_KEEP_DAEMONS:-0}" != 1 ]; then
+  say "stopping this project's Gradle daemons and any Kotlin compile daemon (ZARVIS_KEEP_DAEMONS=1 skips this)"
+  ./gradlew --stop < /dev/null > /dev/null 2>&1
+  while read -r pid name _; do
+    case "$name" in *KotlinCompileDaemon*) kill "$pid" 2>/dev/null || taskkill /F /PID "$pid" > /dev/null 2>&1 ;; esac
+  done < <("${JAVA_BIN}jps" -l 2>/dev/null)
+fi
 say "building :app:assembleDebug :app:assembleDebugAndroidTest (watchdog ${TIMEOUT_MIN} min without progress; log: $LOG)"
 
 # shellcheck disable=SC2086

@@ -17,7 +17,8 @@ ok() { echo "  ok   $*"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL $*"; FAILS=$((FAILS + 1)); }
 
 WORK=$(mktemp -d)
-trap 'kill "${HTTP_PID:-}" 2>/dev/null; rm -rf "$WORK"' EXIT
+# Stop the fake backend and wait for it before deleting its directory (Windows keeps it locked).
+trap 'kill "${HTTP_PID:-}" 2>/dev/null; wait "${HTTP_PID:-}" 2>/dev/null; rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/state" "$WORK/android/scripts/device" "$WORK/android/scripts/emulator" \
   "$WORK/android/app/build/outputs/apk/debug" "$WORK/android/app/build/outputs/apk/androidTest/debug" "$WORK/www"
 cp scripts/device/verify-device.sh "$WORK/android/scripts/device/"
@@ -59,7 +60,7 @@ chmod +x "$WORK/bin/adb"
 echo ok > "$WORK/www/health"
 PORT=38123
 PY=$(command -v python3 || command -v python) || { echo "python is needed for the fake backend"; exit 1; }
-(cd "$WORK/www" && exec "$PY" -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
+"$PY" -m http.server "$PORT" --bind 127.0.0.1 --directory "$WORK/www" >/dev/null 2>&1 &
 HTTP_PID=$!
 for _ in $(seq 1 50); do curl -sf "http://localhost:$PORT/health" >/dev/null && break; sleep 0.1; done
 

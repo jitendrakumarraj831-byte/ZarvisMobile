@@ -56,6 +56,13 @@ jobs:
           ZARVIS_BUILD_TIMEOUT_MIN: "30"
         run: ZARVIS_BUILD_ONLY=1 bash scripts/device/verify-device.sh
 
+      # Repeatable: a second run (stops the first run's Gradle/Kotlin daemons, then rebuilds from
+      # the same tree) must also finish, well within the watchdog.
+      - name: Build again (fresh daemons, same tree)
+        env:
+          ZARVIS_BUILD_TIMEOUT_MIN: "15"
+        run: ZARVIS_BUILD_ONLY=1 bash scripts/device/verify-device.sh
+
       - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4

@@ -13,7 +13,7 @@ implementation*. Status against the gate:
 |---|---|
 | All 16 capabilities implemented (or honestly UNSUPPORTED/PLANNED per platform) | Done — every Android capability is implemented; Web statuses are honest |
 | Emulator verification on Android 8.0 / 11 / 14 | All three jobs green on 3c501d9, with the gaps listed in §4 (Android 8.0 permission dialog is platform-blocked and reported UNVERIFIED; location never produced a fix) |
-| **Real-device verification** | **Not done — this cloud session cannot reach a phone (no adb, no USB). A safe device driver is ready (§5.1); it must be run on a computer with a phone attached. Blocks PASS.** |
+| **Real-device verification** | **Not done — this cloud session cannot reach a phone (no adb, no USB). A safe device driver is ready (§5.1), audited for Windows + Git Bash (§5.4), with a Nothing Phone 2A checklist (§5.5); it must be run on a computer with a phone attached. Blocks PASS.** |
 | Capability status truthful | Yes — every Android capability is `PARTIAL`; nothing is `WORKING` |
 | Live integrations (Gemini TTS with a real key, real GitHub write, Play Billing) | **Not verified** — stubs/mocks only; opt-in live tests for Gemini TTS and GitHub are ready but need test credentials (§5.3); Play Billing has no Android client yet |
 | Regression suites | Green (see §4.2) |
@@ -189,13 +189,15 @@ capability is `WORKING`: no capability is promoted without a real device.
 
 | Suite | Result |
 |---|---|
-| Backend `vitest` (in-memory + real Postgres 16) | **221 / 221** passed; the 2 opt-in live tests skipped (no credentials) |
+| Backend `vitest` (in-memory + real Postgres 16), incl. new route-auth and client↔backend contract guards | **226 / 226** passed; the 2 opt-in live tests skipped (no credentials) |
 | Backend `tsc --noEmit`, root/Vercel `tsc` | clean |
 | Registry export in sync (`capabilities:export` + `git diff --exit-code shared`) | in sync |
 | Web `node --check` (app, logic, sw) + logic unit tests | clean, **6 / 6** |
 | Web Playwright E2E in Chromium (real backend + Postgres + GitHub API stub) | **14 / 14**, no console/CSP errors |
 | Android `:domain:test` | **117 / 117** |
 | Android data-layer JVM tests, `assembleDebug`/`assembleRelease`/`bundleRelease` | CI (`android-build.yml`) — the Android SDK cannot be downloaded in this sandbox |
+| Windows + Git Bash: driver self-test + both APKs via `build-apks.sh` (`android-windows.yml`) | self-test **12 / 12**; fresh-checkout build **successful in 7 m 39 s**, no stall |
+| Device driver self-test on Linux (`scripts/device/selftest.sh`) | **12 / 12** |
 
 Security, denial/revoke and lifecycle suites are unchanged from the previous report and still
 run inside the numbers above (`phase1Security.test.ts`, `postgresTls.test.ts`,
@@ -303,8 +305,9 @@ run). Run here, it stops at "adb not found".
 | Truthful capability states | registry + Phase E | every Android capability `PARTIAL`, none `WORKING` | promote to `WORKING` only after a device pass |
 
 Required device matrix: at least one Android 8/9 phone (the only way to verify the runtime
-permission dialogs on 8.x), one Android 11/12 and one Android 13+. Camera, document and photo
-pickers are not driven by the harness and need a manual check on the device.
+permission dialogs on 8.x), one Android 11/12 and one Android 13+. The harness opens the
+document picker, photo picker and camera and backs out (cancel must not be a success); choosing
+a real file/photo or taking a real picture is a manual check on the device (§5.5).
 
 ### 5.3 External integrations
 
@@ -313,6 +316,100 @@ pickers are not driven by the harness and need a manual check on the device.
 | Gemini TTS with a real key | Not a Phase 1 capability (voice is Phase 3), but part of "live paths unverified" | Unit-tested against mocked HTTP only; no key in this environment | `backend/test/live/geminiTts.live.test.ts` — opt-in (`ZARVIS_LIVE_TESTS=1 GEMINI_API_KEY=<test key>`); checks a real WAV of plausible length. Skipped here |
 | Real authorized GitHub write / PR | Developer-agent authorization (deep-scan Critical item) | Tested against a local GitHub stub (E2E) only | `backend/test/live/githubWrite.live.test.ts` — opt-in with a token scoped to a throwaway sandbox repo you own (`ZARVIS_LIVE_GITHUB_TOKEN`, `ZARVIS_LIVE_GITHUB_TEST_REPO`); checks push access, branch, commit and PR, then closes the PR and deletes the branch; refuses the ZARVIS repo. Skipped here |
 | Google Play Billing | Not a Phase 1 capability | Backend verifier (Play Developer API v3) unit-tested with mocks; production without credentials fails closed. **The Android app has no Play Billing client at all** (the subscription screen says "pricing coming soon") | Needs a Play Console app, a subscription product, a license-tester account, a Play-distributed build and `PLAY_BILLING_SERVICE_ACCOUNT_JSON` — none exist for this repository; cannot be tested honestly yet |
+
+### 5.4 Pre-verification audit (before the first physical-device run)
+
+A full re-scan before the Nothing Phone 2A run (Windows + Git Bash host). Every finding was
+fixed in this PR; nothing in Phase 1 was removed or weakened to make a check pass.
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | High | `verify-device.sh` counted devices with `awk '$2=="device"'`; on Windows `adb.exe` ends lines with `\r`, so a connected phone was reported as "found 0" | strip `\r` before parsing; self-test drives the driver with a fake adb that prints `\r` |
+| 2 | High | Git Bash rewrites `/sdcard/…` arguments into `C:/Program Files/Git/sdcard/…` before they reach `adb.exe` | `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'` in every driver script |
+| 3 | High | No `.gitattributes`: with `core.autocrlf=true` (Git for Windows default) `gradlew` and the `.sh` scripts are checked out with CRLF and bash cannot run them | `.gitattributes` forces LF for `*.sh`/`gradlew`; the build script detects CRLF and prints the fix |
+| 4 | High | Build could hang forever (the reported 2 h+ `compileDebugKotlin`) with no diagnostics | `scripts/device/build-apks.sh`: stops stale Gradle/Kotlin daemons first, no-progress watchdog (`ZARVIS_BUILD_TIMEOUT_MIN`, default 40), saves `jps`/`jstack` thread dumps to `build/build-diagnostics/`, stops daemons and exits 124; `--profile` task timings; see §5.6 |
+| 5 | Medium | Debug APK's backend port could differ from the `adb reverse` port | the driver builds with `-Pzarvis.devApiPort=$ZARVIS_BACKEND_PORT` |
+| 6 | Medium | Emulator/device driver left a background `adb logcat` running after exit | killed on EXIT trap |
+| 7 | High (truthfulness) | Conversation UI showed "Done" for any `success=true` result, including `USER_ACTION_REQUIRED` hand-offs | "Done" only for status `COMPLETED` |
+| 8 | Medium | Files / photos / camera had no automated coverage | `DeviceCapabilityTest` g/h/i: the request must open Android's own picker/camera, and backing out must be `FAILED` ("nothing was read"), never `COMPLETED` |
+| 9 | Medium | Startup error on a phone built for `127.0.0.1` gave no hint that it needs `adb reverse` | debug-only hint explains `adb reverse` / LAN IP |
+| 10 | Guard | No test proved every non-public backend route requires auth | `routeAuthCoverage.test.ts` walks the Express router: every route except the 6 public ones returns 401 without a token |
+| 11 | Guard | No test that the Android (Retrofit) and Web (`apiFetch`) clients call routes that exist | `clientContract.test.ts`: every client endpoint exists with the same method |
+
+Audited and clean: no `TODO`/`FIXME`; no client-side `confirmed` flag (confirmation is a one-time
+server/`ToolPipeline` token); no capability `WORKING` anywhere (tests enforce it); all 15 Android
+skills map to a registry capability (microphone is the voice path); applicationId
+`com.zarvismobile.app` everywhere; no stale script paths; every JVM-test module runs in CI;
+`ActivityBridge` waits are bounded except while the user keeps a system picker open (by design);
+manifest permissions match the capabilities (camera/photos/files use system intents and need no
+runtime permission).
+
+### 5.5 Nothing Phone 2A checklist (tomorrow)
+
+Setup: phone language English, unlocked, USB debugging on, location on, notifications cleared;
+one terminal `cd backend && PORT=3000 npm run dev`, another in Git Bash:
+
+```bash
+cd android
+ZARVIS_BUILD_ONLY=1 bash scripts/device/verify-device.sh          # 1. build only, watchdog on
+ZARVIS_DEVICE_RESET_OK=1 bash scripts/device/verify-device.sh      # 2. full run (add ZARVIS_TEST_CALL_NUMBER=<your own number> for the real call)
+# if the build stalls: attach build/build-diagnostics/ and retry with
+ZARVIS_GRADLE_ARGS="-Pkotlin.compiler.execution.strategy=in-process" ZARVIS_BUILD_ONLY=1 bash scripts/device/verify-device.sh
+```
+
+Automated on the phone (phases A–E): runtime permission Allow / Not now / Learn more / Deny and
+permanently-denied → Settings; revocation while backgrounded; process death with a pending
+action; Permission Center (16 capabilities, live state); notification access + §12 privacy
+(OTP/banking hidden); spoken notifications; location (real fix); accessibility, screen
+interaction, usage stats, default assistant; reminders delivered by Android; alarm, calendar and
+Bluetooth hand-offs;
+call only after ZARVIS confirmation; file/photo picker and camera open the system UI and cancel is
+not a success. The driver restores notification access, accessibility, default assistant and
+screen timeout afterwards and prints any difference.
+
+Manual on the phone (not driven by the harness), record each with a screenshot:
+1. Pick a real document and a real photo → ZARVIS reports its name/type, nothing uploaded.
+2. Take a real photo → result reported; cancel → "nothing was read".
+3. Nothing OS permission dialogs look like AOSP (ids `permission_allow_*`); if a test cannot find
+   a button, note the Android/Nothing OS version and screenshot the dialog.
+4. Battery optimisation (Nothing OS): after the run, confirm reminders still fire with the screen off.
+5. Web ↔ Android shared Brain: sign in to the same account on the Web client and check the
+   conversation appears on both.
+6. After the run: Settings → Notifications → Device & app notifications, Accessibility, Default
+   apps → Digital assistant are back to what they were before.
+
+Evidence to send back: `android/build/emulator-evidence/`, `android/build/build-diagnostics/`,
+the driver's console output. Only with that evidence can a capability move from `PARTIAL` to
+`WORKING`, and only then can §22A's real-device row be re-assessed.
+
+### 5.6 The 2 h+ `compileDebugKotlin` hang — investigation
+
+**Not reproducible on a clean Windows machine; not an intrinsic build hang.** The same commit,
+on `windows-latest` with Git Bash and Temurin JDK 17, through the exact script the device driver
+uses (`build-apks.sh`), built both APKs from a fresh checkout in **7 m 39 s** (405 tasks, 340 executed, 65 from the
+Gradle cache; every `compileDebugKotlin` progressing normally); Linux CI builds them in 4–7 min. A second run in the
+same job (fresh daemons, same tree) is now also required to pass, to prove the build repeats.
+
+The root cause on the tester's computer is therefore environmental and cannot be named without
+that machine's thread dumps. The CI log does show one relevant signal: `w: Detected multiple
+Kotlin daemon sessions` — session files left by an earlier Kotlin daemon. A Gradle daemon that
+reconnects to a Kotlin compile daemon wedged by an earlier interrupted build (Windows file
+locks) blocks in `compileDebugKotlin` with no output, which matches the report. Other
+candidates: memory pressure (`-Xmx2048m` Gradle daemon + an equally sized Kotlin daemon on a
+low-RAM laptop), antivirus scanning `build/`, a OneDrive-synced checkout.
+
+What changed so it cannot hang silently again:
+- `build-apks.sh` stops this project's Gradle daemons and any Kotlin compile daemon before
+  building (`ZARVIS_KEEP_DAEMONS=1` skips it) — removes the stale-daemon cause;
+- a no-progress watchdog (`ZARVIS_BUILD_TIMEOUT_MIN`, default 40) saves `jps` + `jstack` of the
+  Gradle and Kotlin daemons to `android/build/build-diagnostics/`, stops them and exits 124;
+- `--profile` task timings in `android/build/reports/profile/`;
+- JDK check (the modules compile with `jvmToolchain(17)`) and CRLF check on `gradlew`;
+- fallback that avoids the Kotlin daemon entirely:
+  `ZARVIS_GRADLE_ARGS="-Pkotlin.compiler.execution.strategy=in-process"`.
+
+If it stalls tomorrow, the diagnostics folder names the stuck thread; that is the evidence
+needed to fix the real cause.
 
 ## 6. Other bugs fixed (earlier in this PR)
 
@@ -390,7 +487,9 @@ cd android
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pzarvis.devApiHost=10.0.2.2
 bash scripts/emulator/verify.sh <api-level>   # with one emulator attached; prints ZARVIS_EVIDENCE lines
 
-# Physical phone (on a computer with the phone attached; see §5.1)
+# Physical phone (on a computer with the phone attached; see §5.1, §5.5)
+ZARVIS_BUILD_ONLY=1 bash scripts/device/verify-device.sh      # APKs only, with the hang watchdog
+bash scripts/device/selftest.sh                                # driver restore guarantee, no phone
 ZARVIS_DEVICE_RESET_OK=1 bash scripts/device/verify-device.sh
 
 # Opt-in live integration checks (test credentials only; skipped otherwise)
@@ -401,7 +500,8 @@ ZARVIS_LIVE_TESTS=1 ZARVIS_LIVE_GITHUB_TOKEN=... ZARVIS_LIVE_GITHUB_TEST_REPO=ht
 ```
 
 CI runs all of the above on every push to the PR: `.github/workflows/backend-tests.yml` (backend,
-web, web-e2e), `.github/workflows/android-build.yml` and `.github/workflows/android-emulator.yml`.
+web, web-e2e), `.github/workflows/android-build.yml`, `.github/workflows/android-emulator.yml` and
+`.github/workflows/android-windows.yml` (Windows + Git Bash build and driver self-test).
 
 ## 9. To reach Phase 1 PASS
 
