@@ -12,7 +12,7 @@ implementation*. Status against the gate:
 | §22A requirement | Status |
 |---|---|
 | All 16 capabilities implemented (or honestly UNSUPPORTED/PLANNED per platform) | Done — every Android capability is implemented; Web statuses are honest |
-| Emulator verification on Android 8.0 / 11 / 14 | Done with the gaps listed in §4 (Android 8.0 permission dialog is platform-blocked; location never produced a fix) |
+| Emulator verification on Android 8.0 / 11 / 14 | All three jobs green on 3c501d9, with the gaps listed in §4 (Android 8.0 permission dialog is platform-blocked and reported UNVERIFIED; location never produced a fix) |
 | **Real-device verification** | **Not done — no physical device was available. Blocks PASS.** |
 | Capability status truthful | Yes — every Android capability is `PARTIAL`; nothing is `WORKING` |
 | Live integrations (Gemini, TTS with a real key, real GitHub write, Play Billing) | **Not verified** — stubs/mocks only |
@@ -163,7 +163,7 @@ the job log.
 | B — `ProcessDeathTest` (two instrumentation runs) | process killed while a call waits for permission; new process *offers* "call 5551234", does not run it; dismissal clears it | pass | pass | pass |
 | C — `revoke-kills-process.sh` | `pm revoke RECORD_AUDIO` while backgrounded: Android kills ZARVIS's live process; on restart the banner says "Microphone access was turned off in Android settings" | pass (active app process killed; see note) | pass | pass |
 | D — `SpecialAccessTest`, `DeviceCapabilityTest` (13 tests) | notification access, spoken notifications, usage access, accessibility + screen interaction, default assistant, call, location, alarm, Bluetooth, calendar, reminder | 13/13 pass | 13/13 pass | 13/13 pass |
-| E — `SettingsUiTest` | Settings > Notifications: all §12 controls render, taps persist, system Back returns to the hub; Permission Center lists all 16 capabilities with live state | pass | pass | **not yet passing** — see the runs below |
+| E — `SettingsUiTest` | Settings > Notifications: all §12 controls render, taps persist, system Back returns to the hub; Permission Center lists all 16 capabilities with live state | pass | pass | pass |
 
 Runs used as evidence (all on PR #78):
 
@@ -171,12 +171,16 @@ Runs used as evidence (all on PR #78):
 |---|---|---|---|---|
 | [36523259172](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36523259172) | 6fee2d8 | warm-up proves the dialog crash (5→25 crashes, dialog never shown); B, D 13/13, E 2/2 | all phases pass | A–D pass; E failed (scroll) |
 | [36524899277](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36524899277) | e83f464 | job green: A 3/3 + 4 dialog tests `UNVERIFIED platform-blocked` (26 System UI crashes, 0 dialogs); B, C, D 13/13, E 2/2 | job green: all phases | A–D pass; E failed (page-sized scroll skipped rows) |
+| [36532044511](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36532044511) | 3c501d9 (latest) | **job green**: A 3/3 + 4 dialog tests `UNVERIFIED platform-blocked` (26 crashes, 0 dialogs); B, C (active pid 8408 killed), D 13/13, E 2/2 | **job green**: all phases | **job green**: A 7/7, B, C, D 13/13, E 2/2 (Permission Center rendered all 16) |
 
 Note on C, API 26: ActivityManager's active `*APP*` record (pid 9133) was killed by the revoke
 and no longer exists. One more process with the same name (pid 9006) stayed alive; it is the
 process ActivityManager logged as `Spurious death for ProcessRecord{... 9006 ...}` when phase
 B1 killed the app, i.e. an Android 8 bookkeeping leftover that holds no ZARVIS activity. It is
-printed in the evidence line (`other_live_same_name=9006`), not hidden.
+printed in the evidence line (`other_live_same_name=9006`), not hidden. The same pattern recurred on 3c501d9 (active
+pid 8408 killed; pid 8267, not ActivityManager's `*APP*` record, stayed alive); the log tail
+fetched for that run did not include the matching `Spurious death` line, so that leftover is
+reported as observed, not explained. This scenario is not counted as a real-device result.
 
 "pass" means the test asserted Android's own state after the action. A pass does not mean the
 capability is `WORKING`: no capability is promoted without a real device.
@@ -245,8 +249,9 @@ unverified until it is run on a real Android 8/9 device.
 
 Test-harness problems (not product bugs) fixed along the way: UiAutomation unbinding ZARVIS's
 accessibility service (now `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`); `am start -W` hanging
-behind the Android 8 crash dialog; Android 14 edge swipes acting as Home; page scrolling via the
-accessibility scroll action on ZARVIS's own window; the revoke check reading ActivityManager's
+behind the Android 8 crash dialog; Android 14 edge swipes acting as Home; blind page-by-page
+scrolling on the 320×640 image (the Settings test now uses Compose's scroll-to-node and drives Home
+through Compose, since the Compose test rule owns the frame clock); the revoke check reading ActivityManager's
 active process record instead of every process with the package name.
 
 ## 5. Real-device status
