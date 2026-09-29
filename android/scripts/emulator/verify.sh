@@ -113,6 +113,11 @@ cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -h "ZARVIS_DIAG
 log "diagnostics:"; cat "$OUT/diagnostics.txt"
 # Crashes of other processes during the run (e.g. System UI), with their stacks: tells whether
 # anything ZARVIS did appears in them.
+# Why ZARVIS left the foreground whenever it did: ActivityManager's own records of its
+# activities and process (starts, deaths, kills, ANRs), from the full-run logcat.
+log "ZARVIS lifecycle (ActivityManager):"
+cat "$OUT/logcat.txt" 2>/dev/null | grep -E "ActivityManager|ActivityTaskManager|WindowManager" | grep -iE "zarvis" \
+  | grep -iE "kill|died|death|anr|crash|force|finish|START u0|Displayed|pause|Moving" | cut -c1-260 | tail -80
 log "crashes during the run:"
 cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -A 25 "FATAL EXCEPTION" | grep -v "^--$" | awk '!seen[$0]++' | cut -c1-300 | head -120
 exit $FAIL
