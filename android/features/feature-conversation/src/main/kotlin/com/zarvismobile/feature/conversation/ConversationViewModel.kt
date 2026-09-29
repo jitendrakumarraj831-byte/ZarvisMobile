@@ -189,7 +189,9 @@ class ConversationViewModel @Inject constructor(
                 val locale = if (preferences.locale.first() == "hi") "hi-IN" else "en-US"
                 val timed = measureTimedValue { orchestrator.handleTurn(utterance, accountId, locale = locale.take(2)) }
                 val outcome = timed.value
-                val succeeded = outcome.result?.success ?: true
+                // Only a COMPLETED action flashes success. A hand-off (USER_ACTION_REQUIRED, e.g. the
+                // alarm opened in the Clock app) has `success = true` but nothing is done yet.
+                val succeeded = outcome.result?.let { it.status == ToolResultStatus.COMPLETED } ?: true
                 TurnMetricsStore.record(
                     label = outcome.result?.skillId ?: "conversation",
                     durationMs = timed.duration.inWholeMilliseconds,

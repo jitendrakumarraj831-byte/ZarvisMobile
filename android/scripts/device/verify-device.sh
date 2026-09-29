@@ -21,25 +21,37 @@
 #     Without it the call test is recorded as UNVERIFIED, never as passed.
 #   - The phone's real location is used for the location check and is redacted in the logs.
 #
+# Build only (no phone needed; checks the APKs build on this computer, with a hang watchdog):
+#   ZARVIS_BUILD_ONLY=1 bash scripts/device/verify-device.sh
+#
 # Before you start: set the phone's language to English (the UI tests read on-screen labels),
 # turn location on, and clear or silence notifications. The notification tests read the
 # notifications on the phone; if a check fails, its failure message can quote them, and that
 # output stays in build/emulator-evidence/ on your computer.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
+# Git Bash on Windows rewrites arguments that start with "/" (e.g. /sdcard/…) into Windows
+# paths before they reach adb.exe; turn that off for everything this run starts.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 APP=com.zarvismobile.app
 PORT="${ZARVIS_BACKEND_PORT:-3000}"
 say() { echo "[verify-device] $*"; }
 
+if [ "${ZARVIS_BUILD_ONLY:-}" = 1 ]; then
+  ZARVIS_DEV_API_HOST=127.0.0.1 exec bash scripts/device/build-apks.sh -Pzarvis.devApiHost=127.0.0.1 -Pzarvis.devApiPort="$PORT"
+fi
+
 if [ "${ZARVIS_DEVICE_RESET_OK:-}" != 1 ]; then
-  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
   say "Re-run with ZARVIS_DEVICE_RESET_OK=1 once you accept the changes above (ZARVIS's data on the phone is erased)."
   exit 2
 fi
 
-command -v adb >/dev/null || { say "adb not found (Android SDK platform-tools)"; exit 1; }
-count=$(adb devices | awk 'NR>1 && $2=="device"' | wc -l | tr -d ' ')
+command -v adb >/dev/null || { say "adb not found (Android SDK platform-tools); add <sdk>/platform-tools to PATH"; exit 1; }
+timeout --version >/dev/null 2>&1 || { say "GNU 'timeout' not found (Git Bash normally has it in /usr/bin); check PATH order"; exit 1; }
+# adb on Windows ends lines with \r; strip it before comparing.
+count=$(adb devices | tr -d '\r' | awk 'NR>1 && $2=="device"' | wc -l | tr -d ' ')
 [ "$count" = 1 ] || { say "exactly one device must be connected (found $count); see 'adb devices'"; exit 1; }
 if [ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = 1 ]; then
   say "this is an emulator; use scripts/emulator/verify.sh for emulators"; exit 1
@@ -99,8 +111,11 @@ adb reverse "tcp:$PORT" "tcp:$PORT" || { say "adb reverse failed"; exit 1; }
 adb shell settings put global stay_on_while_plugged_in 7 >/dev/null 2>&1
 
 if [ "${ZARVIS_SKIP_BUILD:-}" != 1 ]; then
-  ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pzarvis.devApiHost=127.0.0.1 --console=plain || { say "build failed"; exit 1; }
+  bash scripts/device/build-apks.sh -Pzarvis.devApiHost=127.0.0.1 -Pzarvis.devApiPort="$PORT" \
+    || { say "build failed or stalled — see build/build-diagnostics/ (nothing on the phone was changed yet except what is restored on exit)"; exit 1; }
 fi
+[ -f app/build/outputs/apk/debug/app-debug.apk ] && [ -f app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ] \
+  || { say "APKs missing — run without ZARVIS_SKIP_BUILD"; exit 1; }
 adb uninstall $APP >/dev/null 2>&1
 adb uninstall $APP.test >/dev/null 2>&1
 

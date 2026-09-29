@@ -10,6 +10,8 @@
 #   E. the Settings UI (Notifications page, Permission Center), driven like a user
 # All output goes to build/emulator-evidence/; exits non-zero on any failure.
 set -uo pipefail
+# Git Bash on Windows (physical-device runs): keep "/sdcard/…" arguments as they are.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 API="${1:?api level}"
 OUT="build/emulator-evidence"
@@ -27,7 +29,9 @@ adb wait-for-device
 adb shell getprop ro.build.version.sdk | tee "$OUT/sdk.txt"
 adb logcat -G 16M || true
 adb logcat -c || true
-(adb logcat -v time > "$OUT/logcat.txt" 2>&1 &)
+adb logcat -v time > "$OUT/logcat.txt" 2>&1 &
+LOGCAT_PID=$!
+trap 'kill "$LOGCAT_PID" 2>/dev/null' EXIT
 adb shell settings put system screen_off_timeout 1800000 || true
 adb shell svc power stayon true || true
 # No lock screen at all. On the API 26 image, every keyguard "occluded" change (e.g. from
