@@ -31,7 +31,7 @@ say "java: $("${JAVA_BIN}java" -version 2>&1 | head -1)"
 say "building :app:assembleDebug :app:assembleDebugAndroidTest (watchdog ${TIMEOUT_MIN} min without progress; log: $LOG)"
 
 # shellcheck disable=SC2086
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --console=plain --profile ${ZARVIS_GRADLE_ARGS:-} "$@" > "$LOG" 2>&1 &
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --console=plain --profile ${ZARVIS_GRADLE_ARGS:-} "$@" < /dev/null > "$LOG" 2>&1 &
 GRADLE_PID=$!
 
 last_size=-1; idle=0; status=""; ticks=0

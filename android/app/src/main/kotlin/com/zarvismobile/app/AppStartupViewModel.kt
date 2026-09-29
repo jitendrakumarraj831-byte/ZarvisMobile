@@ -119,6 +119,8 @@ internal fun describeStartupFailure(
     val hint = when {
         baseUrl.contains("10.0.2.2") ->
             "10.0.2.2 is the Android emulator's alias for your computer — a physical phone has no route to it. Rebuild with -Pzarvis.devApiHost=<your computer's LAN IP>."
+        baseUrl.contains("127.0.0.1") || baseUrl.contains("localhost") ->
+            "On a phone, 127.0.0.1 is the phone itself: it reaches your computer only through `adb reverse tcp:<port> tcp:<port>` while the USB cable is connected (scripts/device/verify-device.sh sets this up). Re-run adb reverse, or rebuild with -Pzarvis.devApiHost=<your computer's LAN IP>."
         reason.contains("CLEARTEXT", ignoreCase = true) ->
             "Plain HTTP to this host is blocked by the network security config. Debug builds exempt only the dev host they were built with."
         else ->

@@ -194,4 +194,44 @@ class DeviceCapabilityTest {
         assertTrue("reminder notification posted by Android on API $sdk", delivered)
         evidence("reminder -> notification delivered on sdk=$sdk")
     }
+
+    /**
+     * Files / photos / camera: the request must open Android's own picker or camera app (never
+     * ZARVIS-drawn UI), and backing out of it — the user picked nothing — must come back as an
+     * honest non-success with nothing read, never as COMPLETED. If this device has no such app,
+     * ZARVIS must say so (FAILED/UNSUPPORTED), which is also accepted. Selecting a real file,
+     * photo or taking a picture is a manual check on a physical phone.
+     */
+    private fun systemUiThenBack(utterance: String, label: String) {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            eventually(15_000) { ui.currentPackageName == APP } // ZARVIS is in front before the turn starts
+            val pending = CoroutineScope(Dispatchers.Default).async { entry.orchestrator().handleTurn(utterance, "emulator-verification") }
+            val opened = eventually(15_000) { ui.currentPackageName.let { it != null && it != APP && !pending.isCompleted } }
+            val front = ui.currentPackageName
+            if (opened) {
+                // Leave without choosing anything, the way a user cancels.
+                repeat(4) { if (ui.currentPackageName != APP && !pending.isCompleted) { ui.pressBack(); Thread.sleep(1_500) } }
+            }
+            val outcome = runBlocking { withTimeout(30_000) { pending.await() } }
+            val status = outcome.result?.status
+            assertTrue("$label: never COMPLETED without a choice (got $status: ${outcome.message})", status != ToolResultStatus.COMPLETED)
+            if (opened) {
+                assertEquals(outcome.message, ToolResultStatus.FAILED, status)
+                evidence("$label -> system UI $front opened; backed out -> $status: ${outcome.message}")
+            } else {
+                assertTrue("$label: no system UI opened, so ZARVIS must say it is unavailable (got $status)", status == ToolResultStatus.FAILED || status == ToolResultStatus.UNSUPPORTED)
+                evidence("$label -> no handler on this device, said so: $status: ${outcome.message}")
+            }
+        }
+        ui.pressHome()
+    }
+
+    @Test
+    fun g_filePickerOpensTheSystemPickerAndCancelIsNotASuccess() = systemUiThenBack("pick a file", "files")
+
+    @Test
+    fun h_photoPickerOpensTheSystemPickerAndCancelIsNotASuccess() = systemUiThenBack("pick a photo", "photos")
+
+    @Test
+    fun i_cameraOpensTheCameraAppAndCancelIsNotASuccess() = systemUiThenBack("take a photo", "camera")
 }
