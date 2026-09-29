@@ -105,18 +105,20 @@ class SettingsUiTest {
             ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found; a11y nodes ${Device.describeNodes(text)}; steps ${scrollLog.takeLast(16)}") }
     }
 
-    /** Finds and clicks [text]; a node that recomposed between finding and clicking is found again. */
+    /**
+     * Finds [text] and taps it where it is on screen. On the API 34 image the hub's nodes went
+     * stale between being found and being clicked, three times in a row, while the row stayed
+     * visible; so read its position again and tap that point, like a finger would.
+     */
     private fun tap(text: String, what: String) {
         repeat(3) {
             find(text) ?: error(what)
             awaitSettled()
-            // The list may still have been moving when the node was found; look again.
-            val node = ui.findObject(By.pkg(APP).text(text)) ?: return@repeat
-            try {
-                node.click()
+            repeat(10) {
+                val node = ui.findObject(By.pkg(APP).text(text)) ?: return@repeat
+                val center = try { node.visibleCenter } catch (e: StaleObjectException) { null } ?: return@repeat
+                ui.click(center.x, center.y)
                 return
-            } catch (e: StaleObjectException) {
-                ui.waitForIdle()
             }
         }
         Device.diagnose("SettingsUiTest: \"$text\" kept moving under the tap")
