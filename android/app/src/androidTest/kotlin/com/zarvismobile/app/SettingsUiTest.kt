@@ -84,7 +84,11 @@ class SettingsUiTest {
         eventually(10_000) { ui.hasObject(By.pkg(APP).scrollable(true)) || ui.hasObject(By.pkg(APP).text(text)) }
         ui.findObject(By.pkg(APP).text(text))?.let { return it }
         scrollUntilStuck(Direction.UP)
-        return scrollUntilStuck(Direction.DOWN, text) ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found") }
+        // Accessibility scrolling moves a page at a time; a title straddling a page boundary can
+        // be skipped going down, so search back up too (the boundaries then fall elsewhere).
+        return scrollUntilStuck(Direction.DOWN, text)
+            ?: scrollUntilStuck(Direction.UP, text)
+            ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found") }
     }
 
     /** Finds and clicks [text]; a node that recomposed between finding and clicking is found again. */
