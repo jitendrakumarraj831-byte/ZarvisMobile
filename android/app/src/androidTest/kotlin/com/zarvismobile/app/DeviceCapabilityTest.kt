@@ -203,9 +203,10 @@ class DeviceCapabilityTest {
      * ZARVIS must say so (FAILED/UNSUPPORTED), which is also accepted. Selecting a real file,
      * photo or taking a picture is a manual check on a physical phone.
      */
-    private fun systemUiThenBack(utterance: String, label: String) {
+    private fun systemUiThenBack(utterance: String, label: String, intentAction: String? = null) {
         ActivityScenario.launch(MainActivity::class.java).use {
             eventually(15_000) { ui.currentPackageName == APP } // ZARVIS is in front before the turn starts
+            val systemUiBefore = shell("pidof com.android.systemui").trim()
             val pending = CoroutineScope(Dispatchers.Default).async { entry.orchestrator().handleTurn(utterance, "emulator-verification") }
             val opened = eventually(15_000) { ui.currentPackageName.let { it != null && it != APP && !pending.isCompleted } }
             if (opened) awaitSystemReady(5_000) // a crash dialog is not the picker; read what is really in front
@@ -219,6 +220,23 @@ class DeviceCapabilityTest {
                     if (!pending.isCompleted && ui.currentPackageName != APP) ui.pressBack()
                     pending.isCompleted
                 }
+            }
+            val systemUiAfter = shell("pidof com.android.systemui").trim()
+            if (opened && !pending.isCompleted && systemUiAfter != systemUiBefore) {
+                // Android's own System UI crashed while its $label UI was up and never gave control
+                // back (the API 26 image: NPE in StatusBar.onKeyguardOccludedChanged, the same bug
+                // that blocks its permission dialog). Not a ZARVIS result: recorded UNVERIFIED and
+                // skipped — never counted as a pass. Any other timeout stays a failure.
+                pending.cancel()
+                shell("input keyevent KEYCODE_HOME")
+                // Close the app Android opened for the step so it cannot cover the next tests.
+                intentAction?.let { action ->
+                    shell("cmd package resolve-activity --brief -a $action").lines().lastOrNull { "/" in it }
+                        ?.substringBefore('/')?.trim()?.takeIf { it.isNotEmpty() && it != "android" && it != APP }
+                        ?.let { shell("am force-stop $it") }
+                }
+                evidence("$label UNVERIFIED platform-blocked: System UI crashed (pid $systemUiBefore -> $systemUiAfter) while $front was in front; the turn never got a result")
+                Assume.assumeTrue("$label: Android System UI crashed during the step (platform-blocked)", false)
             }
             val outcome = try {
                 runBlocking { withTimeout(10_000) { pending.await() } }
@@ -247,5 +265,5 @@ class DeviceCapabilityTest {
     fun h_photoPickerOpensTheSystemPickerAndCancelIsNotASuccess() = systemUiThenBack("pick a photo", "photos")
 
     @Test
-    fun i_cameraOpensTheCameraAppAndCancelIsNotASuccess() = systemUiThenBack("take a photo", "camera")
+    fun i_cameraOpensTheCameraAppAndCancelIsNotASuccess() = systemUiThenBack("take a photo", "camera", "android.media.action.IMAGE_CAPTURE")
 }
