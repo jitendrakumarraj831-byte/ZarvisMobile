@@ -12,7 +12,7 @@ implementation*. Status against the gate:
 | §22A requirement | Status |
 |---|---|
 | All 16 capabilities implemented (or honestly UNSUPPORTED/PLANNED per platform) | Done — every Android capability is implemented; Web statuses are honest |
-| Emulator verification on Android 8.0 / 11 / 14 | All three jobs green on 3c501d9, with the gaps listed in §4 (Android 8.0 permission dialog is platform-blocked and reported UNVERIFIED; location never produced a fix) |
+| Emulator verification on Android 8.0 / 11 / 14 | All three jobs green on 6759fb2 (now incl. file/photo picker and camera cancel), with the gaps listed in §4 (Android 8.0 permission dialog and camera are platform-blocked and reported UNVERIFIED; location never produced a fix) |
 | **Real-device verification** | **Not done — this cloud session cannot reach a phone (no adb, no USB). A safe device driver is ready (§5.1), audited for Windows + Git Bash (§5.4), with a Nothing Phone 2A checklist (§5.5); it must be run on a computer with a phone attached. Blocks PASS.** |
 | Capability status truthful | Yes — every Android capability is `PARTIAL`; nothing is `WORKING` |
 | Live integrations (Gemini TTS with a real key, real GitHub write, Play Billing) | **Not verified** — stubs/mocks only; opt-in live tests for Gemini TTS and GitHub are ready but need test credentials (§5.3); Play Billing has no Android client yet |
@@ -162,7 +162,7 @@ the job log.
 | A — `EmulatorSmokeTest`, `PermissionDialogFlowTest` | registry packaged, every state readable; Not Now → no system dialog; Learn More + Deny → DENIED; Allow → GRANTED; Deny twice → PERMANENTLY_DENIED → Settings → still denied; mic denied keeps text input; notifications per API level | **Platform-blocked** (see 4.3): Not Now and notifications-per-API pass; the 4 dialog tests are reported `UNVERIFIED`, never passed | pass | pass |
 | B — `ProcessDeathTest` (two instrumentation runs) | process killed while a call waits for permission; new process *offers* "call 5551234", does not run it; dismissal clears it | pass | pass | pass |
 | C — `revoke-kills-process.sh` | `pm revoke RECORD_AUDIO` while backgrounded: Android kills ZARVIS's live process; on restart the banner says "Microphone access was turned off in Android settings" | pass (active app process killed; see note) | pass | pass |
-| D — `SpecialAccessTest`, `DeviceCapabilityTest` (13 tests) | notification access, spoken notifications, usage access, accessibility + screen interaction, default assistant, call, location, alarm, Bluetooth, calendar, reminder | 13/13 pass | 13/13 pass | 13/13 pass |
+| D — `SpecialAccessTest`, `DeviceCapabilityTest` (16 tests) | notification access, spoken notifications, usage access, accessibility + screen interaction, default assistant, call, location, alarm, Bluetooth, calendar, reminder; **files, photos, camera**: Android's own picker/camera opens and backing out is `FAILED` ("nothing was read"), never `COMPLETED` | 15 pass; **camera `UNVERIFIED platform-blocked`** (System UI crashed while the camera was up, pid 9427 → 10639; the turn never got a result — skipped, not passed) | 16/16 (camera2, documentsui) | 16/16 (camera2, documentsui, photo picker) |
 | E — `SettingsUiTest` | Settings > Notifications: all §12 controls render, taps persist, system Back returns to the hub; Permission Center lists all 16 capabilities with live state | pass | pass | pass |
 
 Runs used as evidence (all on PR #78):
@@ -171,7 +171,8 @@ Runs used as evidence (all on PR #78):
 |---|---|---|---|---|
 | [36523259172](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36523259172) | 6fee2d8 | warm-up proves the dialog crash (5→25 crashes, dialog never shown); B, D 13/13, E 2/2 | all phases pass | A–D pass; E failed (scroll) |
 | [36524899277](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36524899277) | e83f464 | job green: A 3/3 + 4 dialog tests `UNVERIFIED platform-blocked` (26 System UI crashes, 0 dialogs); B, C, D 13/13, E 2/2 | job green: all phases | A–D pass; E failed (page-sized scroll skipped rows) |
-| [36532044511](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36532044511) | 3c501d9 (latest) | **job green**: A 3/3 + 4 dialog tests `UNVERIFIED platform-blocked` (26 crashes, 0 dialogs); B, C (active pid 8408 killed), D 13/13, E 2/2 | **job green**: all phases | **job green**: A 7/7, B, C, D 13/13, E 2/2 (Permission Center rendered all 16) |
+| [36532044511](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36532044511) | 3c501d9 | **job green**: A 3/3 + 4 dialog tests `UNVERIFIED platform-blocked` (26 crashes, 0 dialogs); B, C (active pid 8408 killed), D 13/13, E 2/2 | **job green**: all phases | **job green**: A 7/7, B, C, D 13/13, E 2/2 (Permission Center rendered all 16) |
+| [36619044529](https://github.com/jitendrakumarraj831-byte/ZarvisMobile/actions/runs/36619044529) | 6759fb2 (latest) | **job green**: A 3/3 + 4 dialog tests `UNVERIFIED platform-blocked`; B, C, D 16 (camera `UNVERIFIED platform-blocked`, files/photos pass), E 2/2 | **job green**: A 7/7, B, C, D 16/16, E 2/2 | **job green** on 357018f (A 7/7, B, C, D 16/16, E 2/2) and 6759fb2 |
 
 Note on C, API 26: ActivityManager's active `*APP*` record (pid 9133) was killed by the revoke
 and no longer exists. One more process with the same name (pid 9006) stayed alive; it is the
@@ -196,7 +197,7 @@ capability is `WORKING`: no capability is promoted without a real device.
 | Web Playwright E2E in Chromium (real backend + Postgres + GitHub API stub) | **14 / 14**, no console/CSP errors |
 | Android `:domain:test` | **117 / 117** |
 | Android data-layer JVM tests, `assembleDebug`/`assembleRelease`/`bundleRelease` | CI (`android-build.yml`) — the Android SDK cannot be downloaded in this sandbox |
-| Windows + Git Bash: driver self-test + both APKs via `build-apks.sh` (`android-windows.yml`) | self-test **12 / 12**; fresh-checkout build **successful in 7 m 39 s**, no stall |
+| Windows + Git Bash: driver self-test + both APKs via `build-apks.sh` (`android-windows.yml`) | self-test **12 / 12**; fresh-checkout build **successful in 7 m 39 s**, no stall; a second build in the same job (fresh daemons) also passes (job green on 357018f, 154b33e, 6759fb2) |
 | Device driver self-test on Linux (`scripts/device/selftest.sh`) | **12 / 12** |
 
 Security, denial/revoke and lifecycle suites are unchanged from the previous report and still
@@ -335,6 +336,7 @@ fixed in this PR; nothing in Phase 1 was removed or weakened to make a check pas
 | 9 | Medium | Startup error on a phone built for `127.0.0.1` gave no hint that it needs `adb reverse` | debug-only hint explains `adb reverse` / LAN IP |
 | 10 | Guard | No test proved every non-public backend route requires auth | `routeAuthCoverage.test.ts` walks the Express router: every route except the 6 public ones returns 401 without a token |
 | 11 | Guard | No test that the Android (Retrofit) and Web (`apiFetch`) clients call routes that exist | `clientContract.test.ts`: every client endpoint exists with the same method |
+| 12 | Test harness | The new camera test hung on the API 26 image: Android's System UI crashes while the camera is up (same `onKeyguardOccludedChanged` bug as its permission dialog) | back-out dismisses Android crash dialogs and retries Back; if the turn has no result *and* System UI's pid changed, the step is recorded `UNVERIFIED platform-blocked` (skipped, never a pass); any other timeout still fails |
 
 Audited and clean: no `TODO`/`FIXME`; no client-side `confirmed` flag (confirmation is a one-time
 server/`ToolPipeline` token); no capability `WORKING` anywhere (tests enforce it); all 15 Android
