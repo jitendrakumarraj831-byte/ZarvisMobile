@@ -28,7 +28,7 @@ adb shell svc power stayon true || true
 # `wm dismiss-keyguard`, or an activity shown over the keyguard) crashes System UI with an NPE in
 # StatusBar.onKeyguardOccludedChanged (null NavigationBarFragment) -- an Android 8.0 platform
 # bug, see the crash stacks printed at the end. With the keyguard disabled that path never runs.
-adb shell locksettings set-disabled true 2>/dev/null || adb shell cmd lock_settings set-disabled true 2>/dev/null || true
+adb shell locksettings set-disabled true || adb shell cmd lock_settings set-disabled true || true
 adb shell settings put secure lockscreen.disabled 1 || true
 adb shell input keyevent KEYCODE_WAKEUP || true
 if [ "$API" -ge 28 ]; then adb shell wm dismiss-keyguard || true; else adb shell input keyevent 82 || true; fi
@@ -59,6 +59,26 @@ run_classes() {
   fi
   log "$name PASSED"
 }
+
+if [ "$API" -lt 28 ]; then
+  # Android 8.x image: System UI crashes (NPE in StatusBar.onKeyguardOccludedChanged, a platform
+  # bug -- stacks printed at the end) during the first activity transitions after boot, and its
+  # "System UI has stopped" dialog then covers Android's permission dialogs. Settle it before the
+  # permission tests: exercise activity launches until System UI has stayed up for 20 s.
+  log "settling System UI (Android 8.x platform crash)"
+  for attempt in 1 2 3 4 5 6; do
+    before=$(adb logcat -d 2>/dev/null | grep -c "Process: com.android.systemui")
+    adb shell am start -W -n $APP/.MainActivity >/dev/null 2>&1
+    adb shell am start -W -a android.settings.SETTINGS >/dev/null 2>&1
+    adb shell input keyevent KEYCODE_HOME
+    sleep 20
+    adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1
+    after=$(adb logcat -d 2>/dev/null | grep -c "Process: com.android.systemui")
+    log "settle attempt $attempt: System UI crashes so far $after (new: $((after - before)))"
+    [ "$after" -eq "$before" ] && break
+  done
+  adb shell am force-stop $APP
+fi
 
 run_classes A "$APP.EmulatorSmokeTest,$APP.PermissionDialogFlowTest"
 

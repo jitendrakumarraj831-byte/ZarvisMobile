@@ -5,7 +5,8 @@
 set -uo pipefail
 API="$1"; OUT="$2"; APP=com.zarvismobile.app
 # Exact-name match on the app's own processes (pidof can also report other processes).
-app_pids() { adb shell ps -A -o PID,USER,NAME 2>/dev/null | tr -d '\r' | awk -v n="$APP" '$3==n {print $1}' | tr '\n' ' ' | sed 's/ $//'; }
+# Live processes only: a killed process can linger as a zombie (state Z) until it is reaped.
+app_pids() { adb shell ps -A -o PID,USER,S,NAME 2>/dev/null | tr -d '\r' | awk -v n="$APP" '$4==n && $3!="Z" {print $1}' | tr '\n' ' ' | sed 's/ $//'; }
 ui_has() { adb shell uiautomator dump /sdcard/zarvis-ui.xml >/dev/null 2>&1; adb shell cat /sdcard/zarvis-ui.xml | grep -q "$1"; }
 
 # Start from exactly one fresh app process (no leftover instrumentation process).
@@ -16,11 +17,11 @@ adb shell am start -W -n $APP/.MainActivity
 sleep 10   # startup; the resume check records "microphone granted"
 adb shell input keyevent KEYCODE_HOME
 sleep 2
-adb shell ps -A -o PID,USER,NAME | grep -i zarvis | sed "s/^/ps before: /"
+adb shell ps -A -o PID,USER,S,NAME | grep -i zarvis | sed "s/^/ps before: /"
 before=$(app_pids)
 adb shell pm revoke $APP android.permission.RECORD_AUDIO
 sleep 3
-adb shell ps -A -o PID,USER,NAME | grep -i zarvis | sed "s/^/ps after: /"
+adb shell ps -A -o PID,USER,S,NAME | grep -i zarvis | sed "s/^/ps after: /"
 after=$(app_pids)
 echo "ZARVIS_EVIDENCE sdk=$API revoke pid_before=$before pid_after=${after:-none}"
 if [ -z "$before" ]; then echo "app process was not running before the revoke"; exit 1; fi
