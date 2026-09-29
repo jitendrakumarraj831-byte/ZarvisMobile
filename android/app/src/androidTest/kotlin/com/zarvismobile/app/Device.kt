@@ -51,16 +51,42 @@ object Device {
      * TalkBack uses when it moves focus to an off-screen item). Unlike UI Automator, this also sees
      * nodes that exist but are scrolled out of view. False when no such node exists yet.
      */
-    fun showOnScreen(text: String): Boolean {
+    fun showOnScreen(text: String): Boolean = showOnScreenDetailed(text).startsWith("shown")
+
+    /** [showOnScreen] with what happened: "absent", "refused …" or "shown …" (bounds before). */
+    fun showOnScreenDetailed(text: String): String {
         val queue = ArrayDeque(appRoots())
+        val bounds = android.graphics.Rect()
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             if (node.text?.toString() == text || node.contentDescription?.toString() == text) {
-                return node.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+                node.getBoundsInScreen(bounds)
+                val where = "bounds=${bounds.toShortString()} visible=${node.isVisibleToUser}"
+                val ok = node.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+                return if (ok) "shown $where" else "refused $where actions=${node.actionList.map { it.id }}"
             }
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
-        return false
+        return "absent"
+    }
+
+    /** Every ZARVIS node whose text or description contains [fragment], with bounds and visibility. */
+    fun describeNodes(fragment: String): List<String> {
+        val out = mutableListOf<String>()
+        val queue = ArrayDeque(appRoots())
+        val bounds = android.graphics.Rect()
+        var total = 0
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            total++
+            val label = node.text?.toString() ?: node.contentDescription?.toString()
+            if (label != null && label.contains(fragment)) {
+                node.getBoundsInScreen(bounds)
+                out += "\"${label.take(60)}\" ${bounds.toShortString()} visible=${node.isVisibleToUser}"
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+        }
+        return out + "nodes=$total"
     }
 
     fun accessibilityScroll(forward: Boolean): Boolean {

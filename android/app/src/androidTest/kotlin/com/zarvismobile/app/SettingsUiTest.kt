@@ -47,10 +47,13 @@ class SettingsUiTest {
             text?.let { t -> ui.findObject(By.pkg(APP).text(t))?.let { return it } }
             // A page-sized scroll can jump over a row sitting just outside the viewport, so if the
             // row exists off screen, have Android bring it into view.
-            if (text != null && Device.showOnScreen(text)) {
-                scrollLog += "show=$text"
-                awaitSettled()
-                ui.findObject(By.pkg(APP).text(text))?.let { return it }
+            if (text != null) {
+                val shown = Device.showOnScreenDetailed(text)
+                scrollLog += "show:$shown"
+                if (shown.startsWith("shown")) {
+                    awaitSettled()
+                    ui.findObject(By.pkg(APP).text(text))?.let { return it }
+                }
             }
             if (!ui.hasObject(By.pkg(APP).scrollable(true))) return null
             if (!swipePage(direction)) return text?.let { t -> ui.findObject(By.pkg(APP).text(t)) }
@@ -99,7 +102,7 @@ class SettingsUiTest {
         // be skipped going down, so search back up too (the boundaries then fall elsewhere).
         return scrollUntilStuck(Direction.DOWN, text)
             ?: scrollUntilStuck(Direction.UP, text)
-            ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found; scrolls ${scrollLog.takeLast(12)}") }
+            ?: null.also { Device.diagnose("SettingsUiTest: \"$text\" not found; a11y nodes ${Device.describeNodes(text)}; steps ${scrollLog.takeLast(16)}") }
     }
 
     /** Finds and clicks [text]; a node that recomposed between finding and clicking is found again. */
