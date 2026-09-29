@@ -62,19 +62,17 @@ run_classes() {
 
 if [ "$API" -lt 28 ]; then
   # Android 8.x image: System UI crashes (NPE in StatusBar.onKeyguardOccludedChanged, a platform
-  # bug -- stacks printed at the end) during the first activity transitions after boot, and its
-  # "System UI has stopped" dialog then covers Android's permission dialogs. Settle it before the
-  # permission tests: exercise activity launches until System UI has stayed up for 20 s.
+  # bug -- stacks printed at the end) the first few times an ActivityScenario launch toggles the
+  # keyguard's "occluded" state; its "System UI has stopped" dialog then covers Android's
+  # permission dialogs. Run the warm-up (not evidence) until System UI stops crashing.
   log "settling System UI (Android 8.x platform crash)"
-  for attempt in 1 2 3 4 5 6; do
+  for attempt in 1 2 3 4 5; do
     before=$(adb logcat -d 2>/dev/null | grep -c "Process: com.android.systemui")
-    adb shell am start -W -n $APP/.MainActivity >/dev/null 2>&1
-    adb shell am start -W -a android.settings.SETTINGS >/dev/null 2>&1
-    adb shell input keyevent KEYCODE_HOME
-    sleep 20
+    adb shell am instrument -w -e class "$APP.SystemWarmUp" "$RUNNER" > "$OUT/instr-warmup-$attempt.txt" 2>&1
+    sleep 5
     adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1
     after=$(adb logcat -d 2>/dev/null | grep -c "Process: com.android.systemui")
-    log "settle attempt $attempt: System UI crashes so far $after (new: $((after - before)))"
+    log "settle attempt $attempt: System UI crashes so far $after (new during this attempt: $((after - before)))"
     [ "$after" -eq "$before" ] && break
   done
   adb shell am force-stop $APP

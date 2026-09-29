@@ -17,11 +17,15 @@ adb shell am start -W -n $APP/.MainActivity
 sleep 10   # startup; the resume check records "microphone granted"
 adb shell input keyevent KEYCODE_HOME
 sleep 2
-adb shell ps -A -o PID,USER,S,NAME | grep -i zarvis | sed "s/^/ps before: /"
+adb shell ps -A -o PID,PPID,USER,S,STIME,NAME | grep -i zarvis | sed "s/^/ps before: /"
+# What Android's activity manager itself tracks for the package (a process it does not track
+# cannot be killed by force-stop or a permission revoke).
+adb shell dumpsys activity processes $APP | grep -E "ProcessRecord|pid=" | head -10 | sed "s/^/am before: /"
 before=$(app_pids)
 adb shell pm revoke $APP android.permission.RECORD_AUDIO
 sleep 3
-adb shell ps -A -o PID,USER,S,NAME | grep -i zarvis | sed "s/^/ps after: /"
+adb shell ps -A -o PID,PPID,USER,S,STIME,NAME | grep -i zarvis | sed "s/^/ps after: /"
+adb shell dumpsys activity processes $APP | grep -E "ProcessRecord|pid=" | head -10 | sed "s/^/am after: /"
 after=$(app_pids)
 echo "ZARVIS_EVIDENCE sdk=$API revoke pid_before=$before pid_after=${after:-none}"
 if [ -z "$before" ]; then echo "app process was not running before the revoke"; exit 1; fi
