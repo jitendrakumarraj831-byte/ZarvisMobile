@@ -56,7 +56,7 @@
       quickActionsLead: "Suggestions",
       placeholder: "Message ZARVIS…",
       homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
-      homeSub: "What can I help you with?",
+      homeSub: "Your AI assistant for chat, voice, files and code.",
       send: "Send",
       stop: "Stop",
       mic: "Speak",
@@ -73,6 +73,7 @@
         subtitle: "Zarvis can analyze images, .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
       },
       unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
+      imageUnavailable: { title: "Image analysis isn't available right now.", subtitle: "The server has no image model configured. Documents and text files still work." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
       oversizedFile: {
         title: "That file is too long to send in one go.",
@@ -108,7 +109,7 @@
       quickActionsLead: "सुझाव",
       placeholder: "ZARVIS को संदेश भेजें…",
       homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
-      homeSub: "मैं आपकी क्या मदद करूँ?",
+      homeSub: "चैट, आवाज़, फ़ाइलों और कोड के लिए आपका AI असिस्टेंट।",
       send: "भेजें",
       stop: "रोकें",
       mic: "बोलें",
@@ -121,6 +122,7 @@
         subtitle: "Zarvis इमेज, .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें analyze कर सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
       },
       unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
+      imageUnavailable: { title: "अभी इमेज एनालिसिस उपलब्ध नहीं है।", subtitle: "सर्वर पर इमेज मॉडल सेट नहीं है। डॉक्यूमेंट और टेक्स्ट फ़ाइलें काम करती हैं।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
       oversizedFile: {
         title: "यह फ़ाइल एक बार में भेजने के लिए बहुत बड़ी है।",
@@ -730,7 +732,7 @@
       if (!res.ok) return;
       const body = await res.json();
       for (const message of body.messages || []) {
-        addBubble(message.role === "user" ? "user" : "assistant", message.content);
+        addBubble(message.role === "user" ? "user" : "assistant", message.content, undefined, message.createdAt ? new Date(message.createdAt) : null);
         state.history.push({ role: message.role, content: message.content });
       }
       state.history = state.history.slice(-12);
@@ -1164,7 +1166,7 @@
     feature: el.viewFeature,
     developer: el.viewDeveloper,
   };
-  const MOBILE_KEYBOARD = window.matchMedia("(max-width: 899px)");
+  const MOBILE_KEYBOARD = window.matchMedia("(max-width: 699px), (pointer: coarse)");
 
   function setupBottomNav() {
     document.body.dataset.activeView = state.activeView;
@@ -1220,7 +1222,10 @@
     // On phones the on-screen keyboard shrinks the viewport; hide the tab bar while typing so
     // the composer sits directly above the keyboard and nothing is covered.
     el.input.addEventListener("focus", () => {
-      if (MOBILE_KEYBOARD.matches) document.body.classList.add("keyboard-open");
+      // With visualViewport the keyboard is detected from the real viewport change (so a
+      // hardware keyboard or a dismissed keyboard never hides the tab bar); focus is only
+      // the fallback for browsers without it.
+      if (MOBILE_KEYBOARD.matches && !window.visualViewport) document.body.classList.add("keyboard-open");
     });
     el.input.addEventListener("blur", () => {
       // Keep the keyboard layout while focus stays inside the composer (e.g. Send).
@@ -1587,11 +1592,13 @@
       btn.addEventListener("click", () => {
         haptic();
         setLanguage(btn.dataset.lang);
+        showToast(btn.dataset.lang === "hi" ? "भाषा: हिंदी" : "Language: English");
       });
     }
     el.settingsVoiceToggle.addEventListener("click", () => {
       haptic();
       toggleSpeak();
+      showToast(state.speak ? "Spoken replies on" : "Spoken replies off");
     });
     el.settingsClearSessionBtn.addEventListener("click", () => {
       haptic();
@@ -1650,6 +1657,22 @@
     localStorage.setItem("zarvis.appearance", mode);
     applyAppearance();
     updateSettingsValues();
+    showToast(mode === "dim" ? "Dim appearance" : "Light appearance");
+  }
+
+  let toastTimer = null;
+  /** A short confirmation that a setting was saved (also announced to screen readers). */
+  function showToast(text) {
+    const toast = document.getElementById("toast");
+    if (!toast) return;
+    toast.textContent = text;
+    toast.hidden = false;
+    toast.classList.remove("is-leaving");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.add("is-leaving");
+      toastTimer = setTimeout(() => { toast.hidden = true; }, 220);
+    }, 1800);
   }
 
   /** Current value shown on each Settings row. */
@@ -2714,6 +2737,7 @@
           if (!assistantNode) {
             thinkingNode.remove();
             assistantNode = addBubble("assistant", "", utterance);
+            assistantNode.closest(".bubble")?.classList.add("is-streaming");
             // "Speaking" is set by the audio pipeline only when sound actually starts.
           }
           renderFormattedText(assistantNode, fullMessage);
@@ -2792,6 +2816,7 @@
       }
       // Segments that will never be played must release their turn, or later speech would wait forever.
       for (const item of ttsQueue.splice(0)) item.ticket.done();
+      for (const streaming of el.conversation.querySelectorAll(".bubble.is-streaming")) streaming.classList.remove("is-streaming");
       if (!thinkingNode.isConnected) {
         // no-op; the real assistant bubble is already rendered
       } else {
@@ -2827,13 +2852,22 @@
     requestAnimationFrame(toBottom);
   }
 
-  function addBubble(role, text, utterance) {
+  /** `at` is when the message was sent: now for a new message, the server's createdAt for
+   * restored history, or null when unknown (then no time is shown rather than a wrong one). */
+  function addBubble(role, text, utterance, at = new Date()) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
     bubble.setAttribute("data-role", role);
     const label = document.createElement("span");
     label.className = "bubble-role";
     label.textContent = role === "user" ? "You" : role === "assistant" ? "ZARVIS" : role === "tool" ? "Action" : "Status";
+    if (at instanceof Date && !Number.isNaN(at.getTime())) {
+      const time = document.createElement("time");
+      time.className = "bubble-time";
+      time.dateTime = at.toISOString();
+      time.textContent = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      label.append(" ", time);
+    }
     bubble.appendChild(label);
     const body = document.createElement("div");
     body.className = "bubble-body";
@@ -2854,7 +2888,7 @@
       const { button: copyBtn, labelNode: copyLabel } = actionButton("i-file", "Copy");
       copyBtn.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(body.innerText || text);
+          await navigator.clipboard.writeText(bubblePlainText(body) || text);
           copyLabel.textContent = "Copied";
         } catch {
           copyLabel.textContent = "Copy failed";
@@ -2871,7 +2905,7 @@
       }
       const { button: listen } = actionButton("i-wave", "Listen");
       listen.addEventListener("click", () => {
-        void speak(body.innerText || text, null, true);
+        void speak(bubblePlainText(body) || text, null, true);
       });
       actions.appendChild(listen);
       bubble.appendChild(actions);
@@ -2944,8 +2978,32 @@
   }
 
   /** Render a safe subset of Markdown (all input escaped first — see web/logic.js, tested). */
+  /** A reply's readable text, without the code blocks' Copy buttons. */
+  function bubblePlainText(body) {
+    const clone = body.cloneNode(true);
+    for (const button of clone.querySelectorAll(".code-copy")) button.remove();
+    return clone.innerText || clone.textContent || "";
+  }
+
   function renderFormattedText(container, text) {
     container.innerHTML = Logic.formatReplyHtml(text);
+    for (const pre of container.querySelectorAll("pre.reply-code")) {
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "code-copy";
+      copy.setAttribute("aria-label", "Copy code");
+      copy.textContent = "Copy";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(pre.querySelector("code")?.textContent || "");
+          copy.textContent = "Copied";
+        } catch {
+          copy.textContent = "Copy failed";
+        }
+        setTimeout(() => { copy.textContent = "Copy"; }, 1800);
+      });
+      pre.prepend(copy);
+    }
   }
 
   /** A transient "thinking" placeholder shown for the UNDERSTANDING/EXECUTING span of a
@@ -3072,7 +3130,7 @@
         addSystemNotice(COPY[state.lang].oversizedFile);
         return;
       }
-      setExtractingState(true);
+      setExtractingState(true, file);
       try {
         const formData = new FormData();
         formData.append("file", file, file.name);
@@ -3115,6 +3173,7 @@
         addSystemNotice(COPY[state.lang].oversizedFile);
         return;
       }
+      setAttachmentPreview(file);
       setPendingAttachment(file.name, text);
       return;
     }
@@ -3124,7 +3183,7 @@
       addSystemNotice(COPY[state.lang].oversizedFile);
       return;
     }
-    setExtractingState(true);
+    setExtractingState(true, file);
     try {
       const formData = new FormData();
       formData.append("file", file, file.name);
@@ -3149,6 +3208,7 @@
     if (code === "unsupported_file_type") return COPY[state.lang].unsupportedFile;
     if (code === "document_too_long") return COPY[state.lang].oversizedFile;
     if (code === "empty_document") return COPY[state.lang].emptyFile;
+    if (code === "image_analysis_unavailable") return COPY[state.lang].imageUnavailable;
     return COPY[state.lang].unreadableFile;
   }
 
@@ -3165,7 +3225,44 @@
     node.append(strong, span);
   }
 
-  function setExtractingState(isExtracting) {
+  let attachmentPreviewUrl = null;
+
+  /** Shows a local thumbnail for an image attachment (a blob: URL; nothing is uploaded for
+   * the preview), or the file icon for documents. */
+  function setAttachmentPreview(file) {
+    const holder = el.attachmentChip?.querySelector(".attachment-ico");
+    if (!holder) return;
+    if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+    attachmentPreviewUrl = null;
+    holder.replaceChildren();
+    if (file && classifyLocalFile(file) === "image") {
+      attachmentPreviewUrl = URL.createObjectURL(file);
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = attachmentPreviewUrl;
+      holder.appendChild(img);
+      holder.classList.add("has-preview");
+    } else {
+      holder.appendChild(svgIcon("i-file"));
+      holder.classList.remove("has-preview");
+    }
+  }
+
+  function setExtractingState(isExtracting, file) {
+    // While the file is read the chip shows it with an indeterminate progress bar: the
+    // request reports no percentage, so no fake one is shown.
+    if (isExtracting && file) {
+      setAttachmentPreview(file);
+      el.attachmentName.textContent = file.name;
+      el.attachmentStatus.textContent = COPY[state.lang].extracting;
+      el.attachmentChip.hidden = false;
+    }
+    el.attachmentChip.classList.toggle("is-loading", isExtracting);
+    el.attachmentRemoveBtn.hidden = isExtracting;
+    if (!isExtracting && !state.pendingAttachment) {
+      el.attachmentChip.hidden = true;
+      setAttachmentPreview(null);
+    }
     el.uploadBtn.setAttribute("aria-disabled", String(isExtracting));
     el.uploadBtn.classList.toggle("is-disabled", isExtracting);
     el.fileInput.disabled = isExtracting;
@@ -3190,6 +3287,7 @@
   function clearPendingAttachment() {
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
+    setAttachmentPreview(null);
     setFilesState("Attach a file, then ask about it in Chat.");
     renderHomeActivity();
   }
@@ -3487,6 +3585,7 @@
     populateVoiceSelect();
     el.voiceSelect?.addEventListener("change", () => {
       localStorage.setItem(STORAGE_KEYS.ttsVoice, el.voiceSelect.value);
+      showToast("Voice: " + el.voiceSelect.value);
     });
   }
 

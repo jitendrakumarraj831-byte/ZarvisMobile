@@ -70,3 +70,21 @@ test("status labels cover every blueprint status", () => {
   }
   for (const s of ["WORKING", "PARTIAL", "PLANNED", "UNSUPPORTED"]) assert.notEqual(L.capabilityStatusLabel(s), "Unknown");
 });
+
+test("reply formatting: headings, numbered lists, fenced code and safe links", () => {
+  const html = L.formatReplyHtml("## Plan\n1. first\n2. second\n```js\nconst a = \"<b>\";\n```\nSee [docs](https://ex.com/a?b=1&c=2) or https://x.org/p.\n[bad](javascript:alert(1))");
+  assert.ok(html.includes('<div class="reply-heading reply-h2">Plan</div>'));
+  assert.ok(html.includes('<ol class="reply-list reply-ol"><li>first</li><li>second</li></ol>'));
+  assert.ok(html.includes('<pre class="reply-code" data-lang="js"><code>const a = &quot;&lt;b&gt;&quot;;</code></pre>'));
+  assert.ok(html.includes('<a href="https://ex.com/a?b=1&amp;c=2" target="_blank" rel="noopener noreferrer">docs</a>'));
+  assert.ok(html.includes('<a href="https://x.org/p" target="_blank" rel="noopener noreferrer">https://x.org/p</a>.'));
+  assert.ok(!html.includes('href="javascript'));
+});
+
+test("reply formatting: an unclosed fence (mid-stream) renders as code, and quotes never break out of href", () => {
+  const partial = L.formatReplyHtml("Here:\n```\nline 1\nline 2");
+  assert.ok(partial.endsWith("<pre class=\"reply-code\"><code>line 1\nline 2</code></pre>"));
+  const hostile = L.formatReplyHtml('go https://a.b/"onmouseover=alert(1) now');
+  assert.ok(hostile.includes('<a href="https://a.b/" target="_blank" rel="noopener noreferrer">https://a.b/</a>&quot;onmouseover=alert(1)'));
+  assert.ok(!/<a [^>]*onmouseover/.test(hostile));
+});

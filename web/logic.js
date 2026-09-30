@@ -59,34 +59,76 @@
   }
 
   function formatInlineMarkdown(escapedLine) {
-    return escapedLine
+    // Code spans first, so bold/links inside them stay literal.
+    const codes = [];
+    let line = escapedLine.replace(/`([^`]+)`/g, (_, code) => {
+      codes.push(code);
+      return `\u0000${codes.length - 1}\u0000`;
+    });
+    line = line
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>");
+      // [label](https://…) — only http(s); the text is already escaped, so no quote can
+      // close the attribute.
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      // Bare links not already inside an href.
+      .replace(/(^|[\s(])(https?:\/\/(?:(?!&quot;|&#39;|&lt;|&gt;)[^\s<)])+?)(?=[.,;:!?]*(?:\s|$|\)|&quot;|&#39;|&lt;|&gt;))/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+    return line.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
   }
 
-  /** A safe subset of Markdown (bullets, bold, code). All input is escaped first. */
+  /**
+   * A safe subset of Markdown: headings, bullet and numbered lists, fenced code blocks,
+   * bold, inline code and http(s) links. All input is escaped first; nothing else is
+   * interpreted as HTML. An unclosed fence (e.g. mid-stream) renders the rest as code.
+   */
   function formatReplyHtml(text) {
     const lines = escapeHtml(text).split(/\r?\n/);
     const html = [];
-    let inList = false;
+    let list = null; // "ul" | "ol" | null
+    let code = null; // { lang, lines } while inside a fence
+    const closeList = () => {
+      if (list) html.push(`</${list}>`);
+      list = null;
+    };
     for (const line of lines) {
-      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-      if (bullet) {
-        if (!inList) {
-          html.push('<ul class="reply-list">');
-          inList = true;
+      const fence = line.match(/^\s*```\s*([\w+#.-]*)\s*$/);
+      if (code) {
+        if (fence) {
+          html.push(`<pre class="reply-code"${code.lang ? ` data-lang="${code.lang}"` : ""}><code>${code.lines.join("\n")}</code></pre>`);
+          code = null;
+        } else {
+          code.lines.push(line);
         }
-        html.push(`<li>${formatInlineMarkdown(bullet[1])}</li>`);
         continue;
       }
-      if (inList) {
-        html.push("</ul>");
-        inList = false;
+      if (fence) {
+        closeList();
+        code = { lang: fence[1], lines: [] };
+        continue;
       }
+      const heading = line.match(/^\s*(#{1,3})\s+(.*)$/);
+      if (heading) {
+        closeList();
+        html.push(`<div class="reply-heading reply-h${heading[1].length}">${formatInlineMarkdown(heading[2])}</div>`);
+        continue;
+      }
+      const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+      const numbered = line.match(/^\s*(\d{1,3})[.)]\s+(.*)$/);
+      if (bullet || numbered) {
+        const kind = bullet ? "ul" : "ol";
+        if (list !== kind) {
+          closeList();
+          html.push(kind === "ul" ? '<ul class="reply-list">' : `<ol class="reply-list reply-ol"${numbered && numbered[1] !== "1" ? ` start="${Number(numbered[1])}"` : ""}>`);
+          list = kind;
+        }
+        html.push(`<li>${formatInlineMarkdown(bullet ? bullet[1] : numbered[2])}</li>`);
+        continue;
+      }
+      closeList();
       if (!line.trim()) html.push('<div class="reply-spacer" aria-hidden="true"></div>');
       else html.push(`<div class="reply-line">${formatInlineMarkdown(line)}</div>`);
     }
-    if (inList) html.push("</ul>");
+    closeList();
+    if (code) html.push(`<pre class="reply-code"${code.lang ? ` data-lang="${code.lang}"` : ""}><code>${code.lines.join("\n")}</code></pre>`);
     return html.join("");
   }
 
