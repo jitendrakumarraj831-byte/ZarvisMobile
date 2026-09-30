@@ -50,11 +50,13 @@
 
   const COPY = {
     en: {
-      greeting: "Hey, I'm Zarvis. 👋",
-      hero: "Think it. Ask it. Get it done.",
-      subtitle: "Your intelligent AI assistant for conversations, ideas, research, writing, and everyday tasks.",
-      quickActionsLead: "Ask anything. Start anywhere.",
-      placeholder: "Ask Zarvis…",
+      greeting: "ZARVIS",
+      hero: "What should we work on?",
+      subtitle: "Type, speak, or attach a file.",
+      quickActionsLead: "Suggestions",
+      placeholder: "Message ZARVIS…",
+      homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
+      homeSub: "What can I help you with?",
       send: "Send",
       stop: "Stop",
       mic: "Speak",
@@ -100,11 +102,13 @@
       },
     },
     hi: {
-      greeting: "नमस्ते, मैं Zarvis हूँ। 👋",
-      hero: "सोचें। पूछें। हो जाए।",
-      subtitle: "बातचीत, विचार, रिसर्च, लेखन और रोज़मर्रा के कामों के लिए आपका बुद्धिमान AI असिस्टेंट।",
-      quickActionsLead: "कुछ भी पूछें। कहीं से भी शुरू करें।",
-      placeholder: "Zarvis से पूछें…",
+      greeting: "ZARVIS",
+      hero: "आज किस पर काम करें?",
+      subtitle: "लिखें, बोलें या फ़ाइल अटैच करें।",
+      quickActionsLead: "सुझाव",
+      placeholder: "ZARVIS को संदेश भेजें…",
+      homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
+      homeSub: "मैं आपकी क्या मदद करूँ?",
       send: "भेजें",
       stop: "रोकें",
       mic: "बोलें",
@@ -235,6 +239,19 @@
     confirmModalBody: document.getElementById("confirm-modal-body"),
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
+    homeGreeting: document.getElementById("home-greeting"),
+    homeTitleSub: document.querySelector(".home-title-sub"),
+    homeOrb: document.getElementById("home-orb"),
+    chatNewBtn: document.getElementById("chat-new-btn"),
+    activityTimeline: document.getElementById("activity-timeline"),
+    activitySearch: document.getElementById("activity-search"),
+    activityFilters: document.getElementById("activity-filters"),
+    metricsUsage: document.getElementById("metrics-usage"),
+    metricsTrend: document.getElementById("metrics-trend"),
+    developerRunStatus: document.getElementById("developer-run-status"),
+    developerLog: document.getElementById("developer-log"),
+    settingsAiProvider: document.getElementById("settings-ai-provider"),
+    settingsNewConversation: document.getElementById("settings-new-conversation"),
   };
 
   const state = {
@@ -275,6 +292,12 @@
   // throwing "Cannot access '...' before initialization".
   let recognition = null;
   let cachedVoices = [];
+  // Presentation state read by Settings, Metrics and Activity (declared early for init()).
+  let currentPlanName = null;
+  let healthCache = null;
+  // In-memory log of what happened in this session (requests, files, developer runs) — the
+  // Activity timeline and Metrics counts. Never persisted, never fabricated.
+  const activityLog = [];
   // Real, client-measured latency of every orchestrator turn this session (recordLatency(),
   // called from submitUtterance() around the actual /orchestrator/turn fetch) — feeds the
   // System Metrics tab. In-memory only, capped, never persisted or fabricated.
@@ -378,6 +401,7 @@
     el.heroTitle.textContent = copy.hero;
     el.heroSubtitle.textContent = copy.subtitle;
     el.quickActionsLead.textContent = copy.quickActionsLead;
+    renderHomeGreeting();
     el.input.placeholder = copy.placeholder;
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
@@ -417,7 +441,9 @@
 
   function applyVoiceToggleState() {
     el.settingsVoiceToggle.setAttribute("aria-pressed", String(state.speak));
-    el.settingsVoiceToggle.textContent = state.speak ? "Spoken replies: On" : "Spoken replies: Off";
+    const switchText = el.settingsVoiceToggle.querySelector(".switch-text");
+    if (switchText) switchText.textContent = state.speak ? "On" : "Off";
+    updateSettingsValues();
   }
 
   // ---- Session (guest bootstrap, refresh rotation, explicit sign-in) ---------------------
@@ -1032,7 +1058,7 @@
 
       const card = document.createElement("button");
       card.type = "button";
-      card.className = "quick-action";
+      card.className = "chip";
       card.innerHTML = `${quickActionIconSvg(group.key)}<span>${labels[group.key]}</span>`;
       card.addEventListener("click", () => {
         haptic();
@@ -1067,8 +1093,8 @@
     }
     const byCategory = groupByCategory(state.skills);
     for (const [category, categorySkills] of byCategory) {
-      const label = document.createElement("h3");
-      label.className = "capability-group-label";
+      const label = document.createElement("p");
+      label.className = "group-label";
       label.textContent = categoryLabel(category);
       el.capabilitiesList.appendChild(label);
       for (const skill of categorySkills) el.capabilitiesList.appendChild(renderCapabilityCard(skill));
@@ -1076,54 +1102,43 @@
   }
 
   function renderCapabilityCard(skill) {
-    const card = document.createElement("div");
-    card.className = "capability-card";
-
-    const top = document.createElement("div");
-    top.className = "capability-card-top";
-
+    const row = document.createElement("div");
+    row.className = "skill-row";
     const icon = document.createElement("span");
-    icon.className = "capability-icon";
+    icon.className = "row-ico tone-blue";
     icon.innerHTML = categoryIconSvg(skill.category);
-    top.appendChild(icon);
-
-    const heading = document.createElement("div");
-    heading.className = "capability-card-heading";
-    const name = document.createElement("h4");
-    name.className = "capability-card-name";
-    name.textContent = skill.name;
-    heading.appendChild(name);
+    const copy = document.createElement("div");
+    copy.className = "cap-copy";
+    const name = document.createElement("div");
+    name.className = "cap-name";
+    const title = document.createElement("strong");
+    title.textContent = skill.name;
     const risk = document.createElement("span");
     risk.className = "risk-badge";
     risk.dataset.level = skill.riskLevel;
-    risk.textContent = skill.riskLevel;
-    heading.appendChild(risk);
-    top.appendChild(heading);
-
-    card.appendChild(top);
-
+    risk.textContent = Logic.riskLabel ? Logic.riskLabel(skill.riskLevel) : skill.riskLevel;
+    name.append(title, risk);
     const desc = document.createElement("p");
-    desc.className = "capability-card-desc";
+    desc.className = "cap-desc";
     desc.textContent = skill.description;
-    card.appendChild(desc);
-
+    copy.append(name, desc);
     const runBtn = document.createElement("button");
     runBtn.type = "button";
-    runBtn.className = "capability-run-btn";
+    runBtn.className = "cap-action";
     if (skill.upgradeRequired) {
-      runBtn.textContent = "Upgrade required";
+      runBtn.textContent = "Needs upgrade";
       runBtn.disabled = true;
     } else {
-      runBtn.textContent = "Run Agent";
+      runBtn.textContent = "Run";
+      runBtn.setAttribute("aria-label", "Run " + skill.name);
       runBtn.addEventListener("click", () => {
         haptic();
         setActiveView("chat");
         submitUtterance(exampleFor(skill.description));
       });
     }
-    card.appendChild(runBtn);
-
-    return card;
+    row.append(icon, copy, runBtn);
+    return row;
   }
 
   // ---- Bottom nav / view switching ---------------------------------------------------------
@@ -1140,18 +1155,13 @@
     chat: el.viewWorkspace,
     capabilities: el.viewCapabilities,
     plans: el.viewPlans,
+    metrics: el.viewMetrics,
     activity: el.viewActivity,
     settings: el.viewSettings,
     feature: el.viewFeature,
-    phone: document.getElementById("view-phone"),
-    files: document.getElementById("view-files"),
-    research: document.getElementById("view-research"),
-    creative: document.getElementById("view-creative"),
-    business: document.getElementById("view-business"),
-    developer: document.getElementById("view-developer"),
-    work: document.getElementById("view-work"),
+    developer: el.viewDeveloper,
   };
-  const WORK_VIEWS = new Set(["capabilities", "phone", "files", "research", "creative", "business", "developer", "plans", "feature"]);
+  const MOBILE_KEYBOARD = window.matchMedia("(max-width: 899px)");
 
   function setupBottomNav() {
     document.body.dataset.activeView = state.activeView;
@@ -1175,11 +1185,84 @@
       btn.addEventListener("click", () => setActiveView(btn.dataset.homeView));
     }
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
-    el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
-    el.openChatBtn?.addEventListener("click", () => setActiveView("chat"));
-    el.homeDeveloperCard?.addEventListener("click", () => setActiveView("developer"));
+    for (const btn of document.querySelectorAll("[data-nav]")) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView(btn.dataset.nav);
+      });
+    }
+    for (const btn of document.querySelectorAll('[data-home-action="voice"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        startListening();
+      });
+    }
+    for (const btn of document.querySelectorAll('[data-home-action="upload"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        el.fileInput.click();
+      });
+    }
+    el.homeOrb?.addEventListener("click", () => {
+      haptic();
+      setActiveView("chat");
+      startListening();
+    });
+    el.chatNewBtn?.addEventListener("click", () => {
+      haptic();
+      startNewConversation();
+    });
+    // On phones the on-screen keyboard shrinks the viewport; hide the tab bar while typing so
+    // the composer sits directly above the keyboard and nothing is covered.
+    el.input.addEventListener("focus", () => {
+      if (MOBILE_KEYBOARD.matches) document.body.classList.add("keyboard-open");
+    });
+    el.input.addEventListener("blur", () => {
+      // Keep the keyboard layout while focus stays inside the composer (e.g. Send).
+      setTimeout(() => {
+        if (!el.composer.contains(document.activeElement)) document.body.classList.remove("keyboard-open");
+      }, 0);
+    });
+    // Tapping Send/mic must not pull focus out of the textarea: the keyboard stays up and the
+    // composer doesn't shift under the finger mid-tap.
+    for (const control of [el.sendBtn, el.micBtn]) {
+      control.addEventListener("pointerdown", (event) => {
+        if (document.activeElement === el.input) event.preventDefault();
+      });
+    }
+    setupActivityControls();
     setupHomeAsk();
     setupWorkspacePrompts();
+    renderHomeGreeting();
+  }
+
+  function renderHomeGreeting() {
+    if (!el.homeGreeting) return;
+    const copy = COPY[state.lang];
+    const hour = new Date().getHours();
+    const key = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+    el.homeGreeting.textContent = copy.homeGreetings[key];
+    if (el.homeTitleSub) el.homeTitleSub.textContent = copy.homeSub;
+    const homeInput = document.getElementById("home-ask-input");
+    if (homeInput) homeInput.placeholder = copy.placeholder;
+  }
+
+  /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
+   * The previous conversation stays on the server. */
+  function startNewConversation() {
+    if (currentTurnController) cancelCurrentTurn();
+    localStorage.removeItem(STORAGE_KEYS.conversationId);
+    state.conversationId = null;
+    state.history = [];
+    state.firstTurn = true;
+    el.conversation.replaceChildren();
+    syncChatConversationLayout();
+    recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
+    updateSettingsValues();
+    if (state.activeView !== "chat") setActiveView("chat");
+    el.input.focus();
   }
 
   // Home feature cards are real entry points into the same Chat pipeline — no fake
@@ -1198,10 +1281,29 @@
     if (el.capabilityHub && window.ZarvisFeatures) {
       window.ZarvisFeatures.renderHub(el.capabilityHub);
       el.capabilityHub.addEventListener("click", (event) => {
-        const button = event.target.closest("[data-feature-page]");
+        const button = event.target.closest("[data-cap-action]");
         if (!button) return;
         haptic();
-        openFeature(button.dataset.featurePage);
+        const action = button.dataset.capAction;
+        if (action === "voice") {
+          setActiveView("chat");
+          startListening();
+        } else if (action === "attach") {
+          setActiveView("chat");
+          el.fileInput.click();
+        } else if (action === "developer") {
+          setActiveView("developer");
+        } else if (action === "settings") {
+          setActiveView("settings");
+          openSettingsPage(button.dataset.capSettings || "voice");
+        } else if (action === "feature") {
+          openFeature(button.dataset.featurePage);
+        } else {
+          setActiveView("chat");
+          el.input.value = button.dataset.capPrompt || "";
+          resizeComposer();
+          el.input.focus();
+        }
       });
     }
   }
@@ -1232,7 +1334,8 @@
       return;
     }
     if (feature.action === "phone" || feature.id === "phone") {
-      setActiveView("phone");
+      setActiveView("settings");
+      openSettingsPage("permissions");
       return;
     }
     if (feature.action === "developer" && (!prompt || prompt === feature.prompt)) {
@@ -1320,25 +1423,32 @@
     }
     const navView = view === "feature" ? "capabilities" : view;
     for (const item of el.navItems) {
-      const target = item.dataset.view;
-      const inBottom = Boolean(item.closest(".bottom-nav"));
-      const active = target === navView || (inBottom && target === "work" && WORK_VIEWS.has(view));
+      const active = item.dataset.view === navView;
       item.classList.toggle("active", active);
-      if (item.getAttribute("role") !== "tab") item.setAttribute("aria-current", active ? "page" : "false");
+      if (active) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
     }
     el.composer.hidden = view !== "chat";
+    document.body.classList.remove("keyboard-open");
+    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
 
     if (view === "capabilities") renderCapabilities();
     if (view === "plans") refreshPlans();
     if (view === "metrics") {
       renderLatencyLog();
+      renderMetricsUsage();
       refreshMetricsHealth();
       refreshTasks();
       startMetricsPolling();
     }
     if (view === "activity") refreshActivity();
-    if (view === "home") renderHomeActivity();
+    if (view === "home") {
+      renderHomeGreeting();
+      renderHomeActivity();
+    }
     if (view === "developer") void refreshGithubStatus();
+    if (view === "settings") updateSettingsValues();
+    if (view === "chat") scrollConversationToBottom();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
@@ -1352,24 +1462,22 @@
     {
       name: "FREE",
       tag: null,
-      tagline: "Get started with zero commitment.",
-      features: ["LOW-risk, low-cost skills only", "Voice + text, English/Hindi/Hinglish", "Standard response speed"],
+      tagline: "Everything you need to get started.",
+      features: ["Conversation and voice in English, Hindi and Hinglish", "Documents, research, writing and business drafts", "Tracked tasks and Developer Agent analysis"],
       highlighted: false,
     },
     {
       name: "PRO",
       tag: "Recommended",
-      tagline: "Full access across every shipped skill.",
+      tagline: "Every skill ZARVIS ships.",
       features: [
-        "Every skill Zarvis ships, at every risk tier",
-        "Higher usage/credit ceiling",
-        "Priority orchestrator queueing",
+        "Everything in Free",
+        "Developer Agent pull requests, after your approval",
+        "Access to every current skill",
       ],
       highlighted: true,
     },
   ];
-
-  let currentPlanName = null;
 
   function setupPlans() {
     const options = el.billingToggle.querySelectorAll(".billing-option");
@@ -1393,8 +1501,8 @@
     el.confirmModalTitle.textContent = title;
     el.confirmModalBody.textContent = body;
     el.confirmModalConfirm.textContent = confirmLabel;
-    el.confirmModalConfirm.classList.toggle("zarvis-btn-danger", destructive);
-    el.confirmModalConfirm.classList.toggle("zarvis-btn-primary", !destructive);
+    el.confirmModalConfirm.classList.toggle("btn-danger", destructive);
+    el.confirmModalConfirm.classList.toggle("btn-primary", !destructive);
     el.confirmModal.hidden = false;
     el.confirmModalCancel.focus();
 
@@ -1450,6 +1558,10 @@
     el.appearanceAuroraBtn?.addEventListener("click", () => setAppearance("aurora"));
     el.appearanceDimBtn?.addEventListener("click", () => setAppearance("dim"));
     el.settingsOpenDeveloper?.addEventListener("click", () => setActiveView("developer"));
+    el.settingsNewConversation?.addEventListener("click", () => {
+      haptic();
+      startNewConversation();
+    });
     for (const btn of document.querySelectorAll("[data-settings-open-privacy]")) {
       btn.addEventListener("click", () => openSettingsPage("privacy"));
     }
@@ -1501,6 +1613,7 @@
     }
     if (page === "account") void refreshAccountPanel();
     if (page === "permissions") void renderPermissionCenter();
+    if (page === "ai") void renderAiProvider();
     el.settingsPanelBack?.focus?.();
   }
 
@@ -1515,12 +1628,50 @@
     state.appearance = mode;
     localStorage.setItem("zarvis.appearance", mode);
     applyAppearance();
+    updateSettingsValues();
+  }
+
+  /** Current value shown on each Settings row. */
+  function updateSettingsValues() {
+    const set = (key, value) => {
+      const node = document.querySelector(`[data-setting-value="${key}"]`);
+      if (node) node.textContent = value;
+    };
+    const email = localStorage.getItem(SESSION_KEYS.email);
+    const isGuest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+    set("account", isGuest ? "Guest" : email || "Signed in");
+    set("subscription", currentPlanName ? currentPlanName.charAt(0) + currentPlanName.slice(1).toLowerCase() : "");
+    set("voice", state.speak ? "On" : "Off");
+    set("language", state.lang === "hi" ? "हिंदी" : "English");
+    set("appearance", state.appearance === "dim" ? "Dim" : "Light");
+    set("memory", state.conversationId ? "Saved" : "New");
+    if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
+  }
+
+  async function fetchHealth() {
+    const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
+    healthCache = await res.json();
+    updateSettingsValues();
+    return healthCache;
+  }
+
+  async function renderAiProvider() {
+    if (!el.settingsAiProvider) return;
+    el.settingsAiProvider.textContent = "Checking…";
+    try {
+      const health = healthCache || (await fetchHealth());
+      el.settingsAiProvider.textContent = health.provider === "google"
+        ? "Google Gemini is answering your requests."
+        : "No AI provider is configured on this server, so answers are limited.";
+    } catch {
+      el.settingsAiProvider.textContent = "Couldn't reach the server to check.";
+    }
   }
 
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#12110f" : "#f4f1eb");
+    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#070a14" : "#f6f7fb");
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -1529,11 +1680,15 @@
   async function refreshActivity() {
     if (!el.activityTaskList) return;
     const refreshBtn = el.activityRefreshBtn;
-    if (refreshBtn) {
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = "Refreshing…";
-    }
+    if (refreshBtn) refreshBtn.disabled = true;
     el.activityTaskList.setAttribute("aria-busy", "true");
+    renderActivityTimeline();
+    if (!el.activityTaskList.children.length) {
+      const skeleton = document.createElement("div");
+      skeleton.className = "skeleton skeleton-row";
+      skeleton.setAttribute("aria-hidden", "true");
+      el.activityTaskList.appendChild(skeleton);
+    }
     let tasks = null;
     try {
       tasks = await fetchTasks();
@@ -1542,20 +1697,18 @@
       tasks = null;
     }
     el.activityTaskList.innerHTML = "";
-    if (refreshBtn) {
-      refreshBtn.disabled = false;
-      refreshBtn.textContent = "Refresh";
-    }
+    if (refreshBtn) refreshBtn.disabled = false;
     el.activityTaskList.removeAttribute("aria-busy");
     if (!tasks) {
-      el.activityTaskList.appendChild(emptyState("Something went wrong", "Try again from Refresh."));
+      el.activityTaskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
       return;
     }
     if (!tasks.length) {
-      el.activityTaskList.appendChild(emptyState("Nothing here yet", "Create a tracked task from Chat. ZARVIS stores the steps. It does not run them."));
+      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here."));
       return;
     }
     for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
+    applyActivityFilter();
   }
 
   async function deleteAccount() {
@@ -1599,12 +1752,15 @@
   }
 
   /** Asks the server for a one-time confirmation of this exact change, then shows it. */
+  let lastDeveloperAction = null;
+
   async function implementRepo() {
+    lastDeveloperAction = implementRepo;
     const repoUrl = el.developerRepoInput.value.trim();
     const requirement = el.developerRequirementInput.value.trim();
     el.developerResult.innerHTML = "";
     if (!repoUrl || !requirement) {
-      renderDeveloperMessage("Repository URL and implementation requirement are both required.", "error");
+      renderDeveloperMessage("Add a repository URL and describe the change to implement.", "error", false);
       return;
     }
     el.developerImplementBtn.disabled = true;
@@ -1615,6 +1771,7 @@
       if (res.ok && body.kind === "confirmation_required") {
         setDeveloperStage("implement", "Waiting for you", "z-badge-info");
         renderConfirmationCard(body.confirmation, el.developerResult);
+        revealDeveloperResult();
         return;
       }
       setDeveloperStage("implement", "Couldn't start", "z-badge-off");
@@ -1633,9 +1790,14 @@
   }
 
   async function analyzeRepo() {
+    lastDeveloperAction = analyzeRepo;
     const repoUrl = el.developerRepoInput.value.trim();
     el.developerResult.innerHTML = "";
-    if (!repoUrl) return;
+    if (!repoUrl) {
+      renderDeveloperMessage("Add a repository URL, then run Analyze.", "error", false);
+      el.developerRepoInput.focus();
+      return;
+    }
 
     el.developerAnalyzeBtn.disabled = true;
     el.developerAnalyzeBtn.textContent = "Analyzing…";
@@ -1660,7 +1822,7 @@
     }
   }
 
-  function renderDeveloperMessage(message, status) {
+  function renderDeveloperMessage(message, status, retryable = true) {
     const widget = document.createElement("div");
     widget.className = "result-widget";
     widget.dataset.kind = "code";
@@ -1676,12 +1838,70 @@
     renderFormattedText(body, message);
     widget.appendChild(body);
 
+    if (status === "error" && retryable && lastDeveloperAction) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "btn btn-secondary widget-retry";
+      retry.textContent = "Try again";
+      const action = lastDeveloperAction;
+      retry.addEventListener("click", () => {
+        haptic();
+        void action();
+      });
+      widget.appendChild(retry);
+    }
     el.developerResult.appendChild(widget);
+    revealDeveloperResult();
+    // A validation hint (retryable === false) is not a run: no status change, no history entry.
+    if (!retryable && status === "error") return;
     lastDeveloperNote = { status, message };
+    setRunStatus(status === "success" ? "completed" : "failed");
+    const line = String(message || "").split("\n").find((text) => text.trim()) || "";
+    const title = line.replace(/[#*`_>]/g, "").trim().slice(0, 90) || (status === "success" ? "Completed" : "Failed");
+    recordActivity("developer", title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
+    appendDeveloperLog(title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
     renderHomeActivity();
   }
 
+  function revealDeveloperResult() {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => el.developerResult.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" }));
+  }
+
+  const RUN_STATUS_LABELS = { idle: "Idle", thinking: "Thinking", working: "Working", waiting: "Waiting for approval", completed: "Completed", failed: "Failed" };
+
+  function setRunStatus(tone) {
+    if (!el.developerRunStatus) return;
+    el.developerRunStatus.dataset.tone = tone;
+    const label = el.developerRunStatus.querySelector("span:last-child");
+    if (label) label.textContent = RUN_STATUS_LABELS[tone] || tone;
+  }
+
+  function appendDeveloperLog(title, meta, tone) {
+    if (!el.developerLog) return;
+    const item = document.createElement("li");
+    item.className = "timeline-item";
+    item.dataset.tone = tone;
+    const dot = document.createElement("span");
+    dot.className = "timeline-dot";
+    dot.appendChild(svgIcon(tone === "ok" ? "i-check" : "i-x"));
+    const body = document.createElement("div");
+    body.className = "timeline-body";
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const small = document.createElement("div");
+    small.className = "timeline-meta";
+    small.textContent = meta + " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    body.append(strong, small);
+    item.append(dot, body);
+    el.developerLog.querySelector(".timeline-empty")?.remove();
+    el.developerLog.prepend(item);
+  }
+
   function setDeveloperStage(name, label, tone) {
+    const runTone = label === "Checking" ? "thinking" : label === "Running" ? "working" : label === "Waiting for you" ? "waiting"
+      : label === "Completed" ? "completed" : /^Couldn't/.test(label) ? "failed" : null;
+    if (runTone) setRunStatus(runTone);
     const card = document.querySelector(`#developer-stages [data-stage="${name}"] .z-badge`);
     if (!card) return;
     card.textContent = label;
@@ -1697,9 +1917,9 @@
         currentPlanName = snapshot.plan;
         el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: snapshot.plan }));
         el.plansCurrent.appendChild(renderStatTile({ label: "Credits", value: String(snapshot.creditBalance) }));
-        if (snapshot.trialExpiresAt) {
-          el.plansCurrent.appendChild(renderStatTile({ label: "Trial ends", value: new Date(snapshot.trialExpiresAt).toLocaleDateString() }));
-        }
+        el.plansCurrent.appendChild(renderStatTile({ label: "Trial", value: snapshot.trialExpiresAt ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString() : "None" }));
+        el.plansCurrent.appendChild(renderStatTile({ label: "Billing", value: "Not connected" }));
+        updateSettingsValues();
       }
     } catch {
       // The Free/Pro comparison below still renders regardless — this tile row is a
@@ -1715,7 +1935,7 @@
 
   function renderPlanCard(plan, currentPlan) {
     const card = document.createElement("div");
-    card.className = plan.highlighted ? "z-card z-card-settings plan-card highlighted" : "z-card z-card-settings plan-card";
+    card.className = plan.highlighted ? "plan-card highlighted" : "plan-card";
 
     const top = document.createElement("div");
     top.className = "plan-card-top";
@@ -1737,7 +1957,7 @@
     if (plan.highlighted) {
       const note = document.createElement("p");
       note.className = "plan-card-note";
-      note.textContent = `Billed ${state.billing} · pricing coming soon`;
+      note.textContent = `Billed ${state.billing} · pricing not available yet`;
       card.appendChild(note);
     }
 
@@ -1762,20 +1982,36 @@
 
   const MAX_LATENCY_ENTRIES = 50;
 
-  function recordLatency(label, durationMs, success) {
-    latencyEntries = [{ id: `${Date.now()}-${Math.random()}`, label, durationMs, success }, ...latencyEntries].slice(0, MAX_LATENCY_ENTRIES);
-    if (state.activeView === "metrics") renderLatencyLog();
+  function recordLatency(label, durationMs, success, isVoice = false) {
+    const title = summarizeUtterance(label);
+    latencyEntries = [{ id: `${Date.now()}-${Math.random()}`, label: title, durationMs, success, isVoice }, ...latencyEntries].slice(0, MAX_LATENCY_ENTRIES);
+    recordActivity(isVoice ? "voice" : "conversation", title, success ? (isVoice ? "Voice request" : "Answered") + " · " + durationMs + " ms" : "Didn't complete", success ? "ok" : "error");
+    if (state.activeView === "metrics") {
+      renderLatencyLog();
+      renderMetricsUsage();
+    }
+  }
+
+  /** First line of what the user asked, without an attached document's text. */
+  function summarizeUtterance(text) {
+    const withoutDoc = String(text || "").split("\n\n[Attached document:")[0];
+    const line = withoutDoc.split("\n")[0].trim();
+    return line.length > 90 ? line.slice(0, 87) + "…" : line || "Request";
   }
 
   async function refreshMetricsHealth() {
-    el.metricsHealthGrid.innerHTML = "";
+    let body = null;
     try {
-      const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
-      const body = await res.json();
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI Provider", value: body.provider === "google" ? "Gemini (live)" : "Mock" }));
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Backend", value: "Online" }));
+      body = await fetchHealth();
     } catch {
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Backend", value: "Offline" }));
+      body = null;
+    }
+    el.metricsHealthGrid.replaceChildren();
+    if (body) {
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI provider", value: body.provider === "google" ? "Gemini" : "Not configured" }));
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Server", value: "Online" }));
+    } else {
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Server", value: "Offline" }));
     }
   }
 
@@ -1787,15 +2023,16 @@
         : `${Math.round(latencyEntries.reduce((sum, entry) => sum + entry.durationMs, 0) / latencyEntries.length)}ms`;
     const successRate =
       latencyEntries.length === 0 ? "—" : `${Math.round((latencyEntries.filter((entry) => entry.success).length / latencyEntries.length) * 100)}%`;
-    el.latencyStats.appendChild(renderStatTile({ label: "Avg Latency", value: avgMs }));
-    el.latencyStats.appendChild(renderStatTile({ label: "Turns Logged", value: String(latencyEntries.length) }));
-    el.latencyStats.appendChild(renderStatTile({ label: "Success Rate", value: successRate }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Average", value: avgMs }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Requests", value: String(latencyEntries.length) }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Success", value: successRate }));
+    renderTrend();
 
     el.latencyLog.innerHTML = "";
     if (latencyEntries.length === 0) {
       const empty = document.createElement("p");
       empty.className = "latency-empty";
-      empty.textContent = "No turns yet this session — ask Zarvis something on Workspace and it shows up here instantly.";
+      empty.textContent = "No requests yet this session. Ask ZARVIS something in Chat.";
       el.latencyLog.appendChild(empty);
       return;
     }
@@ -1833,9 +2070,68 @@
     }
   }
 
+  function renderTrend() {
+    if (!el.metricsTrend) return;
+    el.metricsTrend.replaceChildren();
+    const entries = latencyEntries.slice(0, 20).reverse();
+    if (!entries.length) {
+      const empty = document.createElement("p");
+      empty.className = "trend-empty";
+      empty.textContent = "Response times appear here after your first request.";
+      el.metricsTrend.appendChild(empty);
+      return;
+    }
+    const max = Math.max(...entries.map((entry) => entry.durationMs), 1);
+    entries.forEach((entry, index) => {
+      const bar = document.createElement("span");
+      bar.className = "trend-bar" + (entry.success ? "" : " is-failed");
+      bar.style.height = Math.max(4, Math.round((entry.durationMs / max) * 100)) + "%";
+      bar.style.animationDelay = index * 20 + "ms";
+      bar.title = `${entry.label} — ${entry.durationMs} ms`;
+      el.metricsTrend.appendChild(bar);
+    });
+    el.metricsTrend.setAttribute("aria-label", `Response time for the last ${entries.length} requests, longest ${max} ms`);
+  }
+
+  /** Usage for this session (measured here) plus the account's live credit balance. */
+  async function renderMetricsUsage() {
+    if (!el.metricsUsage) return;
+    const count = (type) => activityLog.filter((entry) => entry.type === type).length;
+    const conversations = state.history.filter((message) => message.role === "user").length;
+    const tiles = [
+      { label: "Conversation turns", value: String(conversations) },
+      { label: "AI requests", value: String(latencyEntries.length) },
+      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length) },
+      { label: "Files read", value: String(count("file")) },
+      { label: "Developer runs", value: String(count("developer")) },
+      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—" },
+      { label: "Credits", value: "…", id: "metrics-credits" },
+      { label: "Plan", value: currentPlanName || "…", id: "metrics-plan" },
+    ];
+    el.metricsUsage.replaceChildren(...tiles.map((tile) => {
+      const node = renderStatTile(tile);
+      if (tile.id) node.id = tile.id;
+      return node;
+    }));
+    try {
+      const res = await apiFetch("/entitlements/me");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const snapshot = await res.json();
+      currentPlanName = snapshot.plan;
+      const credits = document.querySelector("#metrics-credits .stat-tile-value");
+      const plan = document.querySelector("#metrics-plan .stat-tile-value");
+      if (credits) credits.textContent = String(snapshot.creditBalance);
+      if (plan) plan.textContent = snapshot.plan;
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      const credits = document.querySelector("#metrics-credits .stat-tile-value");
+      if (credits) credits.textContent = "—";
+    }
+  }
+
   function renderStatTile({ label, value }) {
     const tile = document.createElement("div");
-    tile.className = "z-card z-card-stat stat-tile";
+    tile.className = "stat-tile";
     const labelEl = document.createElement("span");
     labelEl.className = "stat-tile-label";
     labelEl.textContent = label;
@@ -1860,95 +2156,204 @@
     return box;
   }
 
+  const ACTIVITY_ICONS = {
+    conversation: "i-chat",
+    voice: "i-mic",
+    ai: "i-sparkle",
+    file: "i-file",
+    developer: "i-code",
+    task: "i-task",
+  };
+  const ACTIVITY_LABELS = {
+    conversation: "Chat",
+    voice: "Voice",
+    ai: "AI action",
+    file: "File",
+    developer: "Developer",
+    task: "Task",
+  };
+  const activityFilter = { type: "all", query: "" };
+
+  function svgIcon(id) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "ico");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#" + id);
+    svg.appendChild(use);
+    return svg;
+  }
+
+  /** Adds one entry to this session's activity (newest first) and refreshes what shows it. */
+  function recordActivity(type, title, meta, tone) {
+    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date() });
+    if (activityLog.length > 200) activityLog.length = 200;
+    if (state.activeView === "activity") renderActivityTimeline();
+    if (state.activeView === "home") renderHomeActivity();
+  }
+
+  function listRow({ icon, tone, title, meta, onClick }) {
+    const row = document.createElement(onClick ? "button" : "div");
+    if (onClick) {
+      row.type = "button";
+      row.addEventListener("click", onClick);
+    }
+    row.className = "list-row";
+    const ico = document.createElement("span");
+    ico.className = "row-ico " + (tone || "tone-blue");
+    ico.appendChild(svgIcon(icon));
+    const copy = document.createElement("span");
+    copy.className = "list-row-copy";
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const small = document.createElement("small");
+    small.textContent = meta;
+    copy.append(strong, small);
+    row.append(ico, copy);
+    if (onClick) {
+      const chev = svgIcon("i-right");
+      chev.classList.add("row-chev");
+      row.appendChild(chev);
+    }
+    return row;
+  }
+
   function renderHomeActivity() {
     const root = document.getElementById("home-activity");
     if (!root) return;
     root.replaceChildren();
-    if (latestTasks === undefined) {
-      const skeleton = document.createElement("div");
-      skeleton.className = "z-skeleton";
-      skeleton.setAttribute("aria-hidden", "true");
-      root.appendChild(skeleton);
-      return;
-    }
     const rows = [];
+    if (state.pendingAttachment) {
+      rows.push(listRow({ icon: "i-file", tone: "tone-cyan", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
+    }
+    for (const entry of activityLog.slice(0, 3)) {
+      rows.push(listRow({
+        icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
+        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" ? "tone-cyan" : "tone-blue",
+        title: entry.title,
+        meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
+        onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
+      }));
+    }
     if (Array.isArray(latestTasks)) {
-      for (const task of latestTasks.slice(0, 3)) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "z-card z-card-task activity-row";
-        const status = document.createElement("span");
-        status.className = "task-status-badge";
-        status.textContent = task.status;
-        const title = document.createElement("strong");
-        title.textContent = task.goal;
-        const meta = document.createElement("small");
-        meta.textContent = formatRelativeTime(task.createdAt) + " · Status only";
-        button.append(status, title, meta);
-        button.addEventListener("click", () => setActiveView("activity"));
-        rows.push(button);
+      for (const task of latestTasks.slice(0, Math.max(0, 4 - rows.length))) {
+        rows.push(listRow({ icon: "i-task", tone: "tone-pink", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
       }
     }
-    const recentUser = state.history.filter((message) => message.role === "user").slice(-2).reverse();
-    for (const message of recentUser) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "z-card z-card-insight activity-row";
-      const status = document.createElement("span");
-      status.className = "task-status-badge";
-      status.textContent = "Conversation";
-      const title = document.createElement("strong");
-      const line = String(message.content || "").split("\n")[0].replace(/^📎\s*/, "");
-      title.textContent = line.length > 80 ? line.slice(0, 77) + "…" : line;
-      button.append(status, title);
-      button.addEventListener("click", () => setActiveView("chat"));
-      rows.push(button);
-    }
-    if (state.pendingAttachment) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "z-card z-card-status activity-row";
-      const status = document.createElement("span");
-      status.className = "z-badge z-badge-ok";
-      status.textContent = "Ready";
-      const title = document.createElement("strong");
-      title.textContent = state.pendingAttachment.filename;
-      const meta = document.createElement("small");
-      meta.textContent = "Ask about this file in Chat.";
-      button.append(status, title, meta);
-      button.addEventListener("click", () => setActiveView("files"));
-      rows.push(button);
-    }
-    if (lastDeveloperNote) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "z-card z-card-status activity-row";
-      const status = document.createElement("span");
-      status.className = "task-status-badge";
-      status.textContent = lastDeveloperNote.status === "success" ? "Developer" : "Developer";
-      const title = document.createElement("strong");
-      const line = String(lastDeveloperNote.message || "").split("\n")[0];
-      title.textContent = line.length > 80 ? line.slice(0, 77) + "…" : line;
-      button.append(status, title);
-      button.addEventListener("click", () => setActiveView("developer"));
-      rows.push(button);
+    if (!rows.length && state.history.length) {
+      const last = [...state.history].reverse().find((message) => message.role === "user");
+      if (last) rows.push(listRow({ icon: "i-chat", tone: "tone-blue", title: summarizeUtterance(String(last.content || "").replace(/^📎\s*/, "")), meta: "Conversation", onClick: () => setActiveView("chat") }));
     }
     if (!rows.length) {
+      if (latestTasks === undefined) {
+        const skeleton = document.createElement("div");
+        skeleton.className = "skeleton skeleton-row";
+        skeleton.setAttribute("aria-hidden", "true");
+        root.appendChild(skeleton);
+        return;
+      }
       if (latestTasks === null) {
-        const failed = emptyState("Something went wrong", "Tasks could not be loaded. Try again.");
+        const failed = emptyState("Couldn't load your activity", "Check your connection and try again.");
         const retry = document.createElement("button");
         retry.type = "button";
-        retry.className = "zarvis-btn zarvis-btn-secondary";
+        retry.className = "btn btn-secondary";
         retry.textContent = "Try again";
         retry.addEventListener("click", () => { void fetchTasks().catch(() => {}); });
         failed.appendChild(retry);
         root.appendChild(failed);
         return;
       }
-      root.appendChild(emptyState("Your workspace is ready", "Start a conversation or create your first task."));
+      root.appendChild(emptyState("Nothing yet", "Your conversations and actions will appear here."));
       return;
     }
-    for (const row of rows) root.appendChild(row);
+    rows.forEach((row, index) => {
+      row.style.animationDelay = index * 40 + "ms";
+      root.appendChild(row);
+    });
+  }
+
+  function setupActivityControls() {
+    el.activitySearch?.addEventListener("input", () => {
+      activityFilter.query = el.activitySearch.value.trim().toLowerCase();
+      applyActivityFilter();
+    });
+    el.activityFilters?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-filter]");
+      if (!button) return;
+      haptic();
+      activityFilter.type = button.dataset.filter;
+      for (const seg of el.activityFilters.querySelectorAll("[data-filter]")) {
+        const active = seg === button;
+        seg.classList.toggle("active", active);
+        seg.setAttribute("aria-pressed", String(active));
+      }
+      applyActivityFilter();
+    });
+  }
+
+  function matchesQuery(text) {
+    return !activityFilter.query || String(text || "").toLowerCase().includes(activityFilter.query);
+  }
+
+  function renderActivityTimeline() {
+    const root = el.activityTimeline;
+    if (!root) return;
+    root.replaceChildren();
+    const type = activityFilter.type;
+    const entries = activityLog.filter((entry) => {
+      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai");
+      return typeOk && matchesQuery(entry.title + " " + entry.meta);
+    });
+    if (!entries.length) {
+      const empty = document.createElement("li");
+      empty.className = "timeline-empty";
+      empty.textContent = activityLog.length ? "No activity matches this filter." : "Nothing yet this session. Ask ZARVIS something to get started.";
+      root.appendChild(empty);
+      return;
+    }
+    entries.slice(0, 60).forEach((entry, index) => {
+      const item = document.createElement("li");
+      item.className = "timeline-item";
+      item.dataset.tone = entry.tone;
+      item.style.animationDelay = Math.min(index * 30, 300) + "ms";
+      const dot = document.createElement("span");
+      dot.className = "timeline-dot";
+      dot.appendChild(svgIcon(ACTIVITY_ICONS[entry.type] || "i-sparkle"));
+      const body = document.createElement("div");
+      body.className = "timeline-body";
+      const title = document.createElement("strong");
+      title.textContent = entry.title;
+      const meta = document.createElement("div");
+      meta.className = "timeline-meta";
+      const label = document.createElement("span");
+      label.textContent = ACTIVITY_LABELS[entry.type] || "Activity";
+      const when = document.createElement("span");
+      when.textContent = formatRelativeTime(entry.at);
+      meta.append(label, when);
+      if (entry.meta) {
+        const extra = document.createElement("span");
+        extra.textContent = entry.meta;
+        meta.appendChild(extra);
+      }
+      body.append(title, meta);
+      item.append(dot, body);
+      root.appendChild(item);
+    });
+  }
+
+  /** Shows/hides the timeline and task blocks for the chosen filter, and filters tasks by text. */
+  function applyActivityFilter() {
+    const type = activityFilter.type;
+    const timelineBlock = document.querySelector('[data-activity-block="timeline"]');
+    const taskBlock = document.querySelector('[data-activity-block="task"]');
+    if (timelineBlock) timelineBlock.hidden = type === "task";
+    if (taskBlock) taskBlock.hidden = type !== "all" && type !== "task";
+    renderActivityTimeline();
+    if (el.activityTaskList) {
+      for (const card of el.activityTaskList.querySelectorAll(".task-card")) {
+        card.hidden = !matchesQuery(card.textContent);
+      }
+    }
   }
 
   async function fetchTasks() {
@@ -2023,7 +2428,7 @@
 
   function renderTaskCard(task) {
     const card = document.createElement("div");
-    card.className = "z-card z-card-task task-card";
+    card.className = "task-card";
     card.dataset.status = task.status;
     if (task.status === "RUNNING") card.classList.add("glow-active");
 
@@ -2177,7 +2582,7 @@
         console.error("Realtime orchestrator failed:", res.status, body.error || body.reason);
         addErrorBubble(COPY[state.lang].bootError, utterance);
         setOrbState("ERROR");
-        recordLatency(utterance, Math.round(performance.now() - startedAt), false);
+        recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
         return;
       }
 
@@ -2306,7 +2711,7 @@
           state.history = state.history.slice(-12);
           renderHomeActivity();
           state.firstTurn = false;
-          recordLatency(utterance, Math.round(performance.now() - startedAt), true);
+          recordLatency(utterance, Math.round(performance.now() - startedAt), true, isVoice);
           renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
@@ -2342,7 +2747,7 @@
       console.error(err);
       addErrorBubble(COPY[state.lang].bootError, utterance);
       setOrbState("ERROR");
-      recordLatency(utterance, Math.round(performance.now() - startedAt), false);
+      recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
     } finally {
       if (ttsStartTimer) {
         clearTimeout(ttsStartTimer);
@@ -2376,12 +2781,13 @@
     if (el.viewWorkspace) el.viewWorkspace.classList.toggle("has-messages", active);
   }
 
+  // The page (not the conversation element) scrolls; keep the newest message above the
+  // floating composer.
   function scrollConversationToBottom() {
-    if (!el.conversation) return;
-    el.conversation.scrollTop = el.conversation.scrollHeight;
-    requestAnimationFrame(() => {
-      el.conversation.scrollTop = el.conversation.scrollHeight;
-    });
+    if (!el.conversation || state.activeView !== "chat") return;
+    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+    toBottom();
+    requestAnimationFrame(toBottom);
   }
 
   function addBubble(role, text, utterance) {
@@ -2400,31 +2806,33 @@
     if (role === "assistant") {
       const actions = document.createElement("div");
       actions.className = "bubble-actions";
-      const copyBtn = document.createElement("button");
-      copyBtn.type = "button";
-      copyBtn.textContent = "Copy";
+      const actionButton = (iconId, label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        const labelNode = document.createElement("span");
+        labelNode.textContent = label;
+        button.append(svgIcon(iconId), labelNode);
+        return { button, labelNode };
+      };
+      const { button: copyBtn, labelNode: copyLabel } = actionButton("i-file", "Copy");
       copyBtn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(body.innerText || text);
-          copyBtn.textContent = "Copied";
+          copyLabel.textContent = "Copied";
         } catch {
-          copyBtn.textContent = "Copy failed";
+          copyLabel.textContent = "Copy failed";
         }
       });
       actions.appendChild(copyBtn);
       if (utterance) {
-        const again = document.createElement("button");
-        again.type = "button";
-        again.textContent = "Regenerate";
+        const { button: again } = actionButton("i-refresh", "Regenerate");
         again.addEventListener("click", () => {
           bubble.remove();
           runTurn(utterance, false);
         });
         actions.appendChild(again);
       }
-      const listen = document.createElement("button");
-      listen.type = "button";
-      listen.textContent = "Listen";
+      const { button: listen } = actionButton("i-wave", "Listen");
       listen.addEventListener("click", () => {
         void speak(body.innerText || text, null, true);
       });
@@ -2458,13 +2866,14 @@
       }
       const statusCode = call?.result?.status || (call?.outcome?.kind === "success" ? "COMPLETED" : "FAILED");
       const row = document.createElement("div");
-      row.className = "z-card z-card-tool tool-row";
+      row.className = "tool-row";
       row.dataset.status = statusCode;
       row.dataset.tone = TOOL_TONES[statusCode] || "";
       const top = document.createElement("div");
       top.className = "tool-row-top";
       const title = document.createElement("strong");
-      title.textContent = call.skillId || "Tool";
+      title.textContent = skillDisplayName(call.skillId);
+      title.title = call.skillId || "";
       const status = document.createElement("span");
       status.className = "z-badge";
       status.textContent = Logic.toolStatusLabel(statusCode);
@@ -2476,8 +2885,14 @@
       note.textContent = String(message).replace(/\s+/g, " ").slice(0, 220);
       row.appendChild(note);
       el.conversation.appendChild(row);
+      recordActivity("ai", skillDisplayName(call.skillId), Logic.toolStatusLabel(statusCode), statusCode === "COMPLETED" ? "ok" : TOOL_TONES[statusCode] === "failed" ? "error" : "");
     }
     scrollConversationToBottom();
+  }
+
+  function skillDisplayName(skillId) {
+    const skill = state.skills.find((item) => item.id === skillId);
+    return skill ? skill.name : skillId || "Tool";
   }
 
   function showProgress(thinkingNode, text) {
@@ -2505,7 +2920,7 @@
     bubble.className = "bubble assistant thinking";
     bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
     el.conversation.appendChild(bubble);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     return bubble;
   }
 
@@ -2543,7 +2958,7 @@
     bubble.appendChild(retryBtn);
 
     el.conversation.appendChild(bubble);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     announceChat(errorCopy.title + ". " + errorCopy.subtitle);
     return bubble;
   }
@@ -2566,7 +2981,7 @@
     bubble.appendChild(subtitle);
 
     el.conversation.appendChild(bubble);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     announceChat(copy.title + ". " + copy.subtitle);
     return bubble;
   }
@@ -2730,6 +3145,7 @@
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
     setFilesState(`${filename} is ready. Ask about it in Chat.`, "ready");
+    recordActivity("file", filename, "Ready to ask about", "ok");
     renderHomeActivity();
     el.input.focus();
   }
@@ -2862,7 +3278,7 @@
       stopSpeaking();
     });
     node.appendChild(row);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
   }
 
   function detachWaveform(node) {
@@ -2877,6 +3293,7 @@
   function setOrbState(newState) {
     el.orb.dataset.state = newState;
     el.heroStatus.dataset.state = newState;
+    document.body.dataset.orbState = newState;
     // A natural-language status ("Working…", "काम कर रहा हूँ…"), never the raw internal
     // state name — showing enum values like "EXECUTING" or "UNDERSTANDING" verbatim would be
     // exactly the kind of developer/debug leak the product content rules rule out. The
@@ -2922,7 +3339,7 @@
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("./sw.js", { updateViaCache: "none" })
-        .then((registration) => registration.update())
+        .then((registration) => registration?.update())
         .catch((err) => console.error("Service worker registration failed:", err));
     }
   }

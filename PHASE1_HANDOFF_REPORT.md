@@ -460,6 +460,49 @@ fixed. Blocking the §22A gate: the physical-device run (§5.5), Android 8/9 run
 a real 8/9 phone, a real location fix, and the live integrations (§5.3). Real-device checks still
 required are exactly those in §5.2 and §5.5.
 
+### 5.8 Web UI/UX rebuild (presentation only)
+
+The web client was redesigned as a premium, mobile-first product. No backend, API, auth, AI,
+Gemini, TTS, upload, Developer Agent or billing logic changed; every logic-bound element id and
+the E2E contract were preserved.
+
+- **Audit findings (before):**
+  - Home had 17 duplicated action/feature cards, and one grid rendered text one letter per line.
+  - There was no brand orb, and the navigation was 13-item/"Work" hub.
+  - Phone, Files, Research, Creative and Business had separate pages duplicating Capabilities.
+  - Metrics was referenced in code but had no page at all.
+  - Activity showed tasks only.
+  - Settings was one long list with no current values.
+  - The service worker threw on registration when blocked.
+- **New structure:**
+  - Home: aurora orb hero, greeting, ask bar, Start chat / Voice / Upload / Explore, quick actions, recent activity.
+  - Chat: sticky status, orb empty state, suggestions, bubbles with Copy / Regenerate / Listen, tool rows with the backend's structured status, confirmation cards, floating composer that stays above the keyboard.
+  - Activity: session timeline (chats, AI actions, files, voice, developer) plus tracked tasks, with search and filters.
+  - Capabilities: AI, Voice, Vision, Files, Automation, Developer and Productivity, with honest statuses and real actions, plus detail pages.
+  - Developer Agent: task, pipeline, Thinking / Working / Waiting / Completed / Failed status, GitHub, result with retry, run history.
+  - Plans: plan, credits, trial and billing status, honest plan copy (the only PRO-gated skill today is Developer Agent pull requests; there is no priority queue or per-plan credit ceiling).
+  - Metrics (new): session usage, credits, response-time trend, service health, recent requests.
+  - Settings: 11 categories, each with its own page and current value; Memory adds "New conversation" (client pointer only).
+- **Navigation:** Home, Chat, Activity and Capabilities; Settings and Developer Agent are in the top bar on phones and in the sidebar on desktop.
+- **Design system:**
+  - Light aurora palette and dim mode, Inter / Manrope type scale.
+  - Consistent buttons, lists, panels, badges and states.
+  - Calm motion, `prefers-reduced-motion`, no inline styles (the CSP forbids them).
+- **Fixes found while testing:**
+  - Tapping Send while the keyboard was open blurred the textarea, shifted the composer and missed the tap.
+  - New messages scrolled under the composer.
+  - The chat header overflowed by 4 px at 360 px.
+  - Validation hints were logged as failed developer runs.
+  - The service worker used HTTP-cached CSS and intercepted third-party font requests.
+- **Checks:**
+  - 5 widths (360, 412, 768, 1280, 1600) × 11 pages: 0 horizontal overflow, 0 app console errors.
+  - Dim mode, Hindi, keyboard focus order, and accessible names on every control.
+  - Touch targets ≥ 32 px (primary ≥ 44 px).
+  - Confirmation card rendered with a PRO account and GitHub stub.
+  - Service worker verified in a real browser.
+  - Backend 230/230, tsc clean, web unit 6/6, Playwright E2E 14/14.
+- **Needs the phone:** the on-screen keyboard behaviour and orb smoothness on the Nothing Phone 2A browser / WebView.
+
 ## 6. Other bugs fixed (earlier in this PR)
 
 **Web:**
