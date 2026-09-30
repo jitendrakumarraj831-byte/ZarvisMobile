@@ -5,7 +5,7 @@ import {
   EmailTakenError,
   InsufficientCreditsError,
   type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
-  type ConversationMessage, type GitHubConnection, type Store, type TrialRecord, type UsageEntry, type User
+  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type UsageEntry, type User
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -136,6 +136,40 @@ export class PostgresStore implements Store {
     // connection string from your provider, e.g. Vercel Postgres/Neon's "Pooled connection").
     const { connectionString: sanitized, ssl } = poolConfigFor(connectionString);
     this.pool = new Pool({ connectionString: sanitized, max: 5, ssl });
+  }
+
+  /**
+   * Opens a connection, ensures the schema and runs one query, within 5 s. The result is a
+   * fixed code (never the error text, which can contain connection details); the full error is
+   * logged server-side with the action that fixes it.
+   */
+  async healthCheck(): Promise<StoreHealth> {
+    try {
+      await Promise.race([
+        this.ensureSchema().then(() => this.pool.query("SELECT 1")),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("health check timed out")), 5000)),
+      ]);
+      return "ok";
+    } catch (err) {
+      const status = classifyDatabaseError(err);
+      console.error(
+        JSON.stringify({
+          level: "error",
+          message: "Database health check failed",
+          status,
+          hint:
+            status === "tls_certificate_untrusted"
+              ? "The database's TLS certificate is not publicly trusted. Set POSTGRES_CA_CERT to the provider's CA certificate (preferred), or POSTGRES_SSL_MODE=no-verify, in every Vercel environment that uses this database (Production and Preview)."
+              : status === "auth_failed"
+                ? "Check the user and password in POSTGRES_URL for this environment."
+                : status === "unreachable"
+                  ? "Check the host/port in POSTGRES_URL and that the database accepts connections from Vercel."
+                  : undefined,
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
+        }),
+      );
+      return status;
+    }
   }
 
   private ensureSchema(): Promise<void> {
@@ -703,6 +737,19 @@ function toTask(row: TaskRow): Task {
     riskLevel: row.risk_level,
     createdAt: row.created_at,
   };
+}
+
+/** Maps a pg/Node connection error to a secret-free StoreHealth code. */
+export function classifyDatabaseError(err: unknown): StoreHealth {
+  const message = err instanceof Error ? err.message : String(err);
+  const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code: unknown }).code) : "";
+  if (/self[- ]signed certificate|unable to verify the first certificate|unable to get local issuer certificate|certificate has expired|Hostname\/IP does not match|CERT_/i.test(message + " " + code)) {
+    return "tls_certificate_untrusted";
+  }
+  if (code === "28P01" || code === "28000" || /password authentication failed|no pg_hba\.conf entry/i.test(message)) return "auth_failed";
+  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|timed out|timeout/i.test(message + " " + code)) return "unreachable";
+  if (code.startsWith("42")) return "schema_error";
+  return "error";
 }
 
 function isUniqueViolation(err: unknown): boolean {

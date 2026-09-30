@@ -76,7 +76,14 @@ export function buildServer(container: Container): Express {
   // `provider` names which AIProvider is active (e.g. "mock" or "google") — never a secret,
   // it just lets the web client honestly show what's actually answering (Product Principle
   // #4, "Never fake success") instead of assuming Gemini is wired when it isn't.
-  app.get("/health", (_req, res) => res.json({ status: "ok", provider: defaultModelConfig.provider }));
+  // `database` is a fixed, secret-free code (store/store.ts StoreHealth). When the database is
+  // configured but unusable, /health says so with a 503 instead of a misleading "ok": the rest
+  // of the API cannot create or restore a session in that state.
+  app.get("/health", async (_req, res) => {
+    const database = (await container.store.healthCheck?.()) ?? "not_configured";
+    const healthy = database === "ok" || database === "not_configured";
+    res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", provider: defaultModelConfig.provider, database });
+  });
 
   app.use("/api/v1/auth", authRouter(container.authService));
   app.use("/api/v1/account", accountRouter(container.store));

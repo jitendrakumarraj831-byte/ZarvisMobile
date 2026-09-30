@@ -22,7 +22,8 @@ describe("API integration", () => {
   it("responds healthy", async () => {
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: "ok", provider: "mock" });
+    // In-memory store in tests: no database configured, which is healthy for local use.
+    expect(res.body).toEqual({ status: "ok", provider: "mock", database: "not_configured" });
   });
 
   it("rejects unauthenticated access to protected routes", async () => {

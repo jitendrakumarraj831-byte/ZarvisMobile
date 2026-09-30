@@ -111,7 +111,22 @@ export interface ConversationMessage {
  * start) and PostgresStore (used automatically once POSTGRES_URL/DATABASE_URL is set — see
  * container.ts). See MASTER_SPEC.md §31 and DEVELOPMENT.md.
  */
+/**
+ * Secret-free database status for /health. Lets an operator (and the live preview smoke test)
+ * see *why* the database is unusable without exposing a connection string or error text.
+ */
+export type StoreHealth =
+  | "ok"
+  | "not_configured"
+  | "tls_certificate_untrusted"
+  | "auth_failed"
+  | "unreachable"
+  | "schema_error"
+  | "error";
+
 export interface Store {
+  /** Checks the database can actually be used. Optional: stores without one report nothing. */
+  healthCheck?(): Promise<StoreHealth>;
   createUser(email: string, passwordHash: string, isGuest?: boolean): Promise<User>;
   /** Links a guest to a real email/password (isGuest becomes false). Throws EmailTakenError. */
   updateUserCredentials(userId: string, email: string, passwordHash: string): Promise<User>;

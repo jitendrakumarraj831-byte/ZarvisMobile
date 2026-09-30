@@ -4,7 +4,7 @@ import {
   EmailTakenError,
   InsufficientCreditsError,
   type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
-  type ConversationMessage, type GitHubConnection, type Store, type TrialRecord, type UsageEntry, type User
+  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type UsageEntry, type User
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -16,6 +16,11 @@ const TRIAL_INCLUDED_CREDITS = 50;
  * beyond Node's single-threaded event loop).
  */
 export class InMemoryStore implements Store {
+  /** No database: state lives in this process only (it does not survive a serverless cold start). */
+  async healthCheck(): Promise<StoreHealth> {
+    return "not_configured";
+  }
+
   private readonly usersById = new Map<string, User>();
   private readonly usersByEmail = new Map<string, string>();
   private readonly accountsById = new Map<string, Account>();

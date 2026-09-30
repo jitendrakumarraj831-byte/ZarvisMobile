@@ -2099,7 +2099,10 @@
     el.metricsHealthGrid.replaceChildren();
     if (body) {
       el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI provider", value: body.provider === "google" ? "Gemini" : "Not configured" }));
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Server", value: "Online" }));
+      // /health reports "degraded" when the database is configured but unusable, "error" when
+      // the server could not start; only "ok" is shown as Online.
+      const server = body.status === "ok" ? "Online" : body.status === "degraded" ? "Database issue" : "Not started";
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Server", value: server }));
     } else {
       el.metricsHealthGrid.appendChild(renderStatTile({ label: "Server", value: "Offline" }));
     }
