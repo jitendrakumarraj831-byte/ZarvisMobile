@@ -39,10 +39,13 @@ jobs:
           if [ -n "${BYPASS:-}" ]; then H=(-H "x-vercel-protection-bypass: $BYPASS"); fi
           fail=0
 
-          code=$(curl -sS -m 30 "${H[@]}" -o health.json -w '%{http_code}' "$BASE/health" || echo 000)
+          out=$(curl -sS -m 30 "${H[@]}" -o health.json -w '%{http_code} %{redirect_url}' "$BASE/health" || echo "000 ")
+          code=${out%% *}; redirect=${out#* }
           echo "GET /health → HTTP $code"
-          if [ "$code" = "401" ] && grep -qi "vercel" health.json; then
-            echo "::error::The deployment is protected by Vercel Authentication (401). Set VERCEL_AUTOMATION_BYPASS_SECRET to test it."
+          # Vercel Deployment Protection answers 401, or 302/307 to vercel.com's login, before
+          # the request ever reaches api/index.ts. That is not an API result.
+          if { [ "$code" = "401" ] && grep -qi "vercel" health.json; } || { [[ "$code" =~ ^30[127]$ ]] && [[ "$redirect" == *vercel.com* ]]; }; then
+            echo "::error::This deployment is behind Vercel Deployment Protection (HTTP $code to the Vercel login), so the API was not reached. Add the repository secret VERCEL_AUTOMATION_BYPASS_SECRET (Vercel → Settings → Deployment Protection → Protection Bypass for Automation) and re-run this workflow."
             exit 1
           fi
           # status, provider and (on a failed startup) reason/stage: no secrets in this body.
