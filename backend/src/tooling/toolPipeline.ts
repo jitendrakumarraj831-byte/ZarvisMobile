@@ -155,10 +155,13 @@ export class ToolPipeline {
         await this.usagePort.charge(context.accountId, skill.usageCost, skill.id);
         chargedCredits = skill.usageCost.value;
       } catch (err) {
-        if (err instanceof InsufficientCreditsError) {
-          return { kind: "entitlement_denied", decision: { allowed: false, reason: "OUT_OF_CREDITS" } };
-        }
-        throw err;
+        // The action has already run (e.g. a PR was opened); reporting it as denied or failed
+        // would be false and invite a duplicate retry. A concurrent request spent the credits
+        // in between — the result stays a success, uncharged, and the shortfall is logged.
+        logger.warn("Usage charge failed after a verified success; reported as uncharged", {
+          skillId: skill.id,
+          error: err instanceof InsufficientCreditsError ? "insufficient_credits" : (err instanceof Error ? err.message : String(err)).slice(0, 300),
+        });
       }
     }
 

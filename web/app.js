@@ -841,6 +841,11 @@
       try {
         const res = await apiFetch(`/confirmations/${encodeURIComponent(confirmation.id)}/${verb}`, { method: "POST" });
         const body = await res.json().catch(() => ({}));
+        if (res.status === 409 && body.code === "confirmation_already_used") {
+          actions.remove();
+          note.textContent = "Already approved: the action ran once and will not run again. Its result is in the conversation.";
+          return;
+        }
         if (res.status === 404) {
           note.textContent = "This confirmation expired or was already used. Nothing was run. Ask again if you still want it.";
           return;
@@ -859,7 +864,7 @@
       } catch (err) {
         if (err instanceof SessionEndedError) return;
         console.error(err);
-        note.textContent = "Couldn't reach ZARVIS, so nothing was confirmed. Try again.";
+        note.textContent = "Couldn't reach ZARVIS. If the request got through, its result will appear in the conversation; trying again can never run it twice.";
         approve.disabled = false;
         decline.disabled = false;
         approve.textContent = "Approve";

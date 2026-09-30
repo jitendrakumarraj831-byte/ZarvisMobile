@@ -170,7 +170,7 @@ describe.each(STORES)("Phase 1 security (API, %s)", (_label, makeStore) => {
       expect(res.body.confirmation.action).toContain("add a README badge");
     });
 
-    it("approve runs exactly that action once; a replay and another account both get 404", async () => {
+    it("approve runs exactly that action once; a replay is refused (409, never re-run) and another account gets 404", async () => {
       const tokens = await proAccountWithGitHub();
       const pending = await request(app)
         .post("/api/v1/developer/implement")
@@ -191,9 +191,14 @@ describe.each(STORES)("Phase 1 security (API, %s)", (_label, makeStore) => {
       expect(["success", "execution_failed"]).toContain(approve.body.outcome.kind);
       expect(approve.body.result.status).not.toBe("CONFIRMATION_REQUIRED");
 
+      // A retry of the same approve (e.g. after a network timeout) must not claim "nothing ran".
       const replay = await request(app).post(`/api/v1/confirmations/${id}/approve`).set(auth(tokens.accessToken));
-      expect(replay.status).toBe(404);
-      expect(replay.body.code).toBe("confirmation_unavailable");
+      expect(replay.status).toBe(409);
+      expect(replay.body.code).toBe("confirmation_already_used");
+      expect(replay.body.outcome).toBeUndefined();
+      // Another account learns nothing about it.
+      const foreign = await request(app).post(`/api/v1/confirmations/${id}/approve`).set(auth(intruder.accessToken));
+      expect(foreign.status).toBe(404);
     });
 
     it("if a different GitHub identity is connected after confirming, approval runs nothing and asks again", async () => {

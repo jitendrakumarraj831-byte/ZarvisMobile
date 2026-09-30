@@ -209,9 +209,9 @@ export class AuthService {
       }
       return { userId: payload.sub, accountId: payload.accountId, sessionId: session.id };
     }
-    // Legacy access token (≤ 1h lifetime): still require that the account exists and is owned.
-    await this.requireOwnedAccount(payload.sub, payload.accountId);
-    return { userId: payload.sub, accountId: payload.accountId };
+    // Every access token is issued with a session id; one without cannot be revoked by
+    // logout or refresh-reuse detection, so it is not accepted.
+    throw new AuthError("session_invalid", "Access token has no session");
   }
 
   private async requireOwnedAccount(userId: string, accountId: string): Promise<{ user: User; account: Account }> {

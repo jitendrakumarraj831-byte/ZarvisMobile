@@ -4,7 +4,7 @@ import type { Store } from "../store/store.js";
 import { TaskService } from "../tasks/taskService.js";
 import { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { GitHubAccessService } from "../github/githubAccess.js";
-import { AIContentGenerator, MockContentGenerator, type ContentGenerator } from "../ai/contentGenerator.js";
+import { AIContentGenerator, MockContentGenerator, UnavailableContentGenerator, type ContentGenerator } from "../ai/contentGenerator.js";
 import { createAutomationCancelWorkflowSkill } from "./automationCancelWorkflow.js";
 import { createAutomationCreateWorkflowSkill } from "./automationCreateWorkflow.js";
 import { createAutomationListWorkflowsSkill } from "./automationListWorkflows.js";
@@ -20,7 +20,7 @@ import { AIContentSummarizer, createDocsSummarizeSkill, DOCS_SUMMARIZE_SYSTEM_PR
 import { RESEARCH_COMPARE_SYSTEM_PROMPT, createResearchCompareSkill } from "./researchCompare.js";
 import { RESEARCH_OUTLINE_SYSTEM_PROMPT, createResearchOutlineSkill } from "./researchOutline.js";
 import { RESEARCH_REPORT_SYSTEM_PROMPT, createResearchReportSkill } from "./researchReport.js";
-import { createWebSearchSkill, GeminiSearchProvider, MockSearchProvider } from "./webSearch.js";
+import { createWebSearchSkill, GeminiSearchProvider, MockSearchProvider, UnavailableSearchProvider } from "./webSearch.js";
 
 /**
  * Real generation via the configured provider (Gemini once `GEMINI_API_KEY` is set) when
@@ -30,7 +30,8 @@ import { createWebSearchSkill, GeminiSearchProvider, MockSearchProvider } from "
  * with its own [label]/[systemPrompt].
  */
 function contentGenerator(label: string, systemPrompt: string): ContentGenerator {
-  if (!env.geminiApiKey) return new MockContentGenerator(label);
+  // Placeholders are for local development and tests only; production fails closed.
+  if (!env.geminiApiKey) return env.isProduction ? new UnavailableContentGenerator(label) : new MockContentGenerator(label);
   const modelConfig = { provider: "google", model: env.geminiModel };
   return new AIContentGenerator(getProvider(modelConfig), modelConfig, systemPrompt);
 }
@@ -44,7 +45,13 @@ export function buildSkillRegistry(store: Store, githubAccess: GitHubAccessServi
   const registry = new SkillRegistry();
   const taskService = new TaskService(store);
 
-  registry.register(createWebSearchSkill(env.geminiApiKey ? new GeminiSearchProvider(env.geminiApiKey, env.geminiModel) : new MockSearchProvider()));
+  registry.register(
+    createWebSearchSkill(
+      env.geminiApiKey
+        ? new GeminiSearchProvider(env.geminiApiKey, env.geminiModel)
+        : env.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider(),
+    ),
+  );
   registry.register(
     createDocsSummarizeSkill(new AIContentSummarizer(contentGenerator("document summary", DOCS_SUMMARIZE_SYSTEM_PROMPT))),
   );

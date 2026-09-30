@@ -49,6 +49,16 @@ export function confirmationsRouter(
       const accountId = req.auth!.accountId;
       const approved = await confirmations.approve(accountId, req.params.id!);
       if (!approved) {
+        // A retried approve (e.g. after a network timeout) must not claim nothing ran: the
+        // first approve already executed the action exactly once.
+        const existing = await confirmations.get(accountId, req.params.id!);
+        if (existing?.status === "APPROVED") {
+          res.status(409).json({
+            error: "This confirmation was already approved and its action ran once. It will not run again; the result is in the conversation.",
+            code: "confirmation_already_used",
+          });
+          return;
+        }
         res.status(404).json({
           error: "This confirmation has expired, was already used, or does not exist. Nothing was run.",
           code: "confirmation_unavailable",

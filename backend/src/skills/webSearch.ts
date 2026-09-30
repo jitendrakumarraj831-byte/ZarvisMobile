@@ -1,3 +1,4 @@
+import { SkillUserError } from "../tooling/toolPipeline.js";
 import type { SkillDefinition } from "../domain/types.js";
 
 export interface SearchResult {
@@ -108,6 +109,16 @@ export class MockSearchProvider implements SearchProvider {
       },
       ],
     };
+  }
+}
+
+/** Production without a live search provider: fail honestly, never return placeholder results. */
+export class UnavailableSearchProvider implements SearchProvider {
+  async search(): Promise<SearchResponse> {
+    throw new SkillUserError(
+      "search_provider_unavailable",
+      "Web search isn't available right now: no search provider is configured on this server. Nothing was searched or charged.",
+    );
   }
 }
 

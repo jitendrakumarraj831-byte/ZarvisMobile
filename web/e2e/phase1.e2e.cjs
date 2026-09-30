@@ -223,9 +223,14 @@ async function send(page, text) {
     await pageA.waitForSelector("#developer-result >> text=invalid change plan", { timeout: 15000 });
     const writes = await (await fetch(GITHUB_STUB + "/__writes")).json();
     assert.deepEqual(writes.writes, []);
-    const replay = await pageA.evaluate(async (cid) =>
-      (await fetch("/api/v1/confirmations/" + cid + "/approve", { method: "POST", headers: { authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") } })).status, id);
-    assert.equal(replay, 404, "a used confirmation cannot be replayed");
+    const replay = await pageA.evaluate(async (cid) => {
+      const res = await fetch("/api/v1/confirmations/" + cid + "/approve", { method: "POST", headers: { authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") } });
+      return { status: res.status, body: await res.json() };
+    }, id);
+    // A replay never runs again, and says truthfully that the first approve already ran it.
+    assert.equal(replay.status, 409, "a used confirmation cannot be replayed");
+    assert.equal(replay.body.code, "confirmation_already_used");
+    assert.deepEqual((await (await fetch(GITHUB_STUB + "/__writes")).json()).writes, [], "the replay wrote nothing");
   });
 
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
@@ -239,8 +244,8 @@ async function send(page, text) {
   await step("no console errors or CSP violations", async () => {
     // Expected, non-app noise only: intentional 401s/aborted refresh in the tests above, and
     // Google Fonts blocked by this sandbox's TLS proxy.
-    // The 404 is the deliberate confirmation-replay check above; static scripts are checked separately.
-    const all = [...errorsA, ...errorsB].filter((e) => !/401 \(Unauthorized\)|404 \(Not Found\)|net::ERR_FAILED|ERR_CERT_AUTHORITY_INVALID/.test(e));
+    // The 409 is the deliberate confirmation-replay check above; static scripts are checked separately.
+    const all = [...errorsA, ...errorsB].filter((e) => !/401 \(Unauthorized\)|404 \(Not Found\)|409 \(Conflict\)|net::ERR_FAILED|ERR_CERT_AUTHORITY_INVALID/.test(e));
     assert.deepEqual(all, [], all.join("\n"));
   });
 

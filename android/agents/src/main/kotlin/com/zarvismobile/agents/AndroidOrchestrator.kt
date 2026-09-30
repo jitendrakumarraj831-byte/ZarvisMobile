@@ -163,6 +163,13 @@ class AndroidOrchestrator(
             val resolution = try {
                 if (approved) api.approveConfirmation(pending.id) else api.declineConfirmation(pending.id)
             } catch (e: retrofit2.HttpException) {
+                if (e.code() == 409) {
+                    // A retried approve: the first one already ran the action exactly once.
+                    return TurnOutcome(
+                        message = "That was already approved: the action ran once and will not run again. Its result is in the conversation.",
+                        result = ToolResult(false, ToolResultStatus.USER_ACTION_REQUIRED, null, pending.skillId, "Already approved; ran once.", false, null),
+                    )
+                }
                 if (e.code() == 404) {
                     return TurnOutcome(
                         message = "That confirmation expired or was already used, so nothing was run. Ask again if you still want it.",

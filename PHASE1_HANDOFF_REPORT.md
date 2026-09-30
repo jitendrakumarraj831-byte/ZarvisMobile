@@ -190,7 +190,7 @@ capability is `WORKING`: no capability is promoted without a real device.
 
 | Suite | Result |
 |---|---|
-| Backend `vitest` (in-memory + real Postgres 16), incl. new route-auth and client↔backend contract guards | **226 / 226** passed; the 2 opt-in live tests skipped (no credentials) |
+| Backend `vitest` (in-memory + real Postgres 16), incl. route-auth, client↔backend contract and final-audit guards | **230 / 230** passed; the 2 opt-in live tests skipped (no credentials) |
 | Backend `tsc --noEmit`, root/Vercel `tsc` | clean |
 | Registry export in sync (`capabilities:export` + `git diff --exit-code shared`) | in sync |
 | Web `node --check` (app, logic, sw) + logic unit tests | clean, **6 / 6** |
@@ -413,6 +413,53 @@ What changed so it cannot hang silently again:
 If it stalls tomorrow, the diagnostics folder names the stuck thread; that is the evidence
 needed to fix the real cause.
 
+### 5.7 Final §22A pre-device audit (read/test audit, all 15 areas)
+
+Chain audited for every capability: intent → Brain → capability registry → permission →
+confirmation → ToolPipeline → executor → Android/system API → execution → verification →
+truthful UI result. Every CRITICAL/HIGH finding is fixed; nothing was weakened to pass a test.
+
+| # | Area | Finding | Class | Action |
+|---|---|---|---|---|
+| 1 | 16 capabilities / status truthfulness | All 16 implemented or honestly `UNSUPPORTED`/`PLANNED` per platform; every Android capability `PARTIAL`, none `WORKING` (registry tests enforce it); emulator evidence for all 16 on API 30/34 | PASS | — |
+| 2 | Permission / revocation boundaries | Pipeline order Registry → Validation → Permission → Entitlement → Prepare → Confirmation → Execution → Verification → Charge on backend and Android; revocation detected and enforced (phases A, C, D) | PASS | — |
+| 3a | Confirmation replay / account / hash | Single-use atomic `PENDING→APPROVED` update bound to account, skill id, sha256 of input, action text and expiry; client cannot send a grant or "confirmed" flag | PASS | — |
+| 3b | Confirmation retry truthfulness | A retried approve (e.g. after a network timeout) was told "Nothing was run" although the first approve had run the action → invites a duplicate external action | MEDIUM | **Fixed**: 409 `confirmation_already_used` ("ran once, will not run again"); other accounts still get 404; Web and Android show it; Web network-error text no longer claims nothing ran |
+| 4a | Auth / session / refresh / logout | Session checked on every request; refresh rotation with reuse → whole-session revoke; logout revokes server-side; JWT alg pinned; production refuses the dev secret | PASS | — |
+| 4b | Session-less access tokens | Access tokens without a session id were still accepted (legacy path) and could not be revoked by logout | LOW | **Fixed**: refused (`session_invalid`); none are issued |
+| 4c | Lost refresh response | If the refresh response is lost in transit, the next refresh presents the rotated token and the session is revoked (user must sign in again; no silent account swap) | MEDIUM (by design) | Documented; concurrent 401s are single-flight on Android (`@Synchronized`) and Web (`refreshInFlight`) |
+| 5 | Web ↔ Android ownership, cross-device isolation | Every store read is account-scoped (conversations, messages, tasks, confirmations, GitHub connections); task routes check ownership; E2E proves same-account cross-device and 404 for other accounts | PASS | — |
+| 6 | Secrets / debug exposure | No committed keys/keystores/.env; tokens in Keystore-backed EncryptedSharedPreferences; `allowBackup=false`; cleartext only for the debug dev host; GitHub tokens encrypted (fails closed in prod without a key); OkHttp logging is `BASIC` (URLs only, never bodies/tokens) — also in release builds | LOW | Documented |
+| 7 | Mock/stub in production paths | **Without `GEMINI_API_KEY`, production web search returned fabricated "Mock result" sources and generation skills returned placeholders — both reported `COMPLETED` and charged credits** | **HIGH** | **Fixed**: production fails closed (`search_provider_unavailable` / `ai_provider_unavailable`, `FAILED`, nothing charged); labelled mocks remain for local dev/tests only. Play Billing already failed closed |
+| 7b | Brain routing without an AI key | Production without `GEMINI_API_KEY` routes turns with the keyword router (no content is generated; honest "not sure" replies) | MEDIUM | Deployment requirement: set `GEMINI_API_KEY` (documented in §7) |
+| 8 | Result truthfulness | **A usage charge that lost a race after a verified success (e.g. `developer.implement` already opened a PR) was reported as `DENIED` / out of credits** | **HIGH** | **Fixed**: the result stays a success (uncharged) and the shortfall is logged — an action that ran is never reported as not run |
+| 8b | UI "Done" | "Done" only for `COMPLETED` (fixed in §5.4) | PASS | — |
+| 9 | Android ↔ Web ↔ Backend contract | `clientContract.test.ts`: every Retrofit and `apiFetch` endpoint exists with the same method; every non-public route 401 without a token | PASS | — |
+| 10 | Windows / Git Bash build | `android-windows.yml` green: fresh-checkout build 7 m 39 s + a repeat build; driver self-test 12/12 | PASS (CI) | Real tester machine still to confirm |
+| 11 | Device script cleanup / Ctrl+C | Saved settings + default assistant restored and re-verified after failed, terminated and missing-APK runs (self-test 12/12 on Linux and Windows) | PASS | — |
+| 12 | Lifecycle / process death / duplicates | A pending action after process death is *offered*, never auto-run (emulator ×3); calls need a fresh ZARVIS confirmation; Android on-device skills are all free, so the charge path cannot fail after an on-device action | PASS / LOW | — |
+| 13 | Notification privacy | §12 modes enforced; OTP/banking hidden (`hiddenSensitive=1`), excluded apps, quiet hours, headphones-only; revoked listener detected | PASS (emulator) | Real notifications on the phone still to check |
+| 14 | Idempotency of external actions | GitHub write needs a server-issued single-use confirmation per exact action; a replay cannot re-run it (409); a *new* request is a new confirmation the user must approve again | PASS / LOW | — |
+| 15 | Tests / CI | See §4.2 and the run below | PASS | — |
+
+Tests after these fixes (local):
+
+- backend: 230 pass, 2 live tests skipped (in-memory + Postgres 16);
+- `test/tooling/auditFixes.test.ts` (new): charge race, fail-closed search, fail-closed generation, session-less token;
+- `phase1Security`: replay → 409, foreign account → 404;
+- backend/root `tsc`: clean;
+- web unit tests: 6/6;
+- Playwright E2E: 14/14 (replay → 409 and no GitHub write);
+- Android `:domain`: 117/117;
+- driver self-test: 12/12.
+
+Android emulator and Windows jobs: CI on the pushed commit.
+
+**Final Phase 1 status: FAIL (not complete).** No CRITICAL finding; the two HIGH findings are
+fixed. Blocking the §22A gate: the physical-device run (§5.5), Android 8/9 runtime-permission dialog and camera on
+a real 8/9 phone, a real location fix, and the live integrations (§5.3). Real-device checks still
+required are exactly those in §5.2 and §5.5.
+
 ## 6. Other bugs fixed (earlier in this PR)
 
 **Web:**
@@ -439,6 +486,8 @@ needed to fix the real cause.
 ## 7. Known limitations
 
 - No real-device verification (§5).
+- A production deployment needs `GEMINI_API_KEY`: without it search and generation skills fail
+  closed (`FAILED`, nothing charged) and turns are routed by the keyword router (§5.7).
 - Android 8.x runtime-permission dialog flow: unverified (emulator platform bug, §4.3).
 - Location: no fix on any emulator even with injected coordinates; ZARVIS reports the failure
   honestly. Unverified.
