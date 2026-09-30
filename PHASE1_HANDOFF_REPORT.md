@@ -453,7 +453,7 @@ Tests after these fixes (local):
 - Android `:domain`: 117/117;
 - driver self-test: 12/12.
 
-Android emulator and Windows jobs: CI on the pushed commit.
+CI on 50e7d78: all 13 checks green. This includes emulator API 26/30/34 phases A–E and the Windows build. The first API 26 attempt died in the emulator SDK download before any test ran (`Error on ZipFile unknown archive`); its one re-run passed.
 
 **Final Phase 1 status: FAIL (not complete).** No CRITICAL finding; the two HIGH findings are
 fixed. Blocking the §22A gate: the physical-device run (§5.5), Android 8/9 runtime-permission dialog and camera on
