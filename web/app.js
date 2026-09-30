@@ -916,6 +916,9 @@
       const res = await apiFetch("/integrations/github");
       if (!res.ok) throw new Error("HTTP " + res.status);
       const status = await res.json();
+      const rowValue = document.querySelector('[data-setting-value="developer"]');
+      if (rowValue) rowValue.textContent = !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
+      renderSettingsSubpageValue();
       if (!status.available) {
         statusNode.textContent = "GitHub connection isn't configured on this server. Public repositories can still be analyzed.";
         form.hidden = true;
@@ -1232,10 +1235,57 @@
         if (document.activeElement === el.input) event.preventDefault();
       });
     }
+    setupKeyboardInset();
+    setupHomeQuickActions();
     setupActivityControls();
-    setupHomeAsk();
     setupWorkspacePrompts();
     renderHomeGreeting();
+  }
+
+  /**
+   * Keeps the composer above the on-screen keyboard on every browser. Chrome 108+ honours
+   * interactive-widget=resizes-content (the layout viewport shrinks, so the inset is 0);
+   * older Chrome, WebViews and Safari only shrink the visual viewport, so the composer is
+   * lifted by the keyboard's height (--kb). The keyboard is treated as open only while it
+   * actually covers the screen, so dismissing it with Back restores the tab bar even if the
+   * textarea keeps focus.
+   */
+  function setupKeyboardInset() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    let baseline = { width: window.innerWidth, height: Math.max(window.innerHeight, vv.height) };
+    const update = () => {
+      if (window.innerWidth !== baseline.width) {
+        baseline = { width: window.innerWidth, height: Math.max(window.innerHeight, vv.height) };
+      } else if (document.activeElement !== el.input) {
+        baseline.height = Math.max(baseline.height, window.innerHeight, vv.height);
+      }
+      const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      root.style.setProperty("--kb", inset + "px");
+      if (!MOBILE_KEYBOARD.matches || document.activeElement !== el.input) return;
+      const keyboardShown = baseline.height - vv.height > 120;
+      document.body.classList.toggle("keyboard-open", keyboardShown);
+      if (keyboardShown) scrollConversationToBottom();
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    document.addEventListener("visibilitychange", () => {
+      document.body.classList.toggle("page-hidden", document.hidden);
+    });
+  }
+
+  function setupHomeQuickActions() {
+    const toggle = document.getElementById("home-quick-toggle");
+    const panel = document.getElementById("home-quick");
+    if (!toggle || !panel) return;
+    toggle.addEventListener("click", () => {
+      haptic();
+      const open = panel.hidden;
+      panel.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.classList.toggle("active", open);
+    });
   }
 
   function renderHomeGreeting() {
@@ -1245,8 +1295,6 @@
     const key = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
     el.homeGreeting.textContent = copy.homeGreetings[key];
     if (el.homeTitleSub) el.homeTitleSub.textContent = copy.homeSub;
-    const homeInput = document.getElementById("home-ask-input");
-    if (homeInput) homeInput.placeholder = copy.placeholder;
   }
 
   /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
@@ -1362,39 +1410,6 @@
     el.chatAnnouncer.textContent = text;
   }
 
-  function setupHomeAsk() {
-    const input = document.getElementById("home-ask-input");
-    const send = document.getElementById("home-ask-send");
-    if (!input || !send) return;
-    const ask = () => {
-      const text = input.value.trim();
-      if (!text) {
-        setActiveView("chat");
-        el.input.focus();
-        return;
-      }
-      input.value = "";
-      setActiveView("chat");
-      submitComposerInput(text);
-    };
-    send.addEventListener("click", ask);
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        ask();
-      }
-    });
-    document.getElementById("home-ask-mic")?.addEventListener("click", () => {
-      setActiveView("chat");
-      startListening();
-    });
-    document.getElementById("home-ask-attach")?.addEventListener("click", () => {
-      setActiveView("chat");
-      el.fileInput.click();
-    });
-    document.getElementById("files-attach-btn")?.addEventListener("click", () => el.fileInput.click());
-  }
-
   function setupWorkspacePrompts() {
     document.querySelectorAll("[data-workspace-prompt]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1447,7 +1462,10 @@
       renderHomeActivity();
     }
     if (view === "developer") void refreshGithubStatus();
-    if (view === "settings") updateSettingsValues();
+    if (view === "settings") {
+      updateSettingsValues();
+      void refreshGithubStatus();
+    }
     if (view === "chat") scrollConversationToBottom();
   }
 
@@ -1608,6 +1626,9 @@
     el.settingsPanels.hidden = false;
     const entry = document.querySelector(`[data-settings-page="${page}"] strong`);
     if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = entry ? entry.textContent : "Settings";
+    const desc = document.getElementById("settings-subpage-desc");
+    if (desc) desc.textContent = document.querySelector(`[data-settings-page="${page}"] small`)?.textContent || "";
+    renderSettingsSubpageValue();
     for (const panel of document.querySelectorAll("[data-settings-panel]")) {
       panel.hidden = panel.dataset.settingsPanel !== page;
     }
@@ -1646,6 +1667,19 @@
     set("appearance", state.appearance === "dim" ? "Dim" : "Light");
     set("memory", state.conversationId ? "Saved" : "New");
     if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
+    set("security", isGuest ? "Guest session" : "Signed in");
+    renderSettingsSubpageValue();
+  }
+
+  /** The open Settings page repeats its current value next to the title. */
+  function renderSettingsSubpageValue() {
+    const badge = document.getElementById("settings-subpage-value");
+    if (!badge) return;
+    const value = state.settingsPage
+      ? document.querySelector(`[data-setting-value="${state.settingsPage}"]`)?.textContent.trim() || ""
+      : "";
+    badge.textContent = value;
+    badge.hidden = !value;
   }
 
   async function fetchHealth() {
@@ -2222,6 +2256,7 @@
     const root = document.getElementById("home-activity");
     if (!root) return;
     root.replaceChildren();
+    document.getElementById("home-recent")?.classList.remove("is-empty");
     const rows = [];
     if (state.pendingAttachment) {
       rows.push(listRow({ icon: "i-file", tone: "tone-cyan", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
@@ -2264,8 +2299,10 @@
         return;
       }
       root.appendChild(emptyState("Nothing yet", "Your conversations and actions will appear here."));
+      document.getElementById("home-recent")?.classList.add("is-empty");
       return;
     }
+    document.getElementById("home-recent")?.classList.remove("is-empty");
     rows.forEach((row, index) => {
       row.style.animationDelay = index * 40 + "ms";
       root.appendChild(row);

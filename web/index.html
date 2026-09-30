@@ -10,9 +10,6 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#f6f7fb" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -105,43 +102,33 @@
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
           <div class="home-hero">
             <button type="button" class="orb-stage" id="home-orb" aria-label="Talk to ZARVIS by voice">
-              <span class="orb orb-lg" aria-hidden="true"><span class="orb-core"></span><span class="orb-ring"></span></span>
+              <span class="orb orb-lg" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span></span>
             </button>
-            <p class="home-wordmark">ZARVIS MOBILE</p>
-            <h1 class="home-title" id="home-title"><span id="home-greeting">Hello</span><span class="home-title-sub">What can I help you with?</span></h1>
-            <div class="ask-bar">
-              <label class="sr-only" for="home-ask-input">Ask ZARVIS</label>
-              <textarea id="home-ask-input" class="ask-input" rows="1" placeholder="Ask anything…" autocomplete="off"></textarea>
-              <div class="ask-bar-row">
-                <div class="ask-tools">
-                  <button type="button" class="icon-btn" id="home-ask-attach" aria-label="Attach a file"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></button>
-                  <button type="button" class="icon-btn" id="home-ask-mic" aria-label="Speak to ZARVIS"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
-                </div>
-                <button type="button" class="send-btn" id="home-ask-send" aria-label="Ask ZARVIS"><svg class="ico" aria-hidden="true"><use href="#i-send"/></svg></button>
-              </div>
-            </div>
+            <p class="home-wordmark" aria-label="ZARVIS MOBILE"><span class="wm-main" aria-hidden="true">ZARVIS</span><span class="wm-sub" aria-hidden="true">MOBILE</span></p>
+            <h1 class="home-title" id="home-title"><span id="home-greeting">Hello</span></h1>
+            <p class="home-title-sub">What can I help you with?</p>
           </div>
 
-          <div class="primary-actions" aria-label="Start">
-            <button type="button" class="action-tile" data-nav="chat"><span class="tile-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span>Start chat</span></button>
+          <div class="primary-actions" role="group" aria-label="Start">
+            <button type="button" class="action-tile" data-nav="chat"><span class="tile-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span>Chat</span></button>
             <button type="button" class="action-tile" data-home-action="voice"><span class="tile-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span>Voice</span></button>
             <button type="button" class="action-tile" data-home-action="upload"><span class="tile-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></span><span>Upload</span></button>
-            <button type="button" class="action-tile" data-nav="capabilities"><span class="tile-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span>Explore</span></button>
+            <button type="button" class="action-tile" id="home-quick-toggle" aria-expanded="false" aria-controls="home-quick"><span class="tile-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span>Quick actions</span></button>
           </div>
 
-          <section class="home-section" aria-labelledby="quick-title">
-            <h2 class="section-title" id="quick-title">Quick actions</h2>
-            <div class="chip-row">
+          <section class="home-section home-quick" id="home-quick" aria-label="Quick actions" hidden>
+            <div class="chip-row chip-row-center">
               <button type="button" class="chip" data-workspace-prompt="Search the web and cite the sources you use: "><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
               <button type="button" class="chip" data-workspace-prompt="Write a warm, concise message about: "><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
               <button type="button" class="chip" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
               <button type="button" class="chip" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
               <button type="button" class="chip" data-workspace-prompt="Draft a polite customer reply to: "><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
               <button type="button" class="chip" data-nav="developer"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
+              <button type="button" class="chip" data-nav="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>All capabilities</button>
             </div>
           </section>
 
-          <section class="home-section" aria-labelledby="recent-title">
+          <section class="home-section" id="home-recent" aria-labelledby="recent-title">
             <div class="section-head">
               <h2 class="section-title" id="recent-title">Recent</h2>
               <button type="button" class="link-btn" data-nav="activity">View all</button>
@@ -160,7 +147,7 @@
           </div>
           <section class="chat-empty" id="hero">
             <div class="orb-stage orb-stage-sm" id="orb" data-state="IDLE" role="button" tabindex="0" aria-pressed="false" aria-label="Speak to ZARVIS">
-              <span class="orb orb-md" aria-hidden="true"><span class="orb-core"></span><span class="orb-ring"></span></span>
+              <span class="orb orb-md" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span></span>
             </div>
             <p class="chat-empty-kicker" id="hero-greeting">ZARVIS</p>
             <h1 class="chat-empty-title" id="hero-title">What should we work on?</h1>
@@ -378,12 +365,12 @@
               <div class="settings-group">
                 <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="privacy"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="row-copy"><strong>Privacy</strong><small>Confirmations and account deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="security"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></span><span class="row-copy"><strong>Security</strong><small>Session and sign out</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="security"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></span><span class="row-copy"><strong>Security</strong><small>Session and sign out</small></span><span class="row-value" data-setting-value="security"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="data"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg></span><span class="row-copy"><strong>Data</strong><small>Stored data and deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Advanced</p>
               <div class="settings-group">
-                <button type="button" class="settings-row" data-settings-page="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Developer</strong><small>GitHub and the Developer Agent</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Developer</strong><small>GitHub and the Developer Agent</small></span><span class="row-value" data-setting-value="developer"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
             </div>
           </div>
@@ -391,7 +378,11 @@
           <div class="settings-detail" id="settings-panels" hidden>
             <div class="detail-head">
               <button type="button" class="icon-btn" data-settings-back aria-label="Back to Settings"><svg class="ico" aria-hidden="true"><use href="#i-left"/></svg></button>
-              <h1 class="page-title" id="settings-subpage-title">Settings</h1>
+              <div class="detail-head-copy">
+                <h1 class="page-title" id="settings-subpage-title">Settings</h1>
+                <p class="muted" id="settings-subpage-desc"></p>
+              </div>
+              <span class="z-badge detail-head-value" id="settings-subpage-value" hidden></span>
             </div>
 
             <section class="settings-panel" data-settings-panel="account" hidden>

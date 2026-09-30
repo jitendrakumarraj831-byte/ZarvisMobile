@@ -50,8 +50,9 @@
 
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px; --s9: 56px;
 
-  --font-body: "Inter", "Noto Sans Devanagari", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-display: "Manrope", "Inter", "Noto Sans Devanagari", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* System fonts only: no web-font download, instant first paint, native Devanagari. */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Devanagari", "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-body);
   --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 17px;
 
   --sidebar-w: 256px;
@@ -396,12 +397,12 @@ textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
 
 .switch {
   position: relative; flex: none;
-  width: 50px; height: 30px; border-radius: var(--r-pill);
+  width: 52px; height: 32px; border-radius: var(--r-pill);
   background: var(--surface-3); border: 1px solid var(--line-2);
   transition: background var(--t-med) var(--ease);
 }
 .switch-thumb {
-  position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  position: absolute; top: 4px; left: 4px; width: 22px; height: 22px; border-radius: 50%;
   background: #fff; box-shadow: 0 2px 6px rgba(12, 18, 34, 0.25);
   transition: transform var(--t-med) var(--ease);
 }
@@ -451,16 +452,38 @@ textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
   animation: orb-halo 7s ease-in-out infinite;
 }
 .orb-ring {
-  /* Soft aurora blobs on a deep blue base; rotating them reads as slow, flowing light. */
+  /* The clip stays still; only the oversized light layer inside it rotates, so the orb's
+     edge never re-rasterises mid-animation (no seams or shimmering rim). */
   position: absolute; inset: 0; border-radius: 50%; overflow: hidden;
+  background: linear-gradient(160deg, #5b8cff, #6a5cf0);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  transform: translateZ(0);
+}
+.orb-ring::before {
+  /* Soft aurora blobs; rotating them reads as slow, flowing light. */
+  content: ""; position: absolute; inset: -12%;
   background:
     radial-gradient(55% 55% at 26% 24%, rgba(94, 231, 245, 0.95), rgba(94, 231, 245, 0) 70%),
     radial-gradient(60% 60% at 78% 30%, rgba(139, 108, 255, 0.95), rgba(139, 108, 255, 0) 72%),
     radial-gradient(58% 58% at 30% 82%, rgba(240, 130, 200, 0.85), rgba(240, 130, 200, 0) 70%),
     radial-gradient(65% 65% at 76% 80%, rgba(79, 116, 255, 1), rgba(79, 116, 255, 0) 72%),
     linear-gradient(160deg, #5b8cff, #6a5cf0);
-  animation: orb-spin 26s linear infinite;
+  animation: orb-spin 28s linear infinite;
   will-change: transform;
+  backface-visibility: hidden;
+}
+.orb-glint {
+  /* A second, slower drift of light in the opposite direction: subtle living movement. */
+  position: absolute; inset: 0; border-radius: 50%; overflow: hidden; pointer-events: none;
+}
+.orb-glint::before {
+  content: ""; position: absolute; inset: -12%;
+  background:
+    radial-gradient(38% 30% at 70% 30%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 70%),
+    radial-gradient(40% 34% at 28% 70%, rgba(94, 231, 245, 0.35), rgba(94, 231, 245, 0) 72%);
+  animation: orb-spin 41s linear infinite reverse;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 .orb-core {
   position: absolute; inset: 0; border-radius: 50%; z-index: 1;
@@ -474,37 +497,38 @@ textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
 .orb-stage:focus-visible { box-shadow: var(--focus); }
 /* State-driven motion (Chat orb via its own data-state, Home orb via body[data-orb-state]). */
 #orb[data-state="LISTENING"] .orb, body[data-orb-state="LISTENING"] #home-orb .orb { animation: orb-listen 1.4s ease-in-out infinite; }
-#orb[data-state="LISTENING"] .orb-ring, body[data-orb-state="LISTENING"] #home-orb .orb-ring { animation-duration: 6s; }
-#orb[data-state="UNDERSTANDING"] .orb-ring, #orb[data-state="PLANNING"] .orb-ring, #orb[data-state="EXECUTING"] .orb-ring,
-body[data-orb-state="UNDERSTANDING"] #home-orb .orb-ring, body[data-orb-state="EXECUTING"] #home-orb .orb-ring { animation-duration: 3.2s; }
+#orb[data-state="LISTENING"] .orb-ring::before, body[data-orb-state="LISTENING"] #home-orb .orb-ring::before { animation-duration: 8s; }
+#orb[data-state="UNDERSTANDING"] .orb-ring::before, #orb[data-state="PLANNING"] .orb-ring::before, #orb[data-state="EXECUTING"] .orb-ring::before,
+body[data-orb-state="UNDERSTANDING"] #home-orb .orb-ring::before, body[data-orb-state="EXECUTING"] #home-orb .orb-ring::before { animation-duration: 4.5s; }
 #orb[data-state="SPEAKING"] .orb, body[data-orb-state="SPEAKING"] #home-orb .orb { animation: orb-speak 0.9s ease-in-out infinite; }
-#orb[data-state="ERROR"] .orb-ring { filter: saturate(0.4) hue-rotate(-60deg); animation-play-state: paused; }
+#orb[data-state="ERROR"] .orb-ring { filter: saturate(0.4) hue-rotate(-60deg); }
+#orb[data-state="ERROR"] .orb-ring::before { animation-play-state: paused; }
+/* No work while the tab is in the background. */
+body.page-hidden .orb, body.page-hidden .orb::before, body.page-hidden .orb-ring::before, body.page-hidden .orb-glint::before { animation-play-state: paused; }
 
 /* ---------- Home ---------- */
-.home-hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: var(--s6) 0 var(--s5); }
-.home-hero .orb-stage { padding: 18px; margin-bottom: var(--s4); }
-.home-wordmark { font-family: var(--font-display); font-weight: 800; font-size: 12px; letter-spacing: 0.34em; color: var(--text-3); margin-bottom: var(--s3); }
-.home-title { display: flex; flex-direction: column; gap: 4px; font-size: clamp(28px, 2.4vw + 18px, 42px); font-weight: 800; letter-spacing: -0.03em; }
-.home-title-sub {
-  font-size: clamp(18px, 0.8vw + 14px, 22px); font-weight: 600; letter-spacing: -0.01em;
-  background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+.home-hero {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  min-height: min(56vh, 480px); justify-content: center;
+  padding: var(--s6) 0 var(--s4);
 }
-.ask-bar {
-  width: 100%; max-width: 640px; margin-top: var(--s6);
-  padding: var(--s3) var(--s3) var(--s2) var(--s4);
-  border-radius: var(--r-xl);
-  background: var(--surface); border: 1px solid var(--line);
-  box-shadow: var(--shadow-3);
-  text-align: left;
-  transition: border-color var(--t-fast), box-shadow var(--t-fast);
-}
-.ask-bar:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); }
-.ask-input, .composer-input {
+.home-hero .orb-stage { padding: 22px; margin-bottom: var(--s5); }
+/* Wordmark: letter-spacing adds space after the last glyph, so each word is padded on the
+   left by the same amount to keep it optically centred. */
+.home-wordmark { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: var(--s5); line-height: 1; }
+.wm-main { font-weight: 800; font-size: clamp(22px, 1.2vw + 18px, 28px); letter-spacing: 0.3em; padding-left: 0.3em; color: var(--text); }
+.wm-sub { font-weight: 600; font-size: 11px; letter-spacing: 0.62em; padding-left: 0.62em; color: var(--text-3); }
+.home-title { font-size: clamp(20px, 0.6vw + 17px, 24px); font-weight: 600; letter-spacing: -0.015em; color: var(--text); }
+.home-title-sub { margin-top: 4px; font-size: var(--fs-md); color: var(--text-2); }
+.home-quick { margin-top: calc(-1 * var(--s4)); animation: rise-in var(--t-med) var(--ease) both; }
+#home-recent.is-empty { display: none; }
+.action-tile.active .tile-ico { border-color: color-mix(in srgb, var(--pink) 45%, var(--line)); background: color-mix(in srgb, var(--pink) 8%, var(--surface)); }
+.composer-input {
   width: 100%; border: 0; outline: none; background: none; resize: none;
   font-size: 16px; line-height: 1.5; min-height: 26px; max-height: 160px; padding: 4px 0;
 }
-.ask-bar-row, .composer-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin-top: var(--s1); }
-.ask-tools, .composer-tools { display: flex; align-items: center; gap: 2px; margin-left: -8px; }
+.composer-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin-top: var(--s1); }
+.composer-tools { display: flex; align-items: center; gap: 2px; margin-left: -8px; }
 
 .primary-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2); max-width: 640px; margin: var(--s2) auto var(--s7); }
 .action-tile {
@@ -724,7 +748,7 @@ body.chat-has-messages .chat-empty { display: none; }
 .attachment-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-status { font-size: 12px; color: var(--ok); }
 body.keyboard-open .bottom-nav { display: none; }
-body.keyboard-open .composer { bottom: 0; }
+body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2); transition: none; }
 @media (min-width: 900px) {
   .composer { left: var(--sidebar-w); bottom: 0; padding: var(--s3) var(--s8) var(--s5); }
   .chat-header { top: 0; margin: calc(-1 * var(--s7)) calc(-1 * var(--s4)) var(--s3); padding: var(--s3) var(--s4); }
@@ -937,7 +961,12 @@ body.keyboard-open .composer { bottom: 0; }
 .row-value { font-size: 13px; color: var(--text-3); max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-chev { width: 18px; height: 18px; color: var(--text-3); }
 .settings-detail { max-width: 720px; animation: view-in var(--t-slow) var(--ease) both; }
-.detail-head { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s5) -8px; }
+.detail-head { display: flex; align-items: flex-start; gap: var(--s2); margin: 0 0 var(--s5) -8px; }
+.detail-head > .icon-btn { margin-top: 2px; }
+.detail-head-copy { flex: 1; min-width: 0; padding-top: 6px; }
+.detail-head-copy .muted { margin-top: 2px; }
+.detail-head-copy .muted:empty { display: none; }
+.detail-head-value { flex: none; margin-top: 10px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-panel .panel { padding: var(--s2) var(--s5); }
 .settings-panel .panel.form, .settings-panel .panel-danger, .settings-panel .panel:has(.panel-title) { padding: var(--s5); }
 .control-row { display: flex; align-items: center; gap: var(--s4); padding: var(--s4) 0; }
@@ -1049,11 +1078,11 @@ body.keyboard-open .composer { bottom: 0; }
   .stat-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2); }
   .stat-grid-3 .stat-tile { padding: var(--s3); }
   .stat-grid-3 .stat-tile-value { font-size: 17px; }
-  .home-hero { padding-top: var(--s4); }
+  .home-hero { min-height: 0; padding-top: var(--s5); }
   .modal-actions .btn, .modal-actions .zarvis-btn { flex: 1; }
 }
 @media (min-width: 900px) {
-  .home-hero { padding-top: var(--s7); }
+  .home-hero { padding-top: var(--s8); }
   .view-chat { padding-bottom: 170px; }
 }
 @media (min-width: 1500px) {
@@ -1075,10 +1104,26 @@ button.cap-copy:hover .cap-name > span:first-child { color: var(--primary); }
 #github-disconnect-btn { margin-top: var(--s2); }
 .stat-grid-2 .stat-tile-value, .stat-grid-3 .stat-tile-value { font-size: 17px; white-space: normal; line-height: 1.25; }
 @media (max-width: 560px) { #metrics-usage .stat-tile, #plans-current .stat-tile { padding: var(--s3) var(--s4); } }
-.composer-input:focus-visible, .ask-input:focus-visible { box-shadow: none; }
+.composer-input:focus-visible { box-shadow: none; }
 .timeline-meta > span + span::before { content: "·"; margin-right: var(--s2); color: var(--text-3); }
 .tool-row-top strong { font-family: var(--font-body); font-size: 13.5px; color: var(--text); }
 .feature-cta-row { margin-bottom: var(--s7); }
 .feature-cols .panel + .panel { margin-top: 0; }
 .feature-cols .feature-block { margin-bottom: 0; }
 .feature-hero-copy .feature-badge { margin-top: var(--s2); }
+
+/* Long "Try asking" prompts wrap instead of running off narrow screens. */
+.chip.feature-prompt { white-space: normal; text-align: left; line-height: 1.35; padding-top: 9px; padding-bottom: 9px; max-width: 100%; }
+/* Activity filters: wrapping filter chips on every width, nothing hidden in a scroller. */
+#activity-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; background: none; border: 0; overflow: visible; }
+#activity-filters .seg { min-height: 36px; padding: 0 14px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--surface); }
+#activity-filters .seg.active { border-color: transparent; background: var(--primary-soft); color: var(--primary); box-shadow: none; }
+/* Home already shows the wordmark under the orb; the top bar keeps only its actions there. */
+body[data-active-view="home"] .topbar { background: transparent; border-bottom-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body[data-active-view="home"] .topbar-brand { visibility: hidden; }
+.feature-hero { align-items: flex-start; }
+@media (max-width: 560px) {
+  .feature-hero { flex-direction: column; gap: var(--s3); }
+  .feature-hero .row-ico { width: 48px; height: 48px; border-radius: 15px; }
+}
+.timeline:has(> .timeline-empty)::before, .timeline:has(> .empty-inline)::before, .timeline:has(> .empty-state)::before { display: none; }

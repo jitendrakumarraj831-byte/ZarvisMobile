@@ -199,7 +199,7 @@
     ] },
     { title: "Voice", items: [
       { icon: "i-mic", name: "Voice input", desc: "Tap the orb or microphone to speak. No wake word.", status: ["Available", "ok"], action: ["voice", "Talk"], feature: "voice" },
-      { icon: "i-wave", name: "Spoken replies", desc: "ZARVIS reads replies aloud with a natural voice.", status: ["Available", "ok"], action: ["settings", "Settings"], settings: "voice" },
+      { icon: "i-wave", name: "Spoken replies", desc: "ZARVIS reads replies aloud with a natural voice.", status: ["Available", "ok"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
     ] },
     { title: "Vision", items: [
       { icon: "i-image", name: "Image understanding", desc: "Attach a photo or screenshot and ask about it.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
