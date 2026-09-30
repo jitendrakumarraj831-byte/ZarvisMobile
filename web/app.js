@@ -75,6 +75,12 @@
       unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
       imageUnavailable: { title: "Image analysis isn't available right now.", subtitle: "The server has no image model configured. Documents and text files still work." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
+      voiceUnsupported: { title: "Voice input isn't available in this browser.", subtitle: "Type your request instead, or open ZARVIS in Chrome." },
+      micDenied: { title: "Microphone access is off.", subtitle: "Allow the microphone for this site in your browser settings, then tap the mic again." },
+      noSpeech: { title: "I didn't hear anything.", subtitle: "Tap the mic and speak again." },
+      voiceNetwork: { title: "Voice recognition couldn't connect.", subtitle: "Check your connection and try again, or type instead." },
+      voiceFailed: { title: "Voice input stopped unexpectedly.", subtitle: "Tap the mic to try again, or type instead." },
+      ttsUnavailable: "Spoken reply isn't available right now",
       oversizedFile: {
         title: "That file is too long to send in one go.",
         subtitle: "Try a shorter excerpt or paste the most relevant part directly.",
@@ -124,6 +130,12 @@
       unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
       imageUnavailable: { title: "अभी इमेज एनालिसिस उपलब्ध नहीं है।", subtitle: "सर्वर पर इमेज मॉडल सेट नहीं है। डॉक्यूमेंट और टेक्स्ट फ़ाइलें काम करती हैं।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
+      voiceUnsupported: { title: "इस ब्राउज़र में वॉइस इनपुट उपलब्ध नहीं है।", subtitle: "टाइप करके पूछें, या ZARVIS को Chrome में खोलें।" },
+      micDenied: { title: "माइक्रोफ़ोन की अनुमति बंद है।", subtitle: "ब्राउज़र सेटिंग्स में इस साइट के लिए माइक्रोफ़ोन चालू करें, फिर माइक दोबारा दबाएं।" },
+      noSpeech: { title: "मुझे कुछ सुनाई नहीं दिया।", subtitle: "माइक दबाकर फिर से बोलें।" },
+      voiceNetwork: { title: "वॉइस पहचान कनेक्ट नहीं हो सकी।", subtitle: "कनेक्शन जांचें और दोबारा कोशिश करें, या टाइप करें।" },
+      voiceFailed: { title: "वॉइस इनपुट अचानक रुक गया।", subtitle: "माइक दबाकर दोबारा कोशिश करें, या टाइप करें।" },
+      ttsUnavailable: "अभी बोलकर जवाब उपलब्ध नहीं है",
       oversizedFile: {
         title: "यह फ़ाइल एक बार में भेजने के लिए बहुत बड़ी है।",
         subtitle: "छोटा हिस्सा आज़माएं या सबसे ज़रूरी टेक्स्ट सीधे पेस्ट करें।",
@@ -1470,6 +1482,7 @@
     if (view === "settings") {
       updateSettingsValues();
       void refreshGithubStatus();
+      void loadSettingsSummary();
     }
     if (view === "chat") scrollConversationToBottom();
   }
@@ -1684,7 +1697,7 @@
     const email = localStorage.getItem(SESSION_KEYS.email);
     const isGuest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
     set("account", isGuest ? "Guest" : email || "Signed in");
-    set("subscription", currentPlanName ? currentPlanName.charAt(0) + currentPlanName.slice(1).toLowerCase() : "");
+    set("subscription", currentPlanName ? formatPlanName(currentPlanName) : "");
     set("voice", state.speak ? "On" : "Off");
     set("language", state.lang === "hi" ? "हिंदी" : "English");
     set("appearance", state.appearance === "dim" ? "Dim" : "Light");
@@ -1703,6 +1716,26 @@
       : "";
     badge.textContent = value;
     badge.hidden = !value;
+  }
+
+  /** Fills the Subscription and AI rows from the real APIs when Settings is opened first
+   * (before Plans or Metrics loaded them). Failures leave the value blank, never invented. */
+  async function loadSettingsSummary() {
+    try {
+      if (!healthCache) await fetchHealth();
+    } catch {
+      // Row stays blank; the AI page itself shows the error state.
+    }
+    if (currentPlanName) return;
+    try {
+      const res = await apiFetch("/entitlements/me");
+      if (!res.ok) return;
+      const snapshot = await res.json();
+      if (snapshot?.plan) currentPlanName = snapshot.plan;
+      updateSettingsValues();
+    } catch {
+      // Same: no value rather than a guessed one.
+    }
   }
 
   async function fetchHealth() {
@@ -1831,7 +1864,7 @@
         revealDeveloperResult();
         return;
       }
-      setDeveloperStage("implement", "Couldn't start", "z-badge-off");
+      setDeveloperStage("implement", "Couldn't start", "z-badge-err");
       renderDeveloperMessage(
         body.structured?.userSafeMessage || body.error || "This change can't run right now (HTTP " + res.status + ").",
         "error",
@@ -1839,7 +1872,7 @@
     } catch (err) {
       if (err instanceof SessionEndedError) return;
       console.error(err);
-      setDeveloperStage("implement", "Couldn't start", "z-badge-off");
+      setDeveloperStage("implement", "Couldn't start", "z-badge-err");
       renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerImplementBtn.disabled = false;
@@ -1863,7 +1896,7 @@
       const res = await apiFetch("/developer/analyze", { method: "POST", body: JSON.stringify({ repoUrl }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.kind !== "success") {
-        setDeveloperStage("analyze", "Couldn't complete", "z-badge-off");
+        setDeveloperStage("analyze", "Couldn't complete", "z-badge-err");
         renderDeveloperMessage(body.structured?.userSafeMessage || body.error || `Analysis failed (${res.status}).`, "error");
         return;
       }
@@ -1871,7 +1904,7 @@
       renderDeveloperMessage(body.result?.summary || "Analyzed.", "success");
     } catch (err) {
       console.error(err);
-      setDeveloperStage("analyze", "Couldn't complete", "z-badge-off");
+      setDeveloperStage("analyze", "Couldn't complete", "z-badge-err");
       renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerAnalyzeBtn.disabled = false;
@@ -1972,9 +2005,9 @@
       if (res.ok) {
         const snapshot = await res.json();
         currentPlanName = snapshot.plan;
-        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: snapshot.plan }));
+        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan) }));
         el.plansCurrent.appendChild(renderStatTile({ label: "Credits", value: String(snapshot.creditBalance) }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Trial", value: snapshot.trialExpiresAt ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString() : "None" }));
+        el.plansCurrent.appendChild(renderStatTile({ label: "Trial", value: snapshot.trialExpiresAt ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "None" }));
         el.plansCurrent.appendChild(renderStatTile({ label: "Billing", value: "Not connected" }));
         updateSettingsValues();
       }
@@ -2163,7 +2196,7 @@
       { label: "Developer runs", value: String(count("developer")) },
       { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—" },
       { label: "Credits", value: "…", id: "metrics-credits" },
-      { label: "Plan", value: currentPlanName || "…", id: "metrics-plan" },
+      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan" },
     ];
     el.metricsUsage.replaceChildren(...tiles.map((tile) => {
       const node = renderStatTile(tile);
@@ -2184,6 +2217,12 @@
       const credits = document.querySelector("#metrics-credits .stat-tile-value");
       if (credits) credits.textContent = "—";
     }
+  }
+
+  /** "TRIAL" → "Trial": the same spelling everywhere (Settings, Plans, Metrics). */
+  function formatPlanName(plan) {
+    const name = String(plan || "");
+    return name ? name.charAt(0).toUpperCase() + name.slice(1).toLowerCase() : name;
   }
 
   function renderStatTile({ label, value }) {
@@ -3514,10 +3553,20 @@
       if (el.orb.dataset.state === "LISTENING") setOrbState("IDLE");
     });
 
-    recognition.addEventListener("error", () => {
+    recognition.addEventListener("error", (event) => {
       el.micBtn.setAttribute("aria-pressed", "false");
       el.orb.setAttribute("aria-pressed", "false");
       if (!currentTurnController) setOrbState("ERROR");
+      // Say why, in plain words; a deliberate stop ("aborted") needs no message.
+      const copy = COPY[state.lang];
+      const notice = {
+        "not-allowed": copy.micDenied,
+        "service-not-allowed": copy.micDenied,
+        "audio-capture": copy.micDenied,
+        "no-speech": copy.noSpeech,
+        network: copy.voiceNetwork,
+      }[event?.error] || (event?.error === "aborted" ? null : copy.voiceFailed);
+      if (notice) addSystemNotice(notice);
     });
 
     el.micBtn.addEventListener("click", toggleListening);
@@ -3541,7 +3590,10 @@
   }
 
   function startListening() {
-    if (!recognition) return;
+    if (!recognition) {
+      addSystemNotice(COPY[state.lang].voiceUnsupported);
+      return;
+    }
     if (currentTurnController) cancelCurrentTurn();
     stopSpeaking();
     recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
@@ -3627,7 +3679,11 @@
     try {
       await speakWithGemini(text);
     } catch (err) {
-      if (err?.name !== "AbortError") console.warn("Gemini TTS unavailable:", err);
+      if (err?.name !== "AbortError") {
+        console.warn("Gemini TTS unavailable:", err);
+        // An explicit Listen tap gets visible feedback instead of silence.
+        if (force) showToast(COPY[state.lang].ttsUnavailable);
+      }
     } finally {
       if (node) detachWaveform(node);
       if (el.orb.dataset.state === "SPEAKING") setOrbState("IDLE");

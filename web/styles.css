@@ -903,7 +903,7 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 }
 .stat-grid-2 .stat-tile, .stat-grid-3 .stat-tile { box-shadow: none; background: var(--surface-2); border-color: transparent; }
 .stat-tile-label { font-size: 12px; font-weight: 600; color: var(--text-3); }
-.stat-tile-value { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat-tile-value { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.25; overflow-wrap: anywhere; } /* values wrap, never truncate */
 .plan-grid { display: grid; grid-template-columns: 1fr; gap: var(--s4); }
 @media (min-width: 760px) { .plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .plan-card {
@@ -1068,7 +1068,7 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 }
 @media (max-width: 560px) {
   .page-head .btn { padding: 0 var(--s3); }
-  .row-value { max-width: 30%; font-size: 12.5px; }
+  .row-value { max-width: 34%; font-size: 12.5px; white-space: normal; text-overflow: clip; text-align: right; line-height: 1.3; overflow-wrap: anywhere; }
   .control-row { flex-wrap: wrap; }
   .control-row .btn { width: 100%; }
   .stat-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2); }
@@ -1097,7 +1097,7 @@ button.cap-copy { display: block; text-align: left; border-radius: var(--r-sm); 
 button.cap-copy:hover .cap-name > span:first-child { color: var(--primary); }
 #github-connect-form { margin-top: var(--s3); }
 #github-disconnect-btn { margin-top: var(--s2); }
-.stat-grid-2 .stat-tile-value, .stat-grid-3 .stat-tile-value { font-size: 17px; white-space: normal; line-height: 1.25; }
+.stat-grid-2 .stat-tile-value, .stat-grid-3 .stat-tile-value { font-size: 17px; }
 @media (max-width: 560px) { #metrics-usage .stat-tile, #plans-current .stat-tile { padding: var(--s3) var(--s4); } }
 .composer-input:focus-visible { box-shadow: none; }
 .timeline-meta > span + span::before { content: "·"; margin-right: var(--s2); color: var(--text-3); }
@@ -1201,3 +1201,6 @@ pre.reply-code code { display: block; padding: 0; border: 0; background: none; c
 @media (min-width: 700px) { .toast { left: calc(50% + var(--sidebar-w) / 2); bottom: 24px; } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes toast-out { to { opacity: 0; transform: translate(-50%, 8px); } }
+
+/* Account status is a sentence, not a heading. */
+#account-status { font-size: var(--fs-md); font-weight: 500; line-height: 1.55; color: var(--text); }
