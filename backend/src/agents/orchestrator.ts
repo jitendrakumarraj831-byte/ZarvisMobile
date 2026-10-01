@@ -9,7 +9,7 @@ import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { ToolPipeline } from "../tooling/toolPipeline.js";
-import { ZARVIS_ABOUT_RESPONSE_EN, ZARVIS_ABOUT_RESPONSE_HI, ZARVIS_CREATOR_RESPONSE_EN, ZARVIS_CREATOR_RESPONSE_HI } from "../config/zarvisProfile.js";
+import { classifyIdentityQuestion, creatorIdentityForPrompt, identityResponse } from "../config/zarvisProfile.js";
 
 export interface TurnRequest {
   accountId: string;
@@ -273,29 +273,12 @@ function shouldAnalyzeRepository(utterance: string): boolean {
   return repositoryTarget && analysisAction;
 }
 
+/** Identity questions (creator, owner, boss, where the creator is from, attempts to rewrite
+ * the creator) get the trusted answer from config/zarvisProfile.ts, never a model's guess. */
 function getZarvisProfileResponse(utterance: string, locale?: string): string | undefined {
-  const normalized = utterance.trim().toLocaleLowerCase();
-
-  // Creator questions are stable product facts. Cover common English/Hinglish/Hindi
-  // phrasings such as "who designed you?", "aapko kisne design kiya?", and
-  // "aapke creator kaun hain?" so these never fall through to a generic model answer.
-  const creatorQuestion =
-    /\b(who\s+(created|made|built|developed|designed)\s+(you|zarvis)|who(['’]?s| is)\s+your\s+(creator|developer|designer)|who\s+is\s+behind\s+zarvis|who\s+(made|developed|designed)\s+zarvis|your\s+(creator|developer|designer))\b/.test(normalized) ||
-    /\b(aapko|tumhe|tumhein|aapko)\s+(kisne|kis\s+ne)\s+(banaya|banai|design|designed|develop|developed|create|created|build|built)\b/.test(normalized) ||
-    /\b(aapke|apke)\s+(creator|developer|designer)\s+(kaun|kon|koun)\b/.test(normalized) ||
-    /किसने\s+(आपको|तुम्हें|जार्विस|ज़ार्विस|जारविस)\s*(बनाया|बनाई|बनाया है|डिज़ाइन|डिजाइन|डिजाइन किया|डेवलप|डेवलप किया|विकसित|विकसित किया|बनाया है)/.test(normalized) ||
-    /आपको\s+किसने\s+(बनाया|बनाया है|डिज़ाइन|डिजाइन|डिजाइन किया|डेवलप|डेवलप किया|विकसित|विकसित किया)/.test(normalized) ||
-    /आपके\s+(क्रिएटर|डेवलपर|डिज़ाइनर|डिजाइनर|निर्माता)\s+(कौन|कौन हैं|कौन है)/.test(normalized);
-
-  const aboutQuestion =
-    /\b(what\s+is\s+zarvis|tell\s+me\s+about\s+zarvis|about\s+zarvis|what\s+can\s+you\s+do|what\s+are\s+you)\b/.test(normalized) ||
-    /(zarvis|jarvis|जार्विस|ज़ार्विस)\s*(क्या\s+है|के\s+बारे\s+में|क्या\s+कर\s+सकत)/.test(normalized) ||
-    /आप\s*(क्या\s+हैं|क्या\s+कर\s+सकत)/.test(normalized);
-
-  if (!creatorQuestion && !aboutQuestion) return undefined;
-  const replyLanguage = detectReplyLanguage(normalized, locale);
-  if (creatorQuestion) return replyLanguage === "hi" ? ZARVIS_CREATOR_RESPONSE_HI : ZARVIS_CREATOR_RESPONSE_EN;
-  return replyLanguage === "hi" ? ZARVIS_ABOUT_RESPONSE_HI : ZARVIS_ABOUT_RESPONSE_EN;
+  const kind = classifyIdentityQuestion(utterance);
+  if (!kind) return undefined;
+  return identityResponse(kind, detectReplyLanguage(utterance.trim().toLocaleLowerCase(), locale));
 }
 
 function detectReplyLanguage(utterance: string, locale?: string): "hi" | "en" {
@@ -335,7 +318,8 @@ function getSimpleGreetingResponse(utterance: string, locale?: string): string |
     : "Hi! 👋 I'm ZARVIS. How can I help you today?";
 }
 
-function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools: boolean): string {
+/** Exported for tests only. */
+export function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools: boolean): string {
   const replyLanguage = detectReplyLanguage(request.utterance, request.locale);
   let prompt =
     "You are ZARVIS, a general-purpose AI agent. Your job is to complete the user's goal, " +
@@ -350,6 +334,7 @@ function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools:
     "reply rather than an English-only reply. If the user mixes Hindi and English, preserve that " +
     "natural mix. Do not switch languages just because the browser locale is English.";
 
+  prompt += " " + creatorIdentityForPrompt();
   prompt += " " + deviceCapabilitiesForPrompt();
 
   prompt +=

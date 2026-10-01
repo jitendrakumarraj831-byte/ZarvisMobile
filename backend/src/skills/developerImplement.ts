@@ -3,6 +3,7 @@ import type { ContentGenerator } from "../ai/contentGenerator.js";
 import type { GitHubAccessService } from "../github/githubAccess.js";
 import { GitHubApiError, parseRepoUrl } from "../github/githubClient.js";
 import { SkillUserError } from "../tooling/toolPipeline.js";
+import { creatorIdentityForPrompt } from "../config/zarvisProfile.js";
 
 export const DEVELOPER_IMPLEMENT_SYSTEM_PROMPT = `
 You are ZARVIS Developer Agent. Analyze the supplied repository context and user requirement.
@@ -19,6 +20,7 @@ Rules:
 - Prefer small, targeted changes. Maximum 6 files and 60000 total output characters.
 - Preserve existing conventions.
 - If the context is insufficient for a safe implementation, return files: [] and explain why in summary.
+${creatorIdentityForPrompt()}
 `;
 
 /**
