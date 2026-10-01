@@ -37,8 +37,10 @@ describe("API integration", () => {
     expect(first!.headers["ratelimit-policy"]).toBe("600;w=60");
     expect(last!.status).toBe(429);
     expect(last!.body).toMatchObject({ code: "rate_limited" });
-    // /health is outside /api/v1 and stays reachable for monitoring.
-    expect((await request(app).get("/health")).status).toBe(200);
+    // /health has its own budget, so it stays reachable for monitoring.
+    const health = await request(app).get("/health");
+    expect(health.status).toBe(200);
+    expect(health.headers["ratelimit-policy"]).toBe("600;w=60");
   });
 
   it("rejects unauthenticated access to protected routes", async () => {

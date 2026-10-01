@@ -80,7 +80,11 @@ export function buildServer(container: Container): Express {
   // `database` is a fixed, secret-free code (store/store.ts StoreHealth). When the database is
   // configured but unusable, /health says so with a 503 instead of a misleading "ok": the rest
   // of the API cannot create or restore a session in that state.
-  app.get("/health", async (_req, res) => {
+  // Separate per-IP ceiling for the non-API handlers that touch the database or the file system
+  // (/health, the web client fallback), so monitoring never shares the /api/v1 budget.
+  const publicLimit = apiRateLimit({ windowMs: 60 * 1000, limit: 600, standardHeaders: "draft-7", legacyHeaders: false });
+
+  app.get("/health", publicLimit, async (_req, res) => {
     const database = (await container.store.healthCheck?.()) ?? "not_configured";
     const healthy = database === "ok" || database === "not_configured";
     res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", provider: defaultModelConfig.provider, database });
@@ -133,8 +137,8 @@ export function buildServer(container: Container): Express {
   // the same origin/domain as the API — no separate static host needed for
   // https://zarvismobile.com to run the full product in a browser.
   if (webRoot) {
-    app.use(express.static(webRoot));
-    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(join(webRoot, "index.html")));
+    app.use(publicLimit, express.static(webRoot));
+    app.get(/^(?!\/api\/).*/, publicLimit, (_req, res) => res.sendFile(join(webRoot, "index.html")));
   }
 
   app.use((req, res) => {
