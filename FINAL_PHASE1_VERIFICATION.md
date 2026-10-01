@@ -180,6 +180,8 @@ Source-level checks of the Android code on `95d34a7`:
 | Secure token storage | PASS | `core-security/SecureStorage.kt`: Android Keystore `MasterKey` (AES256-GCM) + `EncryptedSharedPreferences` |
 | HTTPS only in release | PASS | Release base URL is `https://zarvismobile.com/`. The cleartext network security config is generated for debug only, scoped to the dev host |
 | No secrets in HTTP logs | PASS | `ApiClientFactory.kt`: `HttpLoggingInterceptor.Level.BASIC`; request and response bodies are never logged |
+| CodeQL: polynomial regex on the sign-up email (alert 21) | FAIL → fixed | **Reproduction:** `!@!.` + `!.`×50 000 + `@` as the email blocked the event loop for 6.7 s (100 KB body). **Root cause:** `EMAIL_PATTERN` ran before the 254-character length check. **File:** `backend/src/auth/authService.ts` `validateCredentials`. **Fix:** check the length first. **Verification:** the new test fails before the fix (6.5 s) and passes after it (<100 ms); backend 233/233 with Postgres |
+| CodeQL: missing rate limiting (alerts 23–34, 10 handlers) | PASS (reviewed, no change) | 4 handlers already use the repo's own `rateLimit` middleware, which CodeQL does not model: `/auth/link`, confirmation approve/deny and GitHub connect. The other 6 are authenticated, cheap reads or idempotent writes: `/me`, `/logout`, `GET /conversations`, `GET /confirmations/:id`, `GET` and `DELETE /integrations/github`. Every expensive or unauthenticated route (signup, login, refresh, orchestrator, TTS, documents, developer) is already limited |
 | Decompiled APK contains no secrets | NOT TESTED | Needs the built APK. Run `apkanalyzer` or `jadx` on the CI artifact |
 | Logcat on device contains no tokens | NOT TESTED | Requires the device |
 

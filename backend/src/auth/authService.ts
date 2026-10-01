@@ -255,7 +255,9 @@ function normalizeEmail(email: string): string {
 }
 
 function validateCredentials(email: string, password: string): void {
-  if (!EMAIL_PATTERN.test(email) || email.length > 254) {
+  // Length first: EMAIL_PATTERN backtracks polynomially on long crafted input (~7 s for a
+  // 100 KB body), so it must only ever see an RFC-sized (≤254) string.
+  if (email.length > 254 || !EMAIL_PATTERN.test(email)) {
     throw new AuthError("invalid_request", "Invalid email address");
   }
   if (email.endsWith(`@${GUEST_EMAIL_DOMAIN}`) || email.endsWith("@device.zarvismobile.com")) {

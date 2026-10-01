@@ -21,6 +21,13 @@ describe("AuthService", () => {
     await expect(authService.signup("dupe@example.com", "password123")).rejects.toThrow(AuthError);
   });
 
+  it("rejects an oversized crafted email without slow regex backtracking", async () => {
+    const crafted = `!@!.${"!.".repeat(50_000)}@`;
+    const started = Date.now();
+    await expect(authService.signup(crafted, "password123")).rejects.toThrow(AuthError);
+    expect(Date.now() - started).toBeLessThan(100);
+  });
+
   it("rejects a short password", async () => {
     await expect(authService.signup("short@example.com", "short")).rejects.toThrow(AuthError);
   });
