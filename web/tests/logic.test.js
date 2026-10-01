@@ -88,3 +88,16 @@ test("reply formatting: an unclosed fence (mid-stream) renders as code, and quot
   assert.ok(hostile.includes('<a href="https://a.b/" target="_blank" rel="noopener noreferrer">https://a.b/</a>&quot;onmouseover=alert(1)'));
   assert.ok(!/<a [^>]*onmouseover/.test(hostile));
 });
+
+test("reply HTML renders italic and horizontal rules the way Gemini writes them", () => {
+  const html = L.formatReplyHtml(
+    "**4. Phone & App Features** *(ZARVIS App ke zariye)*\n---\nCompare (jaise *iPhone vs Samsung*).\n***\n*Tip: replace the placeholders*\n- * not italic\n2 * 3 * 4 and snake_case_name stay literal",
+  );
+  assert.match(html, /<strong>4\. Phone &amp; App Features<\/strong> <em>\(ZARVIS App ke zariye\)<\/em>/);
+  assert.match(html, /\(jaise <em>iPhone vs Samsung<\/em>\)/);
+  assert.match(html, /<em>Tip: replace the placeholders<\/em>/);
+  assert.equal((html.match(/<hr class="reply-rule">/g) || []).length, 2);
+  assert.match(html, /<li>\* not italic<\/li>/);
+  assert.match(html, /2 \* 3 \* 4 and snake_case_name stay literal/);
+  assert.doesNotMatch(html, /<em>(?:\s| 3 )/);
+});

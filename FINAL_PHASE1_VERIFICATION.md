@@ -52,6 +52,7 @@ Who verifies what:
 | Playwright E2E | PASS | 14/14; CI `web-e2e` green |
 | Service worker offline | PASS | Cache v10, offline reload |
 | Live Vercel preview chat | PASS | CI `smoke` run 36897258506 attempt 2 (2026-10-01 17:25 UTC, `f722240`, bypass secret configured): `/health` 200 `{status:ok, provider:google, database:ok}`, guest 201, `/auth/me` 200, "Hi" turn-stream 200 with meta/delta/done |
+| Live chat on a real phone (owner screenshot, 2026-10-01 22:07–22:13 local) | PASS | Real Gemini replies to Hinglish, Hindi and English prompts, several turns in a row. Found: `---`/`***` rules and `*italic*` showed as raw characters. **Fix:** `web/logic.js` `formatReplyHtml` now renders horizontal rules and italic (asterisks must hug the text, so bullets, "2 * 3" and snake_case stay literal); SW cache v11. **Verification:** new unit test with the screenshot's text; web unit 9/9; E2E 14/14 |
 | Real phone browser (keyboard, orb, microphone) | NOT TESTED | Requires the phone |
 
 ## ANDROID AUTOMATED

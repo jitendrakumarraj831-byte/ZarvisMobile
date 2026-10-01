@@ -1154,6 +1154,7 @@ body[data-active-view="home"] .topbar-brand { visibility: hidden; }
 .bubble-body .reply-h3 { font-size: 1em; }
 .bubble-body .reply-heading:first-child { margin-top: 0; }
 .bubble-body .reply-ol { padding-left: 1.4em; }
+.bubble-body .reply-rule { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
 .bubble-body a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; word-break: break-word; }
 .bubble-body code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; padding: 1px 5px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); }
 pre.reply-code {

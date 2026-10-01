@@ -67,6 +67,8 @@
     });
     line = line
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      // *italic*: the asterisks must hug the text, so "2 * 3 * 4" and bullets stay literal.
+      .replace(/(^|[^*\w])\*([^\s*](?:[^*]*[^\s*])?)\*(?![*\w])/g, "$1<em>$2</em>")
       // [label](https://…) — only http(s); the text is already escaped, so no quote can
       // close the attribute.
       .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
@@ -76,8 +78,8 @@
   }
 
   /**
-   * A safe subset of Markdown: headings, bullet and numbered lists, fenced code blocks,
-   * bold, inline code and http(s) links. All input is escaped first; nothing else is
+   * A safe subset of Markdown: headings, horizontal rules, bullet and numbered lists, fenced
+   * code blocks, bold, italic, inline code and http(s) links. All input is escaped first; nothing else is
    * interpreted as HTML. An unclosed fence (e.g. mid-stream) renders the rest as code.
    */
   function formatReplyHtml(text) {
@@ -103,6 +105,12 @@
       if (fence) {
         closeList();
         code = { lang: fence[1], lines: [] };
+        continue;
+      }
+      // A line of only ---, *** or ___ (spaces allowed between) is a horizontal rule.
+      if (/^\s*(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/.test(line)) {
+        closeList();
+        html.push('<hr class="reply-rule">');
         continue;
       }
       const heading = line.match(/^\s*(#{1,3})\s+(.*)$/);
