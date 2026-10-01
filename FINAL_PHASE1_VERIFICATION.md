@@ -2,7 +2,7 @@
 
 Commit under test: `95d34a7` (branch `claude/laughing-shannon-m3zu32`). Last updated: 2026-10-01.
 
-**PR #78 gate: NOT READY TO MERGE.** Two gate items are open:
+**PR #78 gate: NOT READY TO MERGE.** The live preview now passes the API smoke test (BACKEND-1 resolved). Still open: the Nothing Phone 2A real-device run, and live email sign-up/login, which the smoke test does not cover.
 
 1. The live Vercel preview cannot complete a chat.
 2. The Nothing Phone 2A real-device run has not been done.
@@ -27,17 +27,17 @@ Who verifies what:
 | Gate item | Status | Evidence / blocker |
 |---|---|---|
 | Web verified | PASS (local + CI) / FAIL (live preview) | See [WEB](#web) |
-| Backend and database healthy on the live preview | FAIL | `/health` returns 500 `jwt_secret_missing_or_invalid`, stage `container_import`. See [BACKEND](#backend) |
-| First-time email sign-up and login works (live) | FAIL | Every route returns 500 until the backend starts |
+| Backend and database healthy on the live preview | PASS | CI `smoke` run 36897258506 attempt 2 (2026-10-01 17:25 UTC, `f722240`, bypass secret configured): `/health` 200 `{status:ok, provider:google, database:ok}`, guest 201, `/auth/me` 200, "Hi" turn-stream 200 with meta/delta/done. See [BACKEND](#backend) |
+| First-time email sign-up and login works (live) | NOT TESTED | The backend now starts and guest auth works live. Email sign-up/login has not been exercised on the preview yet |
 | Existing auth works (local) | PASS | Backend 232/232 tests; E2E 14/14 |
-| CI green | FAIL (1 check) | Every check is green except `smoke`. `smoke` gets HTTP 302 to the Vercel login, because the repository secret `VERCEL_AUTOMATION_BYPASS_SECRET` is not set |
+| CI green | PASS for `smoke` (after the secret was added); confirm on the latest head | `smoke` passed on re-run. CodeQL: 28 → 1 high alert; the last one (#37, documents.ts) is fixed in `16a1384`, pending CodeQL confirmation |
 | Android automated tests pass | PASS | `assemble-debug`; emulators API 26/30/34, phases A–E; `windows-build`; `:domain` 117/117 |
 | Nothing Phone 2A real-device tests | NOT TESTED | Requires the physical phone. See [ANDROID REAL DEVICE](#android-real-device) |
-| No critical/high unresolved issue | FAIL | Live backend startup (BACKEND-1) |
+| No critical/high unresolved issue | PASS, pending CodeQL confirmation of alert #37 | BACKEND-1 resolved by owner-side configuration |
 | Logcat has no relevant runtime errors | NOT TESTED | Requires the device |
 | Voice/TTS works without stuttering | NOT TESTED | Requires the device, a real microphone and a working Gemini key |
 | Camera/microphone permissions work | PASS on emulator / NOT TESTED on device | Emulator phases A and D |
-| Chat works repeatedly (live) | FAIL | BACKEND-1 |
+| Chat works repeatedly (live) | PASS (single turn) | CI `smoke` run 36897258506 attempt 2 (2026-10-01 17:25 UTC, `f722240`, bypass secret configured): `/health` 200 `{status:ok, provider:google, database:ok}`, guest 201, `/auth/me` 200, "Hi" turn-stream 200 with meta/delta/done. Repeated and real Gemini turns are not yet covered |
 | App survives background and process restart | PASS on emulator / NOT TESTED on device | Emulator phases B and C |
 | Security checks pass | PASS (source-level) / NOT TESTED (APK on device) | See [SECURITY](#security) |
 
@@ -51,7 +51,7 @@ Who verifies what:
 | Web unit tests | PASS | 8/8 |
 | Playwright E2E | PASS | 14/14; CI `web-e2e` green |
 | Service worker offline | PASS | Cache v10, offline reload |
-| Live Vercel preview chat | FAIL | See BACKEND-1. Deployments of `95d34a7` at 15:34, 16:08 and 16:18 UTC on 2026-10-01 have not yet been checked with `/health` |
+| Live Vercel preview chat | PASS | CI `smoke` run 36897258506 attempt 2 (2026-10-01 17:25 UTC, `f722240`, bypass secret configured): `/health` 200 `{status:ok, provider:google, database:ok}`, guest 201, `/auth/me` 200, "Hi" turn-stream 200 with meta/delta/done |
 | Real phone browser (keyboard, orb, microphone) | NOT TESTED | Requires the phone |
 
 ## ANDROID AUTOMATED
@@ -114,9 +114,9 @@ So item 16 (backend integration) can be verified on the device against the **loc
 |---|---|---|
 | Backend tests (in-memory + Postgres 16) | PASS | 232/232; CI `backend` green |
 | `tsc` and build | PASS | Clean |
-| Live preview startup | **FAIL (BACKEND-1)** | See below |
+| Live preview startup | PASS (BACKEND-1 resolved) | CI `smoke` run 36897258506 attempt 2 (2026-10-01 17:25 UTC, `f722240`, bypass secret configured): `/health` 200 `{status:ok, provider:google, database:ok}`, guest 201, `/auth/me` 200, "Hi" turn-stream 200 with meta/delta/done |
 
-**BACKEND-1: live preview backend does not start.**
+**BACKEND-1: live preview backend did not start (RESOLVED 2026-10-01).** Resolved by the owner's Vercel Preview environment configuration; verified by the smoke run above. History:
 
 - **Reproduction:** open `/health` on the `95d34a7` preview deployed 2026-09-30 15:19 UTC. It returns:
 
@@ -142,7 +142,7 @@ So item 16 (backend integration) can be verified on the device against the **loc
 | Postgres store (local Postgres 16) | PASS | Backend suite |
 | `/health` database codes | PASS | Unit tests for `classifyDatabaseError` |
 | Neon TLS / URL handling | PASS (static) | `poolConfigFor` removes `sslmode` and verifies the certificate strictly, which suits Neon's publicly trusted certificate. `channel_binding` is ignored by `pg`. A pool builds from a Neon-style URL |
-| Live Neon connection from the preview | BLOCKED | Startup fails before the database is used (BACKEND-1) |
+| Live Neon connection from the preview | PASS | `/health` reports `database: ok` (CI `smoke` run 36897258506 attempt 2 (2026-10-01 17) |
 
 ## AUTH
 
@@ -150,7 +150,7 @@ So item 16 (backend integration) can be verified on the device against the **loc
 |---|---|---|
 | Guest, sign-up, login, refresh rotation, logout, revoked session | PASS (local) | Backend tests and E2E |
 | Android token refresh and session-ended handling | PASS (source + emulator) | `TokenAuthenticator`: `session_invalid`, `session_revoked` or `refresh_token_reused` clears tokens; a 5xx or network error clears nothing |
-| Live preview auth | FAIL | BACKEND-1 |
+| Live preview auth | PASS (guest + `/auth/me`) / NOT TESTED (email) | Smoke run 36897258506 |
 | Android real-device auth | NOT TESTED | — |
 
 ## VOICE/TTS
