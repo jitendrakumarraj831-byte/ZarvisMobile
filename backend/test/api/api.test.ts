@@ -26,6 +26,21 @@ describe("API integration", () => {
     expect(res.body).toEqual({ status: "ok", provider: "mock", database: "not_configured" });
   });
 
+  it("applies a per-IP ceiling to every API route", async () => {
+    let first: request.Response | undefined;
+    let last: request.Response | undefined;
+    for (let i = 0; i < 601; i++) {
+      last = await request(app).get("/api/v1/capabilities");
+      first ??= last;
+    }
+    expect(first!.status).not.toBe(429);
+    expect(first!.headers["ratelimit-policy"]).toBe("600;w=60");
+    expect(last!.status).toBe(429);
+    expect(last!.body).toMatchObject({ code: "rate_limited" });
+    // /health is outside /api/v1 and stays reachable for monitoring.
+    expect((await request(app).get("/health")).status).toBe(200);
+  });
+
   it("rejects unauthenticated access to protected routes", async () => {
     const res = await request(app).get("/api/v1/skills");
     expect(res.status).toBe(401);

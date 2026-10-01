@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express, type Router } from "express";
+import { rateLimit as apiRateLimit } from "express-rate-limit";
 import type { Container } from "./container.js";
 import { accountRouter } from "./api/routes/account.js";
 import { authRouter } from "./api/routes/auth.js";
@@ -84,6 +85,19 @@ export function buildServer(container: Container): Express {
     const healthy = database === "ok" || database === "not_configured";
     res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", provider: defaultModelConfig.provider, database });
   });
+
+  // Coarse per-IP ceiling for every API route, generous enough for shared mobile-carrier IPs.
+  // The tighter per-route limits (api/middleware/rateLimit.ts) still apply on top of it.
+  app.use(
+    "/api/v1",
+    apiRateLimit({
+      windowMs: 60 * 1000,
+      limit: 600,
+      standardHeaders: "draft-7",
+      legacyHeaders: false,
+      message: { error: "Too many requests. Please wait and try again.", code: "rate_limited" },
+    }),
+  );
 
   app.use("/api/v1/auth", authRouter(container.authService));
   app.use("/api/v1/account", accountRouter(container.store));

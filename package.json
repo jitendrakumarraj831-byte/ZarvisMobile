@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "express": "^4.19.2",
+    "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.2",
     "mammoth": "^1.12.3",
     "multer": "^2.4.0",
