@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { rateLimit as ipRateLimit } from "express-rate-limit";
 import multer from "multer";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
@@ -105,9 +106,13 @@ export function documentsRouter(): Router {
   const router = Router();
   // Extraction and image analysis are not credit-charged; this per-account limit bounds cost.
   const limit = rateLimit({ name: "documents", windowMs: 60 * 1000, max: 20, keyBy: "account" });
+  // This router is mounted lazily (server.ts getDocumentsRouter), so it also carries its own
+  // per-IP ceiling instead of relying only on the app-level /api/v1 limiter.
+  const ipLimit = ipRateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-7", legacyHeaders: false });
 
   router.post(
     "/extract",
+    ipLimit,
     requireAuth,
     limit,
     (req, res, next) => {

@@ -105,4 +105,14 @@ describe("POST /api/v1/documents/extract", () => {
       .attach("file", pdf, { filename: "private.pdf", contentType: "application/pdf" });
     expect(Object.keys(res.body)).toEqual(["text"]);
   });
+
+  // Last in the file: the documents router (and so its limiter) is created once per process.
+  it("caps extraction per IP before authentication", async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 70 && !statuses.includes(429); i++) {
+      statuses.push((await request(app).post("/api/v1/documents/extract")).status);
+    }
+    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.slice(0, -1).every((status) => status === 401)).toBe(true);
+  });
 });
