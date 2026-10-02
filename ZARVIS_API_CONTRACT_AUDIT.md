@@ -31,7 +31,7 @@ for other origins; a per-IP ceiling of 600/min on `/api/v1`; errors are
 | GET | `/api/v1/skills` | Bearer | — | — | catalogue with entitlement | no | yes | yes |
 | GET | `/api/v1/capabilities` | none | — | — | registry | no | yes | (bundled JSON) |
 | POST | `/api/v1/orchestrator/turn-stream` | Bearer | 30/min/account | `{utterance, locale?, isFirstTurn?, conversationId?, history?, userName?, clientTurnId?}` | SSE `meta`, `progress`, `delta`, `done{message, toolCalls, conversationId, turnId, replayed?}`, `error{error, code?/type?, retryable, retryAfterMs?, quotaType?, turnId}` | **yes** | yes | no |
-| POST | `/api/v1/orchestrator/turn` | Bearer | 30/min/account | same | `{message, toolCalls, conversationId, turnId, replayed?}`; 429/503 provider; 409 `turn_in_progress` | no | — | yes |
+| POST | `/api/v1/orchestrator/turn` | Bearer | 30/min/account | same | `{message, toolCalls, conversationId, turnId, replayed?}`; 429/503 provider; 409 `turn_in_progress` / `client_turn_id_reused`; 400 `invalid_client_turn_id` / `invalid_json`; 413 `payload_too_large` | no | — | yes |
 | GET | `/api/v1/conversations/:id/messages` | Bearer, owner | — | — | `{messages[]}`; 404 | no | yes | yes |
 | GET | `/api/v1/confirmations/:id` | Bearer, owner | — | — | record | no | — | — |
 | POST | `/api/v1/confirmations/:id/approve` | Bearer, owner | 30/min | — | tool outcome; 409 `confirmation_already_used`; 404 | no | yes | yes |
@@ -43,7 +43,8 @@ for other origins; a per-IP ceiling of 600/min on `/api/v1`; errors are
 | POST | `/api/v1/usage/charge` | Bearer | — | `{skillId}` (on-device skills only; cost from server registry) | `{balance}` | no | — | yes |
 | POST | `/api/v1/tasks` | Bearer | — | `{goal}` | task | no | — | yes |
 | GET | `/api/v1/tasks`, `/api/v1/tasks/:id` | Bearer, owner | — | — | tasks | no | yes | yes |
-| POST | `/api/v1/tasks/:id/{pause,resume,cancel,retry}` | Bearer, owner | — | — | task; 409 invalid transition | no | yes | yes |
+| POST | `/api/v1/tasks/:id/{pause,cancel}` | Bearer, owner | — | — | task; 409 invalid transition | no | yes | yes |
+| POST | `/api/v1/tasks/:id/{resume,retry}` | Bearer, owner | — | — | always 409 `task_execution_unavailable` (no executor exists; status unchanged) | no | — | — |
 | POST | `/api/v1/tts/synthesize` | Bearer | 40/min | `{text, voice?}` | WAV; 503 no key; 429 quota | chunked body | yes | yes |
 | POST | `/api/v1/tts/synthesize-stream` | Bearer | 40/min | `{text, voice?}` | PCM stream | **yes** | yes | — |
 | POST | `/api/v1/documents/extract` | Bearer | 60/min/IP + 20/min/account | multipart `file` ≤4 MB | `{text ≤60k chars, kind?}`; 400/413/415/422/429/503 codes | no | yes | — |
@@ -54,7 +55,7 @@ Android-only: `/auth/signup`, `/tasks` POST, `/usage/charge`, JSON `/orchestrato
 Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/github`,
 `/tts/synthesize-stream`, `/documents/extract`.
 
-## 2. Mismatches found and fixed in this pass
+## 2. Mismatches found and fixed (PR #79)
 
 | # | Contract | What the clients/docs expected | What the server did | Fix | Test |
 |---|---|---|---|---|---|
@@ -63,7 +64,10 @@ Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/gi
 | C3 | Turn idempotency | Retry should re-send *the same* turn | every request was a new turn: tools re-ran, charged again, user message stored twice | `clientTurnId`: replay / 409 / safe retry | `test/agents/turnIdempotency.test.ts` (both stores), E2E |
 | C4 | Unknown ids | 404 for an id that names nothing (in-memory behaviour, which most tests use) | Postgres: a non-UUID id → **500** on turn, conversation messages, confirmations, tasks | non-UUID = not found | `test/api/nonUuidIds.test.ts` (both stores) |
 | C5 | AI answers in production | an answer comes from the AI, or an honest error | with no `GEMINI_API_KEY`, the planner was `MockAIProvider` in production too: canned text shown as the AI's reply | production uses `UnavailableAIProvider`: SSE `error` / JSON 503 `AI_UNAVAILABLE`; `/health` `provider: none` | `test/ai/unavailableProvider.test.ts` |
-| C6 | Live smoke "chat works" | a real model answer | the only smoke turn ("Hi") never reaches Gemini | smoke adds one model-backed turn; a mock answer can never pass as Gemini | branches run locally; first live run happens on this branch's next deployment |
+| C6 | Live smoke "chat works" | a real model answer | the only smoke turn ("Hi") never reaches Gemini | `scripts/live-smoke.mjs`: model answer, web search, upload, TTS, auth lifecycle, errors, replay; a mock answer never passes | live run on the preview: 19 PASS, 1 WARN (search rate-limited) |
+| C7 | `clientTurnId` reuse | one key = one message | a reused key with other text replayed the earlier answer | fingerprint bound to the key; 409 `client_turn_id_reused` | `turnIdempotency.test.ts` |
+| C8 | Task resume/retry | a reported state is a real state | `resume`/`retry` set `RUNNING` with no executor | 409 `task_execution_unavailable`; clients offer no Start/Resume/Retry | `api.test.ts`, `taskService.test.ts` |
+| C9 | Retry after a late failure | a Retry does not repeat work already done | the tool that succeeded before the failure ran and was charged again | the failed attempt's successful executions are reused (same `toolCallId`) | `turnIdempotency.test.ts` |
 
 ## 3. Checked and consistent
 
@@ -80,8 +84,6 @@ Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/gi
 
 | # | Item | Why not changed |
 |---|---|---|
-| O1 | `tasks` resume/retry report `RUNNING` with no executor | the honest fix is a real executor or a different status; that is P2 Tasks work |
 | O2 | `/billing/webhook` is client-called, not a Play RTDN webhook | needs Play Billing integration |
-| O3 | A `clientTurnId` reused with a *different* utterance replays the earlier result | the shipped web client creates a fresh id per submission and reuses it only for the same text; binding the key to an utterance hash is a small follow-up |
 | O4 | Android sends no `clientTurnId` | Android has no Retry action, so every send is a new message by the user; add it when Retry is added |
 | O5 | SSE has no heartbeat while a long model call runs | progress events are sent at every real stage; idle proxies have not been observed to cut a turn. Watch the Vercel logs |

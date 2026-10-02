@@ -4,9 +4,10 @@
 - **Sources:** every `process.env.*` read in `backend/src` and `api/` (they all go through
   `backend/src/config/env.ts`, except `NODE_ENV` in `api/index.ts`), `backend/.env.example`,
   `.github/workflows/*.yml`, `android/app/build.gradle.kts`.
-- **"Configured" evidence:** the CI `smoke` run on PR #78's Preview deployment, 2026-10-02
-  16:42 UTC (job 110933385063): `/health` `{status: ok, provider: google, database: ok}`, guest
-  201, `/auth/me` 200, "Hi" turn 200. **Production** (`zarvismobile.com`) was not reachable or
+- **"Configured" evidence:** the live smoke runs on PR #79's Preview deployments (2026-10-02,
+  job 110967802275 and later): `/health` `{status: ok, provider: google, database: ok}`; guest,
+  email sign-up, login, refresh, logout and account deletion all work; a real Gemini answer;
+  TTS returns `audio/wav`; PDF extraction works. **Production** (`zarvismobile.com`) was not reachable or
   checked from this session, so every Production cell is **NOT VERIFIED**.
 
 Legend: **Req** = required for that environment to work; **Preview** = Vercel Preview scope.
@@ -20,7 +21,7 @@ Legend: **Req** = required for that environment to work; **Preview** = Vercel Pr
 | `POSTGRES_URL` / `DATABASE_URL` | Postgres store; `POSTGRES_URL` wins | `env.ts` → `container.ts` | CI service container (`TEST_DATABASE_URL`, `E2E_DATABASE_URL` are test-only) | **configured** (`database: ok`) | NOT VERIFIED | **yes** on serverless (in-memory state is lost between instances) | OK (Preview) |
 | `POSTGRES_CA_CERT` | PEM for a database whose certificate is not publicly trusted | `postgresStore.ts` `poolConfigFor` | unset | not needed for Neon (publicly trusted) | NOT VERIFIED | only for a private CA | OK |
 | `POSTGRES_SSL_MODE` | `no-verify` = explicit, logged opt-out of TLS verification | `postgresStore.ts` | unset | should stay unset | NOT VERIFIED | no; **should not be set** | OK |
-| `GEMINI_API_KEY` | Gemini chat, search grounding, TTS, image analysis | `providerFactory.ts`, `skills/index.ts`, `tts`, `documents.ts` | unset (mock in dev/tests) | variable is **non-empty** (`provider: google`). That the key is *valid* is **not yet verified**: the only smoke turn never called Gemini; fixed in this branch's smoke test | NOT VERIFIED | **yes** for any AI answer; production now fails closed without it | PARTIAL |
+| `GEMINI_API_KEY` | Gemini chat, search grounding, TTS, image analysis | `providerFactory.ts`, `skills/index.ts`, `tts`, `documents.ts` | unset (mock in dev/tests) | **configured and valid**: live smoke on the preview got a real Gemini answer and real TTS audio | NOT VERIFIED | **yes** for any AI answer; production fails closed without it | OK (Preview) |
 | `GEMINI_MODEL` | chat model (default `gemini-3.6-flash`; the retired `gemini-2.5-flash` is remapped) | `env.ts` | default | unknown (default if unset) | NOT VERIFIED | no | OK |
 | `GEMINI_TTS_MODEL` | TTS model (default `gemini-3.8-flash-lite-tts`) | `env.ts` | default | unknown | NOT VERIFIED | no | OK |
 | `GEMINI_TTS_VOICE` | default voice (`Kore`) | `env.ts` | default | unknown | NOT VERIFIED | no | OK |
@@ -30,9 +31,9 @@ Legend: **Req** = required for that environment to work; **Preview** = Vercel Pr
 | `PLAY_BILLING_SERVICE_ACCOUNT_JSON` | Google Play Developer API verification | `playBillingVerifier.ts` | unset (mock verifier outside production) | unknown | NOT VERIFIED | for paid plans only; production fails closed without it | NOT VERIFIED |
 | `PLAY_BILLING_PACKAGE_NAME` | Play package (`com.zarvismobile.app`) | `env.ts` | default | default | default | no | OK |
 | `PORT` | local server port | `index.ts` | 3000 / 3100 (E2E) | not used on Vercel | not used | no | OK |
-| `PUBLIC_APP_URL` | "official domain" | read in `env.ts`, **used nowhere** | — | — | — | — | **UNUSED** |
-| `ANTHROPIC_API_KEY` | none: no Anthropic provider exists | read in `env.ts`, **used nowhere** | — | — | — | — | **UNUSED**; `.env.example` implies setting it does something |
-| `OPENAI_API_KEY` | none: no OpenAI provider exists | read in `env.ts`, **used nowhere** | — | — | — | — | **UNUSED**; same |
+| `PUBLIC_APP_URL` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
+| `ANTHROPIC_API_KEY` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
+| `OPENAI_API_KEY` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
 
 No backend variable is read by the browser bundle: the web client is plain static files with no
 build step, and `grep` finds no `process.env` in `web/`. Nothing server-only is exposed to the

@@ -178,7 +178,8 @@ async function main() {
   } else if (searches.length > 1) {
     report("FAIL", "web search ran exactly once", `${searches.length} executions for one request`);
   } else if (searches.length === 1 && /quota|rate/.test(searches[0].outcome?.result?.reason ?? "")) {
-    report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason}`);
+    // The user-facing message carries the provider's advised wait; no secret is in it.
+    report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})`);
   } else if (quota(search.error?.code)) {
     report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised`);
   } else if (searches.length === 0 && search.done) {

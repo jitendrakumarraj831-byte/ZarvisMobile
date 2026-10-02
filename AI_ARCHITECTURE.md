@@ -72,8 +72,22 @@ charged for a failed generation.
   no new message. A turn still running elsewhere gets `turn_in_progress`. A failed one runs
   again in the same conversation without storing the user's message twice. Keys are per
   account and kept 24 hours.
-- The turn log line also names `configuredModel` and `servedModels`. An answer from the
-  fallback model is logged as a warning, never silent.
+- A key reused for a *different* message is refused (`client_turn_id_reused`); nothing runs.
+- A Retry of a turn that failed after a tool succeeded reuses that tool's result for the same
+  request (same `toolCallId`): no second execution, no second charge.
+- Every logical AI call in a turn has a `modelCallId` and is listed in the turn log line's
+  `aiCallLog` (planner steps and the calls skills make, such as search grounding and
+  generation), with `kind`, `configuredModel`, `servedModel`, `httpRequests`, `outcome` and
+  `status`; `aiCalls` / `aiHttpRequests` give the totals.
+- **Fallback model.** On 404 or a 5xx that outlasts its bounded retries, chat and TTS move to
+  the fallback model. This is never silent: a warning names the `modelCallId`, the configured
+  and the serving model, and `servedModel` records it in `aiCallLog`
+  (`geminiProvider.test.ts`). A daily quota never falls back.
+
+## Tasks
+
+No task executor exists yet. Tasks are tracked, can be paused or cancelled, and are never
+reported as running: `resume` / `retry` answer `task_execution_unavailable`.
 
 ## No AI credential
 

@@ -1,7 +1,7 @@
 # ZARVIS system connection map
 
 - **Date:** 2026-10-02
-- **Code base:** PR #78 head `5cc165f` plus the fixes on `claude/optimistic-lovelace-y9w9q6`.
+- **Code base:** PR #78 head plus the fixes on `claude/optimistic-lovelace-y9w9q6` (PR #79).
 - **Method:** every row was traced in source. "Tested" means a test in this repository exercises
   the connection. Status values: CONNECTED, BROKEN, MISSING, MISCONFIGURED, PARTIAL, UNUSED,
   PLANNED.
@@ -68,7 +68,7 @@ Android app (Compose, Hilt)
 | W12 | text that follows an upload | W4 | — | — | extracted text rides in `utterance` | was **BROKEN** for Hindi documents (>100 kB body → 500); fixed | CONNECTED, tested |
 | W13 | Capabilities / Permission Center | `capabilities.ts` | GET `/api/v1/capabilities` | none | → registry (`shared/capability-registry.json` parity) | — | CONNECTED, tested |
 | W14 | Skills, Plans, Usage | `skills.ts`, `entitlements.ts` | GET `/skills`, `/entitlements/me` | Bearer | → catalogue / plan + credits | — | CONNECTED |
-| W15 | Tasks page | `tasks.ts` | GET `/tasks`, POST `/:id/{pause,resume,cancel,retry}` | Bearer, ownership | → task | transitions are stored, **no executor runs any step** | PARTIAL (see readiness §3) |
+| W15 | Tasks page | `tasks.ts` | GET `/tasks`, POST `/:id/{pause,cancel}` (`resume`/`retry` answer 409 `task_execution_unavailable`) | Bearer, ownership | → task | tracking only: **no executor runs any step**, so nothing can be started and no task is ever shown RUNNING by a new action | PARTIAL (tracking works; execution PLANNED) |
 | W16 | Delete account | `account.ts` | DELETE `/api/v1/account` | Bearer | → 204 | cascades every account table, turn records included | CONNECTED, tested |
 | W17 | Settings → status | `server.ts` | GET `/health` | none; 600/min/IP | → `{status, provider, database}` | 503 when the database is configured but unusable | CONNECTED, tested |
 | W18 | Billing | `billing.ts` | POST `/api/v1/billing/webhook` | Bearer | purchase token | no Web checkout exists; server verifier fails closed in production | PARTIAL (no client) |
@@ -83,7 +83,7 @@ Android app (Compose, Hilt)
 | A4 | confirmation dialog | `/confirmations/{id}/approve|decline` | POST | ≤ `MAX_CONFIRMATION_ROUNDS` when the action changed after approval | CONNECTED |
 | A5 | `AndroidTextToSpeechEngine` | `/tts/synthesize` | POST `@Streaming` | body read on `Dispatchers.IO`; `MediaPlayer` plays the WAV | CONNECTED (CI); audio on device NOT TESTED |
 | A6 | Developer screen | `/developer/analyze` | POST | read-only | CONNECTED |
-| A7 | Tasks screen | `/tasks`, `/tasks/{id}/{action}` | GET/POST | same as W15 | PARTIAL |
+| A7 | Tasks screen | `/tasks`, `/tasks/{id}/{pause,cancel}` | GET/POST | same as W15; no Start/Resume/Retry button | PARTIAL |
 | A8 | on-device skills | `/usage/charge` | POST | cost from the server registry, never from the client; all on-device skills cost 0 today | CONNECTED, effectively UNUSED |
 | A9 | Plans | `/entitlements/me`, `/skills` | GET | display only; no Play Billing client | PARTIAL |
 | A10 | Release build | `https://zarvismobile.com/` | — | asserted in CI; debug uses `http://<dev-host>:3000/` (cleartext scoped to that host) | CONNECTED (CI) |
@@ -108,14 +108,14 @@ Retrofit endpoint and every web `apiFetch` path is a served route with the same 
 
 | # | Caller | Provider | Credential (env) | Timeout | Retry | Failure → client | Status |
 |---|---|---|---|---|---|---|---|
-| E1 | `GeminiProvider.generate/streamGenerate` | Gemini `generateContent` | `GEMINI_API_KEY` (header `x-goog-api-key`) | per request | `ai/geminiErrors.ts`: daily quota 0 retries; per-minute 1 retry if wait ≤8 s; 5xx 2 retries + backoff/jitter, then fallback model; other 4xx none | `AIProviderError` → SSE `error` / JSON 429/503 with `type`, `retryable`, `retryAfterMs`, `quotaType` | CONNECTED (live chat verified by the owner on a phone, 2026-10-01). The CI smoke test did not check it until this branch (its "Hi" never calls Gemini). Production with no key now fails closed (`UnavailableAIProvider`) instead of answering with the mock. Fallback-model switch now logged |
-| E2 | `GeminiSearchProvider` | Gemini + `google_search` grounding | `GEMINI_API_KEY` | per request | same policy | `execution_failed` (`ai_quota_exceeded`, `search_provider_unavailable`); never fake sources in production | CONNECTED (mocked HTTP tests) |
-| E3 | `GeminiTtsProvider` | Gemini TTS models | `GEMINI_API_KEY`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | 120 s | same policy; candidate models | 429/503 with codes | CONNECTED (mocked); live NOT TESTED here |
+| E1 | `GeminiProvider.generate/streamGenerate` | Gemini `generateContent` | `GEMINI_API_KEY` (header `x-goog-api-key`) | per request | `ai/geminiErrors.ts`: daily quota 0 retries; per-minute 1 retry if wait ≤8 s; 5xx 2 retries + backoff/jitter, then fallback model; other 4xx none | `AIProviderError` → SSE `error` / JSON 429/503 with `type`, `retryable`, `retryAfterMs`, `quotaType` | CONNECTED: live on the preview, the smoke test's model-backed turn was answered by Gemini (`scripts/live-smoke.mjs`; before this branch the smoke's only turn, "Hi", never reached Gemini). Production with no key fails closed (`UnavailableAIProvider`). Fallback-model switches are logged with their `modelCallId` |
+| E2 | `GeminiSearchProvider` | Gemini + `google_search` grounding | `GEMINI_API_KEY` | per request | same policy | `execution_failed` (`ai_quota_exceeded`, `ai_rate_limited`, `search_provider_unavailable`); never fake sources in production | CONNECTED: one execution per request verified live; a *completed* live search is pending (the first live run met the per-minute limit, see readiness §5) |
+| E3 | `GeminiTtsProvider` | Gemini TTS models | `GEMINI_API_KEY`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | 120 s | same policy; candidate models | 429/503 with codes | CONNECTED: live on the preview, `/tts/synthesize` returned `audio/wav` |
 | E4 | `documents.ts` image analysis | Gemini vision | `GEMINI_API_KEY` | 60 s | same policy | 503 when no key; 429 on quota | CONNECTED |
 | E5 | `githubClient.ts` | GitHub REST | per-user token, encrypted with `INTEGRATION_ENCRYPTION_KEY`; `GITHUB_API_BASE_URL` | per request | none | `execution_failed` | CONNECTED (stub); live write NOT TESTED |
-| E6 | `PostgresStore` | Postgres (Neon in production) | `POSTGRES_URL`/`DATABASE_URL`, `POSTGRES_CA_CERT`, `POSTGRES_SSL_MODE` | pool defaults; health 5 s | schema init retried | `/health` code; route 500 with safe code | CONNECTED (live `/health` `database: ok`) |
+| E6 | `PostgresStore` | Postgres (Neon in production) | `POSTGRES_URL`/`DATABASE_URL`, `POSTGRES_CA_CERT`, `POSTGRES_SSL_MODE` | pool defaults; health 5 s | schema init retried | `/health` code; route 500 with safe code; schema setup serialised with account deletion (advisory lock) | CONNECTED (live `/health` `database: ok`; live sign-up, login and account deletion) |
 | E7 | `playBillingVerifier.ts` | Google Play Developer API | `PLAY_BILLING_SERVICE_ACCOUNT_JSON`, `PLAY_BILLING_PACKAGE_NAME` | — | none | fails closed in production when unset | PARTIAL (no client) |
-| E8 | — | Anthropic / OpenAI | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | — | — | read by `env.ts`, **used nowhere** | UNUSED |
+| E8 | — | Anthropic / OpenAI | — | — | — | no such provider exists; the unused `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` reads were removed | n/a (removed) |
 
 ## 6. Gemini requests per user turn
 
@@ -132,12 +132,21 @@ plus code reading where marked.
 | Daily quota on the first call | 1 | then a structured error; no retry, no fallback |
 | Search hits the daily quota | 2 | plan + search; no re-search, no further planning |
 | Voice turn | as the typed turn, plus 1 TTS request per spoken segment (~220–320 characters) | TTS is separate from the turn and never starts another turn |
-| Re-sent turn with the same `clientTurnId` (new) | 0 | stored result replayed |
+| Re-sent turn with the same `clientTurnId` | 0 | stored result replayed |
+| Retry of a turn that failed after a successful tool | planner calls only | the tool's earlier result is reused, not re-run or re-charged |
 
-Correlation ids: `turnId` (per request; in `meta`/`done` and the `Turn finished` log line),
-`clientTurnId` (per logical turn, from the client), `toolCallId` (per execution), Gemini
-`responseId` (per model response), `servedModels` (which model answered). There is no separate
-`modelCallId`; `modelCalls` and `providerHttpRequests` counts are in the turn log line.
+Correlation ids, all in the one `Turn finished` log line per request:
+- `clientTurnId`: the user's logical turn (from the web client; the same on Retry).
+- `turnId`: this request (also in the `meta` and `done` events).
+- `modelCallId`: one per logical AI call, in `aiCallLog`, for the planner's steps **and** the
+  calls skills make themselves (search grounding, generation), each with `kind`,
+  `configuredModel`, `servedModel`, `httpRequests` (retries included), `outcome` and `status`.
+  A fallback-model warning names its `modelCallId`.
+- `toolCallId`: one per tool execution (`toolCalls`; `reused: true` when a Retry reused it).
+- Gemini `responseId`s.
+
+`aiCalls` and `aiHttpRequests` total every Gemini call the request caused; `turnEconomy.test.ts`
+checks them against the real HTTP requests.
 
 ## 7. Streaming state machine (web)
 
