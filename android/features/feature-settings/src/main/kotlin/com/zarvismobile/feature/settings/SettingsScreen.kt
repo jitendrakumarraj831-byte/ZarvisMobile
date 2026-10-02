@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Code
@@ -32,7 +33,6 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -62,7 +62,7 @@ import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
 private enum class SettingsPage(val title: String, val icon: ImageVector) {
     Account("Account", Icons.Filled.AccountCircle),
     Permissions("Permissions & Device Access", Icons.Filled.AdminPanelSettings),
-    Voice("Voice", Icons.Filled.VolumeUp),
+    Voice("Voice", Icons.AutoMirrored.Filled.VolumeUp),
     Language("Language", Icons.Filled.Language),
     Appearance("Appearance", Icons.Filled.DarkMode),
     Ai("AI", Icons.Filled.Psychology),
