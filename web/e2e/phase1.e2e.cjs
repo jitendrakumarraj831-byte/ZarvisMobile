@@ -233,6 +233,61 @@ async function send(page, text) {
     assert.deepEqual((await (await fetch(GITHUB_STUB + "/__writes")).json()).writes, [], "the replay wrote nothing");
   });
 
+  // Turn-failure and duplicate-submit behaviour. A separate context: these paths log the
+  // failure with console.error on purpose, which must not trip the no-console-errors check.
+  const ctxC = await browser.newContext();
+  const pageC = await ctxC.newPage();
+  await pageC.goto(BASE);
+  await pageC.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+  const sse = (frames) => frames.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+
+  await step("one Enter press sends exactly one turn, even with a second Enter and a click", async () => {
+    let turns = 0;
+    await pageC.route("**/api/v1/orchestrator/turn-stream", async (route) => {
+      turns += 1;
+      await new Promise((r) => setTimeout(r, 300));
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([["meta", { conversationId: "c-dup", turnId: "t1" }], ["delta", { text: "ok" }], ["done", { message: "ok", toolCalls: [], conversationId: "c-dup", turnId: "t1" }]]) });
+    });
+    await nav(pageC, "chat");
+    await pageC.fill("#text-input", "count my requests");
+    await pageC.press("#text-input", "Enter");
+    await pageC.press("#text-input", "Enter");
+    await pageC.waitForSelector(".bubble.assistant .bubble-body >> text=ok", { timeout: 10000 });
+    await pageC.waitForTimeout(300);
+    assert.equal(turns, 1, "a single submission must produce a single turn request");
+    await pageC.unroute("**/api/v1/orchestrator/turn-stream");
+  });
+
+  await step("an exhausted daily AI quota says so honestly and offers no retry", async () => {
+    await pageC.route("**/api/v1/orchestrator/turn-stream", (route) => route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: sse([["meta", { conversationId: "c-q", turnId: "t2" }], ["error", { type: "AI_QUOTA_EXCEEDED", code: "AI_QUOTA_EXCEEDED", retryable: false, quotaType: "daily", error: "limit", turnId: "t2" }]]),
+    }));
+    const before = await pageC.locator(".bubble-retry-btn").count();
+    await send(pageC, "write an essay");
+    await pageC.waitForSelector(".bubble.system >> text=today's AI usage limit", { timeout: 10000 });
+    assert.equal(await pageC.locator(".bubble-retry-btn").count(), before, "a daily quota has no Retry button");
+    assert.equal(await pageC.locator(".bubble.system >> text=can't connect").count(), 0, "not shown as a connection error");
+    assert.equal(await pageC.locator("#send-btn").getAttribute("aria-label").then((l) => /stop/i.test(l || "")), false, "composer is usable again");
+    await pageC.unroute("**/api/v1/orchestrator/turn-stream");
+  });
+
+  await step("a stream that ends without done/error is a failed turn with Retry, not silence", async () => {
+    await pageC.route("**/api/v1/orchestrator/turn-stream", (route) => route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: sse([["meta", { conversationId: "c-cut", turnId: "t3" }], ["progress", { type: "thinking", step: 1 }]]),
+    }));
+    const before = await pageC.locator(".bubble-retry-btn").count();
+    await send(pageC, "this stream gets cut");
+    await pageC.waitForFunction((n) => document.querySelectorAll(".bubble-retry-btn").length > n, before, { timeout: 10000 });
+    assert.equal(await pageC.locator(".bubble.thinking").count(), 0, "no thinking bubble left behind");
+    assert.notEqual(await pageC.locator("#orb").getAttribute("data-state"), "UNDERSTANDING", "the orb is not stuck thinking");
+    await pageC.unroute("**/api/v1/orchestrator/turn-stream");
+  });
+  await ctxC.close();
+
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
     for (const path of ["/logic.js", "/feature-pages.js", "/app.js", "/sw.js"]) {
       const res = await fetch(BASE + path);

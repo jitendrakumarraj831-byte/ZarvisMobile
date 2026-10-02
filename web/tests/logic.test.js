@@ -101,3 +101,12 @@ test("reply HTML renders italic and horizontal rules the way Gemini writes them"
   assert.match(html, /2 \* 3 \* 4 and snake_case_name stay literal/);
   assert.doesNotMatch(html, /<em>(?:\s| 3 )/);
 });
+
+test("a failed turn shows quota/rate-limit copy only for those structured errors", () => {
+  assert.equal(L.turnFailureKind({ type: "AI_QUOTA_EXCEEDED", retryable: false }), "aiQuota");
+  assert.equal(L.turnFailureKind({ code: "AI_QUOTA_EXCEEDED" }), "aiQuota");
+  assert.equal(L.turnFailureKind({ code: "AI_RATE_LIMITED", retryAfterMs: 4000 }), "aiBusy");
+  assert.equal(L.turnFailureKind({ code: "rate_limited" }), "aiBusy");
+  assert.equal(L.turnFailureKind({ error: "The request could not be completed.", retryable: true }), "bootError");
+  assert.equal(L.turnFailureKind(undefined), "bootError");
+});

@@ -201,6 +201,18 @@
     return "No standing permission — you choose a file each time.";
   }
 
+  /**
+   * Which message a failed turn shows, from the server's structured error (an SSE `error`
+   * event or a JSON error body). An exhausted AI quota is not a connection problem, and
+   * retrying it today cannot succeed, so it gets its own copy and no Retry action.
+   */
+  function turnFailureKind(payload) {
+    const code = payload && (payload.code || payload.type);
+    if (code === "AI_QUOTA_EXCEEDED") return "aiQuota";
+    if (code === "AI_RATE_LIMITED" || code === "rate_limited") return "aiBusy";
+    return "bootError";
+  }
+
   function riskLabel(risk) {
     return { LOW: "Low risk", MEDIUM: "Medium risk", HIGH: "High risk", VERY_HIGH: "Very high risk" }[risk] || risk;
   }
@@ -216,5 +228,6 @@
     toolStatusLabel,
     webAccessSummary,
     riskLabel,
+    turnFailureKind,
   };
 });

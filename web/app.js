@@ -38,6 +38,14 @@
   const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"];
   // Also declared up front for the same reason (used by the session code during init()).
   class SessionEndedError extends Error {}
+  /** The server's structured `error` event for a turn (see routes/orchestrator.ts). */
+  class TurnFailedError extends Error {
+    constructor(payload) {
+      super(payload?.error || "The request could not be completed.");
+      this.name = "TurnFailedError";
+      this.payload = payload || {};
+    }
+  }
   let refreshInFlight = null;
   let capabilityCache = null;
   const SESSION_GATE_COPY = {
@@ -68,6 +76,8 @@
       // error page), so a raw status code or platform failure text is never what the user
       // sees. The real error is only ever logged via console.error, never rendered here.
       bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
+      aiQuota: { title: "ZARVIS has reached today's AI usage limit.", subtitle: "Nothing was charged. Please try again later." },
+      aiBusy: { title: "ZARVIS is getting too many requests right now.", subtitle: "Nothing was charged. Please wait a moment and try again." },
       unsupportedFile: {
         title: "Can't read this file type yet.",
         subtitle: "Zarvis can analyze images, .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
@@ -123,6 +133,8 @@
       thinking: "सोच रहा हूँ…",
       retry: "फिर कोशिश करें",
       bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
+      aiQuota: { title: "ZARVIS की आज की AI उपयोग सीमा पूरी हो गई है।", subtitle: "कोई शुल्क नहीं लगा। कृपया बाद में फिर कोशिश करें।" },
+      aiBusy: { title: "ZARVIS पर अभी बहुत ज़्यादा अनुरोध आ रहे हैं।", subtitle: "कोई शुल्क नहीं लगा। थोड़ा रुककर फिर कोशिश करें।" },
       unsupportedFile: {
         title: "यह फ़ाइल प्रकार अभी पढ़ा नहीं जा सकता।",
         subtitle: "Zarvis इमेज, .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें analyze कर सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
@@ -335,6 +347,8 @@
       else submitComposerInput(el.input.value);
     });
     el.input.addEventListener("keydown", (e) => {
+      // Enter that confirms an IME composition (Hindi/Devanagari keyboards) is not a send.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         submitComposerInput(el.input.value);
@@ -2682,7 +2696,7 @@
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
         console.error("Realtime orchestrator failed:", res.status, body.error || body.reason);
-        addErrorBubble(COPY[state.lang].bootError, utterance);
+        showTurnFailure(body, utterance);
         setOrbState("ERROR");
         recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
         return;
@@ -2695,6 +2709,8 @@
       let assistantNode = null;
       let sentenceBuffer = "";
       const ttsTasks = new Set();
+      let ttsUnavailable = false;
+      let completed = false;
       let firstTextAt = 0;
       let ttsPrimed = false;
 
@@ -2709,6 +2725,12 @@
           ttsTasks.add(task);
           task.catch((err) => {
             if (err?.name !== "AbortError") console.warn("Gemini TTS segment failed:", err);
+            // Out of voice quota: every further segment would fail the same way. Keep the
+            // text reply, stop asking for speech in this turn.
+            if (Logic.turnFailureKind({ code: err?.code }) !== "bootError") {
+              ttsUnavailable = true;
+              for (const item of ttsQueue.splice(0)) item.ticket.done();
+            }
           }).finally(() => {
             ttsTasks.delete(task);
             if (ttsQueue.length) drainTts();
@@ -2718,7 +2740,7 @@
 
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
-        if (!clean || !isVoice || !state.speak) return;
+        if (!clean || !isVoice || !state.speak || ttsUnavailable) return;
         // The ticket is taken at enqueue time, so playback order == reply order even when a
         // later segment's audio downloads first.
         ttsQueue.push({ text: clean, ticket: ttsSegments.next() });
@@ -2771,7 +2793,7 @@
           return;
         }
         if (event === "error") {
-          throw new Error(data?.error || "The request could not be completed.");
+          throw new TurnFailedError(data);
         }
         if (event === "delta" && typeof data?.text === "string") {
           fullMessage += data.text;
@@ -2803,6 +2825,7 @@
           return;
         }
         if (event === "done") {
+          completed = true;
           if (ttsStartTimer) {
             clearTimeout(ttsStartTimer);
             ttsStartTimer = null;
@@ -2837,6 +2860,9 @@
         await processBuffer();
       }
       await processBuffer(true);
+      // The stream ended without `done` or `error` (platform timeout, dropped connection):
+      // that is a failed turn, not a silent success — show it and offer Retry.
+      if (!completed && !controller.signal.aborted) throw new Error("Turn stream ended before completion");
       if (!assistantNode && fullMessage.trim()) {
         thinkingNode.remove();
         assistantNode = addBubble("assistant", fullMessage, utterance);
@@ -2848,7 +2874,7 @@
         return;
       }
       console.error(err);
-      addErrorBubble(COPY[state.lang].bootError, utterance);
+      showTurnFailure(err instanceof TurnFailedError ? err.payload : null, utterance);
       setOrbState("ERROR");
       recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
     } finally {
@@ -2869,6 +2895,14 @@
     }
   }
 
+
+  /** An exhausted daily AI quota cannot be fixed by retrying now: say so, offer no Retry.
+   * A short rate limit and every other failure keep the Retry action. */
+  function showTurnFailure(payload, utterance) {
+    const kind = Logic.turnFailureKind(payload);
+    if (kind === "aiQuota") addSystemNotice(COPY[state.lang].aiQuota);
+    else addErrorBubble(COPY[state.lang][kind], utterance);
+  }
 
   /** Cancels whatever ZARVIS is currently doing (thinking or speaking) without starting a
    * new turn — the composer's Stop action (see updateComposerMode()) and the sole way to
@@ -3180,7 +3214,7 @@
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           console.error(`Image analysis failed (${res.status}):`, body.error);
-          addSystemNotice(noticeForExtractError(body.error));
+          addSystemNotice(noticeForExtractError(body.error, body.code));
           return;
         }
         const { text } = await res.json();
@@ -3233,7 +3267,7 @@
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         console.error(`Document extraction failed (${res.status}):`, body.error);
-        addSystemNotice(noticeForExtractError(body.error));
+        addSystemNotice(noticeForExtractError(body.error, body.code));
         return;
       }
       const { text } = await res.json();
@@ -3246,7 +3280,8 @@
     }
   }
 
-  function noticeForExtractError(code) {
+  function noticeForExtractError(code, aiCode) {
+    if (code === "ai_quota_exceeded") return COPY[state.lang][Logic.turnFailureKind({ code: aiCode }) === "aiBusy" ? "aiBusy" : "aiQuota"];
     if (code === "unsupported_file_type") return COPY[state.lang].unsupportedFile;
     if (code === "document_too_long") return COPY[state.lang].oversizedFile;
     if (code === "empty_document") return COPY[state.lang].emptyFile;
@@ -3694,14 +3729,16 @@
   }
 
   let activeAudio = null;
-  let activeTtsController = null;
+  // Every in-flight TTS request. Two reply segments stream at once, so Stop must abort all of
+  // them, not only the most recently started one.
+  const activeTtsControllers = new Set();
   let activeAudioContext = null;
   let ttsScheduledUntil = 0;
   const ttsSources = new Set();
 
   async function speakWithGemini(text) {
     const controller = new AbortController();
-    activeTtsController = controller;
+    activeTtsControllers.add(controller);
     try {
       const res = await apiFetch("/tts/synthesize", {
         method: "POST",
@@ -3729,7 +3766,7 @@
       }
       setOrbState("IDLE");
     } finally {
-      activeTtsController = null;
+      activeTtsControllers.delete(controller);
     }
   }
 
@@ -3749,7 +3786,7 @@
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
-    activeTtsController = controller;
+    activeTtsControllers.add(controller);
     let myTurn = false;
     ticket.ready.then(() => {
       myTurn = true;
@@ -3764,7 +3801,9 @@
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
         const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
-        throw new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
+        const error = new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
+        error.code = body?.code;
+        throw error;
       }
 
       const audioContext = activeAudioContext || new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
@@ -3860,7 +3899,7 @@
     } finally {
       ticket.done();
       signal?.removeEventListener("abort", onAbort);
-      if (activeTtsController === controller) activeTtsController = null;
+      activeTtsControllers.delete(controller);
     }
   }
 
@@ -3872,7 +3911,8 @@
   }
 
   function stopSpeaking() {
-    if (activeTtsController) activeTtsController.abort();
+    for (const controller of activeTtsControllers) controller.abort();
+    activeTtsControllers.clear();
     if (activeAudio) activeAudio.pause();
     for (const source of ttsSources) {
       try { source.stop(); } catch {}
