@@ -286,6 +286,40 @@ async function send(page, text) {
     assert.notEqual(await pageC.locator("#orb").getAttribute("data-state"), "UNDERSTANDING", "the orb is not stuck thinking");
     await pageC.unroute("**/api/v1/orchestrator/turn-stream");
   });
+  await step("every turn failure (network, server error, HTTP 500, failed tool) leaves the UI usable", async () => {
+    const usable = async (label) => {
+      await pageC.waitForFunction(() => !document.querySelector(".bubble.thinking"), null, { timeout: 10000 });
+      const orb = await pageC.locator("#orb").getAttribute("data-state");
+      assert.ok(!["UNDERSTANDING", "EXECUTING", "SPEAKING"].includes(orb), `${label}: orb stuck in ${orb}`);
+      const send = await pageC.locator("#send-btn").getAttribute("aria-label");
+      assert.ok(!/stop/i.test(send || ""), `${label}: composer still busy (${send})`);
+    };
+    const cases = [
+      ["network failure", (route) => route.abort("internetdisconnected")],
+      ["server error event", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([["meta", { conversationId: "c-e", turnId: "t4" }], ["error", { error: "The request could not be completed.", retryable: true, turnId: "t4" }]]) })],
+      ["HTTP 500", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Internal error", code: "internal_error" }) })],
+      ["failed tool", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([
+        ["meta", { conversationId: "c-t", turnId: "t5" }],
+        ["progress", { type: "tool_started", skillId: "web.search", toolCallId: "tc1" }],
+        ["progress", { type: "tool_finished", skillId: "web.search", toolCallId: "tc1", status: "FAILED" }],
+        ["delta", { text: "Web Search ran into an error, so nothing was completed." }],
+        ["done", { message: "Web Search ran into an error, so nothing was completed.", conversationId: "c-t", turnId: "t5", toolCalls: [{ toolCallId: "tc1", skillId: "web.search", outcome: { kind: "execution_failed", result: { kind: "failure", reason: "handler_error", userMessage: "x" } }, result: { success: false, status: "FAILED", skillId: "web.search", capabilityId: null, userSafeMessage: "Web Search ran into an error, so nothing was completed.", retryable: true, verificationEvidence: null } }] }],
+      ]) })],
+    ];
+    for (const [label, handler] of cases) {
+      await pageC.route("**/api/v1/orchestrator/turn-stream", handler);
+      const rowsBefore = await pageC.locator(".tool-row").count();
+      await send(pageC, `failure case: ${label}`);
+      if (label === "failed tool") {
+        await pageC.waitForFunction((n) => document.querySelectorAll(".tool-row").length === n + 1, rowsBefore, { timeout: 10000 });
+        assert.equal(await pageC.locator(".tool-row").count(), rowsBefore + 1, "one failed execution renders one row");
+      } else {
+        await pageC.waitForSelector(".bubble-retry-btn", { timeout: 10000 });
+      }
+      await usable(label);
+      await pageC.unroute("**/api/v1/orchestrator/turn-stream");
+    }
+  });
   await ctxC.close();
 
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
