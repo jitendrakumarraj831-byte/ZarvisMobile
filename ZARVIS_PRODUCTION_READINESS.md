@@ -2,7 +2,7 @@
 
 - **Date:** 2026-10-02
 - **Branch:** `claude/optimistic-lovelace-y9w9q6`, stacked on PR #78 (`claude/laughing-shannon-m3zu32`,
-  head `5cc165f`). Nothing was merged. PR #78 was not modified.
+  head `5cc165f`, later `def15c4`, a report-only commit, merged in). Nothing was merged into `main`. PR #78 was not modified.
 - **Verdict: NOT READY.** The automated gates pass. The required physical-device run, live
   email sign-up and a verified live Gemini answer on the preview are still open (§6).
 
@@ -122,3 +122,6 @@ to fail without the fix.
    a reply.
 3. Live email sign-up and login on the preview.
 4. Your decision on R2 (keep or drop the fallback model).
+5. From PR #78's final hardening pass: raise targetSdk from 34 before a Play release (a separate
+   PR, since it changes runtime behaviour), and provide release-signing credentials (release
+   APK/AAB are unsigned by design in CI).

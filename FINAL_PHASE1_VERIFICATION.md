@@ -1,17 +1,18 @@
 # Final Phase 1 Verification — PR #78
 
-**Re-run:** 2026-10-02 00:25–00:55 UTC.
-**Commit:** `0a3b421c96376549745f3a8c4be4c408711f8c08`.
-- Branch `claude/laughing-shannon-m3zu32` with a clean working tree; identical to `origin`.
-- 67 commits ahead of `main`, 0 behind; merges with no conflicts.
+**Latest run:** full-stack reliability pass on the stacked branch `claude/optimistic-lovelace-y9w9q6` (next section). Before it: final hardening pass, 2026-10-02 (afternoon UTC).
+**Verified code head:** `5cc165fc42bbb4516a38bd825ca07782ceda755a`; the commit after it changes only reports.
+- Branch `claude/laughing-shannon-m3zu32`; 86 commits ahead of `main`, 0 behind; merges with no conflict.
+- Details, root causes and evidence: [`DEEP_AUDIT_2026-10-02.md`](DEEP_AUDIT_2026-10-02.md) §6.
+
+**Verdict: AUTOMATED VERIFICATION PASS / PHYSICAL DEVICE VERIFICATION PENDING.**
 
 **PR #78 gate: NOT READY TO MERGE.**
-- Every automated gate passes.
-- The live preview passes the API smoke test.
-- **Physical-device verification on the Nothing Phone 2A has not been done.** It is a required Phase 1 gate.
+- Physical-device verification on the Nothing Phone 2A has not been done (required gate).
 - Live email sign-up/login has not been exercised.
+- PR #78 was not merged.
 
-Status values: PASS, FAIL, BLOCKED (cannot be run from where the check was attempted; reason given), NOT TESTED (not run yet). No emulator result is counted as a physical-device result.
+Status values: PASS, FAIL, PARTIAL, BLOCKED (cannot run where it was attempted; reason given), NOT TESTED. No emulator result is counted as a physical-device result. This report does not claim the app is bug-free.
 
 ## Re-run 2026-10-02 (afternoon): full-stack reliability pass
 
@@ -20,10 +21,12 @@ Status values: PASS, FAIL, BLOCKED (cannot be run from where the check was attem
   [ZARVIS_SYSTEM_CONNECTION_MAP.md](./ZARVIS_SYSTEM_CONNECTION_MAP.md),
   [ZARVIS_API_CONTRACT_AUDIT.md](./ZARVIS_API_CONTRACT_AUDIT.md) and
   [ZARVIS_ENVIRONMENT_MATRIX.md](./ZARVIS_ENVIRONMENT_MATRIX.md).
-- **Gate: NOT READY TO MERGE.** Unchanged blockers: the Nothing Phone 2A run and live email
-  sign-up. New blocker: a live answer from the model on the preview has never been verified.
+- **Gate: NOT READY TO MERGE.** Unchanged blockers: the Nothing Phone 2A run, live email
+  sign-up, targetSdk 34 before a Play release, release signing. New blocker: a live answer from
+  the model on the preview has never been verified.
 
-**Correction to row 8c below.** "Live 'Hi' chat PASS" proves auth, the database and
+**Correction to row 19 of the final hardening pass and row 8c of the 00:25 re-run below.**
+"Live preview smoke … chat turn PASS" proves auth, the database and
 streaming only. "Hi" is answered by a deterministic fast path that never calls Gemini, and
 `provider: google` in `/health` only means `GEMINI_API_KEY` is non-empty. The smoke test now
 adds one model-backed turn. Until it passes on a deployment, **live Gemini is NOT TESTED**.
@@ -52,7 +55,68 @@ fix):
 8. A Gemini fallback-model answer left no trace.
 9. `?api=` could aim the web client's tokens at another host (CSP blocked it; now refused in code).
 
-## Results of the 2026-10-02 re-run
+## Final hardening pass (head `5cc165f`)
+
+### Toolchain
+
+| Item | Value |
+|---|---|
+| Gradle wrapper / AGP / Kotlin | 8.14.3 / 8.5.2 / 2.0.21 (KSP 2.0.21-1.0.25) |
+| JDK | 17 (`jvmToolchain(17)`; CI Temurin 17.0.20) |
+| compileSdk / minSdk / targetSdk | 34 / 26 / 34 |
+| applicationId, versionCode / versionName | `com.zarvismobile.app`, 1 / 0.1.0 |
+
+### Results
+
+| # | Check | Status | Evidence |
+|---|---|---|---|
+| 1 | `./gradlew --version`, `:domain:test` in this container | PASS | Gradle 8.14.3; `:domain` 120/120 (fresh `--rerun-tasks`) |
+| 2 | `clean`, `assembleDebug`, `test`, `lint`, `check`, `assembleRelease`, `bundleRelease` in this container | BLOCKED | Network policy denies `dl.google.com` (Android Gradle Plugin + SDK). Run in CI instead (rows 3–6) |
+| 3 | `./gradlew clean test lint` then `check`, all modules (CI `test-and-lint`) | PASS | BUILD SUCCESSFUL, run 37035697216 |
+| 4 | Debug APK | PASS | 20,062,015 B; debuggable; launchable `MainActivity`; 22 dex; identity and SDK levels asserted with aapt2 |
+| 5 | Release APK (unsigned) | PASS | 13,411,773 B; **not** debuggable; 3 dex; unsigned by design (no signing secrets in CI) |
+| 6 | Release AAB (unsigned) | PASS | 13,034,666 B; manifest dumped with bundletool: versionCode 1, minSdk 26, targetSdk 34 |
+| 7 | Android Lint | PASS | 19 unique findings, **0 outside the deferred set** (16 `GradleDependency`, 2 `AndroidGradlePluginVersion`, 1 `OldTargetApi`); CI fails on any other finding |
+| 8 | Kotlin compiler warnings (debug + release compile) | PASS | 0 (the 3 deprecated-icon warnings were fixed in `5cc165f`) |
+| 9 | Emulator API 34, phases A–F | PASS | A 7/7, B2, revoke-kills-process, D 16/16, E 2/2, F 1/1 |
+| 10 | Emulator API 30, phases A–F | PASS | same as API 34 |
+| 11 | Emulator API 26, phases A–F | PASS, with platform-blocked items | A 3/3, B2, revoke, D 16/16, E 2/2, F 1/1. Permission-dialog tests are BLOCKED: the API 26 image's System UI crashes whenever Android shows the dialog (5 `com.android.systemui` crashes, 0 in ZARVIS). Not counted as passes |
+| 12 | Rotation / recreation / background→foreground (phase F) | PASS (emulator) | After submit, recreate, rotation and background→foreground the user message shows exactly once (`user bubbles=1`) on API 26/30/34 |
+| 13 | Main thread: StrictMode network violations, ANRs | PASS (emulator) | 0 and 0 on API 26/30/34; the run fails on either |
+| 14 | Windows (Git Bash) build | PASS | `windows-build` |
+| 15 | Backend tests | PASS | 308 passed, 2 skipped (live-key tests), Postgres 16; also CI `backend` |
+| 16 | Backend + root typecheck | PASS | `tsc --noEmit` clean |
+| 17 | Web unit / Playwright E2E | PASS | 10/10; 18/18 against a real backend + Postgres (local and CI `web-e2e`) |
+| 18 | CodeQL (actions, JS/TS, Java/Kotlin) | PASS | all three analyses `success` on `5cc165f` |
+| 19 | Live preview smoke (`/health`, guest, `/auth/me`, chat turn) | PASS | CI `smoke` on the `5cc165f` deployment |
+| 20 | Gemini 429: daily vs per-minute vs transient vs network | PASS | Tests with Gemini's real error bodies. Daily quota: 1 request, then a structured `AI_QUOTA_EXCEEDED` error, no retry, no model switch, no charge |
+| 21 | Gemini quota against the live API | NOT TESTED | Needs a real exhausted quota |
+| 22 | Gemini requests per turn | PASS (measured) | Greeting 0; plain question 1; web search 3; "poem likho" 3 (the 3rd call restates the poem: avoidable, but removing it is an architecture change, so not done) |
+| 23 | Web Search duplicate execution | PASS | A failed search is not re-run in the same turn (`turnExecution.test.ts`, `turnEconomy.test.ts`) |
+| 24 | Streaming / stream-error UX | PASS | Client gone → server aborts the turn; stream without `done` → failed turn with Retry; network, 500, quota and failed tool never leave the UI busy (E2E) |
+| 25 | One user turn = one execution | PASS (automated) | `turnId` / `toolCallId` / Gemini `responseId`; no silent OkHttp re-send (`SafeRetryInterceptorTest`, `TokenAuthenticatorTest`); 150 s read timeout; phase F |
+| 26 | TTS | PARTIAL: automated checks PASS; real-device audio NOT TESTED | Backend: 429 after exactly 1 upstream request (test). Web: voice UI 12/12 with stubbed TTS; the "Stop cancels every in-flight request" fix is code-reviewed, not separately tested. Android: the audio stream is read on `Dispatchers.IO`, and StrictMode reports 0 main-thread network violations on the emulator |
+| 27 | **Nothing Phone 2A** | **NOT TESTED** | **PHYSICAL DEVICE NOT AVAILABLE — NOT TESTED.** No `adb` and no USB bus in this cloud container |
+| 28 | Live email sign-up/login | NOT TESTED | The smoke test covers guest auth only |
+
+### Defects found and fixed in this pass
+
+| Severity | Defect | Commit |
+|---|---|---|
+| High | OkHttp silently re-sent a POST that had already reached the server (second agent turn; for `/auth/guest`, a second account) | `89314af` |
+| High | A token refresh could be re-sent; the server treats that as refresh-token reuse and ends the session | `89314af` |
+| High | Ordinary typed or chip requests ("Write a short product description") opened the system document picker instead of reaching the AI (skill-name substring match on "a") | `de1ac8d` |
+| Medium | Device-to-device transfer copied app data on Android 12+ | `e653379`, `5a56ae1` |
+| Low | Deprecated `Icons.Filled.Send` / `List` / `VolumeUp` | `5cc165f` |
+
+### Remaining blockers
+
+1. **Nothing Phone 2A physical-device run (required).** See [ANDROID REAL DEVICE](#android-real-device).
+2. **Live email sign-up/login** on the preview.
+3. **targetSdk 34** must be raised before a Play release (separate PR; changes runtime behaviour).
+4. **Release signing** credentials (release artifacts are unsigned by design).
+
+## Results of the 2026-10-02 00:25 re-run (commit `0a3b421`, kept for evidence)
 
 | # | Check | Status | Evidence |
 |---|---|---|---|
