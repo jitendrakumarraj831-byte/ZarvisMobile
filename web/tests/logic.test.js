@@ -126,3 +126,14 @@ test("clientTurnId: unique per call, accepted by the backend's key format", () =
   const fallback = L.createClientTurnId({ getRandomValues: (a) => a.fill(171) });
   assert.match(fallback, /^[A-Za-z0-9_-]{8,100}$/);
 });
+
+test("?api= can only point at this origin: tokens are never sent to a host from a link", () => {
+  const o = "https://zarvismobile.com";
+  assert.equal(L.resolveApiBase("", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=/api/v1/", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=https://zarvismobile.com/api/v2", o), o + "/api/v2");
+  assert.equal(L.resolveApiBase("?api=https://attacker.example/api/v1", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=//attacker.example/api/v1", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=https://zarvismobile.com.attacker.example/api", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=javascript:alert(1)", o), o + "/api/v1");
+});

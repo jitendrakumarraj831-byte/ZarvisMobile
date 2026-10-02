@@ -418,10 +418,8 @@
   }
 
   function resolveApiBase() {
-    const params = new URLSearchParams(location.search);
-    const override = params.get("api");
-    if (override) return override.replace(/\/$/, "");
-    return `${location.origin}/api/v1`;
+    // Runs while `const Logic` (below) is still uninitialised: read the global directly.
+    return window.ZarvisLogic.resolveApiBase(location.search, location.origin);
   }
 
   function applyLanguage() {
