@@ -1,4 +1,6 @@
-import { Router } from "express";
+import { randomUUID } from "node:crypto";
+import { Router, type Response } from "express";
+import { AIProviderError, providerErrorPayload } from "../../ai/geminiErrors.js";
 import type { Orchestrator, TurnEvent, TurnRequest } from "../../agents/orchestrator.js";
 import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
@@ -29,6 +31,8 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         res.status(400).json({ error: "utterance is required", code: "invalid_request" });
         return;
       }
+      const turnId = randomUUID();
+      const cancel = abortOnClientGone(res);
 
       res.status(200);
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -41,16 +45,24 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         if (!res.destroyed) res.write("event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n");
       };
       try {
-        const result = await orchestrator.runTurn(request, (event: TurnEvent) => {
-          if (event.type === "conversation") send("meta", { conversationId: event.conversationId });
+        const result = await orchestrator.runTurn({ ...request, turnId, signal: cancel.signal }, (event: TurnEvent) => {
+          if (event.type === "conversation") send("meta", { conversationId: event.conversationId, turnId });
           else send("progress", event);
         });
         send("delta", { text: result.message });
-        send("done", { message: result.message, toolCalls: result.toolCalls, conversationId: result.conversationId });
+        send("done", { message: result.message, toolCalls: result.toolCalls, conversationId: result.conversationId, turnId });
       } catch (err) {
-        logger.error("Streaming turn failed", { error: err instanceof Error ? err.message : String(err) });
-        send("error", { error: "The request could not be completed.", retryable: true });
+        if (err instanceof Error && err.name === "AbortError") {
+          // The client went away (Stop, a newer turn, a closed tab): nobody is listening.
+        } else if (err instanceof AIProviderError) {
+          logger.warn("Streaming turn stopped by the AI provider", { turnId, code: err.code, status: err.status, retryAfterMs: err.retryAfterMs });
+          send("error", { ...providerErrorPayload(err), turnId });
+        } else {
+          logger.error("Streaming turn failed", { turnId, error: err instanceof Error ? err.message : String(err) });
+          send("error", { error: "The request could not be completed.", retryable: true, turnId });
+        }
       } finally {
+        cancel.dispose();
         res.end();
       }
     }),
@@ -66,11 +78,37 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         res.status(400).json({ error: "utterance is required", code: "invalid_request" });
         return;
       }
-      res.json(await orchestrator.runTurn(request));
+      const cancel = abortOnClientGone(res);
+      try {
+        res.json(await orchestrator.runTurn({ ...request, turnId: randomUUID(), signal: cancel.signal }));
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        if (err instanceof AIProviderError) {
+          res.status(err.code === "AI_UNAVAILABLE" ? 503 : 429).json(providerErrorPayload(err));
+          return;
+        }
+        throw err;
+      } finally {
+        cancel.dispose();
+      }
     }),
   );
 
   return router;
+}
+
+/**
+ * Aborts the turn when the client disconnects before the response finished, so a cancelled
+ * or superseded turn stops before its next model or tool call instead of running (and
+ * spending AI quota) for nobody.
+ */
+function abortOnClientGone(res: Response): { signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController();
+  const onClose = () => {
+    if (!res.writableFinished) controller.abort();
+  };
+  res.on("close", onClose);
+  return { signal: controller.signal, dispose: () => res.off("close", onClose) };
 }
 
 function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | undefined {

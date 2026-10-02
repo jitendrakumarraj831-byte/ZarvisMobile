@@ -10,6 +10,8 @@ import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { ToolPipeline } from "../tooling/toolPipeline.js";
 import { classifyIdentityQuestion, creatorIdentityForPrompt, identityResponse } from "../config/zarvisProfile.js";
+import { abortError } from "../ai/geminiErrors.js";
+import { logger } from "../security/redact.js";
 
 export interface TurnRequest {
   accountId: string;
@@ -23,9 +25,15 @@ export interface TurnRequest {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   /** Durable server-side conversation id. */
   conversationId?: string;
+  /** Correlation id for this one user turn; generated when the caller has none. */
+  turnId?: string;
+  /** Aborted when the client goes away: no further model or tool call starts after that. */
+  signal?: AbortSignal;
 }
 
 export interface TurnToolCall {
+  /** Unique per execution, so a client can tell two real executions from one rendered twice. */
+  toolCallId: string;
   skillId: string;
   outcome: ToolExecutionOutcome;
   /** Blueprint §10 structured result for the same outcome. */
@@ -36,17 +44,40 @@ export interface TurnResult {
   message: string;
   toolCalls: TurnToolCall[];
   conversationId: string;
+  turnId: string;
 }
 
 /** Real progress of a turn, emitted only when the stage actually happens (no simulated steps). */
 export type TurnEvent =
   | { type: "conversation"; conversationId: string }
   | { type: "thinking"; step: number }
-  | { type: "tool_started"; skillId: string }
-  | { type: "tool_finished"; skillId: string; status: StructuredToolResult["status"] };
+  | { type: "tool_started"; skillId: string; toolCallId: string }
+  | { type: "tool_finished"; skillId: string; toolCallId: string; status: StructuredToolResult["status"] };
+
+interface TurnStats {
+  modelCalls: number;
+  providerHttpRequests: number;
+  providerResponseIds: string[];
+  toolCalls: Array<{ toolCallId: string; skillId: string }>;
+}
 
 const MAX_AGENT_STEPS = 5;
 const MAX_TOOL_RESULT_CHARS = 8000;
+
+/**
+ * Failures of the service behind a skill (not of the user's input). Re-running the same skill
+ * in the same turn after one of these only repeats the failure — and, for an AI quota, spends
+ * more of it — so the turn does not do that.
+ */
+const INFRASTRUCTURE_FAILURES = new Set([
+  "handler_error",
+  "ai_quota_exceeded",
+  "ai_rate_limited",
+  "ai_provider_unavailable",
+  "search_provider_unavailable",
+]);
+/** After one of these no further model call can succeed in this turn either. */
+const TURN_ENDING_FAILURES = new Set(["ai_quota_exceeded", "ai_rate_limited"]);
 
 /**
  * ZARVIS Agent Core v1.
@@ -68,6 +99,38 @@ export class Orchestrator {
   ) {}
 
   async runTurn(request: TurnRequest, onEvent: (event: TurnEvent) => void = () => {}): Promise<TurnResult> {
+    const turnId = request.turnId ?? randomUUID();
+    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], toolCalls: [] };
+    const startedAt = Date.now();
+    let outcome = "error";
+    try {
+      const result = await this.executeTurn({ ...request, turnId }, onEvent, stats);
+      outcome = "completed";
+      return result;
+    } catch (error) {
+      outcome = error instanceof Error && error.name === "AbortError" ? "cancelled" : error instanceof Error ? error.name : "error";
+      throw error;
+    } finally {
+      // One line per user turn: how much real work it caused. A single message producing two
+      // web.search executions or many provider requests is visible here.
+      logger.info("Turn finished", {
+        turnId,
+        outcome,
+        durationMs: Date.now() - startedAt,
+        modelCalls: stats.modelCalls,
+        providerHttpRequests: stats.providerHttpRequests,
+        providerResponseIds: stats.providerResponseIds.slice(0, 10),
+        toolCalls: stats.toolCalls,
+      });
+    }
+  }
+
+  private async executeTurn(
+    request: TurnRequest & { turnId: string },
+    onEvent: (event: TurnEvent) => void,
+    stats: TurnStats,
+  ): Promise<TurnResult> {
+    const { turnId, signal } = request;
     const conversation = request.conversationId
       ? await this.store.getConversation(request.accountId, request.conversationId)
       : undefined;
@@ -110,13 +173,13 @@ export class Orchestrator {
     const greeting = getSimpleGreetingResponse(request.utterance, request.locale);
     if (greeting) {
       await this.persistAssistantMessage(activeConversation.id, greeting);
-      return { message: greeting, toolCalls: [], conversationId: activeConversation.id };
+      return { message: greeting, toolCalls: [], conversationId: activeConversation.id, turnId };
     }
 
     const profileResponse = getZarvisProfileResponse(request.utterance, request.locale);
     if (profileResponse) {
       await this.persistAssistantMessage(activeConversation.id, profileResponse);
-      return { message: profileResponse, toolCalls: [], conversationId: activeConversation.id };
+      return { message: profileResponse, toolCalls: [], conversationId: activeConversation.id, turnId };
     }
 
     const snapshot = await this.entitlementPort.snapshot(request.accountId);
@@ -146,6 +209,9 @@ export class Orchestrator {
 
     const results: TurnToolCall[] = [];
     const executedToolRequests = new Set<string>();
+    /** Skills whose service already failed in this turn; they are not run again. */
+    const failedSkills = new Set<string>();
+    const trace = { httpRequests: 0, responseIds: [] as string[] };
     const messages: ConversationMessage[] = [
       ...persistedMessages.map((message) => ({
         role: message.role === "tool" ? "user" as const : message.role,
@@ -155,20 +221,30 @@ export class Orchestrator {
     ];
 
     for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
+      if (signal?.aborted) throw abortError();
       onEvent({ type: "thinking", step: step + 1 });
-      const aiResponse = await this.provider.generate({
-        systemPrompt: buildSystemPrompt(request, step, results.length > 0),
-        messages,
-        tools,
-        modelConfig: this.modelConfig,
-      });
+      stats.modelCalls += 1;
+      let aiResponse;
+      try {
+        aiResponse = await this.provider.generate({
+          systemPrompt: buildSystemPrompt(request, step, results.length > 0),
+          messages,
+          tools,
+          modelConfig: this.modelConfig,
+          signal,
+          trace,
+        });
+      } finally {
+        stats.providerHttpRequests = trace.httpRequests;
+        stats.providerResponseIds = trace.responseIds;
+      }
 
       const toolCalls = aiResponse.toolCalls ?? [];
       if (toolCalls.length === 0) {
         const message = aiResponse.message.content?.trim();
         if (message) {
           await this.persistAssistantMessage(activeConversation.id, message);
-          return { message, toolCalls: results, conversationId: activeConversation.id };
+          return { message, toolCalls: results, conversationId: activeConversation.id, turnId };
         }
         const fallbackMessage = results.length > 0
           ? results.map((r) => explainOutcome(r.outcome)).join("\n")
@@ -178,6 +254,7 @@ export class Orchestrator {
           message: fallbackMessage,
           toolCalls: results,
           conversationId: activeConversation.id,
+          turnId,
         };
       }
 
@@ -193,26 +270,42 @@ export class Orchestrator {
         // A later step may still call the same skill with different arguments.
         const requestKey = call.skillId + ":" + stableJson(call.input);
         if (executedToolRequests.has(requestKey)) continue;
+        // A reworded retry of a skill whose service just failed (e.g. a second web search
+        // after the first hit a quota) would fail the same way: skip it.
+        if (failedSkills.has(call.skillId)) continue;
         executedToolRequests.add(requestKey);
+        if (signal?.aborted) throw abortError();
 
         const toolCall: ToolCall = {
           id: randomUUID(),
           skillId: call.skillId,
           input: { values: call.input },
         };
-        onEvent({ type: "tool_started", skillId: call.skillId });
+        stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
+        onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
         const outcome = await this.pipeline.execute(toolCall, context);
         const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
-        results.push({ skillId: call.skillId, outcome, result });
-        onEvent({ type: "tool_finished", skillId: call.skillId, status: result.status });
+        results.push({ toolCallId: toolCall.id, skillId: call.skillId, outcome, result });
+        onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status });
         executedAny = true;
+
+        if (outcome.kind === "execution_failed" && INFRASTRUCTURE_FAILURES.has(outcome.result.reason)) {
+          failedSkills.add(call.skillId);
+          if (TURN_ENDING_FAILURES.has(outcome.result.reason)) {
+            // The AI service is out of quota: another model call in this turn would fail the
+            // same way. End honestly with what actually happened.
+            const message = results.map((r) => explainOutcome(r.outcome)).join("\n");
+            await this.persistAssistantMessage(activeConversation.id, message);
+            return { message, toolCalls: results, conversationId: activeConversation.id, turnId };
+          }
+        }
 
         // A pending confirmation ends the turn: nothing else runs until the user approves or
         // declines that exact action, and the model gets no chance to re-plan around it.
         if (outcome.kind === "confirmation_required") {
           const message = results.map((r) => explainOutcome(r.outcome)).join("\n");
           await this.persistAssistantMessage(activeConversation.id, message);
-          return { message, toolCalls: results, conversationId: activeConversation.id };
+          return { message, toolCalls: results, conversationId: activeConversation.id, turnId };
         }
 
         messages.push({
@@ -235,6 +328,7 @@ export class Orchestrator {
           message: fallbackMessage,
           toolCalls: results,
           conversationId: activeConversation.id,
+          turnId,
         };
       }
     }
@@ -245,7 +339,7 @@ export class Orchestrator {
       ? results.map((r) => explainOutcome(r.outcome)).join("\n")
       : "I reached the maximum number of agent steps without completing the request.";
     await this.persistAssistantMessage(activeConversation.id, fallback);
-    return { message: fallback, toolCalls: results, conversationId: activeConversation.id };
+    return { message: fallback, toolCalls: results, conversationId: activeConversation.id, turnId };
   }
 
   private async persistAssistantMessage(conversationId: string, message: string): Promise<void> {
