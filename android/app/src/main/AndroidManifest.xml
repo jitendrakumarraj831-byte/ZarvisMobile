@@ -25,6 +25,14 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!--
+      CALL_PHONE and RECORD_AUDIO imply telephony and microphone hardware as REQUIRED, which
+      makes Play hide the app on tablets/Chromebooks without a SIM or mic. Both are optional:
+      calls and voice are single skills, everything else (and typing) works without them.
+    -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <!-- location.current: approximate location only, on request (never background/precise). -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
