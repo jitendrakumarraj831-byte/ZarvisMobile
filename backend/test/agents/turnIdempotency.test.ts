@@ -101,6 +101,36 @@ describe.each(STORES)("turn idempotency (%s)", (_label, makeStore) => {
     expect(lastRequest.messages.filter((m) => m.content === "kal ka weather?")).toHaveLength(1);
   });
 
+  it("a Retry after a failure late in the turn reuses the search that already ran: one execution, one charge", async () => {
+    // Search succeeds and is charged, then the next model call hits a rate limit: the turn
+    // fails. The user's Retry plans the same search again; it must not run or charge twice.
+    const t = await setup(makeStore(), [search("weather"), rateLimited(), search("weather"), reply("Sunny tomorrow.")]);
+    const clientTurnId = crypto.randomUUID();
+
+    await expect(t.orchestrator.runTurn({ accountId: t.accountId, utterance: "kal ka weather?", clientTurnId })).rejects.toBeInstanceOf(AIProviderError);
+    expect(t.searchProvider.search).toHaveBeenCalledTimes(1);
+    expect(t.charge).toHaveBeenCalledTimes(1);
+
+    const events: string[] = [];
+    const retry = await t.orchestrator.runTurn({ accountId: t.accountId, utterance: "kal ka weather?", clientTurnId }, (e) => events.push(e.type));
+
+    expect(retry.message).toBe("Sunny tomorrow.");
+    expect(t.searchProvider.search).toHaveBeenCalledTimes(1);
+    expect(t.charge).toHaveBeenCalledTimes(1);
+    expect(retry.toolCalls).toHaveLength(1);
+    expect(retry.toolCalls[0]?.outcome.kind).toBe("success");
+    expect(events).not.toContain("tool_started"); // nothing was executed on the retry
+  });
+
+  it("a Retry still runs a tool the failed attempt did not complete", async () => {
+    const t = await setup(makeStore(), [rateLimited(), search("weather"), reply("Sunny.")]);
+    const clientTurnId = crypto.randomUUID();
+    await expect(t.orchestrator.runTurn({ accountId: t.accountId, utterance: "weather?", clientTurnId })).rejects.toBeInstanceOf(AIProviderError);
+    await t.orchestrator.runTurn({ accountId: t.accountId, utterance: "weather?", clientTurnId });
+    expect(t.searchProvider.search).toHaveBeenCalledTimes(1);
+    expect(t.charge).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a duplicate that arrives while the first is still running", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });

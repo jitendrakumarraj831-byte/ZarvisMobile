@@ -91,7 +91,14 @@ interface TurnStats {
   providerHttpRequests: number;
   providerResponseIds: string[];
   servedModels: string[];
-  toolCalls: Array<{ toolCallId: string; skillId: string }>;
+  toolCalls: Array<{ toolCallId: string; skillId: string; reused?: boolean }>;
+  /** Successful executions of this attempt, by request key; kept if the turn fails. */
+  completedTools: Array<{ requestKey: string; call: TurnToolCall }>;
+}
+
+/** What a failed attempt leaves for its retry: the tool executions that already succeeded. */
+interface FailedAttemptResult {
+  completedTools?: Array<{ requestKey: string; call: TurnToolCall }>;
 }
 
 const MAX_AGENT_STEPS = 5;
@@ -133,7 +140,7 @@ export class Orchestrator {
 
   async runTurn(request: TurnRequest, onEvent: (event: TurnEvent) => void = () => {}): Promise<TurnResult> {
     const turnId = request.turnId ?? randomUUID();
-    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], servedModels: [], toolCalls: [] };
+    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], servedModels: [], toolCalls: [], completedTools: [] };
     const startedAt = Date.now();
     const { clientTurnId } = request;
     let outcome = "error";
@@ -170,7 +177,12 @@ export class Orchestrator {
       return result;
     } catch (error) {
       outcome = error instanceof Error && error.name === "AbortError" ? "cancelled" : error instanceof Error ? error.name : "error";
-      if (clientTurnId) await this.recordTurn(request.accountId, clientTurnId, { status: "failed" });
+      // Keep what already succeeded, so the user's Retry reuses it instead of running (and
+      // charging) the same tool again.
+      if (clientTurnId) {
+        const kept: FailedAttemptResult = { completedTools: stats.completedTools };
+        await this.recordTurn(request.accountId, clientTurnId, { status: "failed", result: kept });
+      }
       throw error;
     } finally {
       // One line per user turn: how much real work it caused. A single message producing two
@@ -309,6 +321,10 @@ export class Orchestrator {
 
     const results: TurnToolCall[] = [];
     const executedToolRequests = new Set<string>();
+    /** Successful executions of the failed attempt being retried, reused for the same request. */
+    const reusable = new Map(
+      ((previousAttempt?.result as FailedAttemptResult | undefined)?.completedTools ?? []).map((entry) => [entry.requestKey, entry.call] as const),
+    );
     /** Skills whose service already failed in this turn; they are not run again. */
     const failedSkills = new Set<string>();
     const trace = { httpRequests: 0, responseIds: [] as string[], servedModels: stats.servedModels };
@@ -378,17 +394,31 @@ export class Orchestrator {
         executedToolRequests.add(requestKey);
         if (signal?.aborted) throw abortError();
 
-        const toolCall: ToolCall = {
-          id: randomUUID(),
-          skillId: call.skillId,
-          input: { values: call.input },
-        };
-        stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
-        onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
-        const outcome = await this.pipeline.execute(toolCall, context);
-        const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
-        results.push({ toolCallId: toolCall.id, skillId: call.skillId, outcome, result });
-        onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status });
+        const previous = reusable.get(requestKey);
+        let outcome: ToolExecutionOutcome;
+        if (previous) {
+          // The failed attempt already ran this exact request successfully (and charged it):
+          // use that result. Same toolCallId, because it is the same execution.
+          outcome = previous.outcome;
+          stats.toolCalls.push({ toolCallId: previous.toolCallId, skillId: call.skillId, reused: true });
+          results.push(previous);
+          stats.completedTools.push({ requestKey, call: previous });
+          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: previous.toolCallId, status: previous.result.status });
+        } else {
+          const toolCall: ToolCall = {
+            id: randomUUID(),
+            skillId: call.skillId,
+            input: { values: call.input },
+          };
+          stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
+          onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
+          outcome = await this.pipeline.execute(toolCall, context);
+          const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
+          const executed = { toolCallId: toolCall.id, skillId: call.skillId, outcome, result };
+          results.push(executed);
+          if (outcome.kind === "success") stats.completedTools.push({ requestKey, call: executed });
+          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status });
+        }
         executedAny = true;
 
         if (outcome.kind === "execution_failed" && INFRASTRUCTURE_FAILURES.has(outcome.result.reason)) {
