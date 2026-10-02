@@ -47,6 +47,14 @@ function getDocumentsRouter(): Promise<Router | null> {
   return documentsRouterPromise;
 }
 
+/**
+ * The largest body the API documents is a turn: a 70,000-character utterance (a document's
+ * extracted text) plus 12 history entries of 1,500 characters. In Devanagari that is ~3 bytes
+ * per character (~270 kB), well above express.json()'s 100 kB default. 1 MB fits it in any
+ * script and stays far below the platform's own request limit.
+ */
+const jsonBody = express.json({ limit: "1mb" });
+
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
   const app = express();
@@ -71,7 +79,7 @@ export function buildServer(container: Container): Express {
       next();
       return;
     }
-    express.json()(req, res, next);
+    jsonBody(req, res, next);
   });
 
   // `provider` names which AIProvider is active (e.g. "mock" or "google") — never a secret,
@@ -147,6 +155,12 @@ export function buildServer(container: Container): Express {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // A body the parser rejected is the client's error: say which, never "internal_error".
+    const parserError = bodyParserError(err);
+    if (parserError) {
+      res.status(parserError.status).json(parserError.body);
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Unhandled request error", { error: message });
 
@@ -174,4 +188,19 @@ export function buildServer(container: Container): Express {
   });
 
   return app;
+}
+
+/** Maps express.json()'s own 4xx errors (malformed JSON, body too large, ...) to a stable code. */
+function bodyParserError(err: unknown): { status: number; body: { error: string; code: string } } | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const { type, status, statusCode, message } = err as { type?: unknown; status?: unknown; statusCode?: unknown; message?: unknown };
+  // Vercel's Node runtime parses the body itself (api/index.ts); its lazy `req.body` getter
+  // throws an ApiError with `statusCode: 400` and "Invalid JSON" before express.json() runs.
+  const vercelInvalidJson = statusCode === 400 && typeof message === "string" && /invalid json/i.test(message);
+  if (type === "entity.parse.failed" || vercelInvalidJson) return { status: 400, body: { error: "The request body is not valid JSON.", code: "invalid_json" } };
+  if (type === "entity.too.large") return { status: 413, body: { error: "The request body is too large.", code: "payload_too_large" } };
+  if (typeof type === "string" && typeof status === "number" && status >= 400 && status < 500) {
+    return { status, body: { error: "The request body could not be read.", code: "invalid_request" } };
+  }
+  return undefined;
 }
