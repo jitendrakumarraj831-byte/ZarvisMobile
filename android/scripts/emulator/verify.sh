@@ -148,6 +148,8 @@ fi
 run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest"
 # E: the Settings UI in a fresh process, independent of D's accessibility-service toggling.
 run_classes E "$APP.SettingsUiTest"
+# F: one user turn = one execution across Activity recreation, rotation and background.
+run_classes F "$APP.ConversationLifecycleTest"
 
 [ -n "$GEO_PID" ] && kill "$GEO_PID" 2>/dev/null || true
 sleep 1
@@ -164,6 +166,19 @@ log "diagnostics:"; cat "$OUT/diagnostics.txt"
 log "ZARVIS lifecycle (ActivityManager):"
 cat "$OUT/logcat.txt" 2>/dev/null | grep -E "ActivityManager|ActivityTaskManager|WindowManager" | grep -iE "zarvis" \
   | grep -iE "kill|died|death|anr|crash|force|finish|START u0|Displayed|pause|Moving" | cut -c1-260 | tail -80
+# Main-thread health of the debug build (StrictMode is on in ZarvisApplication): no network on
+# the UI thread and no ANR during the whole run.
+# A violation counts only if it is a network violation whose stack runs through ZARVIS code.
+STRICT=$(cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | awk '
+  /StrictMode policy violation/ { if (blk) n += (net && ours); blk = 1; net = 0; ours = 0; lines = 0 }
+  blk { lines++; if ($0 ~ /NetworkViolation|NetworkOnMainThread/) net = 1; if ($0 ~ /com\.zarvismobile/) ours = 1; if (lines > 40) { n += (net && ours); blk = 0 } }
+  END { if (blk) n += (net && ours); print n + 0 }')
+ANRS=$(cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -c "ANR in $APP" || true)
+log "main thread: StrictMode network violations=$STRICT, ANRs=$ANRS"
+if [ "$STRICT" != "0" ] || [ "$ANRS" != "0" ]; then
+  cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -A12 "StrictMode policy violation\|ANR in $APP" | head -80
+  FAIL=1
+fi
 log "crashes during the run:"
 cat "$OUT/logcat.txt" "$OUT/logcat-final.txt" 2>/dev/null | grep -A 25 "FATAL EXCEPTION" | grep -v "^--$" | awk '!seen[$0]++' | cut -c1-300 | head -120
 exit $FAIL
