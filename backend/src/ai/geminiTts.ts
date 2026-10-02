@@ -7,13 +7,14 @@
  * wraps that in a WAV header so every client can play it with a standard media player, and
  * passes real WAV through unchanged.
  *
- * Retry policy: transient 408/429/5xx are retried with backoff; 404 (model not available to
- * this project) moves to the next candidate model; any other 4xx is a permanent request error
- * and is thrown immediately without trying other models.
+ * Retry policy (ai/geminiErrors.ts): transient 408/5xx are retried with a short backoff, a
+ * per-minute 429 at most once, a daily-quota 429 never; 404 (model not available to this
+ * project) moves to the next candidate model; any other 4xx is thrown immediately.
  */
+import { abortError, classifyGeminiFailure, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "./geminiErrors.js";
+
 export const GEMINI_TTS_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"] as const;
 
-const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_PCM_SAMPLE_RATE = 24000;
 
 export function resolveGeminiVoice(requested: unknown, fallback: string): string {
@@ -53,8 +54,6 @@ export function pcmToWav(pcm: Buffer, sampleRate: number): Buffer {
   return Buffer.concat([header, pcm]);
 }
 
-class PermanentTtsError extends Error {}
-
 export class GeminiTtsProvider {
   constructor(
     private readonly apiKey: string,
@@ -75,144 +74,104 @@ export class GeminiTtsProvider {
 
   /** Returns a playable WAV file. */
   async synthesize(text: string, voiceName = this.voiceName): Promise<Buffer> {
-    const body = JSON.stringify({
-      contents: [{ role: "user", parts: [{ text }] }],
-      generationConfig: {
-        responseModalities: ["AUDIO"],
-        speechConfig: speechConfigFor(resolveGeminiVoice(voiceName, this.voiceName)),
-      },
-    });
-
-    let lastError: Error | undefined;
-    for (const model of this.candidateModels()) {
-      const url = this.baseUrl + "/models/" + encodeURIComponent(model) + ":generateContent";
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 120_000);
-        try {
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
-            body,
-            signal: controller.signal,
-          });
-
-          if (res.ok) {
-            const json = (await res.json()) as GeminiTtsResponse;
-            const part = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
-            if (!part?.data) throw new PermanentTtsError("Gemini TTS returned no audio data");
-            const audio = Buffer.from(part.data, "base64");
-            const mime = part.mimeType?.toLowerCase() ?? "";
-            if (mime.includes("wav") || audio.subarray(0, 4).toString("ascii") === "RIFF") return audio;
-            return pcmToWav(audio, pcmSampleRate(part.mimeType));
-          }
-
-          const errText = await res.text().catch(() => "");
-          lastError = new Error(("Gemini TTS failed: " + res.status + " " + res.statusText + " " + errText.slice(0, 300)).trim());
-          if (res.status === 404) break; // model unavailable → next model
-          if (!TRANSIENT_STATUSES.has(res.status)) throw new PermanentTtsError(lastError.message);
-        } catch (error) {
-          if (error instanceof PermanentTtsError) throw new Error(error.message);
-          lastError = error instanceof Error ? error : new Error(String(error));
-          if (lastError.name === "AbortError") lastError = new Error("Gemini TTS request timed out");
-        } finally {
-          clearTimeout(timer);
-        }
-        if (attempt < 2) {
-          await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt + Math.floor(Math.random() * 250)));
-        }
-      }
-    }
-    throw lastError ?? new Error("Gemini TTS failed");
+    const res = await this.send(this.requestBody(text, voiceName), "generateContent", "Gemini TTS");
+    const json = (await res.json()) as GeminiTtsResponse;
+    const part = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
+    if (!part?.data) throw new Error("Gemini TTS returned no audio data");
+    const audio = Buffer.from(part.data, "base64");
+    const mime = part.mimeType?.toLowerCase() ?? "";
+    if (mime.includes("wav") || audio.subarray(0, 4).toString("ascii") === "RIFF") return audio;
+    return pcmToWav(audio, pcmSampleRate(part.mimeType));
   }
 
-  /** Streams headerless 16-bit little-endian mono PCM chunks (24 kHz) for browser playback. */
-  async *streamSynthesize(text: string, voiceName = this.voiceName): AsyncIterable<Buffer> {
-    const body = JSON.stringify({
+  /** Streams headerless 16-bit little-endian mono PCM chunks (24 kHz) for browser playback.
+   * Retries happen only before the first audio byte; playback that began is never restarted. */
+  async *streamSynthesize(text: string, voiceName = this.voiceName, signal?: AbortSignal): AsyncIterable<Buffer> {
+    const res = await this.send(this.requestBody(text, voiceName), "streamGenerateContent?alt=sse", "Gemini streaming TTS", signal);
+    if (!res.body) throw new Error("Gemini streaming TTS returned no body");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const emit = function* (line: string): Generator<Buffer> {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) return;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") return;
+      const json = JSON.parse(payload) as GeminiTtsResponse;
+      for (const part of json.candidates?.[0]?.content?.parts ?? []) {
+        if (part.inlineData?.data) yield Buffer.from(part.inlineData.data, "base64");
+      }
+    };
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) yield* emit(line);
+      }
+      yield* emit(buffer);
+    } finally {
+      // Also runs when the consumer stops early (client disconnected): cancel the upstream
+      // response instead of letting it download audio nobody will hear.
+      await reader.cancel().catch(() => {});
+    }
+  }
+
+  private requestBody(text: string, voiceName: string): string {
+    return JSON.stringify({
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: speechConfigFor(resolveGeminiVoice(voiceName, this.voiceName)),
       },
     });
+  }
 
-    // Retry only before the first audio byte is received; never restart after playback began.
+  /** One logical TTS request with the shared policy in ai/geminiErrors.ts: a daily quota is
+   * not retried, a 404 moves to the next candidate model, transient errors back off briefly. */
+  private async send(body: string, method: string, label: string, signal?: AbortSignal): Promise<Response> {
     let lastError: Error | undefined;
     for (const model of this.candidateModels()) {
-      const url = this.baseUrl + "/models/" + encodeURIComponent(model) + ":streamGenerateContent?alt=sse";
-      let nextModel = false;
-      for (let attempt = 0; attempt < 3 && !nextModel; attempt += 1) {
+      const url = this.baseUrl + "/models/" + encodeURIComponent(model) + ":" + method;
+      for (let attempt = 0; ; attempt += 1) {
+        if (signal?.aborted) throw abortError();
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 120_000);
-        let started = false;
+        let res: Response;
         try {
-          const res = await fetch(url, {
+          res = await fetch(url, {
             method: "POST",
             headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
             body,
-            signal: controller.signal,
+            signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
           });
-          if (!res.ok || !res.body) {
-            const detail = await res.text().catch(() => "");
-            lastError = new Error(("Gemini streaming TTS failed: " + res.status + " " + res.statusText + " " + detail.slice(0, 300)).trim());
-            if (res.status === 404) {
-              nextModel = true;
-              continue;
-            }
-            if (!TRANSIENT_STATUSES.has(res.status)) throw new PermanentTtsError(lastError.message);
-            if (attempt < 2) {
-              await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt + Math.floor(Math.random() * 250)));
-            }
-            continue;
-          }
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          const emit = function* (line: string): Generator<Buffer> {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) return;
-            const payload = trimmed.slice(5).trim();
-            if (!payload || payload === "[DONE]") return;
-            const json = JSON.parse(payload) as GeminiTtsResponse;
-            for (const part of json.candidates?.[0]?.content?.parts ?? []) {
-              if (part.inlineData?.data) yield Buffer.from(part.inlineData.data, "base64");
-            }
-          };
-          try {
-            while (true) {
-              const { value, done } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() ?? "";
-              for (const line of lines) {
-                for (const chunk of emit(line)) {
-                  started = true;
-                  yield chunk;
-                }
-              }
-            }
-            for (const chunk of emit(buffer)) {
-              started = true;
-              yield chunk;
-            }
-          } finally {
-            reader.releaseLock();
-          }
-          return;
         } catch (error) {
-          if (error instanceof PermanentTtsError) throw new Error(error.message);
-          lastError = error instanceof Error ? error : new Error(String(error));
-          if (lastError.name === "AbortError") lastError = new Error("Gemini streaming TTS request timed out");
-          if (started || attempt >= 2) throw lastError;
-          await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt + Math.floor(Math.random() * 250)));
+          if (signal?.aborted) throw abortError();
+          lastError = error instanceof Error && error.name === "AbortError" ? new Error(label + " request timed out") : error instanceof Error ? error : new Error(String(error));
+          const wait = retryDelayMs({ kind: "transient" }, attempt);
+          if (wait === null) break;
+          await sleep(wait, signal);
+          continue;
         } finally {
           clearTimeout(timer);
         }
+        if (res.ok) return res;
+
+        const detail = await res.text().catch(() => "");
+        const failure = classifyGeminiFailure(res.status, detail, res.headers.get("retry-after"));
+        lastError = toProviderError(label, res.status, res.statusText, failure, detail);
+        if (failure.kind === "fatal") throw lastError;
+        const wait = retryDelayMs(failure, attempt);
+        if (wait === null) {
+          if (!shouldTryNextModel(failure)) throw lastError;
+          break;
+        }
+        await sleep(wait, signal);
       }
     }
-    throw lastError ?? new Error("Gemini streaming TTS failed");
+    throw lastError ?? new Error(label + " failed");
   }
 }
 

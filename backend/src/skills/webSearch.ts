@@ -1,3 +1,4 @@
+import { classifyGeminiFailure, providerErrorUserMessage, retryDelayMs, sleep, toProviderError } from "../ai/geminiErrors.js";
 import { SkillUserError } from "../tooling/toolPipeline.js";
 import type { SkillDefinition } from "../domain/types.js";
 
@@ -29,27 +30,42 @@ export class GeminiSearchProvider implements SearchProvider {
   ) {}
 
   async search(query: string): Promise<SearchResponse> {
-    const response = await fetchWithTimeout(
-      `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text:
-                `Search the web for: ${query}. Return a concise answer and rely on current web sources. Do not invent sources.`,
-            }],
-          }],
-          tools: [{ googleSearch: {} }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
-        }),
-      },
-      60_000,
-    );
-    if (!response.ok) {
+    const body = JSON.stringify({
+      contents: [{
+        parts: [{
+          text:
+            `Search the web for: ${query}. Return a concise answer and rely on current web sources. Do not invent sources.`,
+        }],
+      }],
+      tools: [{ googleSearch: {} }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
+    });
+    let response: Response;
+    for (let attempt = 0; ; attempt += 1) {
+      response = await fetchWithTimeout(
+        `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`,
+        { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
+        60_000,
+      );
+      if (response.ok) break;
       const detail = await response.text().catch(() => "");
-      throw new Error(`Gemini Google Search failed: ${response.status} ${response.statusText} ${detail}`.trim());
+      const failure = classifyGeminiFailure(response.status, detail, response.headers.get("retry-after"));
+      const wait = retryDelayMs(failure, attempt);
+      if (wait !== null) {
+        await sleep(wait);
+        continue;
+      }
+      const error = toProviderError("Gemini Google Search", response.status, response.statusText, failure, detail);
+      if (failure.kind === "quota") {
+        // A quota/rate limit is a known, explainable condition: report it as such so the agent
+        // loop stops instead of searching again (each retry would hit the same limit).
+        throw new SkillUserError(
+          error.code === "AI_QUOTA_EXCEEDED" ? "ai_quota_exceeded" : "ai_rate_limited",
+          providerErrorUserMessage(error),
+          error.retryable,
+        );
+      }
+      throw error;
     }
 
     const json = (await response.json()) as GeminiSearchResponse;
