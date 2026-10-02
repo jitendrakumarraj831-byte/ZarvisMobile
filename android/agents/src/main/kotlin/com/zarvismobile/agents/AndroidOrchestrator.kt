@@ -1,6 +1,7 @@
 package com.zarvismobile.agents
 
 import com.zarvismobile.core.tooling.ComposeConfirmationPort
+import com.zarvismobile.data.remote.AiServiceErrors
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.OrchestratorTurnRequest
 import com.zarvismobile.data.remote.dto.StructuredResultDto
@@ -141,9 +142,18 @@ class AndroidOrchestrator(
     }
 
     private suspend fun handleWithBrain(utterance: String, locale: String): TurnOutcome {
-        val response = api.runTurn(
-            OrchestratorTurnRequest(utterance = utterance, locale = locale, conversationId = conversations.get()),
-        )
+        val response = try {
+            api.runTurn(
+                OrchestratorTurnRequest(utterance = utterance, locale = locale, conversationId = conversations.get()),
+            )
+        } catch (e: retrofit2.HttpException) {
+            // An exhausted AI quota / rate limit is an honest answer, not "check your connection".
+            val error = AiServiceErrors.classify(e.code(), e.response()?.errorBody()?.string()) ?: throw e
+            return TurnOutcome(
+                message = error.message,
+                result = ToolResult(false, ToolResultStatus.FAILED, null, "conversation", error.message, error.retryable, null),
+            )
+        }
         response.conversationId?.let { conversations.set(it) }
         val lastResult = response.toolCalls.lastOrNull()?.result?.toDomain()
         var pending = response.toolCalls.firstNotNullOfOrNull { it.outcome.confirmation }
