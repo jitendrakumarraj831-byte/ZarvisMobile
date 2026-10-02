@@ -300,20 +300,32 @@ jobs:
       - name: Full check (all modules)
         run: ./gradlew check -Pzarvis.devApiHost=10.0.2.2 --continue --stacktrace --console=plain
 
-      # Every lint finding in the log (the HTML/XML reports are also uploaded below).
-      - name: List lint findings
+      # Every lint finding in the log (the HTML/XML reports are also uploaded below), and a
+      # gate: only the documented, deliberately deferred ids may remain — dependency/AGP
+      # "newer version available" notices and targetSdk 34 (a tracked Play-release blocker,
+      # changed in its own PR because it changes runtime behaviour). Anything else fails.
+      - name: List lint findings and enforce zero new warnings
         if: always()
         run: |
           python3 - <<'PY'
-          import glob, xml.etree.ElementTree as ET
-          total = 0
+          import glob, sys, xml.etree.ElementTree as ET
+          DEFERRED = {"GradleDependency", "AndroidGradlePluginVersion", "OldTargetApi"}
+          seen, unexpected = set(), []
           for path in sorted(glob.glob("**/build/reports/lint-results-*.xml", recursive=True)):
               for issue in ET.parse(path).getroot().iter("issue"):
                   loc = issue.find("location")
                   where = f"{loc.get('file')}:{loc.get('line')}" if loc is not None else "?"
+                  key = (issue.get("id"), where, issue.get("message"))
+                  if key in seen:
+                      continue  # the same finding reported by several modules
+                  seen.add(key)
                   print(f"{issue.get('severity')}: [{issue.get('id')}] {where}\n    {issue.get('message')}")
-                  total += 1
-          print(f"lint findings: {total}")
+                  if issue.get("id") not in DEFERRED:
+                      unexpected.append(key)
+          print(f"unique lint findings: {len(seen)}; outside the deferred set: {len(unexpected)}")
+          for key in unexpected:
+              print(f"::error::lint [{key[0]}] {key[1]}: {key[2]}")
+          sys.exit(1 if unexpected else 0)
           PY
 
       - uses: actions/upload-artifact@v4
