@@ -145,6 +145,7 @@ const SCHEMA = `
     updated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (account_id, client_turn_id)
   );
+  ALTER TABLE turn_records ADD COLUMN IF NOT EXISTS fingerprint TEXT;
   CREATE INDEX IF NOT EXISTS auth_sessions_account_idx ON auth_sessions (account_id);
   CREATE INDEX IF NOT EXISTS confirmations_account_idx ON confirmations (account_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS conversation_messages_conversation_created_idx
@@ -508,16 +509,16 @@ export class PostgresStore implements Store {
     }));
   }
 
-  async claimTurn(accountId: string, clientTurnId: string, now: Date, staleBefore: Date): Promise<TurnClaim> {
+  async claimTurn(accountId: string, clientTurnId: string, fingerprint: string, now: Date, staleBefore: Date): Promise<TurnClaim> {
     await this.query("DELETE FROM turn_records WHERE account_id = $1 AND updated_at < $2", [
       accountId,
       new Date(now.getTime() - TURN_RECORD_RETENTION_MS),
     ]);
     // The primary key makes exactly one of several concurrent first attempts win.
     const inserted = await this.query(
-      `INSERT INTO turn_records (account_id, client_turn_id, status, created_at, updated_at)
-       VALUES ($1, $2, 'running', $3, $3) ON CONFLICT DO NOTHING RETURNING account_id`,
-      [accountId, clientTurnId, now],
+      `INSERT INTO turn_records (account_id, client_turn_id, fingerprint, status, created_at, updated_at)
+       VALUES ($1, $2, $3, 'running', $4, $4) ON CONFLICT DO NOTHING RETURNING account_id`,
+      [accountId, clientTurnId, fingerprint, now],
     );
     if (inserted.rows.length > 0) return { kind: "claimed" };
     // A failed or abandoned attempt may run again; the row lock lets only one retry win.
@@ -525,6 +526,8 @@ export class PostgresStore implements Store {
       "SELECT * FROM turn_records WHERE account_id = $1 AND client_turn_id = $2",
       [accountId, clientTurnId],
     );
+    const stored = previous.rows[0]?.fingerprint;
+    if (stored && stored !== fingerprint) return { kind: "conflict" };
     const reclaimed = await this.query(
       `UPDATE turn_records SET status = 'running', updated_at = $3
        WHERE account_id = $1 AND client_turn_id = $2
@@ -897,6 +900,7 @@ interface TurnRecordRow extends QueryResultRow {
   client_turn_id: string;
   status: TurnRecordStatus;
   conversation_id: string | null;
+  fingerprint: string | null;
   result: unknown;
   created_at: Date;
   updated_at: Date;
@@ -908,6 +912,7 @@ function toTurnRecord(row: TurnRecordRow): TurnRecord {
     clientTurnId: row.client_turn_id,
     status: row.status,
     conversationId: row.conversation_id ?? undefined,
+    fingerprint: row.fingerprint ?? undefined,
     result: row.result ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

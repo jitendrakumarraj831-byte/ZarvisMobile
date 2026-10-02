@@ -290,7 +290,7 @@ export class InMemoryStore implements Store {
     this.permissions.set(accountId, existing);
   }
 
-  async claimTurn(accountId: string, clientTurnId: string, now: Date, staleBefore: Date): Promise<TurnClaim> {
+  async claimTurn(accountId: string, clientTurnId: string, fingerprint: string, now: Date, staleBefore: Date): Promise<TurnClaim> {
     const expired = now.getTime() - TURN_RECORD_RETENTION_MS;
     for (const [key, record] of this.turnRecords) {
       if (record.accountId === accountId && record.updatedAt.getTime() < expired) this.turnRecords.delete(key);
@@ -298,9 +298,10 @@ export class InMemoryStore implements Store {
     const key = accountId + "\u0000" + clientTurnId;
     const existing = this.turnRecords.get(key);
     if (!existing) {
-      this.turnRecords.set(key, { accountId, clientTurnId, status: "running", createdAt: now, updatedAt: now });
+      this.turnRecords.set(key, { accountId, clientTurnId, fingerprint, status: "running", createdAt: now, updatedAt: now });
       return { kind: "claimed" };
     }
+    if (existing.fingerprint && existing.fingerprint !== fingerprint) return { kind: "conflict" };
     if (existing.status === "completed") return { kind: "completed", record: { ...existing } };
     if (existing.status === "failed" || existing.updatedAt < staleBefore) {
       const previous = { ...existing };

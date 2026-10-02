@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
@@ -61,6 +61,15 @@ export class TurnInProgressError extends Error {
   constructor() {
     super("This message is still being processed.");
     this.name = "TurnInProgressError";
+  }
+}
+
+/** The client reused a clientTurnId for a different message (a client bug): nothing runs. */
+export class ClientTurnIdReusedError extends Error {
+  readonly code = "client_turn_id_reused";
+  constructor() {
+    super("This message id was already used for a different message.");
+    this.name = "ClientTurnIdReusedError";
   }
 }
 
@@ -131,7 +140,12 @@ export class Orchestrator {
     let previousAttempt: TurnRecord | undefined;
     if (clientTurnId) {
       const now = new Date();
-      const claim = await this.store.claimTurn(request.accountId, clientTurnId, now, new Date(now.getTime() - STALE_TURN_MS));
+      const fingerprint = createHash("sha256").update(request.utterance.trim()).digest("hex");
+      const claim = await this.store.claimTurn(request.accountId, clientTurnId, fingerprint, now, new Date(now.getTime() - STALE_TURN_MS));
+      if (claim.kind === "conflict") {
+        logger.warn("clientTurnId reused for a different message", { turnId, clientTurnId });
+        throw new ClientTurnIdReusedError();
+      }
       if (claim.kind === "in_progress") {
         logger.info("Turn duplicate rejected while in progress", { turnId, clientTurnId });
         throw new TurnInProgressError();

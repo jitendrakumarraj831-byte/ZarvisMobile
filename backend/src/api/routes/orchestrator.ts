@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Response } from "express";
 import { AIProviderError, providerErrorPayload } from "../../ai/geminiErrors.js";
-import { TurnInProgressError, type Orchestrator, type TurnEvent, type TurnRequest } from "../../agents/orchestrator.js";
+import { ClientTurnIdReusedError, TurnInProgressError, type Orchestrator, type TurnEvent, type TurnRequest } from "../../agents/orchestrator.js";
 import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
@@ -67,6 +67,8 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
           // The client went away (Stop, a newer turn, a closed tab): nobody is listening.
         } else if (err instanceof TurnInProgressError) {
           send("error", { error: err.message, code: err.code, retryable: true, turnId });
+        } else if (err instanceof ClientTurnIdReusedError) {
+          send("error", { error: err.message, code: err.code, retryable: false, turnId });
         } else if (err instanceof AIProviderError) {
           logger.warn("Streaming turn stopped by the AI provider", { turnId, code: err.code, status: err.status, retryAfterMs: err.retryAfterMs });
           send("error", { ...providerErrorPayload(err), turnId });
@@ -98,6 +100,10 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         if (err instanceof Error && err.name === "AbortError") return;
         if (err instanceof TurnInProgressError) {
           res.status(409).json({ error: err.message, code: err.code, retryable: true });
+          return;
+        }
+        if (err instanceof ClientTurnIdReusedError) {
+          res.status(409).json({ error: err.message, code: err.code, retryable: false });
           return;
         }
         if (err instanceof AIProviderError) {

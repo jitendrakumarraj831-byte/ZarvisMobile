@@ -1,6 +1,6 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { Orchestrator, TurnInProgressError } from "../../src/agents/orchestrator.js";
+import { ClientTurnIdReusedError, Orchestrator, TurnInProgressError } from "../../src/agents/orchestrator.js";
 import { AIProviderError } from "../../src/ai/geminiErrors.js";
 import type { AIProvider, AIRequest, AIResponse } from "../../src/ai/provider.js";
 import { buildContainer } from "../../src/container.js";
@@ -131,6 +131,19 @@ describe.each(STORES)("turn idempotency (%s)", (_label, makeStore) => {
     expect(rb.conversationId).not.toBe(ra.conversationId);
   });
 
+  it("refuses a clientTurnId reused for a different message: nothing runs, nothing is stored", async () => {
+    const t = await setup(makeStore(), [reply("first answer"), reply("must not be used")]);
+    const clientTurnId = crypto.randomUUID();
+    const first = await t.orchestrator.runTurn({ accountId: t.accountId, utterance: "first question", clientTurnId });
+
+    await expect(t.orchestrator.runTurn({ accountId: t.accountId, utterance: "a different question", clientTurnId }))
+      .rejects.toBeInstanceOf(ClientTurnIdReusedError);
+    expect(t.provider.requests).toHaveLength(1);
+    expect(await roles(t.store, t.accountId, first.conversationId)).toEqual(["user:first question", "assistant:first answer"]);
+    // The same text with surrounding whitespace is the same message.
+    expect((await t.orchestrator.runTurn({ accountId: t.accountId, utterance: "  first question ", clientTurnId })).replayed).toBe(true);
+  });
+
   it("without a clientTurnId every request is a new turn (older clients unchanged)", async () => {
     const t = await setup(makeStore(), [search("w"), reply("one"), search("w"), reply("two")]);
     await t.orchestrator.runTurn({ accountId: t.accountId, utterance: "search w" });
@@ -147,7 +160,7 @@ describe.each(STORES)("turn idempotency (%s)", (_label, makeStore) => {
     const user = await t.store.createUser(`idem-${crypto.randomUUID()}@test.dev`, "x");
     const other = await t.store.createAccountForUser(user.id);
     const now = new Date();
-    expect(await t.store.claimTurn(other.id, clientTurnId, now, new Date(0))).toEqual({ kind: "claimed" });
+    expect(await t.store.claimTurn(other.id, clientTurnId, "f", now, new Date(0))).toEqual({ kind: "claimed" });
   });
 });
 
@@ -169,6 +182,14 @@ describe("turn idempotency over HTTP", () => {
     expect(done(again.text)).toMatchObject({ replayed: true, message: done(first.text).message, conversationId: done(first.text).conversationId });
     const history = await request(app).get(`/api/v1/conversations/${done(first.text).conversationId}/messages`).set("authorization", auth);
     expect(history.body.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("JSON route: a reused key with different text is 409 client_turn_id_reused", async () => {
+    const { app, auth } = await guestApp();
+    await request(app).post("/api/v1/orchestrator/turn").set("authorization", auth).send({ utterance: "Hi", clientTurnId: "json-turn-1234567" });
+    const res = await request(app).post("/api/v1/orchestrator/turn").set("authorization", auth).send({ utterance: "Hello there", clientTurnId: "json-turn-1234567" });
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: "client_turn_id_reused", retryable: false });
   });
 
   it("refuses a malformed clientTurnId instead of silently dropping the protection", async () => {

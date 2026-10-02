@@ -118,6 +118,8 @@ export interface TurnRecord {
   clientTurnId: string;
   status: TurnRecordStatus;
   conversationId?: string;
+  /** sha256 of the utterance the key was first used with; a key is never reused for other text. */
+  fingerprint?: string;
   /** The completed turn's result, replayed verbatim to a duplicate request. */
   result?: unknown;
   createdAt: Date;
@@ -134,7 +136,9 @@ export interface TurnRecord {
 export type TurnClaim =
   | { kind: "claimed"; previous?: TurnRecord }
   | { kind: "in_progress" }
-  | { kind: "completed"; record: TurnRecord };
+  | { kind: "completed"; record: TurnRecord }
+  /** The key was first used with a different utterance. */
+  | { kind: "conflict" };
 
 /** How long a turn record (and so a replayable result) is kept. */
 export const TURN_RECORD_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -233,7 +237,7 @@ export interface Store {
    * Atomically claims (accountId, clientTurnId) for execution. A `running` record last updated
    * before `staleBefore` (its request died) can be claimed again, like a `failed` one.
    */
-  claimTurn(accountId: string, clientTurnId: string, now: Date, staleBefore: Date): Promise<TurnClaim>;
+  claimTurn(accountId: string, clientTurnId: string, fingerprint: string, now: Date, staleBefore: Date): Promise<TurnClaim>;
   updateTurn(
     accountId: string,
     clientTurnId: string,
