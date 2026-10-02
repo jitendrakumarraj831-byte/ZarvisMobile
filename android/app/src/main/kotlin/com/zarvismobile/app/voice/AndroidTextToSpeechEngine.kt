@@ -7,7 +7,9 @@ import com.zarvismobile.core.common.voice.TextToSpeechEngine
 import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.TtsSynthesizeRequest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -35,7 +37,9 @@ class AndroidTextToSpeechEngine(
             response.errorBody()?.close()
             throw IOException("Gemini TTS HTTP " + response.code())
         }
-        val bytes = response.body()?.use { it.bytes() }
+        // synthesizeSpeech is @Streaming: bytes() reads from the socket. The caller runs on the
+        // main thread (viewModelScope), where that throws NetworkOnMainThreadException.
+        val bytes = withContext(Dispatchers.IO) { response.body()?.use { it.bytes() } }
             ?: throw IOException("Gemini TTS returned empty audio")
         playWav(bytes, onPlaybackStarted)
     }

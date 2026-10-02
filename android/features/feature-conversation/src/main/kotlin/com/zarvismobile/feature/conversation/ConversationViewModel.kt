@@ -1,5 +1,6 @@
 package com.zarvismobile.feature.conversation
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.agents.AndroidOrchestrator
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val SUCCESS_FLASH_MS = 450L
+private const val START_REQUEST_HANDLED = "conversation.startRequestHandled"
 
 data class ConversationTurn(
     val userText: String,
@@ -63,6 +65,7 @@ class ConversationViewModel @Inject constructor(
     private val preferences: AppPreferences,
     private val access: AccessCoordinator,
     private val capabilities: CapabilityRegistry,
+    private val savedState: SavedStateHandle,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ConversationUiState())
@@ -108,6 +111,21 @@ class ConversationViewModel @Inject constructor(
     fun submitInitialText(text: String) {
         if (text.isBlank()) return
         runTurn(text)
+    }
+
+    /**
+     * The screen's start request (text from Home/Assist, or "listen now") is handled once per
+     * navigation entry. The composable's LaunchedEffect runs again after a rotation or after
+     * the process is recreated; without this, that re-sent the same request — a duplicate
+     * turn and a duplicate AI call. Stored in SavedStateHandle so it survives process death.
+     */
+    fun onStartRequest(initialText: String?, submit: Boolean, listen: Boolean) {
+        if (savedState.get<Boolean>(START_REQUEST_HANDLED) == true) return
+        savedState[START_REQUEST_HANDLED] = true
+        if (listen) startListening()
+        if (!initialText.isNullOrBlank()) {
+            if (submit) submitInitialText(initialText) else prefillComposer(initialText)
+        }
     }
 
     /** Re-runs the interrupted request through the full permission + confirmation flow. */
@@ -180,6 +198,10 @@ class ConversationViewModel @Inject constructor(
     }
 
     private fun runTurn(utterance: String) {
+        // One turn at a time: a new request (typed, voice, resume) supersedes the one in flight
+        // instead of running beside it and writing its reply into the wrong bubble.
+        turnJob?.cancel()
+        ttsEngine.stop()
         turnJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(voiceState = VoiceState.UNDERSTANDING, turns = it.turns + ConversationTurn(utterance, null), error = null)

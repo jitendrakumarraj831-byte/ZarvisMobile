@@ -58,10 +58,8 @@ fun ConversationScreen(
     val listState = rememberLazyListState()
 
     LaunchedEffect(initialText, submitInitialText, listenOnStart) {
-        if (listenOnStart) viewModel.startListening()
-        if (!initialText.isNullOrBlank()) {
-            if (submitInitialText) viewModel.submitInitialText(initialText) else viewModel.prefillComposer(initialText)
-        }
+        // Runs again after rotation / process recreation; the ViewModel handles it only once.
+        viewModel.onStartRequest(initialText, submitInitialText, listenOnStart)
     }
 
     LaunchedEffect(uiState.turns.size) {
