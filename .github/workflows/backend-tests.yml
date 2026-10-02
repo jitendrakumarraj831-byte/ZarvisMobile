@@ -108,7 +108,7 @@ jobs:
 
       - name: Install Playwright + Chromium
         run: |
-          npm install -g playwright@1.56.1
+          npm install -g playwright@1.56.1 axe-core@4.13.0
           npx -y playwright@1.56.1 install --with-deps chromium
 
       - name: Start GitHub API stub and backend
@@ -130,6 +130,14 @@ jobs:
           E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/zarvis_e2e
           NODE_PATH: /usr/local/lib/node_modules
         run: node web/e2e/phase1.e2e.cjs
+
+      # Responsive (8 views x 6 widths), axe accessibility (light + dim), keyboard, service
+      # worker offline shell, voice/TTS never causing an extra turn, duplicate submissions.
+      - name: Run web quality E2E
+        env:
+          ZARVIS_URL: http://localhost:3100
+          NODE_PATH: /usr/local/lib/node_modules
+        run: node web/e2e/quality.e2e.cjs
 
       - name: Backend log on failure
         if: failure()

@@ -347,8 +347,12 @@
     // startup subsystem (voice, settings, plans, or service-worker registration) fails.
     el.sendBtn.addEventListener("click", () => {
       haptic();
-      if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) cancelCurrentTurn();
-      else submitComposerInput(el.input.value);
+      if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) {
+        // Send turns into Stop under the pointer the moment a turn starts: the second click of
+        // a double-click (or a bounced tap) must not cancel the message just sent.
+        if (Date.now() - stopModeSince < STOP_GRACE_MS) return;
+        cancelCurrentTurn();
+      } else submitComposerInput(el.input.value);
     });
     el.input.addEventListener("keydown", (e) => {
       // Enter that confirms an IME composition (Hindi/Devanagari keyboards) is not a send.
@@ -361,6 +365,13 @@
     });
     el.input.addEventListener("input", resizeComposer);
     el.fileInput.addEventListener("change", handleFileSelected);
+    // The attach control is a focusable <label>; a label opens the picker on click only, so
+    // Enter/Space would otherwise do nothing for keyboard users.
+    el.uploadBtn.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (el.uploadBtn.getAttribute("aria-disabled") !== "true") el.fileInput.click();
+    });
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
       clearPendingAttachment();
@@ -3527,6 +3538,7 @@
   function updateComposerMode() {
     const busy = isBusy();
     const copy = COPY[state.lang];
+    if (busy && !el.sendBtn.classList.contains("stop-mode")) stopModeSince = Date.now();
     el.sendBtn.classList.toggle("stop-mode", busy);
     el.sendBtn.title = busy ? copy.stop : copy.send;
     el.sendBtn.setAttribute("aria-label", busy ? copy.stop : copy.send);
@@ -3537,6 +3549,9 @@
   // used by the composer's Send/Stop toggle (updateComposerMode) and cancelCurrentTurn's
   // Escape-key guard, both via isBusy() below.
   const BUSY_STATES = ["UNDERSTANDING", "EXECUTING", "SUCCESS", "SPEAKING"];
+  /** When Send last turned into Stop, and how long a click right after that is ignored. */
+  let stopModeSince = 0;
+  const STOP_GRACE_MS = 600;
   function isBusy() {
     return currentTurnController !== null || BUSY_STATES.includes(el.orb.dataset.state);
   }
