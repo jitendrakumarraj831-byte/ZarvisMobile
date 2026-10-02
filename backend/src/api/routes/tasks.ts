@@ -54,7 +54,7 @@ export function tasksRouter(taskService: TaskService): Router {
         res.json(task);
       } catch (err) {
         if (err instanceof TaskError) {
-          res.status(409).json({ error: err.message });
+          res.status(409).json({ error: err.message, code: err.code });
           return;
         }
         res.status(500).json({ error: "Internal error" });

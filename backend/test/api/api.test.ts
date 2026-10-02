@@ -94,7 +94,7 @@ describe("API integration", () => {
     expect(res.body.result.output.structure.repoUrl).toBe("https://github.com/example/demo");
   });
 
-  it("creates a task and walks it through pause/resume/cancel", async () => {
+  it("creates a task; Start/Resume is refused honestly (no executor), cancel works", async () => {
     const token = await signupAndGetToken();
     const create = await request(app)
       .post("/api/v1/tasks")
@@ -103,11 +103,12 @@ describe("API integration", () => {
     expect(create.status).toBe(201);
     const taskId = create.body.id;
 
+    // Nothing would run its steps, so the task must never be reported RUNNING.
     const run = await request(app).post(`/api/v1/tasks/${taskId}/resume`).set("Authorization", `Bearer ${token}`);
-    expect(run.body.status).toBe("RUNNING");
-
-    const pause = await request(app).post(`/api/v1/tasks/${taskId}/pause`).set("Authorization", `Bearer ${token}`);
-    expect(pause.body.status).toBe("PAUSED");
+    expect(run.status).toBe(409);
+    expect(run.body.code).toBe("task_execution_unavailable");
+    const after = await request(app).get(`/api/v1/tasks/${taskId}`).set("Authorization", `Bearer ${token}`);
+    expect(after.body.status).toBe("PENDING");
 
     const cancel = await request(app).post(`/api/v1/tasks/${taskId}/cancel`).set("Authorization", `Bearer ${token}`);
     expect(cancel.body.status).toBe("CANCELLED");

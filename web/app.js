@@ -2526,20 +2526,17 @@
     }
   }
 
-  // User-triggerable transitions per status — mirrors backend/src/tasks/taskService.ts's
-  // VALID_TRANSITIONS, minus the automatic RUNNING->DONE/FAILED transitions no button here
-  // should ever trigger directly.
+  // User-triggerable transitions per status. No task executor exists yet (the backend refuses
+  // resume/retry with task_execution_unavailable), so nothing here offers to start a task:
+  // that would show work that is not happening.
   const TASK_ACTIONS = {
     PENDING: [{ action: "cancel", label: "Cancel", cls: "danger" }],
     RUNNING: [
       { action: "pause", label: "Pause", cls: "" },
       { action: "cancel", label: "Cancel", cls: "danger" },
     ],
-    PAUSED: [
-      { action: "resume", label: "Resume", cls: "primary" },
-      { action: "cancel", label: "Cancel", cls: "danger" },
-    ],
-    FAILED: [{ action: "retry", label: "Retry", cls: "primary" }],
+    PAUSED: [{ action: "cancel", label: "Cancel", cls: "danger" }],
+    FAILED: [],
     DONE: [],
     CANCELLED: [],
   };

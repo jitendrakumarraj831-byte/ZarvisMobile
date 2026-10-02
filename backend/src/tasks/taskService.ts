@@ -2,7 +2,20 @@ import { randomUUID } from "node:crypto";
 import type { RiskLevel, Task, TaskStatus, TaskStep } from "../domain/types.js";
 import type { Store } from "../store/store.js";
 
-export class TaskError extends Error {}
+export class TaskError extends Error {
+  readonly code: string = "invalid_transition";
+}
+
+/**
+ * No task executor exists yet: nothing would run a task's steps. Moving a task to RUNNING
+ * ("Start", "Resume", "Retry") would show work that is not happening, so it is refused.
+ */
+export class TaskExecutionUnavailableError extends TaskError {
+  override readonly code = "task_execution_unavailable";
+  constructor() {
+    super("ZARVIS can't run tasks automatically yet, so nothing was started.");
+  }
+}
 
 const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   PENDING: ["RUNNING", "CANCELLED"],
@@ -65,7 +78,8 @@ export class TaskService {
   }
 
   async resume(taskId: string): Promise<Task> {
-    return this.transition(taskId, "RUNNING");
+    await this.requireTask(taskId);
+    throw new TaskExecutionUnavailableError();
   }
 
   async cancel(taskId: string): Promise<Task> {
@@ -73,7 +87,14 @@ export class TaskService {
   }
 
   async retry(taskId: string): Promise<Task> {
-    return this.transition(taskId, "RUNNING");
+    await this.requireTask(taskId);
+    throw new TaskExecutionUnavailableError();
+  }
+
+  private async requireTask(taskId: string): Promise<Task> {
+    const task = await this.store.getTask(taskId);
+    if (!task) throw new TaskError(`Unknown task '${taskId}'`);
+    return task;
   }
 
   private async transition(taskId: string, next: TaskStatus): Promise<Task> {

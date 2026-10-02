@@ -17,7 +17,7 @@ data class TasksUiState(
     val error: String? = null,
 )
 
-/** Backs the Task Engine's client view — pause/resume/cancel/retry per MASTER_SPEC.md §18. */
+/** Backs the Task Engine's client view: list, pause and cancel. No executor exists yet, so nothing starts a task. */
 @HiltViewModel
 class TasksViewModel @Inject constructor(
     private val api: ZarvisApi,
@@ -42,9 +42,7 @@ class TasksViewModel @Inject constructor(
     }
 
     fun pause(taskId: String) = transition(taskId, "pause")
-    fun resume(taskId: String) = transition(taskId, "resume")
     fun cancel(taskId: String) = transition(taskId, "cancel")
-    fun retry(taskId: String) = transition(taskId, "retry")
 
     private fun transition(taskId: String, action: String) {
         viewModelScope.launch {

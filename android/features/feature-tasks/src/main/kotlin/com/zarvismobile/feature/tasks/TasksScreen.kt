@@ -86,18 +86,21 @@ private fun TaskRow(task: TaskDto, viewModel: TasksViewModel) {
     ZarvisCard(modifier = Modifier.fillMaxWidth()) {
         Text(text = task.goal, style = MaterialTheme.typography.titleMedium)
         Text(text = "Status: ${task.status} · Risk: ${task.riskLevel}", style = MaterialTheme.typography.bodyMedium)
+        // No task executor exists yet (the backend refuses resume/retry), so nothing here offers
+        // to start a task: "Start" used to show RUNNING while nothing ran.
+        if (task.status == "PENDING" || task.status == "PAUSED" || task.status == "FAILED") {
+            Text(
+                text = "Automatic task execution isn't available yet. Nothing runs on its own.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
             when (task.status) {
-                "PENDING" -> TextButton(onClick = { viewModel.resume(task.id) }) { Text("Start") }
+                "PENDING", "PAUSED" -> TextButton(onClick = { viewModel.cancel(task.id) }) { Text("Cancel") }
                 "RUNNING" -> {
                     TextButton(onClick = { viewModel.pause(task.id) }) { Text("Pause") }
                     TextButton(onClick = { viewModel.cancel(task.id) }) { Text("Cancel") }
                 }
-                "PAUSED" -> {
-                    TextButton(onClick = { viewModel.resume(task.id) }) { Text("Resume") }
-                    TextButton(onClick = { viewModel.cancel(task.id) }) { Text("Cancel") }
-                }
-                "FAILED" -> TextButton(onClick = { viewModel.retry(task.id) }) { Text("Retry") }
             }
         }
     }

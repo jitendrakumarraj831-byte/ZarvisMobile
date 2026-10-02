@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
-import { TaskError, TaskService } from "../../src/tasks/taskService.js";
+import { TaskError, TaskExecutionUnavailableError, TaskService } from "../../src/tasks/taskService.js";
 
 describe("TaskService", () => {
   let taskService: TaskService;
@@ -22,11 +22,24 @@ describe("TaskService", () => {
     expect(task.steps.every((step) => step.status === "PENDING" && step.retryCount === 0)).toBe(true);
   });
 
-  it("pauses a running task", async () => {
+  it("pauses a task left RUNNING by an earlier version (the only way to leave that state)", async () => {
+    const store = new InMemoryStore();
+    taskService = new TaskService(store);
     const created = await taskService.create("acc-1", "Goal");
-    await taskService.resume(created.id); // PENDING -> RUNNING
+    await store.updateTask({ ...created, status: "RUNNING" });
     const paused = await taskService.pause(created.id);
     expect(paused.status).toBe("PAUSED");
+  });
+
+  it("never reports a task RUNNING: there is no executor, so Start/Resume/Retry are refused", async () => {
+    const store = new InMemoryStore();
+    taskService = new TaskService(store);
+    const created = await taskService.create("acc-1", "Goal");
+    await expect(taskService.resume(created.id)).rejects.toBeInstanceOf(TaskExecutionUnavailableError);
+    await store.updateTask({ ...created, status: "FAILED" });
+    await expect(taskService.retry(created.id)).rejects.toBeInstanceOf(TaskExecutionUnavailableError);
+    expect((await store.getTask(created.id))?.status).toBe("FAILED");
+    await expect(taskService.resume("unknown")).rejects.not.toBeInstanceOf(TaskExecutionUnavailableError);
   });
 
   it("rejects an invalid transition", async () => {
