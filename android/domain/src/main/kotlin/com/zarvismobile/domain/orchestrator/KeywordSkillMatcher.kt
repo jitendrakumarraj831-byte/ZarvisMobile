@@ -34,7 +34,21 @@ class KeywordSkillMatcher(private val registry: SkillRegistry) {
 
     private fun score(utterance: String, skill: SkillDefinition): Int {
         val capabilityHits = skill.capabilities.count { capability -> utterance.contains(capability.lowercase()) }
-        val nameHit = skill.name.lowercase().split(" ").any { word -> word.isNotBlank() && utterance.contains(word) }
+        // The skill's name counts only when every significant word of it is in the utterance as
+        // a whole word. Matching ANY name word as a substring made "Pick a document", "Pick a
+        // photo" and "Take a photo" match almost every sentence (via "a"), and those skills'
+        // gates accept any non-question: "Write a short product description" opened the
+        // document picker instead of reaching the Brain.
+        val nameWords = skill.name.lowercase().split(" ").filter { word -> word.length >= MIN_NAME_WORD }
+        val nameHit = nameWords.isNotEmpty() && nameWords.all { word -> containsWord(utterance, word) }
         return capabilityHits * 2 + if (nameHit) 1 else 0
+    }
+
+    private fun containsWord(text: String, word: String): Boolean =
+        Regex("(?<![\\p{L}\\p{M}\\p{N}])" + Regex.escape(word) + "(?![\\p{L}\\p{M}\\p{N}])").containsMatchIn(text)
+
+    private companion object {
+        /** Shorter name words ("a", "my", "on") carry no meaning for routing. */
+        const val MIN_NAME_WORD = 3
     }
 }
