@@ -141,6 +141,7 @@ describe("GeminiProvider.streamGenerate", () => {
     expect(trace.servedModels).toEqual(["gemini-3.8-flash"]);
     expect(trace.httpRequests).toBe(calls);
     expect(warn).toHaveBeenCalledWith("Gemini answered with the fallback model", expect.objectContaining({
+      modelCallId: expect.any(String),
       configuredModel: "gemini-2.0-flash",
       servedModel: "gemini-3.8-flash",
     }));

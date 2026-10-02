@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { abortError, classifyGeminiFailure, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "./geminiErrors.js";
 import { logger } from "../security/redact.js";
+import { beginModelCall } from "./callTrace.js";
 import type {
   AIProvider,
   AIRequest,
@@ -80,11 +81,13 @@ export class GeminiProvider implements AIProvider {
     );
     const body = JSON.stringify(toGeminiRequestBody(request));
     let lastError: Error | undefined;
+    const call = beginModelCall(request.purpose ?? "planner", request.modelConfig.model, request.modelCallId);
 
     for (const model of models) {
       for (let attempt = 0; ; attempt += 1) {
         if (request.signal?.aborted) throw abortError();
         if (request.trace) request.trace.httpRequests += 1;
+        call.httpRequests += 1;
         const res = await fetchWithTimeout(
           `${this.baseUrl}/models/${encodeURIComponent(model)}:${method}`,
           { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
@@ -93,11 +96,19 @@ export class GeminiProvider implements AIProvider {
         );
         if (res.ok) {
           request.trace?.servedModels?.push(model);
+          call.servedModel = model;
+          call.outcome = "ok";
           if (model !== request.modelConfig.model) {
-            logger.warn("Gemini answered with the fallback model", { configuredModel: request.modelConfig.model, servedModel: model, label });
+            logger.warn("Gemini answered with the fallback model", {
+              modelCallId: call.modelCallId,
+              configuredModel: request.modelConfig.model,
+              servedModel: model,
+              label,
+            });
           }
           return res;
         }
+        call.status = res.status;
 
         const text = await res.text().catch(() => "");
         const failure = classifyGeminiFailure(res.status, text, res.headers.get("retry-after"));

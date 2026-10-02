@@ -28,6 +28,7 @@ export class AIContentGenerator implements ContentGenerator {
 
   async generate(prompt: string): Promise<string> {
     const response = await this.provider.generate({
+      purpose: "generation",
       systemPrompt: this.systemPrompt,
       messages: [{ role: "user", content: prompt }],
       modelConfig: this.modelConfig,

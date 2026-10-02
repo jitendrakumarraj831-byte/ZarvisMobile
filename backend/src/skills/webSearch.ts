@@ -1,3 +1,4 @@
+import { beginModelCall } from "../ai/callTrace.js";
 import { classifyGeminiFailure, providerErrorUserMessage, retryDelayMs, sleep, toProviderError } from "../ai/geminiErrors.js";
 import { SkillUserError } from "../tooling/toolPipeline.js";
 import type { SkillDefinition } from "../domain/types.js";
@@ -41,13 +42,20 @@ export class GeminiSearchProvider implements SearchProvider {
       generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
     });
     let response: Response;
+    const call = beginModelCall("search", this.model);
     for (let attempt = 0; ; attempt += 1) {
+      call.httpRequests += 1;
       response = await fetchWithTimeout(
         `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`,
         { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
         60_000,
       );
-      if (response.ok) break;
+      if (response.ok) {
+        call.servedModel = this.model;
+        call.outcome = "ok";
+        break;
+      }
+      call.status = response.status;
       const detail = await response.text().catch(() => "");
       const failure = classifyGeminiFailure(response.status, detail, response.headers.get("retry-after"));
       const wait = retryDelayMs(failure, attempt);

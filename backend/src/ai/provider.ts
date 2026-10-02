@@ -49,6 +49,10 @@ export interface AIRequest {
   /** Cancels the request (and any retry wait) when the user's turn is abandoned. */
   signal?: AbortSignal;
   trace?: ProviderTrace;
+  /** Correlation id of this logical model call (generated when absent). */
+  modelCallId?: string;
+  /** Who is calling: the orchestrator's planner, or a skill generating content. */
+  purpose?: "planner" | "generation";
 }
 
 export interface ToolCallRequest {

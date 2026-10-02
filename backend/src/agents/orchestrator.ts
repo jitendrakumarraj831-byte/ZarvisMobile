@@ -12,6 +12,7 @@ import type { ToolPipeline } from "../tooling/toolPipeline.js";
 import { classifyIdentityQuestion, creatorIdentityForPrompt, identityResponse } from "../config/zarvisProfile.js";
 import { abortError } from "../ai/geminiErrors.js";
 import { logger } from "../security/redact.js";
+import { withModelCallLog, type ModelCallRecord } from "../ai/callTrace.js";
 
 export interface TurnRequest {
   accountId: string;
@@ -147,8 +148,9 @@ export class Orchestrator {
       }
       if (claim.kind === "claimed") previousAttempt = claim.previous;
     }
+    const modelCallLog: ModelCallRecord[] = [];
     try {
-      const result = await this.executeTurn({ ...request, turnId }, onEvent, stats, previousAttempt);
+      const result = await withModelCallLog(modelCallLog, () => this.executeTurn({ ...request, turnId }, onEvent, stats, previousAttempt));
       outcome = "completed";
       if (clientTurnId) await this.recordTurn(request.accountId, clientTurnId, { status: "completed", result });
       return result;
@@ -165,7 +167,12 @@ export class Orchestrator {
         retryOfFailedAttempt: previousAttempt !== undefined,
         outcome,
         durationMs: Date.now() - startedAt,
+        // Planner steps only; `aiCalls` below counts every provider call the turn caused,
+        // skills' own calls (search grounding, generation) included.
         modelCalls: stats.modelCalls,
+        aiCalls: modelCallLog.length,
+        aiHttpRequests: modelCallLog.reduce((sum, call) => sum + call.httpRequests, 0),
+        aiCallLog: modelCallLog.slice(0, 20),
         providerHttpRequests: stats.providerHttpRequests,
         providerResponseIds: stats.providerResponseIds.slice(0, 10),
         configuredModel: this.modelConfig.model,
@@ -306,6 +313,8 @@ export class Orchestrator {
       let aiResponse;
       try {
         aiResponse = await this.provider.generate({
+          modelCallId: randomUUID(),
+          purpose: "planner",
           systemPrompt: buildSystemPrompt(request, step, results.length > 0),
           messages,
           tools,
