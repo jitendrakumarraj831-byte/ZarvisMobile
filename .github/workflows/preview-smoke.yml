@@ -23,7 +23,7 @@ jobs:
   smoke:
     if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       # The script from the deployed commit, so the checks match the code under test.
       - uses: actions/checkout@v4

@@ -161,8 +161,17 @@ async function main() {
   }
 
   // ---- Web Search ----------------------------------------------------------------------------
-  const search = await turn(guestToken, "Use web search to find the capital city of Australia, then answer in one sentence with the source.");
-  const searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+  const searchPrompt = "Use web search to find the capital city of Australia, then answer in one sentence with the source.";
+  let search = await turn(guestToken, searchPrompt);
+  let searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+  if (searches.length === 1 && searches[0].outcome?.result?.reason === "ai_rate_limited") {
+    // A per-minute limit, usually from the model calls just before. Respect it: wait out one
+    // window and ask once more (a new turn). A daily quota is not retried.
+    console.log("     web search hit the per-minute limit; waiting 65 s, then one more attempt");
+    await new Promise((resolve) => setTimeout(resolve, 65_000));
+    search = await turn(guestToken, searchPrompt);
+    searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+  }
   if (searches.length === 1 && searches[0].result?.status === "COMPLETED") {
     const sources = (searches[0].outcome?.result?.output?.results ?? []).length;
     report(provider === "google" ? "PASS" : "FAIL", "web search ran exactly once and completed", provider === "google" ? `${sources} sources` : `provider ${provider}: not a real search`);
