@@ -66,3 +66,18 @@ charged for a failed generation.
   model call. A search that found nothing may still be refined.
 - When the client disconnects (Stop, a newer turn, a closed tab), the turn is aborted: no
   further model or tool call starts.
+- A client may send a `clientTurnId` (its idempotency key for one logical turn; the web client
+  creates one per submission and reuses it for Retry). A completed turn re-sent with the same
+  key is answered from its stored result (`replayed: true`): no model call, no tool, no charge,
+  no new message. A turn still running elsewhere gets `turn_in_progress`. A failed one runs
+  again in the same conversation without storing the user's message twice. Keys are per
+  account and kept 24 hours.
+- The turn log line also names `configuredModel` and `servedModels`. An answer from the
+  fallback model is logged as a warning, never silent.
+
+## No AI credential
+
+In production with no `GEMINI_API_KEY`, every model call fails with `AI_UNAVAILABLE` (503) and
+`/health` reports `provider: none`. The deterministic mock provider, mock search and mock
+content generators exist for development and tests only. Greetings and creator questions need
+no model and still answer.

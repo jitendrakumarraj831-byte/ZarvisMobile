@@ -13,6 +13,45 @@
 
 Status values: PASS, FAIL, BLOCKED (cannot be run from where the check was attempted; reason given), NOT TESTED (not run yet). No emulator result is counted as a physical-device result.
 
+## Re-run 2026-10-02 (afternoon): full-stack reliability pass
+
+- **Branch:** `claude/optimistic-lovelace-y9w9q6`, stacked on this PR's head `5cc165f`.
+  Details: [ZARVIS_PRODUCTION_READINESS.md](./ZARVIS_PRODUCTION_READINESS.md), with
+  [ZARVIS_SYSTEM_CONNECTION_MAP.md](./ZARVIS_SYSTEM_CONNECTION_MAP.md),
+  [ZARVIS_API_CONTRACT_AUDIT.md](./ZARVIS_API_CONTRACT_AUDIT.md) and
+  [ZARVIS_ENVIRONMENT_MATRIX.md](./ZARVIS_ENVIRONMENT_MATRIX.md).
+- **Gate: NOT READY TO MERGE.** Unchanged blockers: the Nothing Phone 2A run and live email
+  sign-up. New blocker: a live answer from the model on the preview has never been verified.
+
+**Correction to row 8c below.** "Live 'Hi' chat PASS" proves auth, the database and
+streaming only. "Hi" is answered by a deterministic fast path that never calls Gemini, and
+`provider: google` in `/health` only means `GEMINI_API_KEY` is non-empty. The smoke test now
+adds one model-backed turn. Until it passes on a deployment, **live Gemini is NOT TESTED**.
+
+| # | Check | Status | Evidence |
+|---|---|---|---|
+| R1 | Backend typecheck (backend + root) | PASS | `tsc --noEmit` clean |
+| R2 | Backend tests, in-memory + Postgres 16 | PASS | 333 passed, 2 skipped (live-credential tests) |
+| R3 | Web unit tests | PASS | 13/13 |
+| R4 | Web E2E (real backend + Postgres + GitHub stub) | PASS | 19/19, including the new Retry-replay check (18/19 on the old client) |
+| R5 | Android `:domain:test` | PASS | 120/120, local, JDK 17 |
+| R6 | Android `clean test lint check assemble* bundleRelease` | BLOCKED locally (`dl.google.com` 403 through the sandbox proxy); CI on this branch's PR | — |
+| R7 | Nothing Phone 2A | **NOT TESTED** | no device in this session |
+| R8 | Live model answer on the preview | NOT TESTED | new smoke turn; runs on this branch's deployment |
+
+Bugs fixed in this pass (each reproduced first, with a regression test that fails without the
+fix):
+1. Retry of a turn the server had already finished ran it again (search twice, charged twice).
+2. Retry after a failed turn stored the user's message twice.
+3. A Hindi document's text (> 100 kB of JSON) made the next turn fail with 500.
+4. Malformed JSON returned 500 instead of 400.
+5. On Postgres, a non-UUID conversation/confirmation/task id returned 500; a browser holding a
+   stale id failed every turn.
+6. Production without `GEMINI_API_KEY` answered with the development mock's canned text.
+7. The smoke test could not detect a broken AI key.
+8. A Gemini fallback-model answer left no trace.
+9. `?api=` could aim the web client's tokens at another host (CSP blocked it; now refused in code).
+
 ## Results of the 2026-10-02 re-run
 
 | # | Check | Status | Evidence |
