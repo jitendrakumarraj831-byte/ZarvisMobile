@@ -22,8 +22,8 @@ Status values: PASS, FAIL, PARTIAL, BLOCKED (cannot run where it was attempted; 
   [ZARVIS_API_CONTRACT_AUDIT.md](./ZARVIS_API_CONTRACT_AUDIT.md) and
   [ZARVIS_ENVIRONMENT_MATRIX.md](./ZARVIS_ENVIRONMENT_MATRIX.md).
 - **Gate: NOT READY TO MERGE.** Unchanged blockers: the Nothing Phone 2A run, live email
-  sign-up, targetSdk 34 before a Play release, release signing. New blocker: a live answer from
-  the model on the preview has never been verified.
+  sign-up, targetSdk 34 before a Play release, release signing. A live Gemini answer on the preview
+  is now verified (R8); production is not checked yet.
 
 **Correction to row 19 of the final hardening pass and row 8c of the 00:25 re-run below.**
 "Live preview smoke … chat turn PASS" proves auth, the database and
@@ -34,13 +34,13 @@ adds one model-backed turn. Until it passes on a deployment, **live Gemini is NO
 | # | Check | Status | Evidence |
 |---|---|---|---|
 | R1 | Backend typecheck (backend + root) | PASS | `tsc --noEmit` clean |
-| R2 | Backend tests, in-memory + Postgres 16 | PASS | 333 passed, 2 skipped (live-credential tests) |
+| R2 | Backend tests, in-memory + Postgres 16 | PASS | 334 passed, 2 skipped (live-credential tests); a schema/deleteAccount deadlock found by CI fixed |
 | R3 | Web unit tests | PASS | 13/13 |
 | R4 | Web E2E (real backend + Postgres + GitHub stub) | PASS | 19/19, including the new Retry-replay check (18/19 on the old client) |
 | R5 | Android `:domain:test` | PASS | 120/120, local, JDK 17 |
 | R6 | Android `clean test lint check assemble* bundleRelease` | BLOCKED locally (`dl.google.com` 403 through the sandbox proxy); CI on this branch's PR | — |
 | R7 | Nothing Phone 2A | **NOT TESTED** | no device in this session |
-| R8 | Live model answer on the preview | NOT TESTED | new smoke turn; runs on this branch's deployment |
+| R8 | Live model answer on the preview | PASS | smoke job 110949303419: model-backed turn `done`, `provider: google` |
 
 Bugs fixed in this pass (each reproduced first, with a regression test that fails without the
 fix):

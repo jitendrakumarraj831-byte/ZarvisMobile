@@ -38,6 +38,7 @@ to fail without the fix.
 | 7 | Medium (verification gap) | Live smoke "chat PASS" never exercised Gemini | its only turn, "Hi", is a deterministic fast path | one model-backed smoke turn; a mock answer can never pass (`a216d9d`) | every branch run locally |
 | 8 | Low (observability) | A Gemini fallback-model answer (404/5xx) was silent | no log, not in the trace | warning + `servedModels` in the turn log, chat and TTS (`30be003`) | `test/ai/geminiProvider.test.ts` |
 | 9 | Low (defence in depth) | `?api=` could aim the client's tokens at any host | no origin check; CSP `connect-src 'self'` was the only barrier | same-origin only (`17ced73`) | `web/tests/logic.test.js` |
+| 10 | Medium (production race) | Schema setup on a cold start deadlocked with a concurrent account deletion; Postgres aborted one (CI: guest sign-up 500) | the schema script is one implicit transaction locking `users` then index tables; `deleteAccount` locks them in the opposite order | advisory lock: exclusive for schema setup, shared for `deleteAccount`, taken before any table lock | `test/store/schemaConcurrency.test.ts`: 5/5 failed before, 6/6 pass after |
 
 ## 3. Found and NOT fixed (reported, with reason)
 
@@ -72,7 +73,7 @@ to fail without the fix.
 | Area | Check | Result | Evidence |
 |---|---|---|---|
 | Backend | `tsc --noEmit` (backend src+tests) and root `tsc` (api + backend) | PASS | local |
-| Backend | Unit + integration tests, in-memory **and** Postgres 16 | PASS: 333 passed, 2 skipped (live-credential tests) | local `npx vitest run` with `TEST_DATABASE_URL` |
+| Backend | Unit + integration tests, in-memory **and** Postgres 16 | PASS: 334 passed, 2 skipped (live-credential tests), three consecutive runs | local `npx vitest run` with `TEST_DATABASE_URL` |
 | Backend | Security tests (`phase1Security`, route auth coverage, rate limits, confirmation replay, cross-account) | PASS (part of the 333) | local |
 | Web | Unit (`node --test`) | PASS 13/13 | local |
 | Web | Playwright E2E, real backend + Postgres + GitHub stub, Chromium | PASS 19/19 (new: Retry replay) | local; fails 18/19 on the old client |
@@ -85,7 +86,7 @@ to fail without the fix.
 | Android | **Nothing Phone 2A** | **NOT TESTED**: no device is attached to this cloud session | — |
 | Gemini | Request budget per turn type | PASS (mocked HTTP, real provider classes) | `turnEconomy.test.ts` |
 | Gemini | Quota / retry policy | PASS (Gemini's real 429 body format) | `geminiErrors.test.ts`, `turnExecution.test.ts` |
-| Gemini | Live answer on the preview | NOT TESTED until this branch's smoke runs on its deployment | §2 #7 |
+| Gemini | Live answer on the preview | PASS: the smoke test's model-backed turn got `done` with `provider: google` ("Gemini answered"), 2026-10-02 17:25 UTC | smoke job 110949303419 |
 | Web Search | One logical search, one execution; no re-run after a provider failure; no re-run on Retry | PASS | `turnExecution.test.ts`, `turnIdempotency.test.ts` |
 | Web Search | Live grounded search | NOT TESTED | needs a working key |
 | TTS | Ordered segments, Stop ends all, quota stops segments, TTS never starts a turn | PASS (code + PR #78 voice UI tests) | PR #78 |
@@ -100,7 +101,7 @@ to fail without the fix.
 
 | Gate | State |
 |---|---|
-| Production Web can chat | NOT TESTED (preview PASS for the greeting path; a model answer is unverified) |
+| Production Web can chat | NOT TESTED on production; preview PASS including a real Gemini answer |
 | API contract mismatch | none known (C1–C6 fixed; contract test PASS) |
 | Authentication | PASS (local); live email NOT TESTED |
 | Database | PASS |
@@ -117,9 +118,8 @@ to fail without the fix.
 **Remaining blockers before READY:**
 1. Nothing Phone 2A run (`android/scripts/device/verify-device.sh`, steps in
    `FINAL_PHASE1_VERIFICATION.md`).
-2. A live model-backed answer on the preview: the new smoke turn on this branch's deployment.
-   With a free-tier key it may report the quota as a warning, which proves the key works but not
-   a reply.
+2. Production (`zarvismobile.com`) has not been checked: run the smoke workflow against it
+   after merge. (The preview now passes with a real Gemini answer.)
 3. Live email sign-up and login on the preview.
 4. Your decision on R2 (keep or drop the fallback model).
 5. From PR #78's final hardening pass: raise targetSdk from 34 before a Play release (a separate
