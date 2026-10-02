@@ -4,7 +4,8 @@ import {
   EmailTakenError,
   InsufficientCreditsError,
   type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
-  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type UsageEntry, type User
+  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
+  type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -36,6 +37,8 @@ export class InMemoryStore implements Store {
   private readonly sessions = new Map<string, AuthSession>();
   private readonly confirmations = new Map<string, ConfirmationRecord>();
   private readonly githubConnections = new Map<string, GitHubConnection>();
+  /** Keyed by `${accountId}\u0000${clientTurnId}`. */
+  private readonly turnRecords = new Map<string, TurnRecord>();
 
   async createUser(email: string, passwordHash: string, isGuest = false): Promise<User> {
     if (this.usersByEmail.has(email)) {
@@ -181,6 +184,9 @@ export class InMemoryStore implements Store {
       if (record.accountId === accountId) this.confirmations.delete(confirmationId);
     }
     this.permissions.delete(accountId);
+    for (const [key, record] of this.turnRecords) {
+      if (record.accountId === accountId) this.turnRecords.delete(key);
+    }
     for (const [conversationId, conversation] of this.conversations) {
       if (conversation.accountId === accountId) {
         this.conversations.delete(conversationId);
@@ -282,6 +288,44 @@ export class InMemoryStore implements Store {
     const existing = this.permissions.get(accountId) ?? new Set<PermissionType>();
     existing.add(permission);
     this.permissions.set(accountId, existing);
+  }
+
+  async claimTurn(accountId: string, clientTurnId: string, now: Date, staleBefore: Date): Promise<TurnClaim> {
+    const expired = now.getTime() - TURN_RECORD_RETENTION_MS;
+    for (const [key, record] of this.turnRecords) {
+      if (record.accountId === accountId && record.updatedAt.getTime() < expired) this.turnRecords.delete(key);
+    }
+    const key = accountId + "\u0000" + clientTurnId;
+    const existing = this.turnRecords.get(key);
+    if (!existing) {
+      this.turnRecords.set(key, { accountId, clientTurnId, status: "running", createdAt: now, updatedAt: now });
+      return { kind: "claimed" };
+    }
+    if (existing.status === "completed") return { kind: "completed", record: { ...existing } };
+    if (existing.status === "failed" || existing.updatedAt < staleBefore) {
+      const previous = { ...existing };
+      this.turnRecords.set(key, { ...existing, status: "running", updatedAt: now });
+      return { kind: "claimed", previous };
+    }
+    return { kind: "in_progress" };
+  }
+
+  async updateTurn(
+    accountId: string,
+    clientTurnId: string,
+    patch: { status?: TurnRecordStatus; conversationId?: string; result?: unknown },
+    now: Date,
+  ): Promise<void> {
+    const key = accountId + "\u0000" + clientTurnId;
+    const existing = this.turnRecords.get(key);
+    if (!existing) return;
+    this.turnRecords.set(key, {
+      ...existing,
+      ...(patch.status ? { status: patch.status } : {}),
+      ...(patch.conversationId ? { conversationId: patch.conversationId } : {}),
+      ...(patch.result !== undefined ? { result: structuredClone(patch.result) } : {}),
+      updatedAt: now,
+    });
   }
 
   async createTask(task: Task): Promise<Task> {

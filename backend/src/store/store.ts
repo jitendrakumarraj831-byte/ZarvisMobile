@@ -106,6 +106,40 @@ export interface ConversationMessage {
 }
 
 /**
+ * One logical user turn, keyed by the client's idempotency key (`clientTurnId`). A client that
+ * re-sends the same turn (Retry after a dropped stream, a double submit) gets the stored result
+ * of a completed turn instead of a second execution. `conversationId` is set once the user's
+ * message has been persisted, so a retry of a failed attempt does not persist it twice.
+ */
+export type TurnRecordStatus = "running" | "completed" | "failed";
+
+export interface TurnRecord {
+  accountId: string;
+  clientTurnId: string;
+  status: TurnRecordStatus;
+  conversationId?: string;
+  /** The completed turn's result, replayed verbatim to a duplicate request. */
+  result?: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Outcome of claiming a turn:
+ * - `claimed`: this request runs it. `previous` is the earlier failed (or abandoned) attempt
+ *   when this is a retry.
+ * - `in_progress`: another request is running it right now.
+ * - `completed`: it already finished; `record.result` is what it returned.
+ */
+export type TurnClaim =
+  | { kind: "claimed"; previous?: TurnRecord }
+  | { kind: "in_progress" }
+  | { kind: "completed"; record: TurnRecord };
+
+/** How long a turn record (and so a replayable result) is kept. */
+export const TURN_RECORD_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Storage boundary. Two implementations ship against this interface: InMemoryStore
  * (local dev/tests only — its state does not survive a process restart or serverless cold
  * start) and PostgresStore (used automatically once POSTGRES_URL/DATABASE_URL is set — see
@@ -194,6 +228,18 @@ export interface Store {
   saveGitHubConnection(connection: GitHubConnection): Promise<void>;
   getGitHubConnection(accountId: string): Promise<GitHubConnection | undefined>;
   deleteGitHubConnection(accountId: string): Promise<void>;
+
+  /**
+   * Atomically claims (accountId, clientTurnId) for execution. A `running` record last updated
+   * before `staleBefore` (its request died) can be claimed again, like a `failed` one.
+   */
+  claimTurn(accountId: string, clientTurnId: string, now: Date, staleBefore: Date): Promise<TurnClaim>;
+  updateTurn(
+    accountId: string,
+    clientTurnId: string,
+    patch: { status?: TurnRecordStatus; conversationId?: string; result?: unknown },
+    now: Date,
+  ): Promise<void>;
 
   createTask(task: Task): Promise<Task>;
   getTask(taskId: string): Promise<Task | undefined>;
