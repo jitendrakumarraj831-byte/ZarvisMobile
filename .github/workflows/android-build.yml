@@ -192,6 +192,32 @@ jobs:
           grep -q 'API_BASE_URL = "https://zarvismobile.com/"' "$BUILD_CONFIG" \
             || { echo "::error::release API_BASE_URL is not the production domain"; exit 1; }
 
+      # Inspect every artifact rather than trusting Gradle's exit code: size, identity,
+      # versions and SDK levels from the binary manifest, and the AAB's manifest via bundletool.
+      - name: Artifact report (debug APK, release APK, release AAB)
+        run: |
+          set -euo pipefail
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk; do
+            echo "=== $APK ($(stat -c%s "$APK") bytes)"
+            "$AAPT2" dump badging "$APK" | grep -E "^(package|sdkVersion|minSdkVersion|targetSdkVersion|launchable-activity|uses-feature|application-debuggable)" || true
+            "$AAPT2" dump badging "$APK" | grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'.*compileSdkVersion='34'" \
+              || { echo "::error::$APK: unexpected identity or compileSdkVersion"; exit 1; }
+            echo "dex files: $(unzip -l "$APK" | grep -c 'classes[0-9]*\.dex')"
+          done
+          # A release APK must not be debuggable.
+          if "$AAPT2" dump badging app/build/outputs/apk/release/app-release-unsigned.apk | grep -q application-debuggable; then
+            echo "::error::release APK is debuggable"; exit 1
+          fi
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          echo "=== $AAB ($(stat -c%s "$AAB") bytes)"
+          curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+          java -jar /tmp/bundletool.jar dump manifest --bundle "$AAB" > /tmp/aab-manifest.xml
+          grep -E 'package=|versionCode|versionName|uses-sdk|minSdkVersion|targetSdkVersion|compileSdkVersion' /tmp/aab-manifest.xml | head -10
+          grep -q 'package="com.zarvismobile.app"' /tmp/aab-manifest.xml || { echo "::error::AAB package mismatch"; exit 1; }
+          grep -q 'android:versionCode="1"' /tmp/aab-manifest.xml || { echo "::error::AAB versionCode mismatch"; exit 1; }
+          grep -q 'android:targetSdkVersion="34"' /tmp/aab-manifest.xml || { echo "::error::AAB targetSdk mismatch"; exit 1; }
+
       - uses: actions/upload-artifact@v4
         with:
           # UNSIGNED: this workflow holds no signing credentials (by design — see
@@ -273,6 +299,22 @@ jobs:
 
       - name: Full check (all modules)
         run: ./gradlew check -Pzarvis.devApiHost=10.0.2.2 --continue --stacktrace --console=plain
+
+      # Every lint finding in the log (the HTML/XML reports are also uploaded below).
+      - name: List lint findings
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          total = 0
+          for path in sorted(glob.glob("**/build/reports/lint-results-*.xml", recursive=True)):
+              for issue in ET.parse(path).getroot().iter("issue"):
+                  loc = issue.find("location")
+                  where = f"{loc.get('file')}:{loc.get('line')}" if loc is not None else "?"
+                  print(f"{issue.get('severity')}: [{issue.get('id')}] {where}\n    {issue.get('message')}")
+                  total += 1
+          print(f"lint findings: {total}")
+          PY
 
       - uses: actions/upload-artifact@v4
         if: always()
