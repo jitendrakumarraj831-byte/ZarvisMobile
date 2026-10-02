@@ -1,6 +1,7 @@
 package com.zarvismobile.core.security
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
@@ -15,6 +16,9 @@ import com.zarvismobile.domain.entity.PermissionType
 import com.zarvismobile.domain.port.PermissionPort
 
 /** The Android runtime permission behind each [PermissionType], or null when none exists on this API level. */
+// InlinedApi: POST_NOTIFICATIONS is a compile-time string constant, used only when
+// sdkInt >= 33 below; lint cannot follow a guard on a parameter instead of SDK_INT itself.
+@SuppressLint("InlinedApi")
 fun PermissionType.androidPermission(sdkInt: Int = Build.VERSION.SDK_INT): String? = when (this) {
     // POST_NOTIFICATIONS only exists from Android 13 (API 33). On 8–12 there is no runtime
     // permission — notifications are governed by the app-level notification switch.
