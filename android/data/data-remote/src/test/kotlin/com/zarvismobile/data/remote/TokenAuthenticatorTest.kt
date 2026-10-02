@@ -140,4 +140,19 @@ class TokenAuthenticatorTest {
         assertEquals(401, call())
         assertEquals(3, server.requestCount)
     }
+
+    @Test
+    fun `a refresh that reached the server is never silently re-sent`() {
+        val authenticator = TokenAuthenticator(server.url("/").toString(), store)
+        // First refresh succeeds and leaves a pooled connection...
+        server.enqueue(MockResponse().setBody("""{"accessToken":"a2","refreshToken":"r2","accountId":"acct-1","isGuest":false,"email":null}"""))
+        assertEquals(TokenAuthenticator.RefreshOutcome.Refreshed("a2"), authenticator.refresh())
+        // ...which the server drops after reading the next refresh. Re-sending it would present
+        // the rotated refresh token twice and the server would revoke the whole session.
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"code":"refresh_token_reused"}"""))
+        assertEquals(TokenAuthenticator.RefreshOutcome.Unreachable, authenticator.refresh())
+        assertEquals("the second refresh reached the server exactly once", 2, server.requestCount)
+        assertEquals("r2", store.getString(TokenStorageKeys.REFRESH_TOKEN))
+    }
 }

@@ -53,12 +53,16 @@ object ApiClientFactory {
         }
         return OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(secureStorage))
+            .addInterceptor(SafeRetryInterceptor())
             .addInterceptor(loggingInterceptor)
             .authenticator(TokenAuthenticator(baseUrl, secureStorage))
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            // OkHttp's own retry can re-send a POST that already reached the server (a second
+            // turn); SafeRetryInterceptor retries only when that cannot happen.
+            .retryOnConnectionFailure(false)
             .build()
     }
 }

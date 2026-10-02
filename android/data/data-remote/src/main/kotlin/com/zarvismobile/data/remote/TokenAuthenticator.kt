@@ -31,7 +31,10 @@ import okhttp3.Route
 class TokenAuthenticator(
     private val baseUrl: String,
     private val secureStorage: SecretStore,
-    private val authHttp: OkHttpClient = OkHttpClient(),
+    // No silent retry: re-sending a refresh POST that already reached the server presents a
+    // rotated refresh token a second time, which the server treats as theft and revokes the
+    // session — logging the user out for a dropped connection.
+    private val authHttp: OkHttpClient = OkHttpClient.Builder().retryOnConnectionFailure(false).build(),
 ) : Authenticator {
     private val json = Json { ignoreUnknownKeys = true }
     private val jsonMedia = "application/json".toMediaType()

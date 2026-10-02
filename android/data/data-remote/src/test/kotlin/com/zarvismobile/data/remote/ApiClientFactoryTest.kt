@@ -12,5 +12,8 @@ class ApiClientFactoryTest {
         assertTrue("read timeout ${client.readTimeoutMillis}", client.readTimeoutMillis >= 120_000)
         assertTrue("call timeout ${client.callTimeoutMillis}", client.callTimeoutMillis >= client.readTimeoutMillis)
         assertTrue("connect timeout ${client.connectTimeoutMillis}", client.connectTimeoutMillis in 5_000..30_000)
+        // A POST must never be silently re-sent by OkHttp (a second turn); see SafeRetryInterceptor.
+        assertTrue(!client.retryOnConnectionFailure)
+        assertTrue(client.interceptors.any { it is SafeRetryInterceptor })
     }
 }
