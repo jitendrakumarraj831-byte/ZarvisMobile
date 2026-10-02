@@ -3,7 +3,8 @@ name: Live preview API smoke test
 # A deployment being "Ready" is not the same as its API working. When Vercel reports a
 # successful deployment (it posts a GitHub deployment_status), this calls the live URL the
 # way the web client does on its first chat: /health → POST /auth/guest → GET /auth/me →
-# POST /orchestrator/turn-stream "Hi". Only HTTP statuses and non-secret response fields
+# POST /orchestrator/turn-stream "Hi" → one turn that needs the AI model. Only HTTP statuses
+# and non-secret response fields
 # are logged; the guest access token is never printed.
 #
 # If the deployment is behind Vercel Deployment Protection, set the repository secret
@@ -84,4 +85,37 @@ jobs:
             node -e 'const t=require("fs").readFileSync("turn.txt","utf8");const m=t.match(/event: error\ndata: (.*)/);let e=m?m[1]:t.slice(0,200);try{e=JSON.stringify({error:JSON.parse(m?m[1]:t).error,code:JSON.parse(m?m[1]:t).code})}catch{}console.log("  error:",e)'
             fail=1
           fi
+
+          # "Hi" is answered by a deterministic fast path that never calls Gemini, so the turn
+          # above proves auth, the database and streaming, not the AI. This one needs a real
+          # model answer (one Gemini request).
+          #  - done                         → Gemini answered.
+          #  - AI_QUOTA_EXCEEDED/RATE_LIMITED → warning: Gemini is reachable and the key is
+          #                                   valid, the quota is exhausted (not a deploy defect).
+          #  - AI_UNAVAILABLE, not retryable → failure: no key, or the key is rejected.
+          #  - AI_UNAVAILABLE, retryable     → warning: provider outage.
+          code=$(curl -sS -m 90 -N "${H[@]}" -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            -d '{"utterance":"Reply with the single word OK.","locale":"en","history":[]}' -o model.txt -w '%{http_code}' "$BASE/api/v1/orchestrator/turn-stream" || echo 000)
+          echo "POST /api/v1/orchestrator/turn-stream (needs the AI model) → HTTP $code"
+          grep -oE '^event: [a-z_]+' model.txt | sort | uniq -c | sed 's/^/  /' || true
+          verdict=$(node -e '
+            const t = require("fs").readFileSync("model.txt", "utf8");
+            let provider = "unknown"; try { provider = JSON.parse(require("fs").readFileSync("health.json", "utf8")).provider; } catch {}
+            if (/^event: done$/m.test(t)) {
+              console.log(provider === "google" ? "pass Gemini answered" : "fail answered by provider " + provider + ", not Gemini");
+              process.exit(0);
+            }
+            const m = t.match(/event: error\ndata: (.*)/);
+            let e = {}; try { e = JSON.parse(m ? m[1] : t); } catch {}
+            const code = e.code || e.type || "unknown";
+            if (code === "AI_QUOTA_EXCEEDED" || code === "AI_RATE_LIMITED") console.log("warn Gemini is reachable but out of quota (" + code + ")");
+            else if (code === "AI_UNAVAILABLE" && e.retryable) console.log("warn Gemini is temporarily unavailable (" + code + ")");
+            else console.log("fail no real AI answer: " + JSON.stringify({ code, retryable: e.retryable }));
+          ')
+          echo "  $verdict"
+          case "$verdict" in
+            pass*) ;;
+            warn*) echo "::warning::${verdict#warn }" ;;
+            *) echo "::error::The AI model did not answer (${verdict#fail }). Check GEMINI_API_KEY for this environment."; fail=1 ;;
+          esac
           exit $fail
