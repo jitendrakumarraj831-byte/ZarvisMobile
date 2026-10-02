@@ -320,6 +320,43 @@ async function send(page, text) {
       await pageC.unroute("**/api/v1/orchestrator/turn-stream");
     }
   });
+  await step("Retry after a stream cut off once the server finished: replayed, one execution, one stored message", async () => {
+    // The first attempt really runs on the backend, but the browser only sees its meta frame
+    // (the connection dropped after the server finished). Retry must not run the turn again.
+    const bodies = [];
+    let replayFrames = "";
+    await pageC.route("**/api/v1/orchestrator/turn-stream", async (route) => {
+      bodies.push(JSON.parse(route.request().postData() || "{}"));
+      const real = await route.fetch();
+      const text = await real.text();
+      if (bodies.length === 1) {
+        const metaOnly = text.split("\n\n").filter((frame) => frame.startsWith("event: meta")).join("\n\n") + "\n\n";
+        await route.fulfill({ status: 200, contentType: "text/event-stream", body: metaOnly });
+        return;
+      }
+      replayFrames = text;
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: text });
+    });
+    const before = await pageC.locator(".bubble-retry-btn").count();
+    await send(pageC, "Hello");
+    await pageC.waitForFunction((n) => document.querySelectorAll(".bubble-retry-btn").length > n, before, { timeout: 10000 });
+    await pageC.locator(".bubble-retry-btn").last().click();
+    await pageC.waitForSelector(".bubble.assistant >> text=I'm ZARVIS", { timeout: 10000 });
+    await pageC.waitForFunction(() => !document.querySelector(".bubble.thinking"), null, { timeout: 10000 });
+    await pageC.unroute("**/api/v1/orchestrator/turn-stream");
+
+    assert.equal(bodies.length, 2, "one original request and one Retry");
+    assert.match(bodies[0].clientTurnId || "", /^[A-Za-z0-9_-]{8,100}$/, "the turn carries an idempotency key");
+    assert.equal(bodies[1].clientTurnId, bodies[0].clientTurnId, "Retry re-sends the same logical turn");
+    assert.match(replayFrames, /"replayed":true/, "the backend replayed the finished turn instead of running it again");
+    const conversationId = await ls(pageC, "zarvis.conversationId");
+    const stored = await pageC.evaluate(async (id) => {
+      const res = await fetch(`/api/v1/conversations/${id}/messages`, { headers: { authorization: `Bearer ${localStorage.getItem("zarvis.accessToken")}` } });
+      return (await res.json()).messages.map((m) => m.role + ":" + m.content);
+    }, conversationId);
+    assert.equal(stored.filter((m) => m === "user:Hello").length, 1, `the message is stored once: ${JSON.stringify(stored)}`);
+  });
+
   await ctxC.close();
 
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {

@@ -210,7 +210,19 @@
     const code = payload && (payload.code || payload.type);
     if (code === "AI_QUOTA_EXCEEDED") return "aiQuota";
     if (code === "AI_RATE_LIMITED" || code === "rate_limited") return "aiBusy";
+    if (code === "turn_in_progress") return "turnBusy";
+    if (code === "payload_too_large") return "tooLarge";
     return "bootError";
+  }
+
+  /** The idempotency key of one logical user turn: created once per submission and reused by
+   * its Retry, so the server never executes the same turn twice (backend routes/orchestrator.ts). */
+  function createClientTurnId(cryptoImpl) {
+    const c = cryptoImpl || (typeof crypto !== "undefined" ? crypto : undefined);
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+    const bytes = new Uint8Array(16);
+    c.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
 
   function riskLabel(risk) {
@@ -229,5 +241,6 @@
     webAccessSummary,
     riskLabel,
     turnFailureKind,
+    createClientTurnId,
   };
 });
