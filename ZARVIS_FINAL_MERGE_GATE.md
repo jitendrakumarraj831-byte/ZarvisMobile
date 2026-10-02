@@ -2,9 +2,9 @@
 
 - **Date:** 2026-10-02
 - **Final branch:** `claude/optimistic-lovelace-y9w9q6` (PR #79)
-- **Final code commit:** the service-worker `clients.claim()` fix after `927d170` (CI on
-  `927d170` failed once on the service-worker check: an uncontrolled load, 3 in 15 locally
-  before the fix). Before it, CI was green 16/16 on `45c0ad8`.
+- **Final code commit:** `a3c8042` (service-worker `clients.claim()` inside the activate
+  `waitUntil`). CI on it: 16/16 green, `web-e2e` passed in both runs. Later commits change only
+  documentation.
 - **Base:** PR #78, `claude/laughing-shannon-m3zu32` at `def15c4` (merged into PR #79; no
   conflict left).
 - **`main`:** `e010c12`, untouched.
@@ -21,7 +21,7 @@ Your gate blocks on NOT TESTED for any critical production capability. These rem
 |---|---|---|
 | Nothing Phone 2A (install, launch, login, chat, real Gemini, mic, TTS, camera, files, permissions, rotation, background, process death, network loss, duplicate prevention) | **NOT TESTED** | the phone on USB with `adb`: `android/scripts/device/verify-device.sh` (steps in `FINAL_PHASE1_VERIFICATION.md` → ANDROID REAL DEVICE) |
 | Production (`zarvismobile.com`) with this code | **NOT TESTED** | the code reaches production only by merging. Needs your decision: merge, then run the smoke workflow on production at once with a rollback ready; or hold `main` |
-| A completed live Web Search | **BLOCKED** (provider) | all three live runs: the search ran exactly once, then Gemini's Google Search grounding answered 429 (rate limited, no advised wait), even after the smoke waited out a 65 s window; the planner calls in the same run succeeded. Check this API key's grounding quota / billing tier in Google AI Studio |
+| A completed live Web Search | **BLOCKED** (provider) | all three live runs: the search ran exactly once, then Gemini's Google Search grounding answered 429 (rate limited, no advised wait), even after the smoke waited out a 65 s window; the planner calls in the same run succeeded. Check this API key's grounding quota / billing tier in Google AI Studio. The key also reached its daily generation quota during this session, which points to a free-tier key at its limits |
 
 There is no FAIL, no CRITICAL or HIGH security issue, no known duplicate execution, retry loop,
 fake AI response, deadlock, broken API contract, or cross-account access.
@@ -99,20 +99,20 @@ PR #79's commits listed in "Files and commits" below.
 | Web Search duplicates | PASS | normal, Retry, network failure + Retry, reload mid-turn, double click, slow reply, rate limit: one execution each |
 | Android `:domain` tests | PASS | 120/120, local (JDK 17) |
 | Android Gradle (clean, test, lint, check; all modules) | PASS | CI `test-and-lint` on `ec92468` and `45c0ad8` |
-| Android APK (debug, release) | PASS | CI `assemble-debug` on `45c0ad8`: debug and unsigned release APK built; package, versions, SDK levels, launchable activity, not-debuggable release asserted with aapt2 |
-| Android AAB | PASS | CI `assemble-debug` on `45c0ad8`: unsigned release AAB built, manifest checked with bundletool |
-| Android emulators API 26/30/34 | PASS | CI `emulator` on `45c0ad8`: all three jobs green |
-| Windows build | PASS | CI `windows-build` on `45c0ad8` |
+| Android APK (debug, release) | PASS | CI `assemble-debug` on `45c0ad8` and `a3c8042`: debug and unsigned release APK built; package, versions, SDK levels, launchable activity, not-debuggable release asserted with aapt2 |
+| Android AAB | PASS | CI `assemble-debug` on `45c0ad8` and `a3c8042`: unsigned release AAB built, manifest checked with bundletool |
+| Android emulators API 26/30/34 | PASS | CI `emulator` on `45c0ad8` and `a3c8042`: all three jobs green |
+| Windows build | PASS | CI `windows-build` on `45c0ad8` and `a3c8042` |
 | Android Gradle locally | BLOCKED | `dl.google.com` (Android Gradle plugin, SDK) is denied by this sandbox's proxy. Gradle configuration was not changed to work around it |
-| Gemini | PASS | live answer on the preview (smoke); quota policy, retry bounds, no charge on failure, per-call logging (tests) |
+| Gemini | PASS | live answer on the preview (three smoke runs); live daily-quota exhaustion (fourth run): the turn failed fast with a structured `AI_QUOTA_EXCEEDED`, no retry, nothing charged, TTS unaffected; quota policy, retry bounds and per-call logging also covered by tests |
 | Web Search (live) | BLOCKED | ran once; Gemini search grounding answered 429 in both live runs (see blockers) |
 | TTS (live) | PASS | preview `/tts/synthesize` returned `audio/wav` |
 | Database | PASS | Postgres tests incl. deadlock regression; live sign-up / deletion |
 | Auth | PASS | tests; live on the preview: guest, sign-up, login, wrong password 401, refresh rotation, replay refused, logout revokes, deletion |
-| Preview | PASS | smoke: 19 PASS, 1 WARN (web search), 0 FAIL, in three runs |
+| Preview | PASS | smoke: 19 PASS, 1 WARN (web search), 0 FAIL in three runs; a fourth run (`a3c8042`) met an exhausted **daily** Gemini quota: 18 PASS, 2 WARN, 0 FAIL |
 | Production | NOT TESTED | denied by the sandbox network policy; serves `main` until the merge |
 | Nothing Phone 2A | NOT TESTED | no device in this session |
-| CI result | PASS | all 16 checks on `45c0ad8` green: backend, web-e2e (with the quality suite), test-and-lint, assemble-debug, dev-backend-reachability, emulators 26/30/34, windows-build, smoke, Vercel |
+| CI result | PASS | 16/16 on `a3c8042`: backend, web-e2e (Phase 1 + quality suite, two runs), test-and-lint, assemble-debug (APK + AAB), dev-backend-reachability, emulators 26/30/34, windows-build, smoke, Vercel. `927d170` failed once on the service-worker check; root cause fixed in `a3c8042` |
 
 ## Remaining warnings and non-blocking issues
 
