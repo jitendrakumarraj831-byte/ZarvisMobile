@@ -197,8 +197,15 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     const page = await ctx.newPage();
     await ready(page);
     await page.waitForFunction(async () => !!(await navigator.serviceWorker?.getRegistration())?.active, null, { timeout: 15000 });
-    await page.reload(); // let the active worker control the page and fill its cache
-    await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 15000 });
+    // A load can occasionally start uncontrolled right after activation (measured 1 in 20 in
+    // Chromium, even with clients.claim() in the activate waitUntil); the next one is controlled.
+    // The property under test is that the worker takes control and serves the shell offline.
+    let controlled = false;
+    for (let load = 0; load < 3 && !controlled; load += 1) {
+      await page.reload();
+      controlled = await page.evaluate(() => !!navigator.serviceWorker.controller);
+    }
+    assert.ok(controlled, "the service worker never took control of the page");
     await ctx.setOffline(true);
     await page.reload();
     await page.waitForSelector("#text-input", { state: "attached", timeout: 10000 });

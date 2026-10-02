@@ -2,8 +2,9 @@
 
 - **Date:** 2026-10-02
 - **Final branch:** `claude/optimistic-lovelace-y9w9q6` (PR #79)
-- **Final code commit:** `ec92468`. `45c0ad8` and later change only documentation and the live
-  smoke script's diagnostic output; CI is green on `45c0ad8`.
+- **Final code commit:** the service-worker `clients.claim()` fix after `927d170` (CI on
+  `927d170` failed once on the service-worker check: an uncontrolled load, 3 in 15 locally
+  before the fix). Before it, CI was green 16/16 on `45c0ad8`.
 - **Base:** PR #78, `claude/laughing-shannon-m3zu32` at `def15c4` (merged into PR #79; no
   conflict left).
 - **`main`:** `e010c12`, untouched.
@@ -93,7 +94,7 @@ PR #79's commits listed in "Files and commits" below.
 | Responsive | PASS | 8 views × 6 widths (360–1920 px), no horizontal overflow |
 | Accessibility | PASS | axe: no serious/critical violation on any view, 412/1280 px, both appearances |
 | Keyboard | PASS | composer reachable by Tab with a visible focus ring; Enter sends once; attach control opens with Enter/Space; every control named |
-| Service worker | PASS | installs; offline shell opens |
+| Service worker | PASS | installs; takes control (claim inside `waitUntil`; measured 20/20 controlled within two loads); offline shell opens |
 | Voice / TTS (browser) | PASS | one recognition result = one turn; TTS playback starts no turn; a result while speaking is ignored |
 | Web Search duplicates | PASS | normal, Retry, network failure + Retry, reload mid-turn, double click, slow reply, rate limit: one execution each |
 | Android `:domain` tests | PASS | 120/120, local (JDK 17) |
