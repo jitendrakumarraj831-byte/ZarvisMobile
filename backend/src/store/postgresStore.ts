@@ -22,7 +22,19 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const isUuid = (value: string): boolean => UUID_PATTERN.test(value);
 const TRIAL_INCLUDED_CREDITS = 50;
 
+/**
+ * Advisory lock key that orders schema setup against multi-table writes. The schema script is
+ * one multi-statement query, i.e. one implicit transaction: it locks `users` (ALTER/UPDATE) and
+ * then the indexed tables (CREATE INDEX takes a ShareLock even when the index exists).
+ * deleteAccount locks those tables first and `users` last. Run concurrently (a serverless cold
+ * start during an account deletion) they deadlocked and Postgres aborted one. Schema setup
+ * takes this lock exclusively, deleteAccount shared, both before any table lock, so they never
+ * interleave. Arbitrary constant: "ZARV" in ASCII.
+ */
+const SCHEMA_LOCK_KEY = 0x5a415256;
+
 const SCHEMA = `
+  SELECT pg_advisory_xact_lock(${SCHEMA_LOCK_KEY});
   CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
@@ -402,6 +414,7 @@ export class PostgresStore implements Store {
     try {
       await this.ensureSchema();
       await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock_shared($1)", [SCHEMA_LOCK_KEY]);
       const { rows } = await client.query<AccountRow>("SELECT * FROM accounts WHERE id = $1 FOR UPDATE", [
         accountId,
       ]);
