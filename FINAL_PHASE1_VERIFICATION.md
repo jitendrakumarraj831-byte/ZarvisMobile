@@ -1,26 +1,70 @@
 # Final Phase 1 Verification — PR #78
 
-Commit under test: `95d34a7` (branch `claude/laughing-shannon-m3zu32`). Last updated: 2026-10-01.
+**Re-run:** 2026-10-02 00:25–00:55 UTC.
+**Commit:** `0a3b421c96376549745f3a8c4be4c408711f8c08`.
+- Branch `claude/laughing-shannon-m3zu32` with a clean working tree; identical to `origin`.
+- 67 commits ahead of `main`, 0 behind; merges with no conflicts.
 
-**PR #78 gate: NOT READY TO MERGE.** The live preview now passes the API smoke test (BACKEND-1 resolved). Still open: the Nothing Phone 2A real-device run, and live email sign-up/login, which the smoke test does not cover.
+**PR #78 gate: NOT READY TO MERGE.**
+- Every automated gate passes.
+- The live preview passes the API smoke test.
+- **Physical-device verification on the Nothing Phone 2A has not been done.** It is a required Phase 1 gate.
+- Live email sign-up/login has not been exercised.
 
-1. The live Vercel preview cannot complete a chat.
-2. The Nothing Phone 2A real-device run has not been done.
+Status values: PASS, FAIL, BLOCKED (cannot be run from where the check was attempted; reason given), NOT TESTED (not run yet). No emulator result is counted as a physical-device result.
 
-Status values:
+## Results of the 2026-10-02 re-run
 
-| Value | Meaning |
-|---|---|
-| PASS | Verified, with evidence |
-| FAIL | Verified broken |
-| BLOCKED | Cannot be verified from where the check was run; the reason is given |
-| NOT TESTED | Not run yet |
+| # | Check | Status | Evidence |
+|---|---|---|---|
+| 1 | Git branch, commit, clean tree, sync with origin, merge vs `main` | PASS | `0a3b421`; `git status` clean; 0 behind `main`; `git merge-tree` reports no conflict |
+| 2 | PR #78 head | PASS | Head is `0a3b421`; all 18 check runs on it are `success` |
+| 3a | Backend tests | PASS | 278 passed, 2 skipped (live-provider tests); 28 files, with Postgres 16 |
+| 3b | Backend + root typecheck | PASS | `tsc --noEmit` clean in both |
+| 3c | Backend build | PASS | `npm run build` |
+| 3d | Production-mode API (local, `NODE_ENV=production`, Postgres) | PASS | Smoke script: `/health` 200 `database: ok`; guest 201; `/auth/me` 200; "Hi" turn-stream 200 with meta/delta/done |
+| 4a | Web unit tests | PASS | 9/9 |
+| 4b | Playwright E2E | PASS | 14/14 locally; CI `web-e2e` green |
+| 4c | Responsive | PASS | 341 page × width combinations (11 widths, 360–1920 px), no problems |
+| 4d | Keyboard / `visualViewport` | PASS | 12/12 |
+| 4e | Accessibility + contrast | PASS | 31 pages × {412, 1280} × {light, dim}: 0 issues |
+| 4f | Service worker / offline | PASS | Cache `zarvis-shell-v11`; offline shell renders; no errors back online |
+| 4g | Voice UI (stubbed recognition, Chromium) | PASS | 12/12 |
+| 4h | Real phone-browser chat | PASS | Owner's phone screenshot, 2026-10-01: Gemini replies in Hinglish, Hindi and English over several turns |
+| 4i | Real microphone in a phone browser | NOT TESTED | Needs a person with the phone |
+| 5a | `assembleDebug` | PASS | CI `assemble-debug` (two workflow runs) |
+| 5b | Android `:domain` tests | PASS | 117/117, re-run with `--rerun-tasks` |
+| 5c | Emulator API 30 and 34 (phases A–E) | PASS | A 7/7, B2, revoke-kills-process, D 16/16, E 2/2; no crashes during the run |
+| 5d | Emulator API 26 (phases A–E) | PASS with platform-blocked items | A 3/3, B2, revoke, D 16/16, E 2/2. The 4 permission-dialog tests and camera are UNVERIFIED: the API 26 image's System UI crashes (`NullPointerException` in `StatusBar.onKeyguardOccludedChanged`) whenever Android shows that dialog. Not counted as passes, and not a ZARVIS defect |
+| 5e | Permission flow / Permission Center / revoke detection / process death / capabilities | PASS on emulator | Phases A, E, revoke-kills-process, B2 and D above |
+| 5f | Windows build | PASS | CI `windows-build` |
+| 6 | **Nothing Phone 2A: microphone, camera, location, permissions, chat/backend** | **NOT TESTED** | Needs the physical phone on USB with `adb`. The cloud environment has no device. **Required gate** |
+| 7a | CodeQL | PASS | CodeQL check `success` on `0a3b421` (JS/TS, Actions, Java/Kotlin); alerts 21–37 fixed and closed |
+| 7b | Auth / session | PASS | 44 Phase 1 security API tests on Postgres: guest creation, refresh rotation and replay revoke, logout, deleted account, link/relink rules, rate limits, CSP |
+| 7c | Confirmation binding | PASS | A client `confirmed` flag is ignored; approve runs exactly once (replay 409, other account 404); decline runs nothing; a changed GitHub identity invalidates approval |
+| 7d | Capability / permission enforcement | PASS | Registry served equals code registry; route auth coverage test; emulator phase A/D |
+| 7e | No fake production execution | PASS | Fail-closed tests from §5.7 are in the 278; streaming test asserts real progress events and no simulated drip |
+| 8a | Live Vercel `/health` | PASS | CI `smoke` 2026-10-01 17:51 UTC on `0a3b421`'s deployment: 200 `{status: ok, provider: google, database: ok}` |
+| 8b | Live guest auth + `/auth/me` | PASS | 201, then 200 |
+| 8c | Live "Hi" chat | PASS | turn-stream 200, meta/delta/done |
+| 8d | Deployment Protection not blocking the smoke test | PASS | Log: "Vercel protection bypass secret: configured"; no 302 |
+| 8e | Live email sign-up and login | NOT TESTED | The smoke test covers guest auth only |
 
-Who verifies what:
+No check FAILED in this run, so no fix was needed and no code was changed.
 
-- Automated results come from GitHub Actions CI on `95d34a7` and from the cloud development container.
-- That container has no USB device attached, so nothing in it can drive a physical phone.
-- No emulator result is counted as a real-device result.
+### Remaining blockers before READY TO MERGE
+
+1. **Nothing Phone 2A physical-device run (required).** See [ANDROID REAL DEVICE](#android-real-device).
+2. **Live email sign-up/login** on the preview. Sign up with a new email, sign out, sign in again; or the owner confirms it from the phone.
+3. **Real microphone / TTS on a phone.** Part of item 1, and of the phone-browser check.
+
+Not blockers:
+- ANDROID-1: the debug APK cannot point at an HTTPS preview. This limits what the device can reach before merge; it is a decision, not a defect.
+- The open web UI redesign proposal (outside Phase 1).
+
+---
+
+## History of earlier runs (kept for evidence)
 
 ## Gate summary
 
