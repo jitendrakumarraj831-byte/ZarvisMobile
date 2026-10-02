@@ -12,6 +12,7 @@
  * project) moves to the next candidate model; any other 4xx is thrown immediately.
  */
 import { abortError, classifyGeminiFailure, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "./geminiErrors.js";
+import { logger } from "../security/redact.js";
 
 export const GEMINI_TTS_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"] as const;
 
@@ -157,7 +158,11 @@ export class GeminiTtsProvider {
         } finally {
           clearTimeout(timer);
         }
-        if (res.ok) return res;
+        if (res.ok) {
+          const configured = this.candidateModels()[0];
+          if (model !== configured) logger.warn("Gemini TTS answered with a fallback model", { configuredModel: configured, servedModel: model, label });
+          return res;
+        }
 
         const detail = await res.text().catch(() => "");
         const failure = classifyGeminiFailure(res.status, detail, res.headers.get("retry-after"));

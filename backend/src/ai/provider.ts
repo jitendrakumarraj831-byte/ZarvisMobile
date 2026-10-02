@@ -34,6 +34,11 @@ export interface ProviderTrace {
   httpRequests: number;
   /** Provider-side ids of the responses (e.g. Gemini `responseId`), when returned. */
   responseIds: string[];
+  /**
+   * The model that actually answered each successful request, in order. Differs from the
+   * configured model when the provider fell back (404 / 5xx), so a switch is never silent.
+   */
+  servedModels?: string[];
 }
 
 export interface AIRequest {

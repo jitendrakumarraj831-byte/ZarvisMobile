@@ -80,6 +80,7 @@ interface TurnStats {
   modelCalls: number;
   providerHttpRequests: number;
   providerResponseIds: string[];
+  servedModels: string[];
   toolCalls: Array<{ toolCallId: string; skillId: string }>;
 }
 
@@ -122,7 +123,7 @@ export class Orchestrator {
 
   async runTurn(request: TurnRequest, onEvent: (event: TurnEvent) => void = () => {}): Promise<TurnResult> {
     const turnId = request.turnId ?? randomUUID();
-    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], toolCalls: [] };
+    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], servedModels: [], toolCalls: [] };
     const startedAt = Date.now();
     const { clientTurnId } = request;
     let outcome = "error";
@@ -167,6 +168,8 @@ export class Orchestrator {
         modelCalls: stats.modelCalls,
         providerHttpRequests: stats.providerHttpRequests,
         providerResponseIds: stats.providerResponseIds.slice(0, 10),
+        configuredModel: this.modelConfig.model,
+        servedModels: [...new Set(stats.servedModels)],
         toolCalls: stats.toolCalls,
       });
     }
@@ -287,7 +290,7 @@ export class Orchestrator {
     const executedToolRequests = new Set<string>();
     /** Skills whose service already failed in this turn; they are not run again. */
     const failedSkills = new Set<string>();
-    const trace = { httpRequests: 0, responseIds: [] as string[] };
+    const trace = { httpRequests: 0, responseIds: [] as string[], servedModels: stats.servedModels };
     const messages: ConversationMessage[] = [
       ...persistedMessages.map((message) => ({
         role: message.role === "tool" ? "user" as const : message.role,

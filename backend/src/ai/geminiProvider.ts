@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { abortError, classifyGeminiFailure, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "./geminiErrors.js";
+import { logger } from "../security/redact.js";
 import type {
   AIProvider,
   AIRequest,
@@ -90,7 +91,13 @@ export class GeminiProvider implements AIProvider {
           timeoutMs,
           request.signal,
         );
-        if (res.ok) return res;
+        if (res.ok) {
+          request.trace?.servedModels?.push(model);
+          if (model !== request.modelConfig.model) {
+            logger.warn("Gemini answered with the fallback model", { configuredModel: request.modelConfig.model, servedModel: model, label });
+          }
+          return res;
+        }
 
         const text = await res.text().catch(() => "");
         const failure = classifyGeminiFailure(res.status, text, res.headers.get("retry-after"));
