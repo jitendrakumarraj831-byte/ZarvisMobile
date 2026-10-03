@@ -27,7 +27,14 @@ describe("classifyGeminiFailure", () => {
       quotaType: "daily",
       retryAfterMs: 21_000,
       quotaId: DAILY,
+      quotaMetric: "generativelanguage.googleapis.com/generate_content_free_tier_requests",
     });
+  });
+
+  it("names the violation that decided the type when several are listed", () => {
+    const body = JSON.parse(quotaBody(DAILY));
+    body.error.details[0].violations.unshift({ quotaMetric: "generativelanguage.googleapis.com/generate_content_free_tier_input_token_count", quotaId: PER_MINUTE });
+    expect(classifyGeminiFailure(429, JSON.stringify(body), null)).toMatchObject({ quotaType: "daily", quotaId: DAILY });
   });
 
   it("recognises a per-minute rate limit", () => {

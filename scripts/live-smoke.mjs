@@ -13,7 +13,7 @@
  * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), 1 TTS request.
  */
 
-const BASE = (process.env.BASE_URL || "").replace(/\/$/, "");
+let BASE = (process.env.BASE_URL || "").replace(/\/$/, "");
 if (!BASE) {
   console.error("BASE_URL is required");
   process.exit(2);
@@ -86,13 +86,53 @@ function tinyPdf() {
   return Buffer.from(out, "latin1");
 }
 
+/** "www.example.com" and "example.com" are the same site; anything else is not. */
+function sameSite(a, b) {
+  const strip = (host) => host.toLowerCase().replace(/^www\./, "");
+  return strip(a) === strip(b);
+}
+
+/**
+ * Where a redirect from GET /health points: Vercel's own login (Deployment Protection), the
+ * same site's canonical address (e.g. apex -> www, followed once: tokens and the bypass secret
+ * are only ever sent to that same site), or somewhere else (reported, never followed).
+ */
+function classifyRedirect(status, location) {
+  if (!location) return { kind: "unknown" };
+  let target;
+  try { target = new URL(location, BASE + "/health"); } catch { return { kind: "unknown" }; }
+  if (/(^|\.)vercel\.com$/i.test(target.hostname) || /sso|login/i.test(target.pathname)) return { kind: "protection", target };
+  const base = new URL(BASE);
+  const protocolOk = target.protocol === "https:" || base.protocol === "http:";
+  if (protocolOk && sameSite(target.hostname, base.hostname) && target.pathname.replace(/\/$/, "") === "/health") {
+    return { kind: "canonical", target };
+  }
+  return { kind: "elsewhere", target };
+}
+
 async function main() {
   console.log(`Deployment: ${BASE}`);
   console.log(`Vercel protection bypass secret: ${BYPASS ? "configured" : "not configured"}`);
 
   // ---- Health ------------------------------------------------------------------------------
-  const health = await call("GET", "/health");
-  if ((health.status === 401 && /vercel/i.test(health.text)) || [301, 302, 307, 308].includes(health.status)) {
+  let health = await call("GET", "/health");
+  if ([301, 302, 303, 307, 308].includes(health.status)) {
+    const location = health.headers.get("location");
+    const redirect = classifyRedirect(health.status, location);
+    if (redirect.kind === "canonical") {
+      const from = BASE;
+      BASE = redirect.target.origin;
+      console.log(`     ${from} redirects (HTTP ${health.status}) to ${BASE}; testing that address`);
+      health = await call("GET", "/health");
+    } else if (redirect.kind === "protection") {
+      report("FAIL", "reach the API", `Vercel Deployment Protection answered HTTP ${health.status} (redirect to its login); the API was not reached. ${BYPASS ? "The bypass secret was rejected." : "Set the VERCEL_AUTOMATION_BYPASS_SECRET repository secret."}`);
+      return;
+    } else {
+      report("FAIL", "reach the API", `HTTP ${health.status} redirect to ${redirect.target ? redirect.target.href : "(no Location header)"}; not followed (another site or path), so the API was not reached`);
+      return;
+    }
+  }
+  if ((health.status === 401 && /vercel/i.test(health.text)) || [301, 302, 303, 307, 308].includes(health.status)) {
     report("FAIL", "reach the API", `Vercel Deployment Protection answered HTTP ${health.status}; the API was not reached. ${BYPASS ? "The bypass secret was rejected." : "Set the VERCEL_AUTOMATION_BYPASS_SECRET repository secret."}`);
     return;
   }

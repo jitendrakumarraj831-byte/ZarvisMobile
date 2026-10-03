@@ -14,6 +14,14 @@
 export type AIErrorCode = "AI_QUOTA_EXCEEDED" | "AI_RATE_LIMITED" | "AI_UNAVAILABLE";
 export type QuotaType = "daily" | "per_minute" | "unknown";
 
+/** What the provider itself said, kept for the server log so a failure's cause can be proven
+ * (which quota, which model). Never sent to the client and never contains the API key. */
+export interface ProviderFailureEvidence {
+  model?: string;
+  quotaId?: string;
+  quotaMetric?: string;
+}
+
 /** A provider failure the API can report to the user as a structured, honest error. */
 export class AIProviderError extends Error {
   constructor(
@@ -23,6 +31,7 @@ export class AIProviderError extends Error {
     readonly retryable: boolean,
     readonly retryAfterMs?: number,
     readonly quotaType?: QuotaType,
+    readonly evidence: ProviderFailureEvidence = {},
   ) {
     super(message);
     this.name = "AIProviderError";
@@ -30,7 +39,7 @@ export class AIProviderError extends Error {
 }
 
 export type GeminiFailure =
-  | { kind: "quota"; quotaType: QuotaType; retryAfterMs?: number; quotaId?: string }
+  | { kind: "quota"; quotaType: QuotaType; retryAfterMs?: number; quotaId?: string; quotaMetric?: string }
   | { kind: "transient"; retryAfterMs?: number }
   | { kind: "not_found" }
   | { kind: "fatal" };
@@ -69,7 +78,12 @@ export function classifyGeminiFailure(status: number, bodyText: string, retryAft
     : /per ?minute|perminute/.test(quotaText)
       ? "per_minute"
       : "unknown";
-  return { kind: "quota", quotaType, retryAfterMs, quotaId: violations[0]?.quotaId };
+  // The violation that decided the type is the one reported (a daily one wins over others).
+  const decisive = violations.find((v) => {
+    const text = `${v.quotaId ?? ""} ${v.quotaMetric ?? ""}`.toLowerCase();
+    return quotaType === "daily" ? /per ?day|perday|daily/.test(text) : quotaType === "per_minute" ? /per ?minute|perminute/.test(text) : true;
+  }) ?? violations[0];
+  return { kind: "quota", quotaType, retryAfterMs, quotaId: decisive?.quotaId, quotaMetric: decisive?.quotaMetric };
 }
 
 /**
@@ -99,14 +113,28 @@ export function shouldTryNextModel(failure: GeminiFailure): boolean {
 }
 
 /** The structured error for a final failure. `label` keeps the existing log/error prefix. */
-export function toProviderError(label: string, status: number, statusText: string, failure: GeminiFailure, bodyText: string): AIProviderError {
+export function toProviderError(label: string, status: number, statusText: string, failure: GeminiFailure, bodyText: string, model?: string): AIProviderError {
   const message = `${label} failed: ${status} ${statusText} ${bodyText.slice(0, 300)}`.trim();
   if (failure.kind === "quota") {
+    const evidence = { model, quotaId: failure.quotaId, quotaMetric: failure.quotaMetric };
     return failure.quotaType === "daily"
-      ? new AIProviderError(message, "AI_QUOTA_EXCEEDED", status, false, failure.retryAfterMs, "daily")
-      : new AIProviderError(message, "AI_RATE_LIMITED", status, true, failure.retryAfterMs, failure.quotaType);
+      ? new AIProviderError(message, "AI_QUOTA_EXCEEDED", status, false, failure.retryAfterMs, "daily", evidence)
+      : new AIProviderError(message, "AI_RATE_LIMITED", status, true, failure.retryAfterMs, failure.quotaType, evidence);
   }
-  return new AIProviderError(message, "AI_UNAVAILABLE", status, failure.kind === "transient", failure.kind === "transient" ? failure.retryAfterMs : undefined);
+  return new AIProviderError(message, "AI_UNAVAILABLE", status, failure.kind === "transient", failure.kind === "transient" ? failure.retryAfterMs : undefined, undefined, { model });
+}
+
+/** Log fields that prove what stopped a request. Safe to log: no key, no provider body. */
+export function providerErrorLogFields(error: AIProviderError) {
+  return {
+    code: error.code,
+    status: error.status,
+    retryAfterMs: error.retryAfterMs,
+    quotaType: error.quotaType,
+    quotaId: error.evidence.quotaId,
+    quotaMetric: error.evidence.quotaMetric,
+    model: error.evidence.model,
+  };
 }
 
 /** User-facing text for a provider error. Never includes provider bodies or keys. */

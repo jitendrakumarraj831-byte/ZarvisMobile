@@ -1,133 +1,92 @@
 # ZARVIS final merge gate
 
-- **Date:** 2026-10-02
-- **Final branch:** `claude/optimistic-lovelace-y9w9q6` (PR #79)
-- **Final code commit:** `a3c8042` (service-worker `clients.claim()` inside the activate
-  `waitUntil`). CI on it: 16/16 green, `web-e2e` passed in both runs. Later commits change only
-  documentation.
-- **Base:** PR #78, `claude/laughing-shannon-m3zu32` at `def15c4` (merged into PR #79; no
-  conflict left).
-- **`main`:** `e010c12`, untouched.
+- **Date:** 2026-10-03
+- **FINAL MAIN SHA:** `a03cdfd` ("Merge pull request #78"). Its tree is identical to `820a0da`,
+  the PR #78 head on which all 21 CI checks passed.
+- **Previous `main`:** `e010c12`. It is still in history: every merge was a normal merge commit,
+  with no force-push and no history rewrite.
 
-Status values: PASS, FAIL, BLOCKED, NOT TESTED, NON-BLOCKING.
+Status values: PASS, FAIL, BLOCKED, NOT TESTED, NON-BLOCKING. Nothing below is PASS unless the
+underlying check actually ran and passed.
 
-## Gate decision
+## Merged PRs (dependency order)
 
-**DO NOT MERGE INTO `main` YET.**
-
-Your gate blocks on NOT TESTED for any critical production capability. These remain:
-
-| Blocker | State | What clears it |
-|---|---|---|
-| Nothing Phone 2A (install, launch, login, chat, real Gemini, mic, TTS, camera, files, permissions, rotation, background, process death, network loss, duplicate prevention) | **NOT TESTED** | the phone on USB with `adb`: `android/scripts/device/verify-device.sh` (steps in `FINAL_PHASE1_VERIFICATION.md` → ANDROID REAL DEVICE) |
-| Production (`zarvismobile.com`) with this code | **NOT TESTED** | the code reaches production only by merging. Needs your decision: merge, then run the smoke workflow on production at once with a rollback ready; or hold `main` |
-| A completed live Web Search | **BLOCKED** (provider) | all three live runs: the search ran exactly once, then Gemini's Google Search grounding answered 429 (rate limited, no advised wait), even after the smoke waited out a 65 s window; the planner calls in the same run succeeded. Check this API key's grounding quota / billing tier in Google AI Studio. The key also reached its daily generation quota during this session, which points to a free-tier key at its limits |
-
-There is no FAIL, no CRITICAL or HIGH security issue, no known duplicate execution, retry loop,
-fake AI response, deadlock, broken API contract, or cross-account access.
-
-## PR status
-
-| PR | State | Head | CI |
+| PR | What | Merged into | Merge commit |
 |---|---|---|---|
-| #78 Phase 1 foundation | open, draft, not merged | `def15c4` | green on `5cc165f` (its last code commit) |
-| #79 reliability hardening | open, draft, not merged | see branch | see "CI result" below |
+| #79 | Reliability and production hardening (19 fixes, each with a regression test) | PR #78's branch | `4d0d497` |
+| #80 | One bounded, conflict-free Android emulator harness (PR #78's emulator-hang fix + PR #80's) | PR #78's branch | `820a0da` |
+| #78 | Phase 1 foundation (+ #79 + #80) | `main` | `a03cdfd` |
 
-### Merge plan (not performed)
+## Commits and files included
 
-1. Merge PR #79 into PR #78's branch (a merge commit, no history rewrite on PR #78's branch).
-2. Re-run the full CI on the resulting PR #78 head.
-3. Review the PR #78 diff against `main` (done for this pass: 253 files; no `.env`, keystore,
-   build output, `node_modules` or secret; the only credential-shaped string is the test fixture
-   `postgres://u:p@db.example.com`).
-4. Merge PR #78 into `main` with a merge commit, so both PRs' commits stay in history, only
-   once every blocker above is cleared.
+`e010c12..a03cdfd`: 124 commits (119 non-merge, 5 merges); 256 files, +25,020 / −2,922 lines.
+Before the merge, the combined diff was scanned: no `.env`, keystore, APK/AAB, build output,
+`node_modules` or secret. The only credential-shaped strings are local test database URLs and
+the `postgres://u:p@db.example.com` test fixture.
 
-Commits that would reach `main`: PR #78's 87 commits (`e9126d1` … `def15c4` and earlier) plus
-PR #79's commits listed in "Files and commits" below.
+## Bugs fixed
 
-## Bugs found and fixed in PR #79
-
-18 fixes, each with a regression test that fails without the fix. Full table with root causes:
+PR #79 fixed 19 bugs. Each was reproduced first and has a regression test that fails without the
+fix. The full table, with root causes, is in
 [ZARVIS_PRODUCTION_READINESS.md](./ZARVIS_PRODUCTION_READINESS.md) §2.
 
 | Area | Fixed |
 |---|---|
-| Duplicate execution / charge | Retry of a finished turn (replay); Retry after a late failure (tool reused); key reused with other text (409); message stored twice on Retry |
-| API contract | malformed JSON 400; oversized body 413; Hindi document body 500; non-UUID ids 500 on Postgres |
+| Duplicate execution / charge | Retry of a finished turn is replayed; Retry after a late failure reuses the tool result; a key reused with other text gets 409; the message is no longer stored twice on Retry |
+| API contract | malformed JSON → 400; oversized body → 413; Hindi document body no longer 500; non-UUID ids no longer 500 on Postgres; image-analysis outage → 503 (was "unreadable file"); upload over the cap → 413 |
 | Database | schema-setup / account-deletion deadlock (advisory lock) |
-| Honesty | production mock AI replies; tasks shown RUNNING with nothing running |
-| Web | double-click cancelled the message; keyboard-inaccessible attach control; a11y names; contrast; focus ring |
-| Observability | `modelCallId` per AI call incl. skills; fallback-model switches logged |
-| Security (defence in depth) | `?api=` token target; GitHub client `.`/`..` path segments |
-| CI / verification | racy APK checks (pipefail); smoke never reached Gemini; uncommitted QA scripts replaced by a committed suite |
-| Config | three unused environment variables removed |
+| Honesty | no mock AI replies in production; no tasks shown RUNNING with nothing running |
+| Web | double-click no longer cancels the message; attach control works from the keyboard; accessible names, contrast and focus ring fixed |
+| Observability | `modelCallId` on every AI call; fallback-model switches logged |
+| Security (defence in depth) | `?api=` is same-origin only; GitHub client refuses `.`/`..` path segments |
+| CI / verification | racy APK checks (`pipefail`); smoke now reaches Gemini; committed browser quality suite |
 
-## Regression tests added
+Fixed after PR #79:
 
-| File | Tests |
+| Fix | Where |
 |---|---|
-| `backend/test/agents/turnIdempotency.test.ts` | 21 (in-memory + Postgres): replay, failed-turn retry, late-failure reuse, in-progress 409, reuse with other text, cross-account keys, deletion, HTTP/SSE |
-| `backend/test/api/requestBody.test.ts` | 4: malformed JSON (Express and Vercel), 60k-char Devanagari, 413 |
-| `backend/test/api/nonUuidIds.test.ts` | 4 (both stores) |
-| `backend/test/store/schemaConcurrency.test.ts` | 3: cold starts racing deletions, no open transaction, deletion cleanup |
-| `backend/test/ai/unavailableProvider.test.ts` | 2 |
-| `backend/test/github/githubClientPaths.test.ts` | 6 |
-| `backend/test/agents/turnEconomy.test.ts` | +3: per-call log equals real requests |
-| `backend/test/ai/geminiProvider.test.ts` | +1: fallback logged with `modelCallId` |
-| `backend/test/tasks/taskService.test.ts`, `backend/test/api/api.test.ts` | task resume/retry refused |
-| `web/e2e/quality.e2e.cjs` | 14 browser checks (new, in CI) |
-| `web/e2e/phase1.e2e.cjs` | +1: Retry after a cut stream is replayed |
-| `web/tests/logic.test.js` | +3 |
-| `scripts/live-smoke.mjs` | 20 live checks per preview deployment (new) |
+| **API 26 emulator job hung 64 min.** The emulator stopped answering adb in phase D, then `adb logcat -d` waited forever. Now every adb call has a time limit, and EMULATOR LOST, TIMED OUT, PLATFORM-BLOCKED, FAILED and NOT RUN are separate results. A wedged emulator is caught at once, with one bounded reconnect. A harness self-test runs in CI | PR #78 (`ffb6401`) + PR #80 |
+| **Production smoke misdiagnosis.** Any redirect was reported as "Deployment Protection", so the 308 from `zarvismobile.com` → `www.zarvismobile.com` was never tested. The script now follows a same-site canonical redirect once, and otherwise reports the real target | PR #81 (open) |
+
+## Tests added
+
+- **Backend:** `turnIdempotency` (21), `requestBody` (4), `nonUuidIds` (4), `schemaConcurrency` (3),
+  `unavailableProvider` (2), `githubClientPaths` (6), `imageAnalysisErrors` (5), plus additions to
+  `turnEconomy`, `geminiProvider`, `taskService` and `api`.
+- **Web:** `quality.e2e.cjs` (14 browser checks), the Phase 1 E2E Retry replay, 3 unit tests.
+- **Android harness:** `selftest-emulator-loss.sh` (CI matrix entry; 9 checks on a real emulator).
+- **Live:** `scripts/live-smoke.mjs` (20 checks per deployment).
 
 ## Results
 
 | Area | Result | Evidence |
 |---|---|---|
-| Backend tests | PASS | 353 passed, 2 skipped (they need live credentials); in-memory + Postgres 16; CI `backend` |
-| Backend typecheck | PASS | backend `tsc --noEmit`, root `tsc` |
-| Backend build | PASS | `npm run build` |
-| Security tests | PASS | `phase1Security` (44), route auth coverage, cross-account turn keys, confirmation replay, GitHub path segments; CodeQL in CI |
-| Web unit | PASS | 13/13 |
-| Web E2E (Phase 1) | PASS | 19/19, local and CI `web-e2e` |
-| Responsive | PASS | 8 views × 6 widths (360–1920 px), no horizontal overflow |
-| Accessibility | PASS | axe: no serious/critical violation on any view, 412/1280 px, both appearances |
-| Keyboard | PASS | composer reachable by Tab with a visible focus ring; Enter sends once; attach control opens with Enter/Space; every control named |
-| Service worker | PASS | installs; takes control (claim inside `waitUntil`; measured 20/20 controlled within two loads); offline shell opens |
-| Voice / TTS (browser) | PASS | one recognition result = one turn; TTS playback starts no turn; a result while speaking is ignored |
-| Web Search duplicates | PASS | normal, Retry, network failure + Retry, reload mid-turn, double click, slow reply, rate limit: one execution each |
-| Android `:domain` tests | PASS | 120/120, local (JDK 17) |
-| Android Gradle (clean, test, lint, check; all modules) | PASS | CI `test-and-lint` on `ec92468` and `45c0ad8` |
-| Android APK (debug, release) | PASS | CI `assemble-debug` on `45c0ad8` and `a3c8042`: debug and unsigned release APK built; package, versions, SDK levels, launchable activity, not-debuggable release asserted with aapt2 |
-| Android AAB | PASS | CI `assemble-debug` on `45c0ad8` and `a3c8042`: unsigned release AAB built, manifest checked with bundletool |
-| Android emulators API 26/30/34 | PASS | CI `emulator` on `45c0ad8` and `a3c8042`: all three jobs green |
-| Windows build | PASS | CI `windows-build` on `45c0ad8` and `a3c8042` |
-| Android Gradle locally | BLOCKED | `dl.google.com` (Android Gradle plugin, SDK) is denied by this sandbox's proxy. Gradle configuration was not changed to work around it |
-| Gemini | PASS | live answer on the preview (three smoke runs); live daily-quota exhaustion (fourth run): the turn failed fast with a structured `AI_QUOTA_EXCEEDED`, no retry, nothing charged, TTS unaffected; quota policy, retry bounds and per-call logging also covered by tests |
-| Web Search (live) | BLOCKED | ran once; Gemini search grounding answered 429 in both live runs (see blockers) |
-| TTS (live) | PASS | preview `/tts/synthesize` returned `audio/wav` |
-| Database | PASS | Postgres tests incl. deadlock regression; live sign-up / deletion |
-| Auth | PASS | tests; live on the preview: guest, sign-up, login, wrong password 401, refresh rotation, replay refused, logout revokes, deletion |
-| Preview | PASS | smoke: 19 PASS, 1 WARN (web search), 0 FAIL in three runs; a fourth run (`a3c8042`) met an exhausted **daily** Gemini quota: 18 PASS, 2 WARN, 0 FAIL |
-| Production | NOT TESTED | denied by the sandbox network policy; serves `main` until the merge |
-| Nothing Phone 2A | NOT TESTED | no device in this session |
-| CI result | PASS | 16/16 on `a3c8042`: backend, web-e2e (Phase 1 + quality suite, two runs), test-and-lint, assemble-debug (APK + AAB), dev-backend-reachability, emulators 26/30/34, windows-build, smoke, Vercel. `927d170` failed once on the service-worker check; root cause fixed in `a3c8042` |
+| BACKEND | PASS | 358 passed, 2 skipped (need live credentials), in-memory + Postgres 16; typecheck; build; CI `backend` on `820a0da` |
+| WEB | PASS | unit 13/13; Phase 1 E2E 19/19; quality E2E 14/14 (responsive, axe accessibility, keyboard, service worker, voice/TTS, duplicate submits); CI `web-e2e` on `820a0da` |
+| ANDROID (unit, lint, check) | PASS | CI `test-and-lint` on `820a0da`; `:domain` 120/120 locally |
+| GRADLE | PASS in CI; BLOCKED locally | locally the Android Gradle Plugin cannot be fetched (`dl.google.com` denied by this sandbox's network policy); no Gradle configuration was weakened |
+| APK (debug, release) | PASS | CI `assemble-debug` on `820a0da` |
+| AAB | PASS | CI `assemble-debug` on `820a0da` |
+| Emulator API 26 | PASS | every runnable phase passed. The permission-dialog flow is PLATFORM-BLOCKED (Android 8.0 System UI crash, evidenced in each run) and not counted as a pass |
+| Emulator API 30 / API 34 | PASS | all phases passed (CI on `dea6690` and `820a0da`) |
+| Emulator harness self-test | PASS | emulator killed mid-phase D → EMULATOR LOST, E/F NOT RUN, exit 3, 529 s; no hang |
+| GEMINI | PASS | real Gemini answers on production (`www.zarvismobile.com`) and on the production deployment; daily and per-minute quota failures return structured errors with no retry loop and nothing charged |
+| WEB SEARCH (duplicates) | PASS | one execution per logical request (tests + live: "ran once") |
+| WEB SEARCH (completed live search) | BLOCKED | Gemini search grounding answered "rate limited" on every live run, even after a 65 s wait. The key appears to be free-tier, at its limits. External, not a code defect |
+| TTS | PASS | production returned `audio/wav` |
+| DATABASE | PASS | Postgres tests incl. deadlock regression; production `database: ok`; sign-up / deletion work live |
+| AUTH | PASS | production: guest, sign-up, login, wrong password 401, refresh rotation, replay refused, logout revokes, account deletion |
+| SECURITY | PASS | security tests in the backend suite; CodeQL (JS/TS, Kotlin, Actions) on `820a0da`; no secrets in the diff |
+| VERCEL PREVIEW | PASS | smoke on `820a0da`: green |
+| VERCEL PRODUCTION | PASS | `main` `a03cdfd`: production deployment 19 PASS / 1 WARN / 0 FAIL (run 37113466822); `https://zarvismobile.com` → `www.zarvismobile.com` 19 PASS / 1 WARN / 0 FAIL (run 37113841686, with the PR #81 script). The WARN is web search (BLOCKED above) |
+| NOTHING PHONE 2A | NOT TESTED | no device was connected in any session |
 
-## Remaining warnings and non-blocking issues
+## Remaining external blockers
 
-| Item | Classification |
-|---|---|
-| Tasks have no executor (tracking only, honestly labelled) | NON-BLOCKING |
-| Android has no Retry and sends no `clientTurnId` | NON-BLOCKING |
-| Gemini fallback model kept: observable, logged with `modelCallId`, tested, documented | NON-BLOCKING |
-| Per-instance rate limits; no SSE heartbeat; 3 Gemini requests per generation skill | NON-BLOCKING |
-| targetSdk 34 and release signing before a Play release | NON-BLOCKING for this merge; required before Play |
-| GitHub Actions: Node.js 20 deprecation warnings | NON-BLOCKING |
-
-## Files and commits (PR #79 vs PR #78)
-
-49 files: 3 workflows; `scripts/live-smoke.mjs`; 17 backend source files and
-`backend/.env.example`; 10 backend test files; 2 Android Kotlin files (Tasks screen and view
-model); 8 web files; 7 documents (this one included). Full list:
-`git diff --name-status origin/claude/laughing-shannon-m3zu32 origin/claude/optimistic-lovelace-y9w9q6`.
+| Item | Status | What clears it |
+|---|---|---|
+| Nothing Phone 2A run (install, login, chat, Gemini, mic, TTS, camera, files, permissions, rotation, background, process death, network loss, duplicates) | NOT TESTED | the phone on USB: `android/scripts/device/verify-device.sh` |
+| A completed live web search | BLOCKED | raise the Gemini API key's quota or billing tier (Google AI Studio) |
+| PR #81 (smoke redirect fix) | open, draft | review and merge; production was already verified with it from its branch |
+| Release signing, targetSdk 34 → current, before a Play release | NON-BLOCKING | release work |
+| GitHub Actions Node.js 20 deprecation warnings | NON-BLOCKING | bump action versions |
