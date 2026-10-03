@@ -1731,7 +1731,7 @@
     set("language", state.lang === "hi" ? "हिंदी" : "English");
     set("appearance", state.appearance === "dim" ? "Dim" : "Light");
     set("memory", state.conversationId ? "Saved" : "New");
-    if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
+    if (healthCache) set("ai", Logic.aiProviderStatus(healthCache.provider).label);
     set("security", isGuest ? "Guest session" : "Signed in");
     renderSettingsSubpageValue();
   }
@@ -1779,9 +1779,7 @@
     el.settingsAiProvider.textContent = "Checking…";
     try {
       const health = healthCache || (await fetchHealth());
-      el.settingsAiProvider.textContent = health.provider === "google"
-        ? "Google Gemini is answering your requests."
-        : "No AI provider is configured on this server, so answers are limited.";
+      el.settingsAiProvider.textContent = Logic.aiProviderStatus(health.provider).sentence;
     } catch {
       el.settingsAiProvider.textContent = "Couldn't reach the server to check.";
     }
@@ -2127,7 +2125,7 @@
     }
     el.metricsHealthGrid.replaceChildren();
     if (body) {
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI provider", value: body.provider === "google" ? "Gemini" : "Not configured" }));
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI provider", value: Logic.aiProviderStatus(body.provider).label }));
       // /health reports "degraded" when the database is configured but unusable, "error" when
       // the server could not start; only "ok" is shown as Online.
       const server = body.status === "ok" ? "Online" : body.status === "degraded" ? "Database issue" : "Not started";

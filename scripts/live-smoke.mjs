@@ -137,9 +137,11 @@ async function main() {
     return;
   }
   const h = health.json ?? {};
-  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, database: h.database, reason: h.reason })}`);
+  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, aiFallback: h.aiFallback, database: h.database, reason: h.reason })}`);
   report(health.status === 200 && h.database !== undefined ? "PASS" : "FAIL", "GET /health", `HTTP ${health.status}`);
   const provider = h.provider;
+  // The providers that can answer a chat turn. Web search needs Gemini's Google Search grounding.
+  const liveProvider = provider === "google" ? "Gemini" : provider === "openrouter" ? "OpenRouter" : undefined;
 
   // ---- Auth lifecycle ----------------------------------------------------------------------
   const guest = await call("POST", "/api/v1/auth/guest");
@@ -191,41 +193,47 @@ async function main() {
 
   const model = await turn(guestToken, "Reply with the single word OK.");
   if (model.done) {
-    report(provider === "google" ? "PASS" : "FAIL", "a turn that needs the AI model", provider === "google" ? "Gemini answered" : `answered by provider ${provider}, not Gemini`);
+    report(liveProvider ? "PASS" : "FAIL", "a turn that needs the AI model", liveProvider ? `${liveProvider} answered${h.aiFallback ? " (a fallback provider is also configured)" : ""}` : `answered by provider ${provider}, not a live AI provider`);
   } else if (quota(model.error?.code)) {
-    report("WARN", "a turn that needs the AI model", `Gemini reachable but out of quota (${model.error.code}); no answer verified`);
+    report("WARN", "a turn that needs the AI model", `the AI provider is reachable but out of quota (${model.error.code}); no answer verified`);
   } else if (model.error?.code === "AI_UNAVAILABLE" && model.error.retryable) {
-    report("WARN", "a turn that needs the AI model", "Gemini temporarily unavailable; no answer verified");
+    report("WARN", "a turn that needs the AI model", "the AI provider is temporarily unavailable; no answer verified");
   } else {
     report("FAIL", "a turn that needs the AI model", `no answer: ${JSON.stringify({ status: model.status, code: model.error?.code, retryable: model.error?.retryable })}`);
   }
 
   // ---- Web Search ----------------------------------------------------------------------------
-  const searchPrompt = "Use web search to find the capital city of Australia, then answer in one sentence with the source.";
-  let search = await turn(guestToken, searchPrompt);
-  let searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
-  if (searches.length === 1 && searches[0].outcome?.result?.reason === "ai_rate_limited") {
-    // A per-minute limit, usually from the model calls just before. Respect it: wait out one
-    // window and ask once more (a new turn). A daily quota is not retried.
-    console.log("     web search hit the per-minute limit; waiting 65 s, then one more attempt");
-    await new Promise((resolve) => setTimeout(resolve, 65_000));
-    search = await turn(guestToken, searchPrompt);
-    searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
-  }
-  if (searches.length === 1 && searches[0].result?.status === "COMPLETED") {
-    const sources = (searches[0].outcome?.result?.output?.results ?? []).length;
-    report(provider === "google" ? "PASS" : "FAIL", "web search ran exactly once and completed", provider === "google" ? `${sources} sources` : `provider ${provider}: not a real search`);
-  } else if (searches.length > 1) {
-    report("FAIL", "web search ran exactly once", `${searches.length} executions for one request`);
-  } else if (searches.length === 1 && /quota|rate/.test(searches[0].outcome?.result?.reason ?? "")) {
-    // The user-facing message carries the provider's advised wait; no secret is in it.
-    report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})`);
-  } else if (quota(search.error?.code)) {
-    report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised`);
-  } else if (searches.length === 0 && search.done) {
-    report("WARN", "web search", "the model answered without calling web.search; search not exercised");
+  // Web search needs Google Search grounding, which only Gemini provides: a deployment without
+  // Gemini cannot search, and says so instead of failing.
+  if (provider !== "google") {
+    report("WARN", "web search", `needs Gemini (Google Search grounding); this deployment answers with provider ${provider}, so search was not exercised`);
   } else {
-    report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, result: searches[0]?.result?.status }));
+    const searchPrompt = "Use web search to find the capital city of Australia, then answer in one sentence with the source.";
+    let search = await turn(guestToken, searchPrompt);
+    let searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+    if (searches.length === 1 && searches[0].outcome?.result?.reason === "ai_rate_limited") {
+      // A per-minute limit, usually from the model calls just before. Respect it: wait out one
+      // window and ask once more (a new turn). A daily quota is not retried.
+      console.log("     web search hit the per-minute limit; waiting 65 s, then one more attempt");
+      await new Promise((resolve) => setTimeout(resolve, 65_000));
+      search = await turn(guestToken, searchPrompt);
+      searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+    }
+    if (searches.length === 1 && searches[0].result?.status === "COMPLETED") {
+      const sources = (searches[0].outcome?.result?.output?.results ?? []).length;
+      report(provider === "google" ? "PASS" : "FAIL", "web search ran exactly once and completed", provider === "google" ? `${sources} sources` : `provider ${provider}: not a real search`);
+    } else if (searches.length > 1) {
+      report("FAIL", "web search ran exactly once", `${searches.length} executions for one request`);
+    } else if (searches.length === 1 && /quota|rate/.test(searches[0].outcome?.result?.reason ?? "")) {
+      // The user-facing message carries the provider's advised wait; no secret is in it.
+      report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})`);
+    } else if (quota(search.error?.code)) {
+      report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised`);
+    } else if (searches.length === 0 && search.done) {
+      report("WARN", "web search", "the model answered without calling web.search; search not exercised");
+    } else {
+      report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, result: searches[0]?.result?.status }));
+    }
   }
 
   // ---- File upload ---------------------------------------------------------------------------
