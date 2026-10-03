@@ -112,7 +112,9 @@ export class GeminiProvider implements AIProvider {
 
         const text = await res.text().catch(() => "");
         const failure = classifyGeminiFailure(res.status, text, res.headers.get("retry-after"));
-        lastError = toProviderError(label, res.status, res.statusText, failure, text);
+        const providerError = toProviderError(label, res.status, res.statusText, failure, text, model);
+        lastError = providerError;
+        call.failure = { code: providerError.code, quotaType: providerError.quotaType, ...providerError.evidence };
         if (failure.kind === "fatal") throw lastError;
         const wait = retryDelayMs(failure, attempt);
         if (wait === null) {

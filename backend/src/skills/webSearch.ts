@@ -63,7 +63,8 @@ export class GeminiSearchProvider implements SearchProvider {
         await sleep(wait);
         continue;
       }
-      const error = toProviderError("Gemini Google Search", response.status, response.statusText, failure, detail);
+      const error = toProviderError("Gemini Google Search", response.status, response.statusText, failure, detail, this.model);
+      call.failure = { code: error.code, quotaType: error.quotaType, ...error.evidence };
       if (failure.kind === "quota") {
         // A quota/rate limit is a known, explainable condition: report it as such so the agent
         // loop stops instead of searching again (each retry would hit the same limit).

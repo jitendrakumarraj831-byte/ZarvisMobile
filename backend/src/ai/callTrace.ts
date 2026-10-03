@@ -17,6 +17,8 @@ export interface ModelCallRecord {
   outcome: "ok" | "error";
   /** Provider HTTP status of the final failed attempt. */
   status?: number;
+  /** Why the call failed, as the provider said it: which quota and which model. */
+  failure?: { code: string; quotaType?: string; quotaId?: string; quotaMetric?: string; model?: string };
 }
 
 const current = new AsyncLocalStorage<ModelCallRecord[]>();

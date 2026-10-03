@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Response } from "express";
-import { AIProviderError, providerErrorPayload } from "../../ai/geminiErrors.js";
+import { AIProviderError, providerErrorLogFields, providerErrorPayload } from "../../ai/geminiErrors.js";
 import { ClientTurnIdReusedError, TurnInProgressError, type Orchestrator, type TurnEvent, type TurnRequest } from "../../agents/orchestrator.js";
 import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
@@ -70,7 +70,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         } else if (err instanceof ClientTurnIdReusedError) {
           send("error", { error: err.message, code: err.code, retryable: false, turnId });
         } else if (err instanceof AIProviderError) {
-          logger.warn("Streaming turn stopped by the AI provider", { turnId, code: err.code, status: err.status, retryAfterMs: err.retryAfterMs });
+          logger.warn("Streaming turn stopped by the AI provider", { turnId, ...providerErrorLogFields(err) });
           send("error", { ...providerErrorPayload(err), turnId });
         } else {
           logger.error("Streaming turn failed", { turnId, error: err instanceof Error ? err.message : String(err) });
@@ -94,8 +94,9 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         return;
       }
       const cancel = abortOnClientGone(res);
+      const turnId = randomUUID();
       try {
-        res.json(await orchestrator.runTurn({ ...request, turnId: randomUUID(), signal: cancel.signal }));
+        res.json(await orchestrator.runTurn({ ...request, turnId, signal: cancel.signal }));
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (err instanceof TurnInProgressError) {
@@ -107,6 +108,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
           return;
         }
         if (err instanceof AIProviderError) {
+          logger.warn("Turn stopped by the AI provider", { turnId, ...providerErrorLogFields(err) });
           res.status(err.code === "AI_UNAVAILABLE" ? 503 : 429).json(providerErrorPayload(err));
           return;
         }
