@@ -20,7 +20,9 @@ concurrency:
 jobs:
   emulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Setup + build take ~8 minutes; the emulator step has its own 50-minute limit below, so the
+    # evidence upload (if: always()) still runs after a step timeout. Normal runs: ~15-20 minutes.
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +36,12 @@ jobs:
             arch: x86_64
           - api-level: 34
             arch: x86_64
+          # Self-test of the harness, not of ZARVIS: kills the API 26 emulator during phase D
+          # and passes only if verify.sh stops on its own with "EMULATOR LOST" / "NOT RUN"
+          # (the failure that once hung this job for 51 minutes). See selftest-emulator-loss.sh.
+          - api-level: 26
+            arch: x86
+            mode: harness-selftest
     steps:
       - uses: actions/checkout@v4
 
@@ -86,13 +94,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated
           disable-animations: true
           working-directory: android
-          script: bash scripts/emulator/verify.sh ${{ matrix.api-level }}
+          script: bash scripts/emulator/${{ matrix.mode == 'harness-selftest' && 'selftest-emulator-loss.sh' || 'verify.sh' }} ${{ matrix.api-level }}
 
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-evidence-api${{ matrix.api-level }}
+          name: emulator-evidence-api${{ matrix.api-level }}${{ matrix.mode && format('-{0}', matrix.mode) || '' }}
           path: |
             android/build/emulator-evidence/
             /tmp/backend.log
