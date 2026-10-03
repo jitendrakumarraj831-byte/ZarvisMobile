@@ -69,6 +69,9 @@ export function isFallbackEligibleKind(kind: AIErrorKind): boolean {
 /** The kind implied by an HTTP status alone (a 429 is refined by the caller into quota or rate limit). */
 export function kindForHttpStatus(status: number): AIErrorKind {
   if (status === 401 || status === 403) return "AI_PROVIDER_AUTH_ERROR";
+  // The model (or the feature asked of it) does not exist for this account: a configuration
+  // problem, not an outage, so it is not a reason to answer from another provider.
+  if (status === 404) return "AI_PROVIDER_CAPABILITY_UNSUPPORTED";
   if (status === 408 || status === 504) return "AI_PROVIDER_TIMEOUT";
   if (status === 400 || status === 413 || status === 422) return "AI_PROVIDER_INVALID_REQUEST";
   if (status === 429) return "AI_PROVIDER_RATE_LIMIT";

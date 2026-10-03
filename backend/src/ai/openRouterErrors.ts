@@ -103,11 +103,9 @@ function kindForOpenRouterStatus(status: number, failure: ProviderFailure, info:
   if (failure.kind === "quota") return failure.quotaType === "daily" || failure.quotaType === "credits" ? "AI_PROVIDER_QUOTA_EXCEEDED" : "AI_PROVIDER_RATE_LIMIT";
   if (status === 401) return "AI_PROVIDER_AUTH_ERROR";
   if (status === 403) return info.moderation ? "AI_PROVIDER_INVALID_REQUEST" : "AI_PROVIDER_AUTH_ERROR";
-  if (status === 404) {
-    // "No endpoints found that support tool use / image input": the routed model cannot do
-    // what this request needs. Any other 404 means the model itself is gone.
-    return /support|endpoint|capabilit|tool|image|modalit/.test(info.hintText) ? "AI_PROVIDER_CAPABILITY_UNSUPPORTED" : "AI_PROVIDER_UNAVAILABLE";
-  }
+  // "No endpoints found (that support tool use / image input)": the routed model cannot serve this
+  // request, or no longer exists. A configuration problem, not an outage.
+  if (status === 404) return "AI_PROVIDER_CAPABILITY_UNSUPPORTED";
   if (status === 408 || status === 504) return "AI_PROVIDER_TIMEOUT";
   if (status === 400 || status === 413 || status === 422) return "AI_PROVIDER_INVALID_REQUEST";
   return "AI_PROVIDER_UNAVAILABLE";
