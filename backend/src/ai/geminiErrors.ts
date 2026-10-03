@@ -153,6 +153,10 @@ export function toProviderError(label: string, status: number, statusText: strin
 export function providerErrorLogFields(error: AIProviderError) {
   return {
     code: error.code,
+    // The structured kind and the provider that produced the failure (internal; never sent to a client).
+    kind: error.kind,
+    provider: error.provider,
+    attempts: error.attempts,
     status: error.status,
     retryAfterMs: error.retryAfterMs,
     quotaType: error.quotaType,

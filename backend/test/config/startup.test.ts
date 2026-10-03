@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getModelGateway, resetModelGatewayForTests } from "../../src/ai/providerFactory.js";
 import { env } from "../../src/config/env.js";
 import { buildContainer } from "../../src/container.js";
@@ -14,6 +14,7 @@ const original = { ...env };
 afterEach(() => {
   Object.assign(env, original);
   resetModelGatewayForTests();
+  vi.restoreAllMocks();
 });
 
 describe("startup validation of the AI configuration", () => {
@@ -52,6 +53,28 @@ describe("startup validation of the AI configuration", () => {
   it("the process-wide gateway is built once and shared", () => {
     resetModelGatewayForTests();
     expect(getModelGateway()).toBe(getModelGateway());
+  });
+
+  it("the startup line a real server writes is complete: nothing in it is redacted by accident", () => {
+    // Asserted on the real console output, after redaction: a field whose name contains "token"
+    // would otherwise be replaced by [REDACTED] and the operator would lose that information.
+    const written: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      written.push(String(args[0]));
+    });
+    env.geminiApiKey = "gemini-startup-key-123456";
+    env.openRouterApiKey = "sk-or-v1-startupkey000000000000000";
+    resetModelGatewayForTests();
+
+    getModelGateway();
+
+    const line = written.find((entry) => entry.includes("AI gateway ready"))!;
+    expect(line).toBeDefined();
+    expect(line).not.toContain("[REDACTED]");
+    expect(line).toContain('"contextWindow":32768'); // the OpenRouter model's declared context
+    expect(line).toContain('"contextWindow":1000000'); // Gemini's
+    expect(line).not.toContain("startup-key");
+    expect(line).not.toContain("startupkey");
   });
 
   it("OpenRouter alone is a valid configuration, and it becomes the default provider", () => {

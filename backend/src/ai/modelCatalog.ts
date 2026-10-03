@@ -204,7 +204,10 @@ export function parseCatalogJson(text: string): ModelEntry[] {
   return entries;
 }
 
-/** A readable, secret-free capability matrix row (status endpoints, logs, documentation). */
+/**
+ * A readable, secret-free capability matrix row (status and logs). The context size is named
+ * `contextWindow` on purpose: the logger redacts any key containing "token", which would hide it.
+ */
 export function describeEntry(entry: ModelEntry) {
   return {
     provider: entry.provider,
@@ -212,7 +215,7 @@ export function describeEntry(entry: ModelEntry) {
     enabled: entry.enabled,
     free: entry.free,
     priority: entry.priority,
-    contextTokens: entry.contextTokens,
+    contextWindow: entry.contextTokens,
     capabilities: CAPABILITIES.filter((capability) => entry.capabilities[capability]),
     imageMimeTypes: [...entry.imageMimeTypes],
   };

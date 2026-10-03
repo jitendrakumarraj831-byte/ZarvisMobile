@@ -137,6 +137,8 @@ describe("what a client sees when the gateway falls back or fails", () => {
 
   it("when every provider fails the stream ends with ONE structured error and nothing internal", async () => {
     stubProviders({ gemini: plannerOnly(geminiFail(429, quotaBody(DAILY))), openrouter: openRouterFail(503, `overloaded; key ${OPENROUTER_KEY}`) });
+    const warnings: Array<{ message: string; data: Record<string, any> }> = [];
+    vi.spyOn(logger, "warn").mockImplementation((message: string, data?: Record<string, unknown>) => void warnings.push({ message, data: (data ?? {}) as Record<string, any> }));
     const app = appWith({ openRouterModelCapabilities: "tools" });
     const token = await guestToken(app);
 
@@ -150,6 +152,14 @@ describe("what a client sees when the gateway falls back or fails", () => {
     expect(failure.error).toMatch(/temporarily unavailable/);
     expect(res.text).not.toMatch(/openrouter|generativelanguage|overloaded|kind|AI_PROVIDER/i);
     expect(res.text).not.toContain(OPENROUTER_KEY);
+
+    // The operator, unlike the client, gets everything: which provider, which kind, every attempt.
+    const stopped = warnings.find((line) => line.message === "Streaming turn stopped by the AI provider")!.data;
+    expect(stopped).toMatchObject({ code: "AI_UNAVAILABLE", kind: "AI_PROVIDER_UNAVAILABLE", provider: "openrouter", turnId: failure.turnId });
+    expect(stopped.attempts.map((attempt: { provider: string; kind: string }) => [attempt.provider, attempt.kind])).toEqual([
+      ["google", "AI_PROVIDER_QUOTA_EXCEEDED"],
+      ["openrouter", "AI_PROVIDER_UNAVAILABLE"],
+    ]);
   });
 
   it("a rejected provider key reaches a client only as 'temporarily unavailable', never as an auth problem or a key", async () => {

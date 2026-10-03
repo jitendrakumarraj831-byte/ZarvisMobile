@@ -503,6 +503,27 @@ describe("ModelGateway: one logical call, one log line, no secrets", () => {
     });
   });
 
+  it("the lines a real server writes keep every useful field: nothing is redacted by accident", async () => {
+    // Asserted on the real console output (after redaction). A log field whose NAME contains a
+    // sensitive word ("token", "pin", ...) would be silently replaced and an operator would lose it.
+    stubProviders({ gemini: geminiFail(429, quotaBody(DAILY)), openrouter: openRouterText("ok") });
+    const written: string[] = [];
+    for (const method of ["log", "warn", "error"] as const) {
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+        written.push(String(args[0]));
+      });
+    }
+
+    await withModelCallLog([], () => gatewayFor().generate(chatRequest()));
+
+    const output = written.join("\n");
+    expect(output).toContain("AI call");
+    expect(output).not.toContain("[REDACTED]");
+    for (const expected of ['"fallbackReason":"GEMINI_QUOTA_EXCEEDED"', '"provider":"openrouter"', '"retryCount":0', '"providerHttpRequests":2', '"finalStatus":"success"', '"latencyMs"', '"modelCallId"', '"attempts"']) {
+      expect(output, expected).toContain(expected);
+    }
+  });
+
   it("a failed call logs the final status and error kind, and no key reaches the real log output", async () => {
     stubProviders({
       gemini: geminiFail(403, JSON.stringify({ error: { message: `API key not valid: ${GEMINI_KEY}` } })),
