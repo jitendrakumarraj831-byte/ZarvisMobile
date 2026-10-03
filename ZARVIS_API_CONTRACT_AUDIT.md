@@ -19,7 +19,7 @@ for other origins; a per-IP ceiling of 600/min on `/api/v1`; errors are
 
 | Method | Path | Auth | Route limit | Request | Response | Streaming | Web | Android |
 |---|---|---|---|---|---|---|---|---|
-| GET | `/health` | none | 600/min/IP | — | `{status, provider, database}`; 503 when the DB is unusable | no | yes | no |
+| GET | `/health` | none | 600/min/IP | — | `{status, provider, database}` plus `aiFallback: true` only while a fallback AI provider is active; `provider` is `google`, `openrouter`, `mock` or `none`; 503 when the DB is unusable | no | yes | no |
 | POST | `/api/v1/auth/guest` | none | 60/h/IP | — | `{accessToken, refreshToken, isGuest}` | no | yes | yes |
 | POST | `/api/v1/auth/signup` | none | 60/h/IP | `{email, password}` | tokens | no | — | yes |
 | POST | `/api/v1/auth/login` | none | 20/15 min/IP | `{email, password}` | tokens; 401 `invalid_credentials` | no | yes | yes |
@@ -88,3 +88,17 @@ Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/gi
 | O2 | `/billing/webhook` is client-called, not a Play RTDN webhook | needs Play Billing integration |
 | O4 | Android sends no `clientTurnId` | Android has no Retry action, so every send is a new message by the user; add it when Retry is added |
 | O5 | SSE has no heartbeat while a long model call runs | progress events are sent at every real stage; idle proxies have not been observed to cut a turn. Watch the Vercel logs |
+
+## AI Model Gateway additions (additive; no existing field, code or status changed)
+
+- Every response carries `X-Request-Id` (a random id; the same id is on the server's AI log lines).
+  The web client is same-origin and does not read it.
+- `/health` may add `aiFallback: true`. `provider` may now be `openrouter` when Gemini is not
+  configured; the web client's Settings and Metrics pages show it truthfully.
+- AI failures keep their wire codes `AI_QUOTA_EXCEEDED` (429), `AI_RATE_LIMITED` (429) and
+  `AI_UNAVAILABLE` (503) with the same body shape. New internal causes (a timeout, a network failure,
+  a rejected provider key, no model able to serve the request) are reported as `AI_UNAVAILABLE`:
+  before this change a timeout or network failure was an unstructured 500 / "request could not be
+  completed". A non-daily quota (a spent credit balance) says "the current AI usage limit", not
+  "today". No provider, model, fallback or error-kind field is ever sent to a client.
+- Android is unchanged and still decodes these bodies (`ignoreUnknownKeys`).

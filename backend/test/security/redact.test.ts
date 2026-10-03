@@ -58,6 +58,13 @@ describe("redact: by value (a secret inside a string under an innocent key)", ()
     expect(redactString("model gemini-3.6-flash answered in 120ms")).toBe("model gemini-3.6-flash answered in 120ms");
   });
 
+  it("does not mistake an ordinary hyphenated identifier for a key", () => {
+    const text = "task-force-and-the-long-tail-of-a-hyphenated-identifier, risk-assessment-for-the-quarterly-review-meeting, disk-usage-report-for-the-current-partition";
+    expect(redactString(text)).toBe(text);
+    // ...while a real key at the start of a token is still caught, even after punctuation.
+    expect(redactString(`(sk-or-v1-${"ab12".repeat(10)})`)).toBe("([REDACTED])");
+  });
+
   it("scrubs the secrets this process was configured with, whatever shape they have", () => {
     registerSecret("my-unusual-credential-9f8e7d");
     expect(redactString("provider echoed my-unusual-credential-9f8e7d twice: my-unusual-credential-9f8e7d")).toBe("provider echoed [REDACTED] twice: [REDACTED]");

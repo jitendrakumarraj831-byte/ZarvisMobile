@@ -28,3 +28,21 @@ OTP, banking and authentication alerts are not spoken by default.
 ## Truthful privacy UX
 
 Every permission request should explain why access is needed, what access/data is involved, what ZARVIS will not do automatically, and how the user can revoke access.
+
+## AI providers (third parties)
+
+ZARVIS sends conversation content to an AI provider to answer. Gemini (Google) is the primary
+provider. When the optional fallback is configured, a request that Gemini cannot serve for a
+temporary reason (rate limit, exhausted quota, outage, timeout) may be sent to OpenRouter and to the
+upstream model provider OpenRouter routes it to. Free models may be operated by providers that log
+or train on prompts; the OpenRouter account's data-policy settings decide which providers may
+receive a request.
+
+- The fallback is off unless `OPENROUTER_API_KEY` is set, and `AI_FALLBACK_PROVIDER=none` switches it
+  off explicitly.
+- A fallback is never silent internally (the server log names the provider and the reason), but the
+  user interface does not currently tell the user which model answered.
+- Text to speech and web search are never sent to OpenRouter.
+- Provider keys never leave the server and never appear in a log (see SECURITY.md).
+- Operators must update the product's public privacy notice to name every AI provider in use before
+  enabling a fallback in production.

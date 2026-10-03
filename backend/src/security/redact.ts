@@ -17,9 +17,11 @@ const REDACTED = "[REDACTED]";
 
 /** Shapes of credentials we never want in a log line, wherever they appear. */
 const SECRET_VALUE_PATTERNS: readonly RegExp[] = [
-  /sk-or-v1-[A-Za-z0-9]{16,}/g, // OpenRouter
-  /sk-[A-Za-z0-9_-]{20,}/g, // OpenAI-style
-  /AIza[0-9A-Za-z_-]{30,}/g, // Google API key
+  // The left boundary matters: without it "task-force-and-the-long-tail-of-a-hyphenated-id" would
+  // look like a key.
+  /(?<![\w-])sk-or-v1-[A-Za-z0-9]{16,}/g, // OpenRouter
+  /(?<![\w-])sk-[A-Za-z0-9_-]{20,}/g, // OpenAI-style
+  /(?<![\w-])AIza[0-9A-Za-z_-]{30,}/g, // Google API key
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, // an Authorization header value
   /\bgh[pousr]_[A-Za-z0-9]{20,}/g, // GitHub tokens
   /github_pat_[A-Za-z0-9_]{20,}/g,

@@ -27,7 +27,10 @@ Express app  backend/src/server.ts
   ├─ orchestrator  ─▶ Orchestrator.runTurn ─▶ turn ledger (clientTurnId)
   │                    ├─ greeting / creator-identity fast paths (no model call)
   │                    └─ agent loop ≤ 5 steps:
-  │                         GeminiProvider.generate ─▶ Gemini generateContent
+  │                         ModelGateway.generate ─▶ GeminiProvider ─▶ Gemini generateContent
+  │                                   │  (one fallback hop on a temporary failure, only to a model
+  │                                   └──  that declares what the request needs)
+  │                                      OpenRouterProvider ─▶ OpenRouter chat/completions
   │                         ToolPipeline.execute    ─▶ skill handler
   │                              registry → validate → permission → entitlement
   │                              → confirmation (server-issued) → execute → verify → charge
@@ -108,7 +111,8 @@ Retrofit endpoint and every web `apiFetch` path is a served route with the same 
 
 | # | Caller | Provider | Credential (env) | Timeout | Retry | Failure → client | Status |
 |---|---|---|---|---|---|---|---|
-| E1 | `GeminiProvider.generate/streamGenerate` | Gemini `generateContent` | `GEMINI_API_KEY` (header `x-goog-api-key`) | per request | `ai/geminiErrors.ts`: daily quota 0 retries; per-minute 1 retry if wait ≤8 s; 5xx 2 retries + backoff/jitter, then fallback model; other 4xx none | `AIProviderError` → SSE `error` / JSON 429/503 with `type`, `retryable`, `retryAfterMs`, `quotaType` | CONNECTED: live on the preview, the smoke test's model-backed turn was answered by Gemini (`scripts/live-smoke.mjs`; before this branch the smoke's only turn, "Hi", never reached Gemini). Production with no key fails closed (`UnavailableAIProvider`). Fallback-model switches are logged with their `modelCallId` |
+| E0 | `ModelGateway` (`ai/modelGateway.ts`) | chooses Gemini or OpenRouter per request | — | per attempt | one fallback hop, bounded retries, quota cooldown (see AI_MODEL_GATEWAY.md) | `AIProviderError` (structured kind internally; wire codes unchanged) | CONNECTED in code and tests; OpenRouter itself NOT verified against the live API (blocked in the build environment) |
+| E1 | `GeminiProvider.generate/streamGenerate` (behind the gateway) | Gemini `generateContent` | `GEMINI_API_KEY` (header `x-goog-api-key`) | per request | `ai/geminiErrors.ts`: daily quota 0 retries; per-minute 1 retry if wait ≤8 s; 5xx 2 retries + backoff/jitter, then fallback model; other 4xx none | `AIProviderError` → SSE `error` / JSON 429/503 with `type`, `retryable`, `retryAfterMs`, `quotaType` | CONNECTED: live on the preview, the smoke test's model-backed turn was answered by Gemini (`scripts/live-smoke.mjs`; before this branch the smoke's only turn, "Hi", never reached Gemini). Production with no key fails closed (`UnavailableAIProvider`). Fallback-model switches are logged with their `modelCallId` |
 | E2 | `GeminiSearchProvider` | Gemini + `google_search` grounding | `GEMINI_API_KEY` | per request | same policy | `execution_failed` (`ai_quota_exceeded`, `ai_rate_limited`, `search_provider_unavailable`); never fake sources in production | CONNECTED: one execution per request verified live; a *completed* live search is pending (the first live run met the per-minute limit, see readiness §5) |
 | E3 | `GeminiTtsProvider` | Gemini TTS models | `GEMINI_API_KEY`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | 120 s | same policy; candidate models | 429/503 with codes | CONNECTED: live on the preview, `/tts/synthesize` returned `audio/wav` |
 | E4 | `documents.ts` image analysis | Gemini vision | `GEMINI_API_KEY` | 60 s | same policy | 503 when no key; 429 on quota | CONNECTED |
@@ -116,6 +120,7 @@ Retrofit endpoint and every web `apiFetch` path is a served route with the same 
 | E6 | `PostgresStore` | Postgres (Neon in production) | `POSTGRES_URL`/`DATABASE_URL`, `POSTGRES_CA_CERT`, `POSTGRES_SSL_MODE` | pool defaults; health 5 s | schema init retried | `/health` code; route 500 with safe code; schema setup serialised with account deletion (advisory lock) | CONNECTED (live `/health` `database: ok`; live sign-up, login and account deletion) |
 | E7 | `playBillingVerifier.ts` | Google Play Developer API | `PLAY_BILLING_SERVICE_ACCOUNT_JSON`, `PLAY_BILLING_PACKAGE_NAME` | — | none | fails closed in production when unset | PARTIAL (no client) |
 | E8 | — | Anthropic / OpenAI | — | — | — | no such provider exists; the unused `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` reads were removed | n/a (removed) |
+| E9 | `OpenRouterProvider` (behind the gateway) | OpenRouter OpenAI-compatible `chat/completions` | `OPENROUTER_API_KEY` (header `Authorization: Bearer`), `OPENROUTER_BASE_URL` | `OPENROUTER_TIMEOUT_MS` (60 s) | shared policy: daily quota / 402 none; per-minute once if wait ≤ 8 s; 5xx and network failures ≤ 2 | `AIProviderError`; never a raw provider body | CODE + stubbed-HTTP tests only: **NOT VERIFIED live** |
 
 ## 6. Gemini requests per user turn
 
@@ -145,8 +150,19 @@ Correlation ids, all in the one `Turn finished` log line per request:
 - `toolCallId`: one per tool execution (`toolCalls`; `reused: true` when a Retry reused it).
 - Gemini `responseId`s.
 
-`aiCalls` and `aiHttpRequests` total every Gemini call the request caused; `turnEconomy.test.ts`
-checks them against the real HTTP requests.
+`aiCalls` and `aiHttpRequests` total every provider call the request caused; `turnEconomy.test.ts`
+checks them against the real HTTP requests. With the gateway, a fallback attempt is a second record
+under the same `modelCallId` (`provider`, `fallback`, `fallbackReason`), the turn line adds
+`aiLogicalCalls`, `aiProviders`, `aiFallbackCalls` and `chargedCredits`, and each gateway call writes
+its own `AI call` line carrying `requestId`, `turnId` and `clientTurnId`.
+
+| Turn | Provider requests with the gateway |
+|---|---|
+| Any turn in §6, healthy Gemini | unchanged: the same counts, all Gemini, none to OpenRouter |
+| Planner step, Gemini refuses (daily quota), fallback model declares `tools` | 1 Gemini + 1 OpenRouter for that step; later steps go straight to OpenRouter during the quota cooldown |
+| Same, fallback model does not declare `tools` (the default) | 1 Gemini; the honest quota error; **0** OpenRouter |
+| Generation skill (poem, summary, ...), Gemini refuses | 1 Gemini + 1 OpenRouter inside the one skill execution; one charge |
+| Both providers fail for a skill | no charge; the turn ends with the honest error |
 
 ## 7. Streaming state machine (web)
 

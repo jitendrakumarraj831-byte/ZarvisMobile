@@ -44,6 +44,7 @@ Memory when appropriate
 - ToolPipeline executes authorized operations.
 - Android remains the authority for Android permissions.
 - Verification determines actual outcome.
+- AI providers sit behind the AI Model Gateway ([AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md)); nothing else names a vendor, a model or a key.
 - Shared logic belongs in shared Brain/services.
 - Web and Android adapters handle platform-specific APIs.
 

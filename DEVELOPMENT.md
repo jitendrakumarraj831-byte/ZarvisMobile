@@ -40,8 +40,14 @@ environment that must work, including Preview:
 | `JWT_SECRET` | yes | The API refuses to start. `/health` → 500 `jwt_secret_missing_or_invalid`; every API call → 500. |
 | `POSTGRES_URL` (or `DATABASE_URL`) | yes on Vercel | An in-memory store per serverless instance; sessions are lost between requests. `/health` → `database: not_configured`. |
 | `POSTGRES_CA_CERT` or `POSTGRES_SSL_MODE=no-verify` | when the database's TLS certificate is not publicly trusted (for example a provider's own CA) | Certificate verification is on by default, so every query fails. `/health` → 503 `database: tls_certificate_untrusted`; guest sign-in → 500. |
-| `GEMINI_API_KEY` | for real AI, TTS and image analysis | AI features fail closed with honest errors; image upload → 503 `image_analysis_unavailable`. |
+| `GEMINI_API_KEY` | for real AI, TTS, image analysis and web search | Without it (and without OpenRouter) AI features fail closed with honest errors; image upload → 503 `image_analysis_unavailable`. |
+| `OPENROUTER_API_KEY` | optional: the AI fallback (and the only AI if there is no Gemini key) | No fallback; ZARVIS runs on Gemini alone. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) for `OPENROUTER_MODEL`, `OPENROUTER_MODEL_CAPABILITIES`, `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER` and the rest. |
 | `INTEGRATION_ENCRYPTION_KEY` | for GitHub connections in production | GitHub connection is reported unavailable. |
+
+Set the AI variables in **Production and Preview**, then redeploy (a changed variable applies to new
+deployments only). `/health` shows `provider` and, while a fallback provider is active,
+`aiFallback: true`; a present-but-invalid AI setting makes it answer 500 `ai_provider_config_invalid`
+(the function log names the variable). Local `.env` files are git-ignored.
 
 Check a deployment with `GET /health`. It never returns secrets; `database` is one of `ok`,
 `not_configured`, `tls_certificate_untrusted`, `auth_failed`, `unreachable`,

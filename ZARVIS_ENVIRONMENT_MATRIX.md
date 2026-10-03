@@ -25,6 +25,13 @@ Legend: **Req** = required for that environment to work; **Preview** = Vercel Pr
 | `GEMINI_MODEL` | chat model (default `gemini-3.6-flash`; the retired `gemini-2.5-flash` is remapped) | `env.ts` | default | unknown (default if unset) | NOT VERIFIED | no | OK |
 | `GEMINI_TTS_MODEL` | TTS model (default `gemini-3.8-flash-lite-tts`) | `env.ts` | default | unknown | NOT VERIFIED | no | OK |
 | `GEMINI_TTS_VOICE` | default voice (`Kore`) | `env.ts` | default | unknown | NOT VERIFIED | no | OK |
+| `OPENROUTER_API_KEY` | OpenRouter: the AI fallback provider (and the only provider when there is no Gemini key) | `providerFactory.ts` → `OpenRouterProvider` | unset | NOT VERIFIED (set it in Preview to test) | NOT VERIFIED | no; absent = Gemini only | **NOT VERIFIED** (OpenRouter was not reachable from the build environment) |
+| `OPENROUTER_BASE_URL` | OpenRouter API address; https only (http for localhost) | `config/aiConfig.ts` | default `https://openrouter.ai/api/v1` | default | default | no | OK (validated at startup) |
+| `OPENROUTER_MODEL` | model sent to OpenRouter (default `openrouter/free`) | `config/aiConfig.ts` | default | default | default | no | OK |
+| `OPENROUTER_MODEL_CAPABILITIES` | what that model can do beyond text/streaming: `tools`, `vision`, `structuredOutput`, `coding`, `reasoning`. Nothing is assumed | `config/aiConfig.ts` | unset | unset | unset | **set `tools` for the planner to fall back** | OK (a safe default; documented) |
+| `OPENROUTER_MODEL_CONTEXT_TOKENS`, `OPENROUTER_TIMEOUT_MS` | declared context window (32768); time to response headers (60 s) | `config/aiConfig.ts` | default | default | default | no | OK |
+| `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER` | `gemini` / `openrouter` / `none`; defaults: gemini primary, the other provider as fallback | `config/aiConfig.ts` | unset | unset | unset | no | OK (an invalid value stops startup: `/health` 500 `ai_provider_config_invalid`) |
+| `AI_QUOTA_COOLDOWN_MS`, `AI_MODEL_CATALOG_JSON` | quota cooldown (5 min); a JSON description of several models | `config/aiConfig.ts` | unset | unset | unset | no | OK |
 | `INTEGRATION_ENCRYPTION_KEY` | AES-256-GCM key (base64, 32 bytes) for stored per-user GitHub tokens | `container.ts` `SecretBox.fromEnv` | dev derivation from JWT secret | unknown | NOT VERIFIED | **yes** for the Developer Agent in production (GitHub connect reported unavailable otherwise) | NOT VERIFIED |
 | `GITHUB_API_BASE_URL` | GitHub REST base (tests point it at a stub) | `env.ts` | `http://localhost:3200` in E2E | unset (default) | unset (default) | no | OK |
 | `CORS_ORIGINS` | allowed browser origins for cross-origin calls | `security/cors.ts` | localhost list | default list | NOT VERIFIED | no (web is same-origin) | OK |
@@ -34,6 +41,9 @@ Legend: **Req** = required for that environment to work; **Preview** = Vercel Pr
 | `PUBLIC_APP_URL` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
 | `ANTHROPIC_API_KEY` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
 | `OPENAI_API_KEY` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
+
+Every AI key is server-side only. Local `.env` files (including a `.env.local` from `vercel env pull`
+at the repo root) are git-ignored; only `backend/.env.example` (placeholders) is tracked.
 
 No backend variable is read by the browser bundle: the web client is plain static files with no
 build step, and `grep` finds no `process.env` in `web/`. Nothing server-only is exposed to the

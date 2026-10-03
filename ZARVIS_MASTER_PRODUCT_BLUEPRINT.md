@@ -100,6 +100,7 @@ ZARVIS must have one shared **ZARVIS Brain**.
 - confirmation requirements
 - verification
 - response generation
+- AI model/provider routing, capability checks and fallback (the AI Model Gateway, see [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md))
 - capability status
 - cross-device continuity
 
@@ -126,6 +127,27 @@ ZARVIS must have one shared **ZARVIS Brain**.
 - Android lifecycle/process recovery
 
 The client must never create a second independent AI brain.
+
+## 1.2 AI Model Gateway
+
+The Brain does not depend on one AI vendor. Every model call goes through one gateway that chooses
+a provider and model by what the request needs and by what each configured model *declares* it can
+do: text, streaming, tool calling, image input, structured output, long context, coding, reasoning.
+
+- No client, skill or agent names a vendor, a model or a key.
+- A model is never made to work by dropping tools or an image. A request nothing can serve fails
+  honestly.
+- A fallback to another provider happens only for a temporary, provider-side failure, once, and is
+  never silent internally.
+- A fallback never hides a real defect: rejected credentials, invalid requests, application errors
+  and cancelled turns do not fall back.
+- One user turn is one generation. A fallback is not a second generation, a second charge or a
+  second tool execution.
+- Web search keeps its real sources (Gemini with Google Search grounding) and voice keeps its own
+  provider; neither is ever answered by a model that did not do the work.
+
+Status: implemented for Gemini (primary) and OpenRouter (optional fallback). OpenRouter has not yet
+been verified against the live API.
 
 ---
 
@@ -803,6 +825,17 @@ OTP, banking and authentication alerts should not be spoken aloud by default.
 ---
 
 # 13. A→Z AGENT ROADMAP
+
+## Cross-cutting — AI Model Gateway (a provider-independent Brain)
+**Implemented:** one ModelGateway with Gemini (primary) and OpenRouter (optional fallback), declared
+per-model capabilities, one controlled fallback hop, structured errors, correlation ids and log
+redaction (see [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md)).
+
+**Planned (not built; must not be presented as working):** choosing the model in Settings → AI; a
+verified capability catalogue (probed or maintained) instead of operator declarations; a shared
+(database) quota and cooldown state across serverless instances; provider and model on the usage
+ledger; cost- and task-aware routing between models; telling the user, truthfully, when a fallback
+model answered; live verification of OpenRouter in Preview and Production.
 
 ## Phase 1 — Android Access + Permission Intelligence
 Permission, capability, risk, confirmation, revocation, lifecycle and verification foundation.
