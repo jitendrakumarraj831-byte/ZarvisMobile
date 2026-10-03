@@ -90,7 +90,7 @@ describe("POST /api/v1/documents/extract", () => {
       .post("/api/v1/documents/extract")
       .set("Authorization", `Bearer ${token}`)
       .attach("file", big, { filename: "huge.pdf", contentType: "application/pdf" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(413);
     expect(res.body.error).toBe("file_too_large");
   });
 

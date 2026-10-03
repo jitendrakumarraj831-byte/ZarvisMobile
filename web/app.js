@@ -86,6 +86,7 @@
       },
       unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
       imageUnavailable: { title: "Image analysis isn't available right now.", subtitle: "The server has no image model configured. Documents and text files still work." },
+      imageAiDown: { title: "Image analysis couldn't reach the AI service.", subtitle: "Your file is fine and nothing was charged. Please try again in a moment." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
       voiceUnsupported: { title: "Voice input isn't available in this browser.", subtitle: "Type your request instead, or open ZARVIS in Chrome." },
       micDenied: { title: "Microphone access is off.", subtitle: "Allow the microphone for this site in your browser settings, then tap the mic again." },
@@ -145,6 +146,7 @@
       },
       unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
       imageUnavailable: { title: "अभी इमेज एनालिसिस उपलब्ध नहीं है।", subtitle: "सर्वर पर इमेज मॉडल सेट नहीं है। डॉक्यूमेंट और टेक्स्ट फ़ाइलें काम करती हैं।" },
+      imageAiDown: { title: "इमेज एनालिसिस AI सेवा तक नहीं पहुँच सका।", subtitle: "आपकी फ़ाइल ठीक है और कोई शुल्क नहीं लगा। थोड़ी देर में फिर कोशिश करें।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
       voiceUnsupported: { title: "इस ब्राउज़र में वॉइस इनपुट उपलब्ध नहीं है।", subtitle: "टाइप करके पूछें, या ZARVIS को Chrome में खोलें।" },
       micDenied: { title: "माइक्रोफ़ोन की अनुमति बंद है।", subtitle: "ब्राउज़र सेटिंग्स में इस साइट के लिए माइक्रोफ़ोन चालू करें, फिर माइक दोबारा दबाएं।" },
@@ -3301,6 +3303,8 @@
     if (code === "document_too_long") return COPY[state.lang].oversizedFile;
     if (code === "empty_document") return COPY[state.lang].emptyFile;
     if (code === "image_analysis_unavailable") return COPY[state.lang].imageUnavailable;
+    if (code === "ai_unavailable") return COPY[state.lang].imageAiDown;
+    if (code === "file_too_large") return COPY[state.lang].oversizedFile;
     return COPY[state.lang].unreadableFile;
   }
 
