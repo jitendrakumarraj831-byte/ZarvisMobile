@@ -541,3 +541,12 @@ between serverless instances.
   honestly, once, and is not retried.
 - **No token streaming** to clients yet (unchanged): the gateway can stream, the orchestrator does
   not use it.
+- **Android sends no `clientTurnId`** (§1.2), so a request replayed at the HTTP level would run
+  again; the server-side replay protection in §1.5 covers clients that send the key (the web client).
+  Android's own guards (a new turn cancels the old one, OkHttp's silent retry is off, only GET/HEAD
+  or never-opened connections are retried) cover the known causes. Adding the key to the Android
+  request is a client change and was deliberately not made here.
+- **Timeouts bound the wait for response headers**, for Gemini (unchanged) and for OpenRouter
+  (`OPENROUTER_TIMEOUT_MS`). A response that sends its headers and then stalls mid-body is bounded
+  by the HTTP client's own body timeout (undici's default is 300 s) and by the function's maximum
+  duration, not by these settings.
