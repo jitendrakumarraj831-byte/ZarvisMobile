@@ -72,7 +72,11 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pzarvis.devApiHost=10.0.2.2 --stacktrace --console=plain
 
+      # Hard stop for boot + verify.sh. verify.sh keeps its own 40-minute budget below this, so it
+      # always prints its phase summary and diagnostics before the step limit could cut it off.
+      # (Normal run: API 30/34 about 6 minutes, API 26 about 15.)
       - name: Run on the emulator
+        timeout-minutes: 50
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
