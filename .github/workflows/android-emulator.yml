@@ -77,6 +77,9 @@ jobs:
       # (Normal run: API 30/34 about 6 minutes, API 26 about 15.)
       - name: Run on the emulator
         timeout-minutes: 50
+        # TEMPORARY (reverted in the next commit): reproduce the API 26 emulator loss in CI.
+        env:
+          ZARVIS_FAULT_INJECT: ${{ matrix.api-level == 26 && 'device-loss-before-D' || '' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
