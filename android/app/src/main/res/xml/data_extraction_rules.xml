@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ ignores android:allowBackup="false" for device-to-device transfer. Nothing of
+  ZARVIS may be copied anywhere: the session tokens are encrypted with an Android Keystore key
+  that never leaves this device, so a copied token store could not be decrypted on the new
+  phone, and conversation/reminder data is the user's private data. Same rules as
+  allowBackup="false" on Android 8–11.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

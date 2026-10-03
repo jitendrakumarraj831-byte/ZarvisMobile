@@ -1,6 +1,9 @@
 import type { SkillDefinition } from "../domain/types.js";
-import type { GitHubClient } from "../github/githubClient.js";
 import type { ContentGenerator } from "../ai/contentGenerator.js";
+import type { GitHubAccessService } from "../github/githubAccess.js";
+import { GitHubApiError, parseRepoUrl } from "../github/githubClient.js";
+import { SkillUserError } from "../tooling/toolPipeline.js";
+import { creatorIdentityForPrompt } from "../config/zarvisProfile.js";
 
 export const DEVELOPER_IMPLEMENT_SYSTEM_PROMPT = `
 You are ZARVIS Developer Agent. Analyze the supplied repository context and user requirement.
@@ -17,9 +20,45 @@ Rules:
 - Prefer small, targeted changes. Maximum 6 files and 60000 total output characters.
 - Preserve existing conventions.
 - If the context is insufficient for a safe implementation, return files: [] and explain why in summary.
+${creatorIdentityForPrompt()}
 `;
 
-export function createDeveloperImplementSkill(client: GitHubClient, generator: ContentGenerator): SkillDefinition {
+/**
+ * `developer.implement` — writes a branch and opens a pull request. Authorization:
+ * 1. the user must have connected their own GitHub account (no shared server token), and
+ * 2. GitHub must report that identity has push access to the repository, and
+ * 3. the ToolPipeline requires a server-issued confirmation for this exact repo + requirement.
+ * It never merges.
+ */
+async function checkWriteAccess(github: GitHubAccessService, repoUrl: string, accountId: string) {
+  try {
+    parseRepoUrl(repoUrl);
+  } catch (err) {
+    throw new SkillUserError("invalid_repo_url", err instanceof Error ? err.message : "Please provide a GitHub repository URL.");
+  }
+  const { client, login } = await github.clientFor(accountId);
+  if (!login) {
+    throw new SkillUserError(
+      "github_not_connected",
+      "Connect your own GitHub account in Developer settings first. ZARVIS only writes to repositories your GitHub account can push to.",
+    );
+  }
+  let access;
+  try {
+    access = await client.getRepoAccess(repoUrl);
+  } catch (err) {
+    if (err instanceof GitHubApiError && (err.status === 404 || err.status === 401 || err.status === 403)) {
+      throw new SkillUserError("repo_unavailable", `${login} can't access ${repoUrl}. No changes were made.`);
+    }
+    throw err;
+  }
+  if (!access.canPush) {
+    throw new SkillUserError("not_authorized", `GitHub reports that ${login} does not have write access to ${access.fullName}. No changes were made.`);
+  }
+  return { client, login, fullName: access.fullName };
+}
+
+export function createDeveloperImplementSkill(github: GitHubAccessService, generator: ContentGenerator): SkillDefinition {
   return {
     id: "developer.implement",
     name: "Implement Repository Change",
@@ -30,19 +69,29 @@ export function createDeveloperImplementSkill(client: GitHubClient, generator: C
     requiredEntitlement: "PRO",
     usageCost: { value: 10, unit: "credits" },
     riskLevel: "HIGH",
+    actionClass: "EXTERNAL_COMMUNICATION",
     requiresConfirmation: true,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["repoUrl", "requirement"], properties: { repoUrl: "string", requirement: "string" } },
-    handler: async (input) => {
+    prepare: async (input, context) => {
+      const { login, fullName } = await checkWriteAccess(github, String(input.values.repoUrl ?? "").trim(), context.accountId);
+      return {
+        kind: "ready",
+        description:
+          `As GitHub user ${login}, create a new branch in ${fullName}, commit AI-generated changes (at most 6 text files) ` +
+          `for: "${String(input.values.requirement ?? "").trim()}", and open a pull request for your review. Nothing is merged.`,
+      };
+    },
+    handler: async (input, context) => {
       const repoUrl = String(input.values.repoUrl ?? "").trim();
       const requirement = String(input.values.requirement ?? "").trim();
-      if (!repoUrl || !requirement) return { kind: "failure", reason: "missing_input", userMessage: "Repository URL and requirement are required." };
-      const context = await client.getImplementationContext(repoUrl);
-      const prompt = JSON.stringify({ requirement, repository: context }, null, 2);
-      const raw = await generator.generate(prompt);
+      // Re-checked at execution time: access can change between confirmation and approval.
+      const { client, login } = await checkWriteAccess(github, repoUrl, context.accountId);
+      const repoContext = await client.getImplementationContext(repoUrl);
+      const raw = await generator.generate(JSON.stringify({ requirement, repository: repoContext }, null, 2));
       let plan: { summary: string; steps: string[]; files: Array<{ path: string; content: string }>; tests: string[] };
       try {
-        const cleaned = raw.replace(/^\s*\`\`\`(?:json)?/i, "").replace(/\`\`\`\s*$/i, "").trim();
+        const cleaned = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
         plan = JSON.parse(cleaned);
       } catch {
         return { kind: "failure", reason: "invalid_agent_output", userMessage: "The coding agent returned an invalid change plan. No repository changes were made." };
@@ -51,7 +100,7 @@ export function createDeveloperImplementSkill(client: GitHubClient, generator: C
         f && typeof f.path === "string" && typeof f.content === "string" &&
         f.path.length > 0 && f.path.length < 220 &&
         !f.path.startsWith("/") && !f.path.includes("..") &&
-        !/(^|\/)(node_modules|dist|build|\.git|coverage)(\/|$)/i.test(f.path) &&
+        !/(^|\/)(node_modules|dist|build|\.git|\.github|coverage)(\/|$)/i.test(f.path) &&
         !/\.(png|jpe?g|gif|webp|zip|apk|aab|pdf)$/i.test(f.path)
       ).slice(0, 6) : [];
       const total = files.reduce((n, f) => n + Buffer.byteLength(f.content, "utf8"), 0);
@@ -60,12 +109,25 @@ export function createDeveloperImplementSkill(client: GitHubClient, generator: C
       const branch = `zarvis/agent-${Date.now()}`;
       await client.createImplementationBranch(repoUrl, branch);
       await client.applyImplementationFiles(repoUrl, branch, files, `feat(agent): ${requirement.slice(0, 72)}`);
-      const pr = await client.createPullRequest(
-        repoUrl, branch,
-        `ZARVIS Agent: ${requirement.slice(0, 72)}`,
-        `## ZARVIS Developer Agent\\n\\n${plan.summary}\\n\\n### Steps\\n${(plan.steps || []).map(s => `- ${s}`).join("\\n")}\\n\\n### Verification\\n${(plan.tests || []).map(s => `- ${s}`).join("\\n")}\\n\\nChanges were committed to **${branch}** for human review. ZARVIS does not auto-merge this PR.`,
-      );
-      return { kind: "success", output: { branch, pullRequest: pr, files: files.map(f => f.path), tests: plan.tests || [] }, summary: `Implemented ${files.length} file change(s) on ${branch} and opened PR #${pr.number}. Human review is required before merge.` };
+      const body = [
+        "## ZARVIS Developer Agent",
+        "",
+        plan.summary,
+        "",
+        "### Steps",
+        ...(plan.steps || []).map((s) => `- ${s}`),
+        "",
+        "### Suggested verification (not run by ZARVIS)",
+        ...(plan.tests || []).map((s) => `- ${s}`),
+        "",
+        `Changes were committed to **${branch}** by ${login} via ZARVIS for human review. ZARVIS does not merge this PR and has not run these tests.`,
+      ].join("\n");
+      const pr = await client.createPullRequest(repoUrl, branch, `ZARVIS Agent: ${requirement.slice(0, 72)}`, body);
+      return {
+        kind: "success",
+        output: { branch, pullRequest: pr, files: files.map((f) => f.path), suggestedTests: plan.tests || [] },
+        summary: `Committed ${files.length} file change(s) to ${branch} and opened PR #${pr.number} (${pr.url}). Tests were not run; human review is required before merge.`,
+      };
     },
   };
 }

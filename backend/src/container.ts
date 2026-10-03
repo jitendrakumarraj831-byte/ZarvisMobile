@@ -5,7 +5,10 @@ import { AuthService } from "./auth/authService.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
 import { FailClosedPlayBillingVerifier, GooglePlayBillingVerifier, MockPlayBillingVerifier } from "./billing/playBillingVerifier.js";
 import { env } from "./config/env.js";
-import { RequestFlagConfirmationPort } from "./security/confirmationPort.js";
+import { GitHubAccessService, type GitHubClientFactory } from "./github/githubAccess.js";
+import { RealGitHubClient } from "./github/githubClient.js";
+import { ServerConfirmationService } from "./security/confirmationService.js";
+import { SecretBox } from "./security/secretBox.js";
 import { buildSkillRegistry } from "./skills/index.js";
 import { InMemoryStore } from "./store/inMemoryStore.js";
 import { PostgresStore } from "./store/postgresStore.js";
@@ -22,38 +25,54 @@ function defaultStore(): Store {
   return env.databaseUrl ? new PostgresStore(env.databaseUrl) : new InMemoryStore();
 }
 
+export interface ContainerOptions {
+  /** Test seam: build GitHub clients without network access. Production uses RealGitHubClient. */
+  githubClientFactory?: GitHubClientFactory;
+}
+
 /**
  * Composition root — wires the Store, ports, ToolPipeline, and Orchestrator together once
- * at process startup. See ARCHITECTURE.md for what each piece does and why it's shaped
- * this way.
+ * at process startup.
  */
-export function buildContainer(store: Store = defaultStore()) {
-  const registry = buildSkillRegistry(store);
+export function buildContainer(store: Store = defaultStore(), options: ContainerOptions = {}) {
+  const secretBox = SecretBox.fromEnv(env.integrationEncryptionKey, env.jwtSecret, env.isProduction);
+  const githubAccess = new GitHubAccessService(
+    store,
+    secretBox,
+    options.githubClientFactory ?? ((token) => new RealGitHubClient(token, env.githubApiBaseUrl)),
+  );
+  const registry = buildSkillRegistry(store, githubAccess);
   const entitlementPort = new StoreEntitlementPort(store);
   const usagePort = new StoreUsagePort(store);
   const permissionPort = new StorePermissionPort(store);
-  const confirmationPort = new RequestFlagConfirmationPort();
+  const confirmationService = new ServerConfirmationService(store);
 
-  const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationPort);
+  const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationService);
   const provider = getProvider(defaultModelConfig);
-  const orchestrator = new Orchestrator(
-    registry,
-    entitlementPort,
-    pipeline,
-    provider,
-    defaultModelConfig,
-    store,
-  );
+  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider, defaultModelConfig, store);
   const authService = new AuthService(store);
   const taskService = new TaskService(store);
   const billingVerifier = env.playBillingServiceAccountJson
     ? new GooglePlayBillingVerifier(env.playBillingServiceAccountJson, env.playBillingPackageName)
-    : process.env.NODE_ENV === "production"
+    : env.isProduction
       ? new FailClosedPlayBillingVerifier()
       : new MockPlayBillingVerifier();
   const ttsProvider = env.geminiApiKey ? new GeminiTtsProvider(env.geminiApiKey, env.geminiTtsModel, env.geminiTtsVoice) : null;
 
-  return { store, registry, pipeline, orchestrator, authService, entitlementPort, usagePort, taskService, billingVerifier, ttsProvider };
+  return {
+    store,
+    registry,
+    pipeline,
+    orchestrator,
+    authService,
+    entitlementPort,
+    usagePort,
+    taskService,
+    billingVerifier,
+    ttsProvider,
+    confirmationService,
+    githubAccess,
+  };
 }
 
 export type Container = ReturnType<typeof buildContainer>;

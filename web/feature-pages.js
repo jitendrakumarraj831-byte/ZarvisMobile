@@ -55,7 +55,7 @@
       permissions: "Calls need the Phone permission. Looking up a contact by name also needs Contacts. Opening an app needs package visibility, not a runtime permission.",
       limits: ["These actions are Android-only.", "The website can show the commands. It cannot run them.", "Unsupported system controls are not presented as working buttons."],
       examples: ["Open WhatsApp", "Find Mom's number", "Call 9876543210"],
-      cta: "Continue on Android",
+      cta: "View device access",
       action: "phone",
       prompt: "Open WhatsApp",
       phoneActions: [
@@ -152,9 +152,9 @@
       why: "You can inspect a project from chat, and keep code changes behind a confirmation step.",
       how: ["Share a repository URL and ask for analysis.", "ZARVIS reports what it can see.", "A code change is a separate, confirmed action.", "Review the pull request before anything is merged."],
       canDo: ["Read-only repository analysis", "Confirmation required before implementation", "Pull request creation when that action is confirmed"],
-      start: "On Android, open the Developer screen and run Analyze. On the web, start in Chat with the repository URL. This page does not run a change by itself.",
+      start: "Open Developer Agent, paste a repository URL and run Analyze. Implement shows the exact pull request for your approval before anything is written.",
       permissions: "Implementation uses the protected developer workflow and your confirmation. Analysis does not change the repository.",
-      limits: ["The Android Developer screen in this build is read-only analysis.", "The public web client does not expose a separate implement button on this page.", "Nothing is merged automatically."],
+      limits: ["Implement needs a PRO plan and your own connected GitHub account.", "Nothing is merged automatically.", "The Android Developer screen is read-only analysis."],
       examples: ["Analyze this repository and tell me what needs fixing: ", "What is the build system of this repo?"],
       cta: "Open Developer Agent",
       action: "developer",
@@ -181,6 +181,47 @@
     },
   ];
 
+  const ICONS = {
+    workspace: "i-chat", voice: "i-mic", phone: "i-phone", research: "i-globe", documents: "i-file",
+    creative: "i-pen", business: "i-briefcase", developer: "i-code", tasks: "i-task",
+  };
+
+  /* Capabilities hub: grouped, one line per capability, each with an honest status and the
+     real action that uses it. Actions are handled by app.js through data attributes:
+       data-cap-action = chat | voice | attach | developer | settings | feature
+       data-cap-prompt = text placed in the composer (chat)
+       data-feature-page = detail page id */
+  const GROUPS = [
+    { title: "AI", items: [
+      { icon: "i-chat", name: "Conversation", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["Available", "ok"], action: ["chat", "Open"], feature: "workspace" },
+      { icon: "i-globe", name: "Web search", desc: "Live, sourced results when the provider can ground them.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
+      { icon: "i-search", name: "Research writing", desc: "Compare, report and outline — labelled when not from a live source.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
+    ] },
+    { title: "Voice", items: [
+      { icon: "i-mic", name: "Voice input", desc: "Tap the orb or microphone to speak. No wake word.", status: ["Available", "ok"], action: ["voice", "Talk"], feature: "voice" },
+      { icon: "i-wave", name: "Spoken replies", desc: "ZARVIS reads replies aloud with a natural voice.", status: ["Available", "ok"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
+    ] },
+    { title: "Vision", items: [
+      { icon: "i-image", name: "Image understanding", desc: "Attach a photo or screenshot and ask about it.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-sparkle", name: "Image generation", desc: "Creating images isn't part of this version.", status: ["Not available", "off"] },
+    ] },
+    { title: "Files", items: [
+      { icon: "i-file", name: "Document summaries", desc: "PDF, DOCX and text files — summarize or ask questions.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
+    ] },
+    { title: "Automation", items: [
+      { icon: "i-task", name: "Tracked tasks", desc: "Break a goal into steps and track its status in Activity.", status: ["Status only", "info"], action: ["chat", "Create"], prompt: "Create a workflow for this goal and break it into clear steps: ", feature: "tasks" },
+      { icon: "i-phone", name: "Phone Agent", desc: "Open apps, find contacts and place confirmed calls.", status: ["Android app", "info"], action: ["feature", "Details"], feature: "phone" },
+    ] },
+    { title: "Developer", items: [
+      { icon: "i-code", name: "Repository analysis", desc: "A read-only report on a GitHub repository.", status: ["Available", "ok"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-github", name: "Pull requests", desc: "Implement a change after you approve the exact action.", status: ["PRO · approval", "warn"], action: ["developer", "Open"], feature: "developer" },
+    ] },
+    { title: "Productivity", items: [
+      { icon: "i-pen", name: "Writing", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["Available", "ok"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
+      { icon: "i-briefcase", name: "Business drafts", desc: "Customer replies, social posts and invoice drafts. Never sent.", status: ["Draft only", "ok"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
+    ] },
+  ];
+
   function badgeClass(kind) {
     if (kind === "permission") return "feature-badge feature-badge-permission";
     if (kind === "android") return "feature-badge feature-badge-android";
@@ -196,113 +237,127 @@
     return node;
   }
 
-  const HUB_GROUPS = [
-    ["AI & Conversation", ["workspace", "voice"]],
-    ["Work & Productivity", ["research", "documents", "tasks"]],
-    ["Phone & Device", ["phone"]],
-    ["Creative", ["creative"]],
-    ["Developer", ["developer"]],
-    ["Business", ["business"]],
-  ];
+  function icon(id, extra) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "ico" + (extra ? " " + extra : ""));
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#" + id);
+    svg.appendChild(use);
+    return svg;
+  }
+
+  const TONES = ["tone-blue", "tone-violet", "tone-cyan", "tone-pink"];
 
   function renderHub(container) {
     container.replaceChildren();
-    const byId = new Map(CATALOG.map((feature) => [feature.id, feature]));
-    for (const [category, ids] of HUB_GROUPS) {
-      const features = ids.map((id) => byId.get(id)).filter(Boolean);
-      if (!features.length) continue;
-      container.appendChild(el("h3", "capability-group-label", category));
-      const grid = el("div", "feature-hub-grid");
-      for (const feature of features) {
-        const card = el("article", "z-card z-card-capability feature-hub-card");
-        const top = el("div", "feature-hub-top");
-        top.appendChild(el("h4", "feature-hub-title", feature.title));
-        top.appendChild(el("span", badgeClass(feature.kind), feature.availability));
-        card.appendChild(top);
-        card.appendChild(el("p", "feature-hub-summary", feature.summary));
-        const open = el("button", "zarvis-btn zarvis-btn-secondary feature-open-btn", feature.kind === "android" ? "Android" : "Open");
-        open.type = "button";
-        open.dataset.featurePage = feature.id;
-        card.appendChild(open);
-        grid.appendChild(card);
-      }
-      container.appendChild(grid);
-    }
+    GROUPS.forEach((group, groupIndex) => {
+      const section = el("section", "cap-group");
+      const head = el("div", "cap-group-head");
+      head.appendChild(el("h2", "section-title", group.title));
+      section.appendChild(head);
+      const grid = el("div", "cap-grid");
+      group.items.forEach((item, index) => {
+        const row = el("article", "cap-item" + (item.status[1] === "off" ? " is-off" : ""));
+        row.style.animationDelay = Math.min(index * 40 + groupIndex * 20, 240) + "ms";
+        const ico = el("span", "row-ico " + TONES[groupIndex % TONES.length]);
+        ico.appendChild(icon(item.icon));
+        // The name/description opens the detail page when there is one.
+        const copy = el(item.feature ? "button" : "div", "cap-copy");
+        if (item.feature) {
+          copy.type = "button";
+          copy.dataset.capAction = "feature";
+          copy.dataset.featurePage = item.feature;
+          copy.setAttribute("aria-label", item.name + " — details");
+        }
+        const name = el("span", "cap-name");
+        name.appendChild(el("span", null, item.name));
+        // "Available" is the default; only notable states get a badge.
+        if (item.status[0] !== "Available") name.appendChild(el("span", "z-badge z-badge-" + item.status[1], item.status[0]));
+        copy.append(name, el("span", "cap-desc", item.desc));
+        row.append(ico, copy);
+        if (item.action) {
+          const btn = el("button", "cap-action", item.action[1]);
+          btn.type = "button";
+          btn.dataset.capAction = item.action[0];
+          if (item.prompt) btn.dataset.capPrompt = item.prompt;
+          if (item.feature) btn.dataset.featurePage = item.feature;
+          if (item.settings) btn.dataset.capSettings = item.settings;
+          btn.setAttribute("aria-label", item.action[1] + " — " + item.name);
+          row.appendChild(btn);
+        }
+        grid.appendChild(row);
+      });
+      section.appendChild(grid);
+      container.appendChild(section);
+    });
   }
 
   function renderDetail(container, id, handlers) {
     const feature = CATALOG.find((item) => item.id === id);
     container.replaceChildren();
+    const page = el("div", "feature-page");
+    container.appendChild(page);
+    const back = el("button", "icon-btn", "");
+    back.type = "button";
+    back.setAttribute("aria-label", "Back to Capabilities");
+    back.appendChild(icon("i-left"));
+    back.addEventListener("click", handlers.onBack);
+    page.appendChild(back);
     if (!feature) {
-      container.appendChild(el("p", "task-empty", "That capability is not available."));
+      page.appendChild(el("p", "task-empty", "That capability is not available."));
       return;
     }
 
-    const back = el("button", "back-btn", "");
-    back.type = "button";
-    back.setAttribute("aria-label", "Back to Capabilities");
-    back.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>';
-    back.addEventListener("click", handlers.onBack);
-    container.appendChild(back);
-
-    const head = el("div", "z-card z-card-hero page-hero feature-hero");
+    const head = el("header", "feature-hero");
+    const ico = el("span", "row-ico tone-blue");
+    ico.appendChild(icon(ICONS[feature.id] || "i-sparkle"));
     const titles = el("div", "feature-hero-copy");
     titles.appendChild(el("p", "feature-kicker", feature.category));
-    titles.appendChild(el("h2", "feature-title", feature.title));
+    titles.appendChild(el("h1", "feature-title", feature.title));
     titles.appendChild(el("p", "feature-summary", feature.summary));
     const badge = el("span", badgeClass(feature.kind), feature.availability);
-    head.append(titles, badge);
-    container.appendChild(head);
+    titles.appendChild(badge);
+    head.append(ico, titles);
+    page.appendChild(head);
 
-    if (feature.canDo.length) container.appendChild(capabilityCards("What you can do", feature.canDo));
-    if (feature.phoneActions) container.appendChild(phoneCards(feature.phoneActions));
-    container.appendChild(section("What it does", feature.what));
-    container.appendChild(prompts(feature, handlers));
-    container.appendChild(steps("How it works", feature.how));
-    container.appendChild(section("How to start", feature.start));
-    const info = el("div", "home-grid");
-    info.appendChild(note("Permissions", feature.permissions));
-    info.appendChild(listSection("Limitations", feature.limits));
-    container.appendChild(info);
-
-    const cta = el("button", "zarvis-btn zarvis-btn-primary feature-cta", feature.cta);
+    const ctaRow = el("div", "feature-cta-row");
+    const cta = el("button", "btn btn-primary feature-cta", feature.cta);
     cta.type = "button";
     cta.addEventListener("click", () => handlers.onPrimary(feature));
-    container.appendChild(cta);
+    ctaRow.appendChild(cta);
+    page.appendChild(ctaRow);
+
+    page.appendChild(section("What it does", feature.what));
+    if (feature.canDo.length) page.appendChild(listSection("What you can do", feature.canDo));
+    if (feature.phoneActions) page.appendChild(phoneList(feature.phoneActions));
+    page.appendChild(prompts(feature, handlers));
+    page.appendChild(steps("How it works", feature.how));
+    const cols = el("div", "feature-cols");
+    cols.appendChild(note("Permissions", feature.permissions));
+    cols.appendChild(listSection("Limitations", feature.limits, true));
+    page.appendChild(cols);
   }
 
   function section(title, body) {
     const block = el("section", "feature-block");
-    block.appendChild(el("h3", "feature-block-title", title));
+    block.appendChild(el("h2", "feature-block-title", title));
     block.appendChild(el("p", "feature-block-body", body));
     return block;
   }
 
-  function listSection(title, items) {
-    const block = el("section", "z-card z-card-insight feature-block");
-    block.appendChild(el("h3", "feature-block-title", title));
+  function listSection(title, items, asPanel) {
+    const block = el("section", asPanel ? "panel feature-block" : "feature-block");
+    block.appendChild(el("h2", "feature-block-title", title));
     const list = el("ul", "feature-list");
     for (const item of items) list.appendChild(el("li", null, item));
     block.appendChild(list);
     return block;
   }
 
-  function capabilityCards(title, items) {
-    const block = el("section", "feature-block");
-    block.appendChild(el("h3", "feature-block-title", title));
-    const grid = el("div", "feature-hub-grid");
-    for (const item of items) {
-      const card = el("article", "z-card z-card-capability");
-      card.appendChild(el("strong", "feature-hub-title", item));
-      grid.appendChild(card);
-    }
-    block.appendChild(grid);
-    return block;
-  }
-
   function steps(title, items) {
     const block = el("section", "feature-block");
-    block.appendChild(el("h3", "feature-block-title", title));
+    block.appendChild(el("h2", "feature-block-title", title));
     const list = el("ol", "feature-steps");
     for (const item of items) list.appendChild(el("li", null, item));
     block.appendChild(list);
@@ -310,26 +365,26 @@
   }
 
   function note(title, body) {
-    const block = el("section", "z-card z-card-insight feature-note");
-    block.appendChild(el("h3", "feature-block-title", title));
+    const block = el("section", "panel feature-block");
+    block.appendChild(el("h2", "feature-block-title", title));
     block.appendChild(el("p", "feature-block-body", body));
     return block;
   }
 
-  function phoneCards(actions) {
+  function phoneList(actions) {
     const block = el("section", "feature-block");
-    block.appendChild(el("h3", "feature-block-title", "Supported phone actions"));
-    const grid = el("div", "feature-hub-grid");
+    block.appendChild(el("h2", "feature-block-title", "Supported phone actions"));
+    const grid = el("div", "cap-grid");
     for (const action of actions) {
-      const card = el("article", "z-card z-card-capability feature-hub-card");
-      const top = el("div", "feature-hub-top");
-      top.appendChild(el("h4", "feature-hub-title", action.title));
-      top.appendChild(el("span", badgeClass(action.kind), action.availability));
-      card.appendChild(top);
-      card.appendChild(el("p", "feature-hub-summary", action.description));
-      card.appendChild(el("p", "feature-example", "Example: " + action.example));
-      card.appendChild(el("p", "feature-permission", action.permission));
-      grid.appendChild(card);
+      const row = el("article", "cap-item" + (action.kind === "unsupported" ? " is-off" : ""));
+      const copy = el("div", "cap-copy");
+      const name = el("div", "cap-name");
+      name.appendChild(el("span", null, action.title));
+      name.appendChild(el("span", badgeClass(action.kind), action.availability));
+      copy.append(name, el("p", "cap-desc", action.description + (action.example !== "—" ? " Example: “" + action.example + "”." : "")));
+      copy.appendChild(el("p", "cap-desc", action.permission));
+      row.appendChild(copy);
+      grid.appendChild(row);
     }
     block.appendChild(grid);
     return block;
@@ -337,10 +392,10 @@
 
   function prompts(feature, handlers) {
     const block = el("section", "feature-block");
-    block.appendChild(el("h3", "feature-block-title", "Example prompts"));
-    const row = el("div", "feature-prompts");
+    block.appendChild(el("h2", "feature-block-title", "Try asking"));
+    const row = el("div", "chip-row");
     for (const prompt of feature.examples) {
-      const button = el("button", "chip feature-prompt", prompt);
+      const button = el("button", "chip feature-prompt", prompt.trim());
       button.type = "button";
       button.addEventListener("click", () => handlers.onPrompt(feature, prompt));
       row.appendChild(button);
@@ -351,6 +406,7 @@
 
   window.ZarvisFeatures = {
     catalog: CATALOG,
+    groups: GROUPS,
     renderHub: renderHub,
     renderDetail: renderDetail,
   };

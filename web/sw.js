@@ -11,8 +11,8 @@
  * MASTER_SPEC.md Product Principle #4 forbids; a real network failure there should surface
  * as the honest error app.js already shows, not a stale cache hit.
  */
-const CACHE_NAME = "zarvis-shell-v4";
-const SHELL_FILES = ["/", "/index.html", "/app.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE_NAME = "zarvis-shell-v17";
+const SHELL_FILES = ["/", "/index.html", "/app.js", "/logic.js", "/feature-pages.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES)));
@@ -20,23 +20,30 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  // claim() inside waitUntil: called synchronously beside it, a page that loaded while the
+  // worker was still activating could stay uncontrolled (no offline fallback for that load).
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))),
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return; // third-party (e.g. fonts): browser handles it
   if (url.pathname.startsWith("/api/") || url.pathname === "/health") {
     return; // network-only — never intercept API calls, see the note above.
   }
-  // Prefer the live deployment for every shell request. JavaScript is fetched with
+  // Prefer the live deployment for every shell request. CSS and JavaScript are fetched with
   // cache:"no-store" so an old HTTP cache entry cannot win after a new deployment; the
   // current successful response is still copied into the service-worker cache for offline
   // fallback. The SW itself is registered with updateViaCache:"none" in app.js.
-  const isJavaScript = url.pathname === "/app.js";
-  const request = isJavaScript ? new Request(event.request, { cache: "no-store" }) : event.request;
+  // Navigation requests can't be re-constructed with options, so only scripts and styles
+  // are re-issued as no-store; navigations already go to the network first.
+  const isShellCode = event.request.mode !== "navigate" && /\.(js|css)$/.test(url.pathname);
+  const request = isShellCode ? new Request(event.request, { cache: "no-store" }) : event.request;
   event.respondWith(
     fetch(request)
       .then((response) => {

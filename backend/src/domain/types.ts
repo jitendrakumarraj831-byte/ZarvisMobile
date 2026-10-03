@@ -15,7 +15,12 @@ export type PermissionType =
   | "CALENDAR"
   | "LOCATION";
 
-export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
+/** Blueprint §10 risk classes. VERY_HIGH is reserved for security-sensitive capabilities. */
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH";
+
+/** Blueprint §17 action classes — see capabilities/registry.ts `policyRequiresConfirmation`. */
+export type { ActionClass } from "../capabilities/registry.js";
+import type { ActionClass } from "../capabilities/registry.js";
 
 export type EntitlementLevel = "FREE" | "TRIAL" | "PLUS" | "PRO" | "BUSINESS" | "ENTERPRISE";
 
@@ -54,14 +59,32 @@ export interface SkillInput {
 export interface SkillExecutionContext {
   accountId: string;
   taskId?: string;
+  /** Conversation the call belongs to, so a later approval can report back into it. */
+  conversationId?: string;
   locale?: string;
-  /** Set by the API layer when the client has already obtained user confirmation for this call. */
-  confirmed?: boolean;
+  /**
+   * Set ONLY by the confirmations route after it atomically consumed a server-issued,
+   * account-bound, single-use confirmation. The pipeline re-checks that the grant matches
+   * this exact skill and input before executing. A client can never set this directly.
+   */
+  confirmationGrant?: ConfirmationGrant;
+}
+
+export interface ConfirmationGrant {
+  confirmationId: string;
+  skillId: string;
+  inputHash: string;
+  /** The exact action text the user approved; the prepared action must still match it. */
+  action: string;
 }
 
 export type SkillResult =
   | { kind: "success"; output: Record<string, unknown>; summary: string }
   | { kind: "failure"; reason: string; userMessage: string };
+
+export type PreparedAction =
+  | { kind: "ready"; description: string }
+  | { kind: "failed"; failure: Extract<SkillResult, { kind: "failure" }> };
 
 export type SkillHandler = (input: SkillInput, context: SkillExecutionContext) => Promise<SkillResult>;
 
@@ -75,9 +98,21 @@ export interface SkillDefinition {
   requiredEntitlement: EntitlementLevel;
   usageCost: UsageCost;
   riskLevel: RiskLevel;
+  /** Blueprint §17 action class; drives the confirmation policy together with riskLevel. */
+  actionClass: ActionClass;
+  /** Phase 1 capability this skill uses, when it touches a device/platform capability. */
+  capabilityId?: string;
   requiresConfirmation: boolean;
   executesOnDevice: boolean;
   inputSchema: JsonSchema;
+  /** Human-readable description of exactly what this call will do, shown in confirmations. */
+  describeAction?: (input: SkillInput) => string;
+  /**
+   * Optional pre-confirmation check (mirrors Android's SkillPreparer): verifies preconditions
+   * (e.g. the user's GitHub identity can push) and returns the exact action to confirm, so a
+   * user is never asked to approve something that cannot run or is described inaccurately.
+   */
+  prepare?: (input: SkillInput, context: SkillExecutionContext) => Promise<PreparedAction>;
   handler: SkillHandler;
 }
 
@@ -112,9 +147,21 @@ export type ToolExecutionOutcome =
   | { kind: "validation_failed"; missingFields: string[] }
   | { kind: "permission_denied"; missing: PermissionType[] }
   | { kind: "entitlement_denied"; decision: Extract<EntitlementDecision, { allowed: false }> }
+  | { kind: "confirmation_required"; confirmation: PendingConfirmationView }
   | { kind: "confirmation_declined"; skillId: string }
   | { kind: "execution_failed"; result: Extract<SkillResult, { kind: "failure" }> }
   | { kind: "verification_failed"; skillId: string; reason: string };
+
+export interface PendingConfirmationView {
+  id: string;
+  skillId: string;
+  skillName: string;
+  /** Exactly what will happen if approved (skill.describeAction or a bounded input summary). */
+  action: string;
+  riskLevel: RiskLevel;
+  actionClass: ActionClass;
+  expiresAt: string;
+}
 
 export type TaskStatus = "PENDING" | "RUNNING" | "PAUSED" | "DONE" | "FAILED" | "CANCELLED";
 export type StepStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "SKIPPED";

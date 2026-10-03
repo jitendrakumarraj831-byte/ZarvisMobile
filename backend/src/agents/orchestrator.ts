@@ -1,17 +1,22 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
-import type { ConversationMessage as StoredConversationMessage, Store } from "../store/store.js";
+import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
+import { stableJson } from "../util/stableJson.js";
+import type { ConversationMessage as StoredConversationMessage, Store, TurnRecord } from "../store/store.js";
 import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { ToolPipeline } from "../tooling/toolPipeline.js";
-import { ZARVIS_ABOUT_RESPONSE_EN, ZARVIS_ABOUT_RESPONSE_HI, ZARVIS_CREATOR_RESPONSE_EN, ZARVIS_CREATOR_RESPONSE_HI } from "../config/zarvisProfile.js";
+import { classifyIdentityQuestion, creatorIdentityForPrompt, identityResponse } from "../config/zarvisProfile.js";
+import { abortError } from "../ai/geminiErrors.js";
+import { logger } from "../security/redact.js";
+import { withModelCallLog, type ModelCallRecord } from "../ai/callTrace.js";
 
 export interface TurnRequest {
   accountId: string;
   utterance: string;
-  confirmed?: boolean;
   locale?: string;
   /** Client-supplied display name; never an identity/auth claim. */
   userName?: string;
@@ -21,16 +26,98 @@ export interface TurnRequest {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   /** Durable server-side conversation id. */
   conversationId?: string;
+  /** Correlation id for this one user turn; generated when the caller has none. */
+  turnId?: string;
+  /**
+   * The client's idempotency key for this logical user turn, reused when it re-sends the same
+   * turn (Retry). A completed turn is replayed instead of executed again; see claimTurn.
+   */
+  clientTurnId?: string;
+  /** Aborted when the client goes away: no further model or tool call starts after that. */
+  signal?: AbortSignal;
+}
+
+export interface TurnToolCall {
+  /** Unique per execution, so a client can tell two real executions from one rendered twice. */
+  toolCallId: string;
+  skillId: string;
+  outcome: ToolExecutionOutcome;
+  /** Blueprint §10 structured result for the same outcome. */
+  result: StructuredToolResult;
 }
 
 export interface TurnResult {
   message: string;
-  toolCalls: Array<{ skillId: string; outcome: ToolExecutionOutcome }>;
+  toolCalls: TurnToolCall[];
   conversationId: string;
+  turnId: string;
+  /** True when this is the stored result of an already-completed turn: nothing was executed. */
+  replayed?: boolean;
+}
+
+/** The same logical turn (clientTurnId) is being executed by another request right now. */
+export class TurnInProgressError extends Error {
+  readonly code = "turn_in_progress";
+  constructor() {
+    super("This message is still being processed.");
+    this.name = "TurnInProgressError";
+  }
+}
+
+/** The client reused a clientTurnId for a different message (a client bug): nothing runs. */
+export class ClientTurnIdReusedError extends Error {
+  readonly code = "client_turn_id_reused";
+  constructor() {
+    super("This message id was already used for a different message.");
+    this.name = "ClientTurnIdReusedError";
+  }
+}
+
+/**
+ * A `running` turn record older than this belongs to a request that died (a killed serverless
+ * invocation, a crash): a retry may take it over. Longer than any bounded agent turn.
+ */
+const STALE_TURN_MS = 5 * 60 * 1000;
+
+/** Real progress of a turn, emitted only when the stage actually happens (no simulated steps). */
+export type TurnEvent =
+  | { type: "conversation"; conversationId: string }
+  | { type: "thinking"; step: number }
+  | { type: "tool_started"; skillId: string; toolCallId: string }
+  | { type: "tool_finished"; skillId: string; toolCallId: string; status: StructuredToolResult["status"] };
+
+interface TurnStats {
+  modelCalls: number;
+  providerHttpRequests: number;
+  providerResponseIds: string[];
+  servedModels: string[];
+  toolCalls: Array<{ toolCallId: string; skillId: string; reused?: boolean }>;
+  /** Successful executions of this attempt, by request key; kept if the turn fails. */
+  completedTools: Array<{ requestKey: string; call: TurnToolCall }>;
+}
+
+/** What a failed attempt leaves for its retry: the tool executions that already succeeded. */
+interface FailedAttemptResult {
+  completedTools?: Array<{ requestKey: string; call: TurnToolCall }>;
 }
 
 const MAX_AGENT_STEPS = 5;
 const MAX_TOOL_RESULT_CHARS = 8000;
+
+/**
+ * Failures of the service behind a skill (not of the user's input). Re-running the same skill
+ * in the same turn after one of these only repeats the failure — and, for an AI quota, spends
+ * more of it — so the turn does not do that.
+ */
+const INFRASTRUCTURE_FAILURES = new Set([
+  "handler_error",
+  "ai_quota_exceeded",
+  "ai_rate_limited",
+  "ai_provider_unavailable",
+  "search_provider_unavailable",
+]);
+/** After one of these no further model call can succeed in this turn either. */
+const TURN_ENDING_FAILURES = new Set(["ai_quota_exceeded", "ai_rate_limited"]);
 
 /**
  * ZARVIS Agent Core v1.
@@ -51,9 +138,101 @@ export class Orchestrator {
     private readonly store: Store,
   ) {}
 
-  async runTurn(request: TurnRequest): Promise<TurnResult> {
-    const conversation = request.conversationId
-      ? await this.store.getConversation(request.accountId, request.conversationId)
+  async runTurn(request: TurnRequest, onEvent: (event: TurnEvent) => void = () => {}): Promise<TurnResult> {
+    const turnId = request.turnId ?? randomUUID();
+    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], servedModels: [], toolCalls: [], completedTools: [] };
+    const startedAt = Date.now();
+    const { clientTurnId } = request;
+    let outcome = "error";
+    let previousAttempt: TurnRecord | undefined;
+    if (clientTurnId) {
+      const now = new Date();
+      const fingerprint = createHash("sha256").update(request.utterance.trim()).digest("hex");
+      const claim = await this.store.claimTurn(request.accountId, clientTurnId, fingerprint, now, new Date(now.getTime() - STALE_TURN_MS));
+      if (claim.kind === "conflict") {
+        logger.warn("clientTurnId reused for a different message", { turnId, clientTurnId });
+        throw new ClientTurnIdReusedError();
+      }
+      if (claim.kind === "in_progress") {
+        logger.info("Turn duplicate rejected while in progress", { turnId, clientTurnId });
+        throw new TurnInProgressError();
+      }
+      if (claim.kind === "completed") {
+        const stored = claim.record.result as TurnResult | undefined;
+        if (stored && typeof stored.message === "string") {
+          // A re-sent turn that already finished (e.g. its stream dropped after the server
+          // completed it): return what it produced. No model call, no tool, no charge.
+          logger.info("Turn replayed from its stored result", { turnId, clientTurnId, originalTurnId: stored.turnId });
+          onEvent({ type: "conversation", conversationId: stored.conversationId });
+          return { ...stored, replayed: true };
+        }
+      }
+      if (claim.kind === "claimed") previousAttempt = claim.previous;
+    }
+    const modelCallLog: ModelCallRecord[] = [];
+    try {
+      const result = await withModelCallLog(modelCallLog, () => this.executeTurn({ ...request, turnId }, onEvent, stats, previousAttempt));
+      outcome = "completed";
+      if (clientTurnId) await this.recordTurn(request.accountId, clientTurnId, { status: "completed", result });
+      return result;
+    } catch (error) {
+      outcome = error instanceof Error && error.name === "AbortError" ? "cancelled" : error instanceof Error ? error.name : "error";
+      // Keep what already succeeded, so the user's Retry reuses it instead of running (and
+      // charging) the same tool again.
+      if (clientTurnId) {
+        const kept: FailedAttemptResult = { completedTools: stats.completedTools };
+        await this.recordTurn(request.accountId, clientTurnId, { status: "failed", result: kept });
+      }
+      throw error;
+    } finally {
+      // One line per user turn: how much real work it caused. A single message producing two
+      // web.search executions or many provider requests is visible here.
+      logger.info("Turn finished", {
+        turnId,
+        clientTurnId,
+        retryOfFailedAttempt: previousAttempt !== undefined,
+        outcome,
+        durationMs: Date.now() - startedAt,
+        // Planner steps only; `aiCalls` below counts every provider call the turn caused,
+        // skills' own calls (search grounding, generation) included.
+        modelCalls: stats.modelCalls,
+        aiCalls: modelCallLog.length,
+        aiHttpRequests: modelCallLog.reduce((sum, call) => sum + call.httpRequests, 0),
+        aiCallLog: modelCallLog.slice(0, 20),
+        providerHttpRequests: stats.providerHttpRequests,
+        providerResponseIds: stats.providerResponseIds.slice(0, 10),
+        configuredModel: this.modelConfig.model,
+        servedModels: [...new Set(stats.servedModels)],
+        toolCalls: stats.toolCalls,
+      });
+    }
+  }
+
+  /** Turn bookkeeping must never replace the turn's real outcome with a storage error. */
+  private async recordTurn(
+    accountId: string,
+    clientTurnId: string,
+    patch: { status?: "completed" | "failed"; conversationId?: string; result?: unknown },
+  ): Promise<void> {
+    try {
+      await this.store.updateTurn(accountId, clientTurnId, patch, new Date());
+    } catch (err) {
+      logger.error("Could not record the turn's state", { clientTurnId, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  private async executeTurn(
+    request: TurnRequest & { turnId: string },
+    onEvent: (event: TurnEvent) => void,
+    stats: TurnStats,
+    previousAttempt?: TurnRecord,
+  ): Promise<TurnResult> {
+    const { turnId, signal } = request;
+    // A retry of a failed attempt continues in the conversation that attempt already wrote
+    // the user's message to, even if the client never learned its id.
+    const conversationId = previousAttempt?.conversationId ?? request.conversationId;
+    const conversation = conversationId
+      ? await this.store.getConversation(request.accountId, conversationId)
       : undefined;
     const activeConversation = conversation ?? await this.store.createConversation(
       request.accountId,
@@ -78,13 +257,26 @@ export class Orchestrator {
       persistedMessages.push(...seed);
     }
 
-    await this.store.appendConversationMessages([{
-      id: randomUUID(),
-      conversationId: activeConversation.id,
-      role: "user",
-      content: request.utterance.trim().slice(0, 12000),
-      createdAt: new Date(),
-    }]);
+    onEvent({ type: "conversation", conversationId: activeConversation.id });
+    // The failed attempt being retried already stored this message: store it once.
+    const userMessageStored = previousAttempt?.conversationId === activeConversation.id;
+    if (userMessageStored) {
+      // History is read before the current message is added below; drop the stored copy so
+      // the model sees this message once, as the current one.
+      const last = persistedMessages[persistedMessages.length - 1];
+      if (last?.role === "user" && last.content === request.utterance.trim().slice(0, 12000)) persistedMessages.pop();
+    } else {
+      await this.store.appendConversationMessages([{
+        id: randomUUID(),
+        conversationId: activeConversation.id,
+        role: "user",
+        content: request.utterance.trim().slice(0, 12000),
+        createdAt: new Date(),
+      }]);
+      if (request.clientTurnId) {
+        await this.recordTurn(request.accountId, request.clientTurnId, { conversationId: activeConversation.id });
+      }
+    }
 
     // Greetings are conversational turns, not agent tasks. Do not expose the tool catalogue
     // to the model for a simple greeting: otherwise a model can incorrectly reuse a previous
@@ -93,13 +285,13 @@ export class Orchestrator {
     const greeting = getSimpleGreetingResponse(request.utterance, request.locale);
     if (greeting) {
       await this.persistAssistantMessage(activeConversation.id, greeting);
-      return { message: greeting, toolCalls: [], conversationId: activeConversation.id };
+      return { message: greeting, toolCalls: [], conversationId: activeConversation.id, turnId };
     }
 
     const profileResponse = getZarvisProfileResponse(request.utterance, request.locale);
     if (profileResponse) {
       await this.persistAssistantMessage(activeConversation.id, profileResponse);
-      return { message: profileResponse, toolCalls: [], conversationId: activeConversation.id };
+      return { message: profileResponse, toolCalls: [], conversationId: activeConversation.id, turnId };
     }
 
     const snapshot = await this.entitlementPort.snapshot(request.accountId);
@@ -123,12 +315,19 @@ export class Orchestrator {
     const context: SkillExecutionContext = {
       accountId: request.accountId,
       taskId: undefined,
+      conversationId: activeConversation.id,
       locale: request.locale ?? "en",
-      confirmed: request.confirmed,
     };
 
-    const results: Array<{ skillId: string; outcome: ToolExecutionOutcome }> = [];
+    const results: TurnToolCall[] = [];
     const executedToolRequests = new Set<string>();
+    /** Successful executions of the failed attempt being retried, reused for the same request. */
+    const reusable = new Map(
+      ((previousAttempt?.result as FailedAttemptResult | undefined)?.completedTools ?? []).map((entry) => [entry.requestKey, entry.call] as const),
+    );
+    /** Skills whose service already failed in this turn; they are not run again. */
+    const failedSkills = new Set<string>();
+    const trace = { httpRequests: 0, responseIds: [] as string[], servedModels: stats.servedModels };
     const messages: ConversationMessage[] = [
       ...persistedMessages.map((message) => ({
         role: message.role === "tool" ? "user" as const : message.role,
@@ -138,19 +337,32 @@ export class Orchestrator {
     ];
 
     for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
-      const aiResponse = await this.provider.generate({
-        systemPrompt: buildSystemPrompt(request, step, results.length > 0),
-        messages,
-        tools,
-        modelConfig: this.modelConfig,
-      });
+      if (signal?.aborted) throw abortError();
+      onEvent({ type: "thinking", step: step + 1 });
+      stats.modelCalls += 1;
+      let aiResponse;
+      try {
+        aiResponse = await this.provider.generate({
+          modelCallId: randomUUID(),
+          purpose: "planner",
+          systemPrompt: buildSystemPrompt(request, step, results.length > 0),
+          messages,
+          tools,
+          modelConfig: this.modelConfig,
+          signal,
+          trace,
+        });
+      } finally {
+        stats.providerHttpRequests = trace.httpRequests;
+        stats.providerResponseIds = trace.responseIds;
+      }
 
       const toolCalls = aiResponse.toolCalls ?? [];
       if (toolCalls.length === 0) {
         const message = aiResponse.message.content?.trim();
         if (message) {
           await this.persistAssistantMessage(activeConversation.id, message);
-          return { message, toolCalls: results, conversationId: activeConversation.id };
+          return { message, toolCalls: results, conversationId: activeConversation.id, turnId };
         }
         const fallbackMessage = results.length > 0
           ? results.map((r) => explainOutcome(r.outcome)).join("\n")
@@ -160,6 +372,7 @@ export class Orchestrator {
           message: fallbackMessage,
           toolCalls: results,
           conversationId: activeConversation.id,
+          turnId,
         };
       }
 
@@ -175,16 +388,57 @@ export class Orchestrator {
         // A later step may still call the same skill with different arguments.
         const requestKey = call.skillId + ":" + stableJson(call.input);
         if (executedToolRequests.has(requestKey)) continue;
+        // A reworded retry of a skill whose service just failed (e.g. a second web search
+        // after the first hit a quota) would fail the same way: skip it.
+        if (failedSkills.has(call.skillId)) continue;
         executedToolRequests.add(requestKey);
+        if (signal?.aborted) throw abortError();
 
-        const toolCall: ToolCall = {
-          id: randomUUID(),
-          skillId: call.skillId,
-          input: { values: call.input },
-        };
-        const outcome = await this.pipeline.execute(toolCall, context);
-        results.push({ skillId: call.skillId, outcome });
+        const previous = reusable.get(requestKey);
+        let outcome: ToolExecutionOutcome;
+        if (previous) {
+          // The failed attempt already ran this exact request successfully (and charged it):
+          // use that result. Same toolCallId, because it is the same execution.
+          outcome = previous.outcome;
+          stats.toolCalls.push({ toolCallId: previous.toolCallId, skillId: call.skillId, reused: true });
+          results.push(previous);
+          stats.completedTools.push({ requestKey, call: previous });
+          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: previous.toolCallId, status: previous.result.status });
+        } else {
+          const toolCall: ToolCall = {
+            id: randomUUID(),
+            skillId: call.skillId,
+            input: { values: call.input },
+          };
+          stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
+          onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
+          outcome = await this.pipeline.execute(toolCall, context);
+          const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
+          const executed = { toolCallId: toolCall.id, skillId: call.skillId, outcome, result };
+          results.push(executed);
+          if (outcome.kind === "success") stats.completedTools.push({ requestKey, call: executed });
+          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status });
+        }
         executedAny = true;
+
+        if (outcome.kind === "execution_failed" && INFRASTRUCTURE_FAILURES.has(outcome.result.reason)) {
+          failedSkills.add(call.skillId);
+          if (TURN_ENDING_FAILURES.has(outcome.result.reason)) {
+            // The AI service is out of quota: another model call in this turn would fail the
+            // same way. End honestly with what actually happened.
+            const message = results.map((r) => explainOutcome(r.outcome)).join("\n");
+            await this.persistAssistantMessage(activeConversation.id, message);
+            return { message, toolCalls: results, conversationId: activeConversation.id, turnId };
+          }
+        }
+
+        // A pending confirmation ends the turn: nothing else runs until the user approves or
+        // declines that exact action, and the model gets no chance to re-plan around it.
+        if (outcome.kind === "confirmation_required") {
+          const message = results.map((r) => explainOutcome(r.outcome)).join("\n");
+          await this.persistAssistantMessage(activeConversation.id, message);
+          return { message, toolCalls: results, conversationId: activeConversation.id, turnId };
+        }
 
         messages.push({
           role: "tool",
@@ -206,6 +460,7 @@ export class Orchestrator {
           message: fallbackMessage,
           toolCalls: results,
           conversationId: activeConversation.id,
+          turnId,
         };
       }
     }
@@ -216,7 +471,7 @@ export class Orchestrator {
       ? results.map((r) => explainOutcome(r.outcome)).join("\n")
       : "I reached the maximum number of agent steps without completing the request.";
     await this.persistAssistantMessage(activeConversation.id, fallback);
-    return { message: fallback, toolCalls: results, conversationId: activeConversation.id };
+    return { message: fallback, toolCalls: results, conversationId: activeConversation.id, turnId };
   }
 
   private async persistAssistantMessage(conversationId: string, message: string): Promise<void> {
@@ -244,29 +499,12 @@ function shouldAnalyzeRepository(utterance: string): boolean {
   return repositoryTarget && analysisAction;
 }
 
+/** Identity questions (creator, owner, boss, where the creator is from, attempts to rewrite
+ * the creator) get the trusted answer from config/zarvisProfile.ts, never a model's guess. */
 function getZarvisProfileResponse(utterance: string, locale?: string): string | undefined {
-  const normalized = utterance.trim().toLocaleLowerCase();
-
-  // Creator questions are stable product facts. Cover common English/Hinglish/Hindi
-  // phrasings such as "who designed you?", "aapko kisne design kiya?", and
-  // "aapke creator kaun hain?" so these never fall through to a generic model answer.
-  const creatorQuestion =
-    /\b(who\s+(created|made|built|developed|designed)\s+(you|zarvis)|who(['’]?s| is)\s+your\s+(creator|developer|designer)|who\s+is\s+behind\s+zarvis|who\s+(made|developed|designed)\s+zarvis|your\s+(creator|developer|designer))\b/.test(normalized) ||
-    /\b(aapko|tumhe|tumhein|aapko)\s+(kisne|kis\s+ne)\s+(banaya|banai|design|designed|develop|developed|create|created|build|built)\b/.test(normalized) ||
-    /\b(aapke|apke)\s+(creator|developer|designer)\s+(kaun|kon|koun)\b/.test(normalized) ||
-    /किसने\s+(आपको|तुम्हें|जार्विस|ज़ार्विस|जारविस)\s*(बनाया|बनाई|बनाया है|डिज़ाइन|डिजाइन|डिजाइन किया|डेवलप|डेवलप किया|विकसित|विकसित किया|बनाया है)/.test(normalized) ||
-    /आपको\s+किसने\s+(बनाया|बनाया है|डिज़ाइन|डिजाइन|डिजाइन किया|डेवलप|डेवलप किया|विकसित|विकसित किया)/.test(normalized) ||
-    /आपके\s+(क्रिएटर|डेवलपर|डिज़ाइनर|डिजाइनर|निर्माता)\s+(कौन|कौन हैं|कौन है)/.test(normalized);
-
-  const aboutQuestion =
-    /\b(what\s+is\s+zarvis|tell\s+me\s+about\s+zarvis|about\s+zarvis|what\s+can\s+you\s+do|what\s+are\s+you)\b/.test(normalized) ||
-    /जार्विस\s*(क्या\s+है|के\s+बारे\s+में|क्या\s+कर\s+सकते)/.test(normalized) ||
-    /आप\s*(क्या\s+हैं|क्या\s+कर\s+सकते)/.test(normalized);
-
-  if (!creatorQuestion && !aboutQuestion) return undefined;
-  const replyLanguage = detectReplyLanguage(normalized, locale);
-  if (creatorQuestion) return replyLanguage === "hi" ? ZARVIS_CREATOR_RESPONSE_HI : ZARVIS_CREATOR_RESPONSE_EN;
-  return replyLanguage === "hi" ? ZARVIS_ABOUT_RESPONSE_HI : ZARVIS_ABOUT_RESPONSE_EN;
+  const kind = classifyIdentityQuestion(utterance);
+  if (!kind) return undefined;
+  return identityResponse(kind, detectReplyLanguage(utterance.trim().toLocaleLowerCase(), locale));
 }
 
 function detectReplyLanguage(utterance: string, locale?: string): "hi" | "en" {
@@ -306,7 +544,8 @@ function getSimpleGreetingResponse(utterance: string, locale?: string): string |
     : "Hi! 👋 I'm ZARVIS. How can I help you today?";
 }
 
-function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools: boolean): string {
+/** Exported for tests only. */
+export function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools: boolean): string {
   const replyLanguage = detectReplyLanguage(request.utterance, request.locale);
   let prompt =
     "You are ZARVIS, a general-purpose AI agent. Your job is to complete the user's goal, " +
@@ -320,6 +559,9 @@ function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools:
     "'kya haal hai', and 'kal ka weather kaisa rahega' should receive a natural Hindi/Hinglish " +
     "reply rather than an English-only reply. If the user mixes Hindi and English, preserve that " +
     "natural mix. Do not switch languages just because the browser locale is English.";
+
+  prompt += " " + creatorIdentityForPrompt();
+  prompt += " " + deviceCapabilitiesForPrompt();
 
   prompt +=
     ` Respond in ${replyLanguage === "hi" ? "Hindi/Hinglish" : "English"} based on the current user message. ` +
@@ -360,8 +602,10 @@ export function explainOutcome(outcome: ToolExecutionOutcome): string {
       return `This needs a permission that isn't granted yet: ${outcome.missing.join(", ")}.`;
     case "entitlement_denied":
       return explainEntitlementDenial(outcome.decision);
+    case "confirmation_required":
+      return `I need your confirmation before I do this: ${outcome.confirmation.action} — approve or decline it below. Nothing has been done yet.`;
     case "confirmation_declined":
-      return "This action needs your confirmation before I can proceed — please confirm and I'll go ahead.";
+      return "You declined this action, so it was not performed.";
     case "execution_failed":
       return outcome.result.userMessage;
     case "verification_failed":
@@ -380,17 +624,4 @@ function explainEntitlementDenial(
     case "OUT_OF_CREDITS":
       return "You're out of credits for this action right now.";
   }
-}
-
-/**
- * Compact deterministic serialization used only to detect an exact duplicate tool request.
- * Tool outcomes can contain Dates or nested objects, so this intentionally handles the small
- * JSON-compatible shapes used by the domain without depending on object identity.
- */
-function stableJson(value: unknown): string {
-  if (value === undefined) return "undefined";
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
-  if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
-  const record = value as Record<string, unknown>;
-  return "{" + Object.keys(record).sort().map((key) => JSON.stringify(key) + ":" + stableJson(record[key])).join(",") + "}";
 }

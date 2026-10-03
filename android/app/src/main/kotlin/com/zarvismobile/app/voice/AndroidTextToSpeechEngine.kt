@@ -7,12 +7,18 @@ import com.zarvismobile.core.common.voice.TextToSpeechEngine
 import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.TtsSynthesizeRequest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-/** Gemini is the only voice provider for Zarvis. There is no Android TTS fallback. */
+/**
+ * Gemini voice via the backend (POST /api/v1/tts/synthesize, which returns a playable WAV).
+ * If synthesis or playback fails the caller keeps the reply on screen as text — there is no
+ * silent switch to a different voice engine.
+ */
 class AndroidTextToSpeechEngine(
     context: Context,
     private val api: ZarvisApi,
@@ -20,23 +26,25 @@ class AndroidTextToSpeechEngine(
 ) : TextToSpeechEngine {
     private var activePlayer: MediaPlayer? = null
 
-    override suspend fun speak(text: String, locale: String) {
+    override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
         if (text.isBlank()) return
-        playGemini(text, preferences.ttsVoice.first())
+        playGemini(text, preferences.ttsVoice.first(), onPlaybackStarted)
     }
 
-    private suspend fun playGemini(text: String, voice: String) {
+    private suspend fun playGemini(text: String, voice: String, onPlaybackStarted: () -> Unit) {
         val response = api.synthesizeSpeech(TtsSynthesizeRequest(text, voice))
         if (!response.isSuccessful) {
             response.errorBody()?.close()
             throw IOException("Gemini TTS HTTP " + response.code())
         }
-        val bytes = response.body()?.use { it.bytes() }
+        // synthesizeSpeech is @Streaming: bytes() reads from the socket. The caller runs on the
+        // main thread (viewModelScope), where that throws NetworkOnMainThreadException.
+        val bytes = withContext(Dispatchers.IO) { response.body()?.use { it.bytes() } }
             ?: throw IOException("Gemini TTS returned empty audio")
-        playWav(bytes)
+        playWav(bytes, onPlaybackStarted)
     }
 
-    private suspend fun playWav(bytes: ByteArray) = suspendCancellableCoroutine<Unit> { continuation ->
+    private suspend fun playWav(bytes: ByteArray, onPlaybackStarted: () -> Unit) = suspendCancellableCoroutine<Unit> { continuation ->
         try {
             val player = MediaPlayer()
             activePlayer = player
@@ -54,6 +62,7 @@ class AndroidTextToSpeechEngine(
             }
             player.prepare()
             player.start()
+            onPlaybackStarted()
             continuation.invokeOnCancellation {
                 activePlayer = null
                 runCatching { player.stop() }

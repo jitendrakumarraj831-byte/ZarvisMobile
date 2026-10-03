@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Talking to the ZARVIS backend — see MASTER_SPEC.md §9. Not a runtime permission. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -7,7 +8,10 @@
     <!-- Voice input (MASTER_SPEC.md §11). Requested progressively, only when the user first taps the mic (§16). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Required by the personal.reminder skill on Android 13+ (SKILLS.md). -->
+    <!--
+      Reminders post a notification. Runtime permission on Android 13+ only; on Android 8–12
+      the app-level notification switch governs it (AndroidDeviceAccessPort handles both).
+    -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
@@ -22,10 +26,40 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
     <!--
-      Only permissions an already-shipped skill actually needs are declared here — see
-      MASTER_SPEC.md §16 "progressive permission requests." Additional permissions
-      (CAMERA, CALENDAR, LOCATION) are added when the Business/Research skills that need
-      them ship (see SKILLS.md "Current catalogue").
+      CALL_PHONE and RECORD_AUDIO imply telephony and microphone hardware as REQUIRED, which
+      makes Play hide the app on tablets/Chromebooks without a SIM or mic. Both are optional:
+      calls and voice are single skills, everything else (and typing) works without them.
+    -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- location.current: approximate location only, on request (never background/precise). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!--
+      usage.screen_time (capability usage_stats): granted only by the user on Android's
+      Settings > Usage access page (an app-op), never at install and never by a dialog.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+      Reminders fire on time only with an exact alarm. Granted by default on Android 12; on
+      Android 13+ the user allows it in Settings > Apps > Special app access > Alarms &
+      reminders. Without it reminders use a bounded 10-minute window (see
+      AndroidReminderAlarmPort). Not needed below Android 12.
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- alarm.set hands an alarm to the Clock app (AlarmClock.ACTION_SET_ALARM). Normal permission. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
+    <!--
+      Least privilege (blueprint §18): only permissions a shipped skill needs are declared.
+      Camera, files, photos, calendar and Bluetooth/Wi-Fi settings use system pickers/intents,
+      so CAMERA, storage/media, calendar and Bluetooth permissions are deliberately NOT declared.
+      Capability status for each lives in shared/capability-registry.json.
     -->
 
     <!--
@@ -39,15 +73,32 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!--
+          Spoken notifications use the phone's own text-to-speech engine. Since Android 11,
+          an app can only see and bind TTS engines it declares interest in here; without it
+          TextToSpeech finds no engine even when one is installed.
+        -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <!-- device.global_action verifies Home by comparing with the default launcher. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
     </queries>
 
     <application
         android:name=".ZarvisApplication"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Zarvis">
+        android:theme="@style/Theme.Zarvis"
+        tools:targetApi="31">
 
         <activity
             android:name=".MainActivity"
@@ -58,6 +109,58 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Assistant overlay (capability default_assistant). Handling ACTION_ASSIST is what lets
+          the user choose ZARVIS in Settings > Default apps > Digital assistant app; Android
+          starts it for the assist gesture. Own task, so it opens over the current app.
+        -->
+        <activity
+            android:name=".assist.AssistActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Zarvis.Assist"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Notification access (capabilities notification_read / notification_speak). Only the
+          system can bind it (BIND_NOTIFICATION_LISTENER_SERVICE), and only while the user has
+          granted Notification access in Android Settings.
+        -->
+        <service
+            android:name=".access.ZarvisNotificationListener"
+            android:exported="true"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Accessibility service (capabilities accessibility / screen_interaction). Only the
+          system can bind it (BIND_ACCESSIBILITY_SERVICE), and only while the user has turned it
+          on in Settings > Accessibility. It acts solely on confirmed ToolPipeline actions.
+        -->
+        <service
+            android:name=".access.ZarvisAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/zarvis_accessibility_service" />
+        </service>
 
         <!-- Fires when a personal.reminder alarm comes due (MASTER_SPEC.md §32). Not exported: only AlarmManager, from this app, ever sends it. -->
         <receiver

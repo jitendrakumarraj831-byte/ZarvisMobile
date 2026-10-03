@@ -2,26 +2,98 @@
   "version": 2,
   "headers": [
     {
-      "source": "/(app\\.js|sw\\.js|index\\.html)",
+      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|sw\\.js|index\\.html)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store, no-cache, max-age=0, must-revalidate" },
-        { "key": "CDN-Cache-Control", "value": "no-store" },
-        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, max-age=0, must-revalidate"
+        },
+        {
+          "key": "CDN-Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "Vercel-CDN-Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), geolocation=(), microphone=(self)"
+        }
       ]
     }
   ],
   "builds": [
-    { "src": "api/index.ts", "use": "@vercel/node" },
-    { "src": "web/**", "use": "@vercel/static" }
+    {
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "web/**",
+      "use": "@vercel/static"
+    }
   ],
   "routes": [
-    { "src": "^/$", "dest": "/web/index.html" },
-    { "src": "^/app\\.js$", "dest": "/web/app.js" },
-    { "src": "^/styles\\.css$", "dest": "/web/styles.css" },
-    { "src": "^/manifest\\.webmanifest$", "dest": "/web/manifest.webmanifest" },
-    { "src": "^/sw\\.js$", "dest": "/web/sw.js" },
-    { "src": "^/icons/(.*)$", "dest": "/web/icons/$1" },
-    { "src": "^/(api/.*|health)$", "dest": "/api/index.ts" },
-    { "src": "^/(.*)$", "dest": "/web/index.html" }
+    {
+      "src": "^/$",
+      "dest": "/web/index.html"
+    },
+    {
+      "src": "^/app\\.js$",
+      "dest": "/web/app.js"
+    },
+    {
+      "src": "^/logic\\.js$",
+      "dest": "/web/logic.js"
+    },
+    {
+      "src": "^/feature-pages\\.js$",
+      "dest": "/web/feature-pages.js"
+    },
+    {
+      "src": "^/styles\\.css$",
+      "dest": "/web/styles.css"
+    },
+    {
+      "src": "^/manifest\\.webmanifest$",
+      "dest": "/web/manifest.webmanifest"
+    },
+    {
+      "src": "^/sw\\.js$",
+      "dest": "/web/sw.js"
+    },
+    {
+      "src": "^/icons/(.*)$",
+      "dest": "/web/icons/$1"
+    },
+    {
+      "src": "^/(api/.*|health)$",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "^/(.*)$",
+      "dest": "/web/index.html"
+    }
   ]
 }

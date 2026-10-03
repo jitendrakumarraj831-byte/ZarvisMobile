@@ -1,9 +1,34 @@
 /**
  * GitHub integration boundary for the Developer Agent.
  *
- * Public repositories are analyzed without credentials. If GITHUB_TOKEN is configured,
- * it is also sent for private repositories and higher API rate limits.
+ * Authorization model: every request is made with the *calling user's own* GitHub token (if
+ * they connected one) or with no token at all (public repositories only). There is no shared
+ * server token for user requests, so a user can only read what their own GitHub identity can
+ * read and can only write where GitHub itself reports they have push access.
  */
+
+/** Thrown for GitHub API errors; `status` lets callers map to an honest user message. */
+export class GitHubApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GitHubApiError";
+  }
+}
+
+export interface RepoAccess {
+  fullName: string;
+  isPrivate: boolean;
+  defaultBranch: string;
+  canPush: boolean;
+}
+
+export interface GitHubUser {
+  login: string;
+  scopes: string;
+}
 export interface RepoStructure {
   repoUrl: string;
   primaryLanguage: string;
@@ -15,6 +40,10 @@ export interface RepoStructure {
 }
 
 export interface GitHubClient {
+  /** The authenticated user behind this client's token (fails for an anonymous client). */
+  getAuthenticatedUser(): Promise<GitHubUser>;
+  /** What this client's identity may do on the repository, as reported by GitHub. */
+  getRepoAccess(repoUrl: string): Promise<RepoAccess>;
   analyzeRepository(repoUrl: string): Promise<RepoStructure>;
   getImplementationContext(repoUrl: string, maxFiles?: number, maxBytes?: number): Promise<{
     repoUrl: string;
@@ -30,6 +59,8 @@ interface GitHubRepo {
   full_name: string;
   default_branch: string;
   language: string | null;
+  private?: boolean;
+  permissions?: { admin?: boolean; push?: boolean; pull?: boolean };
 }
 
 interface GitHubContent {
@@ -50,6 +81,27 @@ export class RealGitHubClient implements GitHubClient {
     private readonly token?: string,
     private readonly baseUrl = "https://api.github.com",
   ) {}
+
+  async getAuthenticatedUser(): Promise<GitHubUser> {
+    if (!this.token) throw new GitHubApiError(401, "No GitHub token");
+    const response = await fetch(`${this.baseUrl}/user`, { headers: this.headers() });
+    if (!response.ok) throw new GitHubApiError(response.status, `GitHub /user failed (${response.status})`);
+    const body = (await response.json()) as { login?: string };
+    if (!body.login) throw new GitHubApiError(502, "GitHub /user returned no login");
+    return { login: body.login, scopes: response.headers.get("x-oauth-scopes") ?? "" };
+  }
+
+  async getRepoAccess(repoUrl: string): Promise<RepoAccess> {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    const data = await this.request<GitHubRepo>(`/repos/${owner}/${repo}`);
+    return {
+      fullName: data.full_name,
+      isPrivate: data.private === true,
+      defaultBranch: data.default_branch,
+      // GitHub only includes `permissions` for an authenticated caller; absent means no push.
+      canPush: this.token !== undefined && data.permissions?.push === true,
+    };
+  }
 
   async analyzeRepository(repoUrl: string): Promise<RepoStructure> {
     const { owner, repo } = parseRepoUrl(repoUrl);
@@ -104,7 +156,7 @@ export class RealGitHubClient implements GitHubClient {
           `/repos/${owner}/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, "/")}?ref=${encodeURIComponent(repoData.default_branch)}`,
         );
         if (!data.content || data.encoding !== "base64") continue;
-        const content = Buffer.from(data.content.replace(/\\s/g, ""), "base64").toString("utf8");
+        const content = Buffer.from(data.content.replace(/\s/g, ""), "base64").toString("utf8");
         if (!content) continue;
         const remaining = maxBytes - total;
         const clipped = content.slice(0, remaining);
@@ -118,7 +170,7 @@ export class RealGitHubClient implements GitHubClient {
   }
 
   async createImplementationBranch(repoUrl: string, branch: string) {
-    if (!this.token) throw new Error("GITHUB_TOKEN is required for write-capable Developer Agent actions.");
+    if (!this.token) throw new GitHubApiError(401, "A connected GitHub account is required for write actions.");
     const { owner, repo } = parseRepoUrl(repoUrl);
     const repoData = await this.request<GitHubRepo & { default_branch: string }>(`/repos/${owner}/${repo}`);
     const ref = await this.request<{ object: { sha: string } }>(`/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(repoData.default_branch)}`);
@@ -127,11 +179,17 @@ export class RealGitHubClient implements GitHubClient {
   }
 
   async applyImplementationFiles(repoUrl: string, branch: string, files: Array<{ path: string; content: string }>, message: string) {
-    if (!this.token) throw new Error("GITHUB_TOKEN is required for write-capable Developer Agent actions.");
+    if (!this.token) throw new GitHubApiError(401, "A connected GitHub account is required for write actions.");
     const { owner, repo } = parseRepoUrl(repoUrl);
     const commitShas: string[] = [];
     for (const file of files) {
-      const encodedPath = file.path.split("/").map(encodeURIComponent).join("/");
+      // encodeURIComponent leaves "." and ".." intact and URL parsing resolves them, so such a
+      // segment would send this write (with the user's token) to a different GitHub endpoint.
+      const segments = file.path.split("/");
+      if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+        throw new GitHubApiError(422, `Refusing an unsafe repository path: ${JSON.stringify(file.path.slice(0, 120))}`);
+      }
+      const encodedPath = segments.map(encodeURIComponent).join("/");
       let existingSha: string | undefined;
       try {
         const existing = await this.request<{ sha: string }>(
@@ -139,7 +197,7 @@ export class RealGitHubClient implements GitHubClient {
         );
         existingSha = existing.sha;
       } catch (error) {
-        if (!String(error).includes("(404)")) throw error;
+        if (!(error instanceof GitHubApiError && error.status === 404)) throw error;
       }
       const payload: Record<string, unknown> = {
         message,
@@ -156,7 +214,7 @@ export class RealGitHubClient implements GitHubClient {
   }
 
   async createPullRequest(repoUrl: string, branch: string, title: string, body: string) {
-    if (!this.token) throw new Error("GITHUB_TOKEN is required for write-capable Developer Agent actions.");
+    if (!this.token) throw new GitHubApiError(401, "A connected GitHub account is required for write actions.");
     const { owner, repo } = parseRepoUrl(repoUrl);
     const pr = await this.requestRaw<{ number: number; html_url: string }>(
       `/repos/${owner}/${repo}/pulls`, "POST", { title, body, head: branch, base: (await this.request<GitHubRepo>(`/repos/${owner}/${repo}`)).default_branch },
@@ -164,14 +222,19 @@ export class RealGitHubClient implements GitHubClient {
     return { number: pr.number, url: pr.html_url };
   }
 
-  private async requestRaw<T>(path: string, method: string, body?: unknown): Promise<T> {
+  private headers(json = false): Record<string, string> {
     const headers: Record<string, string> = {
       accept: "application/vnd.github+json",
-      "content-type": "application/json",
       "user-agent": "ZarvisMobile-Developer-Agent",
       "x-github-api-version": "2022-11-28",
     };
+    if (json) headers["content-type"] = "application/json";
     if (this.token) headers.authorization = `Bearer ${this.token}`;
+    return headers;
+  }
+
+  private async requestRaw<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const headers = this.headers(true);
     const response = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers,
@@ -179,37 +242,48 @@ export class RealGitHubClient implements GitHubClient {
     });
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
-      throw new Error(`GitHub write failed (${response.status}) ${detail}`.trim());
+      throw new GitHubApiError(response.status, `GitHub write failed (${response.status}) ${detail.slice(0, 200)}`.trim());
     }
     return (await response.json()) as T;
   }
 
   private async request<T>(path: string): Promise<T> {
-    const headers: Record<string, string> = {
-      accept: "application/vnd.github+json",
-      "user-agent": "ZarvisMobile-Developer-Agent",
-      "x-github-api-version": "2022-11-28",
-    };
-    if (this.token) headers.authorization = `Bearer ${this.token}`;
-    const response = await fetch(`${this.baseUrl}${path}`, { headers });
+    const response = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       const hint =
         response.status === 404
-          ? "Repository not found or private without a valid GITHUB_TOKEN."
+          ? "Repository not found, or it is private and this GitHub identity cannot read it."
           : response.status === 403
             ? "GitHub API rate limit or permission denied."
             : "GitHub API request failed.";
-      throw new Error(`${hint} (${response.status}) ${detail}`.trim());
+      throw new GitHubApiError(response.status, `${hint} (${response.status}) ${detail.slice(0, 200)}`.trim());
     }
     return (await response.json()) as T;
   }
 }
 
 
-/** Deterministic in-memory GitHub client used by unit tests and local developer-agent checks. */
+/** Deterministic in-memory GitHub client used by unit tests. Never wired in production. */
 export class MockGitHubClient implements GitHubClient {
+  constructor(
+    private readonly options: { token?: string; login?: string; canPush?: boolean; missingRepos?: string[] } = {},
+  ) {}
+
+  async getAuthenticatedUser(): Promise<GitHubUser> {
+    if (!this.options.token) throw new GitHubApiError(401, "No GitHub token");
+    return { login: this.options.login ?? "mock-user", scopes: "repo" };
+  }
+
+  async getRepoAccess(repoUrl: string): Promise<RepoAccess> {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    if (this.options.missingRepos?.includes(`${owner}/${repo}`)) throw new GitHubApiError(404, "Not Found");
+    return { fullName: `${owner}/${repo}`, isPrivate: false, defaultBranch: "main", canPush: this.options.token !== undefined && this.options.canPush === true };
+  }
+
   async analyzeRepository(repoUrl: string): Promise<RepoStructure> {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    if (this.options.missingRepos?.includes(`${owner}/${repo}`)) throw new GitHubApiError(404, "Not Found");
     return {
       repoUrl,
       primaryLanguage: "Kotlin",
@@ -256,7 +330,7 @@ export class MockGitHubClient implements GitHubClient {
   }
 }
 
-function parseRepoUrl(value: string): { owner: string; repo: string } {
+export function parseRepoUrl(value: string): { owner: string; repo: string } {
   let url: URL;
   try { url = new URL(value); } catch { throw new Error("Please provide a valid GitHub repository URL."); }
   if (url.hostname !== "github.com" && url.hostname !== "www.github.com") {
@@ -264,7 +338,13 @@ function parseRepoUrl(value: string): { owner: string; repo: string } {
   }
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 2) throw new Error("GitHub URL must look like https://github.com/owner/repository.");
-  return { owner: parts[0]!, repo: parts[1]!.replace(/\.git$/, "") };
+  const owner = parts[0]!;
+  const repo = parts[1]!.replace(/\.git$/, "");
+  // Only characters GitHub allows in owner/repo names — keeps user input from altering API paths.
+  if (!/^[A-Za-z0-9-]{1,39}$/.test(owner) || !/^[A-Za-z0-9_.-]{1,100}$/.test(repo) || repo === "." || repo === "..") {
+    throw new Error("That doesn't look like a valid GitHub owner/repository name.");
+  }
+  return { owner, repo };
 }
 
 function detectBuildSystem(paths: string[], language: string): string {

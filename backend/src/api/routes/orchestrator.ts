@@ -1,38 +1,43 @@
-import { Router } from "express";
-import type { Orchestrator } from "../../agents/orchestrator.js";
+import { randomUUID } from "node:crypto";
+import { Router, type Response } from "express";
+import { AIProviderError, providerErrorPayload } from "../../ai/geminiErrors.js";
+import { ClientTurnIdReusedError, TurnInProgressError, type Orchestrator, type TurnEvent, type TurnRequest } from "../../agents/orchestrator.js";
+import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 
 /**
- * POST /api/v1/orchestrator/turn — one conversation turn. See AI_ARCHITECTURE.md and
- * MASTER_SPEC.md §25. Not streamed in this pass (the provider supports `streamGenerate`,
- * but the HTTP route uses the simpler non-streaming `generate` — see AI_ARCHITECTURE.md).
+ * POST /api/v1/orchestrator/turn — one conversation turn (JSON).
+ * POST /api/v1/orchestrator/turn-stream — the same turn as Server-Sent Events. Events are
+ * emitted only when the backend actually reaches that stage (conversation resolved, model
+ * step started, tool started/finished); the reply text is sent once when it exists. There is
+ * no simulated token-by-token drip.
+ *
+ * Both accept an optional `clientTurnId` (8–100 of [A-Za-z0-9_-]): the client's idempotency key
+ * for one logical user turn, reused when it re-sends that turn. A completed turn is answered
+ * from its stored result (`replayed: true`, nothing executed); a turn still running elsewhere
+ * gets `turn_in_progress` (409 / SSE error); a failed one runs again.
+ *
+ * Neither route accepts a client "confirmed" flag: higher-risk actions come back as
+ * `confirmation_required` with a server-issued confirmation id — see routes/confirmations.ts.
  */
 export function orchestratorRouter(orchestrator: Orchestrator): Router {
   const router = Router();
+  const turnLimit = rateLimit({ name: "orchestrator", windowMs: 60 * 1000, max: 30, keyBy: "account" });
 
   router.post(
     "/turn-stream",
     requireAuth,
+    turnLimit,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
-      const { utterance, confirmed, locale, userName, isFirstTurn, history, conversationId } = req.body ?? {};
-      if (typeof utterance !== "string" || !utterance.trim()) {
-        res.status(400).json({ error: "utterance is required" });
+      const request = parseTurnRequest(req);
+      if ("error" in request) {
+        res.status(400).json(request.error);
         return;
       }
-
-      const result = await orchestrator.runTurn({
-        accountId: req.auth!.accountId,
-        utterance,
-        confirmed: typeof confirmed === "boolean" ? confirmed : undefined,
-        locale: typeof locale === "string" ? locale : undefined,
-        userName: typeof userName === "string" && userName.trim() ? userName.trim().slice(0, 60) : undefined,
-        isFirstTurn: isFirstTurn === true,
-        history: sanitizeHistory(history),
-        conversationId: typeof conversationId === "string" && conversationId.trim()
-          ? conversationId.trim().slice(0, 100)
-          : undefined,
-      });
+      const turnId = randomUUID();
+      const cancel = abortOnClientGone(res);
 
       res.status(200);
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -42,49 +47,116 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
       res.flushHeaders?.();
 
       const send = (event: string, data: unknown) => {
-        res.write("event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n");
+        if (!res.destroyed) res.write("event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n");
       };
-      send("meta", { conversationId: result.conversationId });
-      const chunks = chunkForRealtimeDisplay(result.message);
-      for (const chunk of chunks) {
-        if (res.destroyed) return;
-        send("delta", { text: chunk });
-        await new Promise((resolve) => setTimeout(resolve, 12));
+      try {
+        const result = await orchestrator.runTurn({ ...request, turnId, signal: cancel.signal }, (event: TurnEvent) => {
+          if (event.type === "conversation") send("meta", { conversationId: event.conversationId, turnId });
+          else send("progress", event);
+        });
+        send("delta", { text: result.message });
+        send("done", {
+          message: result.message,
+          toolCalls: result.toolCalls,
+          conversationId: result.conversationId,
+          turnId: result.turnId,
+          ...(result.replayed ? { replayed: true } : {}),
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          // The client went away (Stop, a newer turn, a closed tab): nobody is listening.
+        } else if (err instanceof TurnInProgressError) {
+          send("error", { error: err.message, code: err.code, retryable: true, turnId });
+        } else if (err instanceof ClientTurnIdReusedError) {
+          send("error", { error: err.message, code: err.code, retryable: false, turnId });
+        } else if (err instanceof AIProviderError) {
+          logger.warn("Streaming turn stopped by the AI provider", { turnId, code: err.code, status: err.status, retryAfterMs: err.retryAfterMs });
+          send("error", { ...providerErrorPayload(err), turnId });
+        } else {
+          logger.error("Streaming turn failed", { turnId, error: err instanceof Error ? err.message : String(err) });
+          send("error", { error: "The request could not be completed.", retryable: true, turnId });
+        }
+      } finally {
+        cancel.dispose();
+        res.end();
       }
-      send("done", { message: result.message, toolCalls: result.toolCalls });
-      res.end();
     }),
   );
 
   router.post(
     "/turn",
     requireAuth,
+    turnLimit,
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
-      const { utterance, confirmed, locale, userName, isFirstTurn, history, conversationId } = req.body ?? {};
-      if (typeof utterance !== "string" || utterance.trim().length === 0) {
-        res.status(400).json({ error: "utterance is required" });
+      const request = parseTurnRequest(req);
+      if ("error" in request) {
+        res.status(400).json(request.error);
         return;
       }
-      const result = await orchestrator.runTurn({
-        accountId: req.auth!.accountId,
-        utterance,
-        confirmed: typeof confirmed === "boolean" ? confirmed : undefined,
-        locale: typeof locale === "string" ? locale : undefined,
-        // Client-supplied, not a trust boundary — see orchestrator.ts's TurnRequest.userName
-        // doc comment. Capped short so it can't be used to smuggle a large prompt injection
-        // into the system prompt under the guise of a "name".
-        userName: typeof userName === "string" && userName.trim() ? userName.trim().slice(0, 60) : undefined,
-        isFirstTurn: isFirstTurn === true,
-        history: sanitizeHistory(history),
-        conversationId: typeof conversationId === "string" && conversationId.trim()
-          ? conversationId.trim().slice(0, 100)
-          : undefined,
-      });
-      res.json(result);
+      const cancel = abortOnClientGone(res);
+      try {
+        res.json(await orchestrator.runTurn({ ...request, turnId: randomUUID(), signal: cancel.signal }));
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        if (err instanceof TurnInProgressError) {
+          res.status(409).json({ error: err.message, code: err.code, retryable: true });
+          return;
+        }
+        if (err instanceof ClientTurnIdReusedError) {
+          res.status(409).json({ error: err.message, code: err.code, retryable: false });
+          return;
+        }
+        if (err instanceof AIProviderError) {
+          res.status(err.code === "AI_UNAVAILABLE" ? 503 : 429).json(providerErrorPayload(err));
+          return;
+        }
+        throw err;
+      } finally {
+        cancel.dispose();
+      }
     }),
   );
 
   return router;
+}
+
+/**
+ * Aborts the turn when the client disconnects before the response finished, so a cancelled
+ * or superseded turn stops before its next model or tool call instead of running (and
+ * spending AI quota) for nobody.
+ */
+function abortOnClientGone(res: Response): { signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController();
+  const onClose = () => {
+    if (!res.writableFinished) controller.abort();
+  };
+  res.on("close", onClose);
+  return { signal: controller.signal, dispose: () => res.off("close", onClose) };
+}
+
+const CLIENT_TURN_ID = /^[A-Za-z0-9_-]{8,100}$/;
+
+function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { error: string; code: string } } {
+  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId } = req.body ?? {};
+  if (typeof utterance !== "string" || utterance.trim().length === 0) {
+    return { error: { error: "utterance is required", code: "invalid_request" } };
+  }
+  // A malformed key is refused rather than ignored: ignoring it would silently drop the
+  // duplicate-execution protection the client asked for.
+  if (clientTurnId !== undefined && clientTurnId !== null && (typeof clientTurnId !== "string" || !CLIENT_TURN_ID.test(clientTurnId))) {
+    return { error: { error: "clientTurnId must be 8-100 characters of A-Z, a-z, 0-9, _ or -", code: "invalid_client_turn_id" } };
+  }
+  return {
+    clientTurnId: typeof clientTurnId === "string" ? clientTurnId : undefined,
+    accountId: req.auth!.accountId,
+    utterance: utterance.slice(0, 70_000),
+    locale: typeof locale === "string" ? locale.slice(0, 16) : undefined,
+    // Client-supplied display label, never an identity claim; capped so it can't carry a large prompt.
+    userName: typeof userName === "string" && userName.trim() ? userName.trim().slice(0, 60) : undefined,
+    isFirstTurn: isFirstTurn === true,
+    history: sanitizeHistory(history),
+    conversationId: typeof conversationId === "string" && conversationId.trim() ? conversationId.trim().slice(0, 100) : undefined,
+  };
 }
 
 function sanitizeHistory(value: unknown): Array<{ role: "user" | "assistant"; content: string }> {
@@ -92,34 +164,11 @@ function sanitizeHistory(value: unknown): Array<{ role: "user" | "assistant"; co
   return value
     .filter((item): item is { role: string; content: string } =>
       !!item && typeof item === "object" &&
-      typeof (item as any).role === "string" &&
-      typeof (item as any).content === "string",
+      typeof (item as { role?: unknown }).role === "string" &&
+      typeof (item as { content?: unknown }).content === "string",
     )
     .filter((item) => item.role === "user" || item.role === "assistant")
-    .map((item) => ({
-      role: item.role as "user" | "assistant",
-      content: item.content.trim().slice(0, 1500),
-    }))
+    .map((item) => ({ role: item.role as "user" | "assistant", content: item.content.trim().slice(0, 1500) }))
     .filter((item) => item.content.length > 0)
     .slice(-12);
-}
-
-function chunkForRealtimeDisplay(text: string): string[] {
-  const normalized = text.trim();
-  if (!normalized) return [];
-  const sentences = normalized.match(/[^.!?。！？\n]+[.!?。！？\n]+|[^.!?。！？\n]+$/g) ?? [normalized];
-  const chunks: string[] = [];
-  for (const sentence of sentences) {
-    const words = sentence.split(/(\s+)/);
-    let current = "";
-    for (const word of words) {
-      if ((current + word).length > 90 && current.trim()) {
-        chunks.push(current);
-        current = "";
-      }
-      current += word;
-    }
-    if (current) chunks.push(current);
-  }
-  return chunks.filter(Boolean);
 }

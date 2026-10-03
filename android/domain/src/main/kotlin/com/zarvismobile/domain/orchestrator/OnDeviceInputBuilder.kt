@@ -2,6 +2,7 @@ package com.zarvismobile.domain.orchestrator
 
 import com.zarvismobile.domain.entity.SkillDefinition
 import com.zarvismobile.domain.entity.SkillInput
+import com.zarvismobile.domain.skill.SpecialAccessSkills
 
 /**
  * Builds the [SkillInput] for a skill [KeywordSkillMatcher] matched, from the raw utterance
@@ -19,10 +20,19 @@ import com.zarvismobile.domain.entity.SkillInput
 object OnDeviceInputBuilder {
 
     fun build(skill: SkillDefinition, utterance: String): SkillInput = when (skill.id) {
-        "personal.reminder" -> SkillInput(mapOf("action" to "create", "title" to utterance))
+        "personal.reminder" -> if (isReminderListRequest(utterance)) {
+            SkillInput(mapOf("action" to "list"))
+        } else {
+            // The skill parses the due time out of the text itself (ReminderTimeParser).
+            SkillInput(mapOf("action" to "create", "title" to utterance))
+        }
+        "device.open_settings" -> SkillInput(mapOf("panel" to settingsPanel(utterance)))
+        "alarm.set", "calendar.create_event" -> SkillInput(mapOf("utterance" to utterance))
         "phone.open_app" -> SkillInput(mapOf("appName" to subject(utterance, skill)))
         "phone.find_contact" -> SkillInput(mapOf("name" to subject(utterance, skill)))
         "phone.call" -> SkillInput(mapOf("target" to subject(utterance, skill)))
+        "device.global_action" -> SkillInput(mapOf("action" to (SpecialAccessSkills.parseGlobalAction(utterance) ?: "")))
+        "screen.tap" -> SkillInput(mapOf("label" to (SpecialAccessSkills.parseTapLabel(utterance) ?: "")))
         else -> SkillInput(mapOf("utterance" to utterance))
     }
 
@@ -45,6 +55,22 @@ object OnDeviceInputBuilder {
             remainder = remainder.replace(Regex("\\b$filler\\b"), " ")
         }
         return remainder.replace(Regex("'s\\b"), "").trim().split(Regex("\\s+")).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
+    private fun isReminderListRequest(utterance: String): Boolean {
+        val lower = utterance.lowercase()
+        return !lower.contains("remind me") &&
+            (Regex("""\b(list|show|what are|my)\b.*\breminders\b""").containsMatchIn(lower) || lower.trim() == "reminders")
+    }
+
+    private fun settingsPanel(utterance: String): String {
+        val lower = utterance.lowercase()
+        return when {
+            lower.contains("wifi") || lower.contains("wi-fi") -> "WIFI"
+            lower.contains("location") || lower.contains("gps") -> "LOCATION"
+            lower.contains("bluetooth") -> "BLUETOOTH"
+            else -> ""
+        }
     }
 
     private val FILLER_WORDS = listOf(

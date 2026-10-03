@@ -2,10 +2,15 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express, type Router } from "express";
+import { rateLimit as apiRateLimit } from "express-rate-limit";
 import type { Container } from "./container.js";
 import { accountRouter } from "./api/routes/account.js";
 import { authRouter } from "./api/routes/auth.js";
 import { billingRouter } from "./api/routes/billing.js";
+import { capabilitiesRouter } from "./api/routes/capabilities.js";
+import { confirmationsRouter } from "./api/routes/confirmations.js";
+import { conversationsRouter } from "./api/routes/conversations.js";
+import { integrationsRouter } from "./api/routes/integrations.js";
 import { developerRouter } from "./api/routes/developer.js";
 import { entitlementsRouter } from "./api/routes/entitlements.js";
 import { orchestratorRouter } from "./api/routes/orchestrator.js";
@@ -15,6 +20,7 @@ import { ttsRouter } from "./api/routes/tts.js";
 import { usageRouter } from "./api/routes/usage.js";
 import { defaultModelConfig } from "./ai/providerFactory.js";
 import { corsMiddleware } from "./security/cors.js";
+import { securityHeaders } from "./security/headers.js";
 import { logger } from "./security/redact.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -41,9 +47,24 @@ function getDocumentsRouter(): Promise<Router | null> {
   return documentsRouterPromise;
 }
 
+/**
+ * The largest body the API documents is a turn: a 70,000-character utterance (a document's
+ * extracted text) plus 12 history entries of 1,500 characters. In Devanagari that is ~3 bytes
+ * per character (~270 kB), well above express.json()'s 100 kB default. 1 MB fits it in any
+ * script and stays far below the platform's own request limit.
+ */
+const jsonBody = express.json({ limit: "1mb" });
+
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
   const app = express();
+  // Behind exactly one proxy hop (Vercel's edge / a load balancer): use its X-Forwarded-For
+  // entry as req.ip for rate limiting, and never trust client-supplied deeper hops.
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
+  // Every requireAuth check validates the server-side session through this service.
+  app.locals.authService = container.authService;
+  app.use(securityHeaders);
   app.use(corsMiddleware);
   // Vercel's Node.js runtime (api/index.ts) can pre-parse a JSON request body onto `req.body`
   // and drain the underlying stream before Express ever sees the request — a well-known
@@ -58,13 +79,37 @@ export function buildServer(container: Container): Express {
       next();
       return;
     }
-    express.json()(req, res, next);
+    jsonBody(req, res, next);
   });
 
   // `provider` names which AIProvider is active (e.g. "mock" or "google") — never a secret,
   // it just lets the web client honestly show what's actually answering (Product Principle
   // #4, "Never fake success") instead of assuming Gemini is wired when it isn't.
-  app.get("/health", (_req, res) => res.json({ status: "ok", provider: defaultModelConfig.provider }));
+  // `database` is a fixed, secret-free code (store/store.ts StoreHealth). When the database is
+  // configured but unusable, /health says so with a 503 instead of a misleading "ok": the rest
+  // of the API cannot create or restore a session in that state.
+  // Separate per-IP ceiling for the non-API handlers that touch the database or the file system
+  // (/health, the web client fallback), so monitoring never shares the /api/v1 budget.
+  const publicLimit = apiRateLimit({ windowMs: 60 * 1000, limit: 600, standardHeaders: "draft-7", legacyHeaders: false });
+
+  app.get("/health", publicLimit, async (_req, res) => {
+    const database = (await container.store.healthCheck?.()) ?? "not_configured";
+    const healthy = database === "ok" || database === "not_configured";
+    res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", provider: defaultModelConfig.provider, database });
+  });
+
+  // Coarse per-IP ceiling for every API route, generous enough for shared mobile-carrier IPs.
+  // The tighter per-route limits (api/middleware/rateLimit.ts) still apply on top of it.
+  app.use(
+    "/api/v1",
+    apiRateLimit({
+      windowMs: 60 * 1000,
+      limit: 600,
+      standardHeaders: "draft-7",
+      legacyHeaders: false,
+      message: { error: "Too many requests. Please wait and try again.", code: "rate_limited" },
+    }),
+  );
 
   app.use("/api/v1/auth", authRouter(container.authService));
   app.use("/api/v1/account", accountRouter(container.store));
@@ -73,7 +118,14 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/entitlements", entitlementsRouter(container.entitlementPort));
   app.use("/api/v1/tasks", tasksRouter(container.taskService));
   app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
-  app.use("/api/v1/developer", developerRouter(container.pipeline));
+  app.use("/api/v1/developer", developerRouter(container.pipeline, container.registry));
+  app.use(
+    "/api/v1/confirmations",
+    confirmationsRouter(container.confirmationService, container.pipeline, container.registry, container.store),
+  );
+  app.use("/api/v1/integrations", integrationsRouter(container.githubAccess));
+  app.use("/api/v1/capabilities", capabilitiesRouter());
+  app.use("/api/v1/conversations", conversationsRouter(container.store));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
   // Keep document parsing isolated from the startup-critical API. If its dependencies cannot
@@ -93,8 +145,8 @@ export function buildServer(container: Container): Express {
   // the same origin/domain as the API — no separate static host needed for
   // https://zarvismobile.com to run the full product in a browser.
   if (webRoot) {
-    app.use(express.static(webRoot));
-    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(join(webRoot, "index.html")));
+    app.use(publicLimit, express.static(webRoot));
+    app.get(/^(?!\/api\/).*/, publicLimit, (_req, res) => res.sendFile(join(webRoot, "index.html")));
   }
 
   app.use((req, res) => {
@@ -103,6 +155,12 @@ export function buildServer(container: Container): Express {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // A body the parser rejected is the client's error: say which, never "internal_error".
+    const parserError = bodyParserError(err);
+    if (parserError) {
+      res.status(parserError.status).json(parserError.body);
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Unhandled request error", { error: message });
 
@@ -120,8 +178,6 @@ export function buildServer(container: Container): Express {
       code = "database_connection_error";
     } else if (/password authentication failed|SASL|authentication failed|database .* does not exist|no pg_hba/i.test(message)) {
       code = "database_configuration_error";
-    } else if (/Unknown account|Invalid or expired refresh token|Not a refresh token/i.test(message)) {
-      code = "auth_session_invalid";
     }
 
     res.status(status).json({
@@ -132,4 +188,19 @@ export function buildServer(container: Container): Express {
   });
 
   return app;
+}
+
+/** Maps express.json()'s own 4xx errors (malformed JSON, body too large, ...) to a stable code. */
+function bodyParserError(err: unknown): { status: number; body: { error: string; code: string } } | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const { type, status, statusCode, message } = err as { type?: unknown; status?: unknown; statusCode?: unknown; message?: unknown };
+  // Vercel's Node runtime parses the body itself (api/index.ts); its lazy `req.body` getter
+  // throws an ApiError with `statusCode: 400` and "Invalid JSON" before express.json() runs.
+  const vercelInvalidJson = statusCode === 400 && typeof message === "string" && /invalid json/i.test(message);
+  if (type === "entity.parse.failed" || vercelInvalidJson) return { status: 400, body: { error: "The request body is not valid JSON.", code: "invalid_json" } };
+  if (type === "entity.too.large") return { status: 413, body: { error: "The request body is too large.", code: "payload_too_large" } };
+  if (typeof type === "string" && typeof status === "number" && status >= 400 && status < 500) {
+    return { status, body: { error: "The request body could not be read.", code: "invalid_request" } };
+  }
+  return undefined;
 }

@@ -6,8 +6,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -80,7 +80,7 @@ fun ZarvisComposer(
         },
         trailingIcon = {
             IconButton(onClick = onSubmit, enabled = enabled && value.isNotBlank()) {
-                Icon(imageVector = Icons.Filled.Send, contentDescription = "Send")
+                Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
             }
         },
         singleLine = false,

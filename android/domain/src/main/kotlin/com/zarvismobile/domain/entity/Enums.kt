@@ -1,7 +1,14 @@
 package com.zarvismobile.domain.entity
 
 /** Android runtime permissions / OAuth-style scopes a skill may require. See MASTER_SPEC.md §16. */
-enum class PermissionType {
+enum class PermissionType(
+    /**
+     * True for access Android grants only on a dedicated system Settings page (never through a
+     * runtime permission dialog): notification access, an accessibility service, usage access
+     * and the assistant role.
+     */
+    val specialAccess: Boolean = false,
+) {
     NOTIFICATIONS,
     CONTACTS,
     PHONE_CALL,
@@ -10,10 +17,43 @@ enum class PermissionType {
     STORAGE,
     CALENDAR,
     LOCATION,
+
+    /** NotificationListenerService enabled in Settings > Notification access. */
+    NOTIFICATION_LISTENER(specialAccess = true),
+
+    /** ZARVIS's AccessibilityService turned on in Settings > Accessibility. */
+    ACCESSIBILITY_SERVICE(specialAccess = true),
+
+    /** PACKAGE_USAGE_STATS app-op allowed in Settings > Usage access. */
+    USAGE_ACCESS(specialAccess = true),
+
+    /** ZARVIS holds RoleManager.ROLE_ASSISTANT (chosen in Settings > Default apps). */
+    ASSISTANT_ROLE(specialAccess = true),
 }
 
-/** LOW auto-runs; MEDIUM/HIGH require explicit user confirmation. See MASTER_SPEC.md §7, §21. */
-enum class RiskLevel { LOW, MEDIUM, HIGH }
+/**
+ * Blueprint §10 risk classes. The confirmation decision is made by
+ * [com.zarvismobile.domain.capability.ActionPolicy] from risk + [ActionClass]; VERY_HIGH is
+ * reserved for security-sensitive capabilities (accessibility, screen interaction).
+ */
+enum class RiskLevel { LOW, MEDIUM, HIGH, VERY_HIGH }
+
+/** Blueprint §17 action classes. */
+enum class ActionClass { READ_ONLY, LOW_IMPACT, EXTERNAL_COMMUNICATION, FINANCIAL, DESTRUCTIVE, SECURITY_SENSITIVE }
+
+/** Blueprint §19 truthful capability status. */
+enum class CapabilityStatus { WORKING, PARTIAL, PLANNED, UNSUPPORTED }
+
+/** Blueprint §10 structured tool result statuses. */
+enum class ToolResultStatus {
+    COMPLETED,
+    DENIED,
+    PERMISSION_REQUIRED,
+    USER_ACTION_REQUIRED,
+    CONFIRMATION_REQUIRED,
+    UNSUPPORTED,
+    FAILED,
+}
 
 /**
  * Ranked from least to most capable. Order matters: [EntitlementResolver] compares plans by

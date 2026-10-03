@@ -3,15 +3,33 @@ package com.zarvismobile.app.di
 import android.content.Context
 import androidx.room.Room
 import com.zarvismobile.agents.AndroidOrchestrator
+import com.zarvismobile.agents.ConversationIdStore
+import com.zarvismobile.app.ActivityBridge
 import com.zarvismobile.app.BuildConfig
+import com.zarvismobile.app.access.AndroidNotificationReaderPort
+import com.zarvismobile.app.access.AndroidScreenAccessPort
+import com.zarvismobile.app.access.AndroidUsageStatsPort
+import com.zarvismobile.app.access.NotificationSpeaker
+import com.zarvismobile.app.access.SpeakOutcome
+import com.zarvismobile.domain.notification.NotificationSpeechPreview
+import com.zarvismobile.app.access.ZarvisAccessibilityService
+import com.zarvismobile.app.access.ZarvisNotificationListener
 import com.zarvismobile.app.voice.AndroidSpeechToTextEngine
 import com.zarvismobile.app.voice.AndroidTextToSpeechEngine
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
+import com.zarvismobile.core.security.AndroidDeviceAccessPort
 import com.zarvismobile.core.security.AndroidPermissionPort
+import com.zarvismobile.core.security.PermissionRequestLog
 import com.zarvismobile.core.security.SecureStorage
+import com.zarvismobile.core.security.SpecialAccessComponents
+import com.zarvismobile.core.security.SpecialAccessStates
 import com.zarvismobile.core.tooling.ComposeConfirmationPort
+import com.zarvismobile.core.tooling.ComposeRationalePort
 import com.zarvismobile.data.local.ZarvisDatabase
+import com.zarvismobile.data.local.access.DataStoreAccessSnapshotStore
+import com.zarvismobile.data.local.access.DataStoreNotificationSettings
+import com.zarvismobile.data.local.access.DataStorePendingActionStore
 import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.local.reminder.ReminderDao
 import com.zarvismobile.data.remote.ApiClientFactory
@@ -19,28 +37,38 @@ import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.repository.RemoteEntitlementPort
 import com.zarvismobile.data.repository.RemoteUsagePort
 import com.zarvismobile.data.repository.SessionRepository
+import com.zarvismobile.domain.access.AccessCoordinator
+import com.zarvismobile.domain.access.AppSettingsPort
+import com.zarvismobile.domain.access.DeviceAccessPort
+import com.zarvismobile.domain.access.PendingActionStore
+import com.zarvismobile.domain.access.RevocationDetector
+import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.port.ConfirmationPort
 import com.zarvismobile.domain.port.EntitlementPort
-import com.zarvismobile.app.ActivityRuntimePermissionBroker
 import com.zarvismobile.domain.port.PermissionPort
-import com.zarvismobile.domain.port.RuntimePermissionBroker
+import com.zarvismobile.domain.port.SystemClockPort
 import com.zarvismobile.domain.port.UsagePort
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
+import com.zarvismobile.skills.ActivityPorts
 import com.zarvismobile.skills.OnDeviceSkillRegistryFactory
+import com.zarvismobile.skills.SpecialAccessPorts
+import com.zarvismobile.domain.skill.AssistantRolePort
+import com.zarvismobile.domain.skill.NotificationReaderPort
+import com.zarvismobile.domain.skill.NotificationSettingsPort
+import com.zarvismobile.domain.skill.ScreenAccessPort
+import com.zarvismobile.domain.skill.UsageStatsPort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 /**
- * The app's composition root — see ARCHITECTURE.md. Every cross-module dependency is wired
- * here rather than scattered across modules, so the full object graph is readable in one
- * place. Individual modules expose plain, Hilt-agnostic classes; only `app` (and feature
- * ViewModels, which need `@HiltViewModel` to be constructor-injected from this graph) use
- * Hilt annotations.
+ * The app's composition root. Every cross-module dependency is wired here so the full object
+ * graph — including the Phase 1 permission-intelligence chain — is readable in one place.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -72,9 +100,106 @@ object AppModule {
     @Provides
     fun provideReminderDao(database: ZarvisDatabase): ReminderDao = database.reminderDao()
 
+    // --- Phase 1: capability registry + permission intelligence -------------------------
+
     @Provides
     @Singleton
-    fun providePermissionPort(@ApplicationContext context: Context): PermissionPort = AndroidPermissionPort(context)
+    fun provideCapabilityRegistry(): CapabilityRegistry = CapabilityRegistry.loadDefault()
+
+    @Provides
+    @Singleton
+    fun providePermissionRequestLog(@ApplicationContext context: Context): PermissionRequestLog =
+        PermissionRequestLog(context).also(ActivityBridge::init)
+
+    @Provides
+    @Singleton
+    fun provideSpecialAccessStates(@ApplicationContext context: Context): SpecialAccessStates =
+        SpecialAccessStates(
+            context,
+            SpecialAccessComponents(
+                notificationListener = ZarvisNotificationListener.component(context),
+                accessibilityService = ZarvisAccessibilityService.component(context),
+            ),
+        )
+
+    @Provides
+    @Singleton
+    fun provideDeviceAccessPort(@ApplicationContext context: Context, log: PermissionRequestLog, special: SpecialAccessStates): DeviceAccessPort =
+        AndroidDeviceAccessPort(context, log, special) { ActivityBridge.currentActivity() }
+
+    // --- Special access: notification listener, accessibility, usage access, assistant role --
+
+    @Provides
+    @Singleton
+    fun provideNotificationSettings(@ApplicationContext context: Context): DataStoreNotificationSettings = DataStoreNotificationSettings(context)
+
+    @Provides
+    @Singleton
+    fun provideNotificationSettingsPort(settings: DataStoreNotificationSettings): NotificationSettingsPort = settings
+
+    @Provides
+    @Singleton
+    fun provideNotificationReaderPort(@ApplicationContext context: Context): NotificationReaderPort = AndroidNotificationReaderPort(context)
+
+    @Provides
+    @Singleton
+    fun provideNotificationSpeaker(@ApplicationContext context: Context, settings: NotificationSettingsPort): NotificationSpeaker =
+        NotificationSpeaker(context, settings)
+
+    @Provides
+    @Singleton
+    fun provideNotificationSpeechPreview(speaker: NotificationSpeaker): NotificationSpeechPreview = NotificationSpeechPreview {
+        when (val outcome = speaker.speakSample()) {
+            is SpeakOutcome.Spoken -> "Played a sample with this phone's text-to-speech. Real notifications follow your mode, quiet hours, headphones and lock-screen rules."
+            is SpeakOutcome.Skipped -> "Sample skipped: ${outcome.reason}."
+            is SpeakOutcome.Failed -> "Couldn't play a sample: ${outcome.reason}. Check that a text-to-speech engine is installed in Android Settings."
+        }
+    }
+
+    @Provides
+    @Singleton
+    fun provideScreenAccessPort(@ApplicationContext context: Context): ScreenAccessPort = AndroidScreenAccessPort(context)
+
+    @Provides
+    @Singleton
+    fun provideUsageStatsPort(@ApplicationContext context: Context): UsageStatsPort = AndroidUsageStatsPort(context)
+
+    @Provides
+    @Singleton
+    fun provideAssistantRolePort(special: SpecialAccessStates): AssistantRolePort = AssistantRolePort { special.isDefaultAssistant() }
+
+    @Provides
+    @Singleton
+    fun providePermissionPort(device: DeviceAccessPort): PermissionPort = AndroidPermissionPort(device)
+
+    @Provides
+    @Singleton
+    fun provideComposeRationalePort(): ComposeRationalePort = ComposeRationalePort()
+
+    @Provides
+    @Singleton
+    fun provideAppSettingsPort(): AppSettingsPort = ActivityBridge
+
+    @Provides
+    @Singleton
+    fun provideAccessCoordinator(
+        device: DeviceAccessPort,
+        rationale: ComposeRationalePort,
+        settings: AppSettingsPort,
+        // Ensures ActivityBridge knows the request log before any permission request.
+        @Suppress("UNUSED_PARAMETER") log: PermissionRequestLog,
+    ): AccessCoordinator = AccessCoordinator(device, rationale, ActivityBridge, settings)
+
+    @Provides
+    @Singleton
+    fun provideRevocationDetector(@ApplicationContext context: Context, device: DeviceAccessPort): RevocationDetector =
+        RevocationDetector(device, DataStoreAccessSnapshotStore(context))
+
+    @Provides
+    @Singleton
+    fun providePendingActionStore(@ApplicationContext context: Context): PendingActionStore = DataStorePendingActionStore(context)
+
+    // --- Tool pipeline + orchestration ----------------------------------------------------
 
     @Provides
     @Singleton
@@ -94,8 +219,21 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideOnDeviceSkillRegistry(reminderDao: ReminderDao, @ApplicationContext context: Context): SkillRegistry =
-        OnDeviceSkillRegistryFactory.create(reminderDao, context)
+    fun provideOnDeviceSkillRegistry(
+        reminderDao: ReminderDao,
+        @ApplicationContext context: Context,
+        notifications: NotificationReaderPort,
+        notificationSettings: NotificationSettingsPort,
+        screen: ScreenAccessPort,
+        usage: UsageStatsPort,
+        assistantRole: AssistantRolePort,
+    ): SkillRegistry =
+        OnDeviceSkillRegistryFactory.create(
+            reminderDao,
+            context,
+            ActivityPorts(documents = ActivityBridge, photos = ActivityBridge, camera = ActivityBridge),
+            SpecialAccessPorts(notifications, notificationSettings, screen, usage, assistantRole),
+        )
 
     @Provides
     @Singleton
@@ -109,17 +247,35 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideConversationIdStore(preferences: AppPreferences): ConversationIdStore = object : ConversationIdStore {
+        override suspend fun get(): String? = preferences.conversationId.first()
+        override suspend fun set(id: String?) = preferences.setConversationId(id)
+    }
+
+    @Provides
+    @Singleton
     fun provideAndroidOrchestrator(
         registry: SkillRegistry,
         pipeline: ToolPipeline,
         api: ZarvisApi,
         confirmationPort: ComposeConfirmationPort,
-        permissionBroker: RuntimePermissionBroker,
-    ): AndroidOrchestrator = AndroidOrchestrator(registry, pipeline, api, confirmationPort, permissionBroker)
+        capabilities: CapabilityRegistry,
+        access: AccessCoordinator,
+        pendingActions: PendingActionStore,
+        conversations: ConversationIdStore,
+    ): AndroidOrchestrator = AndroidOrchestrator(
+        onDeviceRegistry = registry,
+        onDevicePipeline = pipeline,
+        api = api,
+        confirmationPort = confirmationPort,
+        capabilities = capabilities,
+        access = access,
+        pendingActions = pendingActions,
+        conversations = conversations,
+        clock = SystemClockPort,
+    )
 
-    @Provides
-    @Singleton
-    fun provideRuntimePermissionBroker(): RuntimePermissionBroker = ActivityRuntimePermissionBroker
+    // --- Voice ------------------------------------------------------------------------------
 
     @Provides
     @Singleton

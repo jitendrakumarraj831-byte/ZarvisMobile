@@ -52,6 +52,7 @@ export function createBusinessDraftInvoiceSkill(): SkillDefinition {
     requiredEntitlement: "FREE",
     usageCost: { value: 1, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "READ_ONLY",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["client", "items"], properties: { client: "string", items: "string" } },

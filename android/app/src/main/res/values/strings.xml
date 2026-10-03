@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ZARVIS MOBILE</string>
+    <string name="notification_listener_label">ZARVIS notification access</string>
+    <string name="accessibility_service_label">ZARVIS voice navigation</string>
+    <string name="accessibility_service_summary">Navigate by voice: Back, Home, Recent apps, notifications, quick settings, lock screen, and reading or tapping a button you name.</string>
+    <string name="accessibility_service_description">ZARVIS uses this service only to do the phone navigation you ask for by voice, after you confirm each action: press Back, Home or Recent apps, open the notification shade or quick settings, lock the screen, read the visible text of the app you are using, or tap one button you name. While it is on, Android lets it see what is on screen; ZARVIS reads the screen only at the moment you ask, never stores or uploads it, never reads password fields, and never acts inside banking, payment, password, Android Settings, permission or install screens. It is not general automation. Turn it off here at any time.</string>
 </resources>

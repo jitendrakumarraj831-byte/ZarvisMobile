@@ -38,6 +38,11 @@ jobs:
       - name: Build and test :domain
         run: ./gradlew :domain:build --stacktrace --console=plain
 
+      # Session continuity against a local HTTP server (real OkHttp/Retrofit stack): a refresh
+      # failure must never replace the account; only a server session_* code ends a session.
+      - name: Unit-test auth/session layer
+        run: ./gradlew :data:data-remote:testDebugUnitTest :data:data-repository:testDebugUnitTest --stacktrace --console=plain
+
       # The dev API host is machine-specific and auto-detected from the build machine's LAN
       # address (see app/build.gradle.kts). A CI runner's address is meaningless to anyone
       # downloading the artifact, so pin it here: the uploaded APK is deterministic and
@@ -56,12 +61,21 @@ jobs:
           echo "APK size: $SIZE bytes"
           test "$SIZE" -gt 0 || { echo "::error::$APK is empty"; exit 1; }
           # A valid APK is a zip carrying a binary manifest and at least one dex file.
-          unzip -l "$APK" | grep -q "AndroidManifest.xml" || { echo "::error::no AndroidManifest.xml in APK"; exit 1; }
-          unzip -l "$APK" | grep -q "classes.dex" || { echo "::error::no classes.dex in APK"; exit 1; }
+          # Capture first, then grep a here-string: under pipefail, `cmd | grep -q` fails at random
+          # when grep exits on its first match and cmd then dies of SIGPIPE.
+          LISTING=$(unzip -l "$APK")
+          grep -q "AndroidManifest.xml" <<<"$LISTING" || { echo "::error::no AndroidManifest.xml in APK"; exit 1; }
+          grep -q "classes.dex" <<<"$LISTING" || { echo "::error::no classes.dex in APK"; exit 1; }
+          # Inspect the binary manifest: the right package, version and SDK levels were built.
           AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)
-          if [ -n "$AAPT2" ]; then
-            "$AAPT2" dump badging "$APK" | head -n 5
-          fi
+          test -n "$AAPT2" || { echo "::error::aapt2 not found under $ANDROID_HOME/build-tools"; exit 1; }
+          BADGING=$("$AAPT2" dump badging "$APK")
+          echo "$BADGING" | head -n 6
+          grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'" <<<"$BADGING" \
+            || { echo "::error::unexpected package name/versionCode/versionName in the debug APK"; exit 1; }
+          grep -q "^minSdkVersion:'26'" <<<"$BADGING" || { echo "::error::minSdkVersion is not 26"; exit 1; }
+          grep -q "^targetSdkVersion:'34'" <<<"$BADGING" || { echo "::error::targetSdkVersion is not 34"; exit 1; }
+          grep -q "^launchable-activity:" <<<"$BADGING" || { echo "::error::no launchable activity in the debug APK"; exit 1; }
 
       # The base URL is compiled into BuildConfig, so this is what the app on the device
       # actually dials. Guards against the build type losing its buildConfigField.
@@ -111,12 +125,12 @@ jobs:
           ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=192.168.1.50 --console=plain
           NSC=$(find app/build/generated -name network_security_config.xml | head -n 1)
           cat "$NSC"
-          exempted_hosts "$NSC" | grep -qx '192.168.1.50' \
+          grep -qx '192.168.1.50' <<<"$(exempted_hosts "$NSC")" \
             || { echo "::error::LAN dev host was not exempted"; exit 1; }
           # A public host must never be granted a cleartext exemption, even in debug.
           ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=staging.example.com --console=plain
           cat "$NSC"
-          if exempted_hosts "$NSC" | grep -qx 'staging.example.com'; then
+          if grep -qx 'staging.example.com' <<<"$(exempted_hosts "$NSC")"; then
             echo "::error::a public host was granted a cleartext exemption"; exit 1
           fi
           echo "OK: exemption tracks the configured LAN host; public hosts stay HTTPS-only"
@@ -168,7 +182,7 @@ jobs:
           test -f "$AAB" || { echo "::error::$AAB does not exist"; exit 1; }
           echo "release APK size: $(stat -c%s "$APK") bytes"
           echo "release AAB size: $(stat -c%s "$AAB") bytes"
-          unzip -l "$APK" | grep -q "classes.dex" || { echo "::error::no classes.dex in release APK"; exit 1; }
+          grep -q "classes.dex" <<<"$(unzip -l "$APK")" || { echo "::error::no classes.dex in release APK"; exit 1; }
 
       # Guards against the release build type losing its buildConfigField, or (worse)
       # silently inheriting a dev/localhost URL — see the debug-side assertion above.
@@ -180,6 +194,34 @@ jobs:
           grep -n 'API_BASE_URL' "$BUILD_CONFIG"
           grep -q 'API_BASE_URL = "https://zarvismobile.com/"' "$BUILD_CONFIG" \
             || { echo "::error::release API_BASE_URL is not the production domain"; exit 1; }
+
+      # Inspect every artifact rather than trusting Gradle's exit code: size, identity,
+      # versions and SDK levels from the binary manifest, and the AAB's manifest via bundletool.
+      - name: Artifact report (debug APK, release APK, release AAB)
+        run: |
+          set -euo pipefail
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk; do
+            echo "=== $APK ($(stat -c%s "$APK") bytes)"
+            BADGING=$("$AAPT2" dump badging "$APK")
+            grep -E "^(package|sdkVersion|minSdkVersion|targetSdkVersion|launchable-activity|uses-feature|application-debuggable)" <<<"$BADGING" || true
+            grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'.*compileSdkVersion='34'" <<<"$BADGING" \
+              || { echo "::error::$APK: unexpected identity or compileSdkVersion"; exit 1; }
+            echo "dex files: $(unzip -l "$APK" | grep -c 'classes[0-9]*\.dex')"
+          done
+          # A release APK must not be debuggable. (A piped `grep -q` here could hide a match: the
+          # match makes aapt2 die of SIGPIPE, and pipefail then turns the `if` false.)
+          if grep -q application-debuggable <<<"$("$AAPT2" dump badging app/build/outputs/apk/release/app-release-unsigned.apk)"; then
+            echo "::error::release APK is debuggable"; exit 1
+          fi
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          echo "=== $AAB ($(stat -c%s "$AAB") bytes)"
+          curl -sSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+          java -jar /tmp/bundletool.jar dump manifest --bundle "$AAB" > /tmp/aab-manifest.xml
+          grep -E 'package=|versionCode|versionName|uses-sdk|minSdkVersion|targetSdkVersion|compileSdkVersion' /tmp/aab-manifest.xml | head -10
+          grep -q 'package="com.zarvismobile.app"' /tmp/aab-manifest.xml || { echo "::error::AAB package mismatch"; exit 1; }
+          grep -q 'android:versionCode="1"' /tmp/aab-manifest.xml || { echo "::error::AAB versionCode mismatch"; exit 1; }
+          grep -q 'android:targetSdkVersion="34"' /tmp/aab-manifest.xml || { echo "::error::AAB targetSdk mismatch"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -238,3 +280,65 @@ jobs:
       # proves the backend answers on that address and not merely on loopback.
       - name: Check the backend is reachable over the LAN
         run: ./scripts/check-dev-backend.sh
+
+  # Every module's JVM unit tests and Android Lint, which the assemble job above does not run.
+  # --continue reports every failing module in one run instead of stopping at the first.
+  test-and-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests and lint (all modules)
+        run: ./gradlew clean test lint -Pzarvis.devApiHost=10.0.2.2 --continue --stacktrace --console=plain
+
+      - name: Full check (all modules)
+        run: ./gradlew check -Pzarvis.devApiHost=10.0.2.2 --continue --stacktrace --console=plain
+
+      # Every lint finding in the log (the HTML/XML reports are also uploaded below), and a
+      # gate: only the documented, deliberately deferred ids may remain — dependency/AGP
+      # "newer version available" notices and targetSdk 34 (a tracked Play-release blocker,
+      # changed in its own PR because it changes runtime behaviour). Anything else fails.
+      - name: List lint findings and enforce zero new warnings
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          DEFERRED = {"GradleDependency", "AndroidGradlePluginVersion", "OldTargetApi"}
+          seen, unexpected = set(), []
+          for path in sorted(glob.glob("**/build/reports/lint-results-*.xml", recursive=True)):
+              for issue in ET.parse(path).getroot().iter("issue"):
+                  loc = issue.find("location")
+                  where = f"{loc.get('file')}:{loc.get('line')}" if loc is not None else "?"
+                  key = (issue.get("id"), where, issue.get("message"))
+                  if key in seen:
+                      continue  # the same finding reported by several modules
+                  seen.add(key)
+                  print(f"{issue.get('severity')}: [{issue.get('id')}] {where}\n    {issue.get('message')}")
+                  if issue.get("id") not in DEFERRED:
+                      unexpected.append(key)
+          print(f"unique lint findings: {len(seen)}; outside the deferred set: {len(unexpected)}")
+          for key in unexpected:
+              print(f"::error::lint [{key[0]}] {key[1]}: {key[2]}")
+          sys.exit(1 if unexpected else 0)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-lint-and-test-reports
+          path: |
+            android/**/build/reports/lint-results-*.html
+            android/**/build/reports/lint-results-*.xml
+            android/**/build/reports/tests/
+          if-no-files-found: warn

@@ -1,10 +1,13 @@
 import { Router } from "express";
+import { rateLimit as ipRateLimit } from "express-rate-limit";
 import multer from "multer";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 import { classifyDocumentType, extractDocumentText, DocumentExtractionError } from "../../documents/extractText.js";
 import { logger } from "../../security/redact.js";
 import { env } from "../../config/env.js";
+import { AIProviderError, classifyGeminiFailure, providerErrorPayload, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "../../ai/geminiErrors.js";
 
 /** Kept at or under Vercel's default ~4.5MB serverless request-body ceiling (no override in
  * vercel.json) — a larger cap here would just get rejected by the platform first with a
@@ -49,28 +52,34 @@ async function analyzeImageWithGemini(buffer: Buffer, mimeType: string): Promise
     generationConfig: { maxOutputTokens: 4096 },
   };
   // Keep the configured model first, then use current multimodal fallbacks.
-  // 503/429 are transient capacity/rate-limit errors; 404 means a model is unavailable
-  // for this API project, so either case should move on to the next model.
   const models = [
     env.geminiModel,
     "gemini-3.8-flash",
     "gemini-3.5-flash-lite",
   ].filter((m, i, all) => m && all.indexOf(m) === i);
 
+  // One shared retry policy (ai/geminiErrors.ts): a daily quota is never retried or moved to
+  // another model, a 404 moves to the next model, transient errors back off briefly.
+  const payload = JSON.stringify(body);
   let lastError: Error | undefined;
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; ; attempt += 1) {
       let response: Response;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60_000);
       try {
         response = await fetch(
-          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + env.geminiApiKey,
-          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+          "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent",
+          { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": env.geminiApiKey }, body: payload, signal: controller.signal },
         );
       } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt === 2) break;
-        await new Promise((resolve) => setTimeout(resolve, Math.min(8_000, 1_000 * 2 ** attempt) + Math.floor(Math.random() * 500)));
+        lastError = err instanceof Error && err.name === "AbortError" ? new Error("Gemini image analysis timed out") : err instanceof Error ? err : new Error(String(err));
+        const wait = retryDelayMs({ kind: "transient" }, attempt);
+        if (wait === null) break;
+        await sleep(wait);
         continue;
+      } finally {
+        clearTimeout(timer);
       }
 
       if (response.ok) {
@@ -82,19 +91,15 @@ async function analyzeImageWithGemini(buffer: Buffer, mimeType: string): Promise
       }
 
       const details = await response.text().catch(() => "");
-      lastError = new Error(("Gemini image analysis failed: " + response.status + " " + response.statusText + " " + details).trim());
-
-      // 404/model-not-found is not worth retrying on the same model.
-      if (response.status === 404) break;
-      if (![408, 429, 500, 502, 503, 504].includes(response.status)) throw lastError;
-      if (attempt === 2) break;
-
-      // Honor Retry-After when supplied; otherwise use exponential backoff + jitter.
-      const retryAfter = Number(response.headers.get("retry-after"));
-      const retryMs = Number.isFinite(retryAfter) && retryAfter > 0
-        ? Math.min(30_000, retryAfter * 1_000)
-        : Math.min(8_000, 1_000 * 2 ** attempt) + Math.floor(Math.random() * 500);
-      await new Promise((resolve) => setTimeout(resolve, retryMs));
+      const failure = classifyGeminiFailure(response.status, details, response.headers.get("retry-after"));
+      lastError = toProviderError("Gemini image analysis", response.status, response.statusText, failure, details);
+      if (failure.kind === "fatal") throw lastError;
+      const wait = retryDelayMs(failure, attempt);
+      if (wait === null) {
+        if (!shouldTryNextModel(failure)) throw lastError;
+        break;
+      }
+      await sleep(wait);
     }
   }
   throw lastError ?? new Error("Gemini image analysis failed");
@@ -102,18 +107,28 @@ async function analyzeImageWithGemini(buffer: Buffer, mimeType: string): Promise
 
 export function documentsRouter(): Router {
   const router = Router();
+  // Extraction and image analysis are not credit-charged; this per-account limit bounds cost.
+  const limit = rateLimit({ name: "documents", windowMs: 60 * 1000, max: 20, keyBy: "account" });
+  // This router is mounted lazily (server.ts getDocumentsRouter), so it also carries its own
+  // per-IP ceiling instead of relying only on the app-level /api/v1 limiter.
+  const ipLimit = ipRateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-7", legacyHeaders: false });
 
   router.post(
     "/extract",
+    ipLimit,
     requireAuth,
+    limit,
     (req, res, next) => {
       upload.single("file")(req, res, (err: unknown) => {
         if (!err) {
           next();
           return;
         }
-        const reason = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE" ? "file_too_large" : "upload_failed";
-        res.status(400).json({ error: reason });
+        if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+          res.status(413).json({ error: "file_too_large", maxBytes: MAX_UPLOAD_BYTES });
+          return;
+        }
+        res.status(400).json({ error: "upload_failed" });
       });
     },
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
@@ -124,6 +139,11 @@ export function documentsRouter(): Router {
       }
 
       if (IMAGE_MIME_TYPES.has(file.mimetype)) {
+        if (!env.geminiApiKey) {
+          // Honest capability state: images are supported only when a vision provider is configured.
+          res.status(503).json({ error: "image_analysis_unavailable" });
+          return;
+        }
         try {
           const text = await analyzeImageWithGemini(file.buffer, file.mimetype);
           if (!text) { res.status(422).json({ error: "empty_document" }); return; }
@@ -134,6 +154,21 @@ export function documentsRouter(): Router {
             sizeBytes: file.size,
             error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
           });
+          if (err instanceof AIProviderError) {
+            // A provider failure is not "your file is unreadable": say what actually happened.
+            // `message` is the honest user-facing text; `error` stays a machine-readable reason.
+            const { error: message, ...payload } = providerErrorPayload(err);
+            if (err.code !== "AI_UNAVAILABLE") {
+              res.status(429).json({ ...payload, message, error: "ai_quota_exceeded" });
+              return;
+            }
+            // Gemini refusing the image itself (400 INVALID_ARGUMENT) is the one provider answer
+            // that does mean the file could not be read. An outage or a rejected key is ours.
+            if (err.status !== 400) {
+              res.status(503).json({ ...payload, message, error: "ai_unavailable" });
+              return;
+            }
+          }
           res.status(422).json({ error: "extraction_failed" });
         }
         return;

@@ -54,6 +54,7 @@ export function createDocsSummarizeSkill(summarizer: Summarizer): SkillDefinitio
     requiredEntitlement: "FREE",
     usageCost: { value: 1, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "READ_ONLY",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["text"], properties: { text: "string" } },

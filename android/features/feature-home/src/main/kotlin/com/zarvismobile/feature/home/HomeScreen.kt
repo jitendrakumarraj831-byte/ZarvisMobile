@@ -198,7 +198,7 @@ fun HomeScreen(
                     ZarvisCard(modifier = Modifier.fillMaxWidth()) {
                         Text("Phone Agent", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Open apps, find contacts, and place calls on this phone. System settings are not supported.",
+                            "Open apps, find contacts, confirmed calls, reminders, pickers, camera, location, and settings shortcuts on this phone.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

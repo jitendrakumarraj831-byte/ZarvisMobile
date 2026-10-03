@@ -10,7 +10,7 @@ import androidx.security.crypto.MasterKey
  * tokens issued by the backend) — see MASTER_SPEC.md §15 and SECURITY.md "Secrets". Never
  * used for provider API keys or GitHub/DB credentials — those live only on the backend.
  */
-class SecureStorage(context: Context) {
+class SecureStorage(context: Context) : SecretStore {
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -23,13 +23,13 @@ class SecureStorage(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
-    fun putString(key: String, value: String) {
+    override fun putString(key: String, value: String) {
         prefs.edit().putString(key, value).apply()
     }
 
-    fun getString(key: String): String? = prefs.getString(key, null)
+    override fun getString(key: String): String? = prefs.getString(key, null)
 
-    fun remove(key: String) {
+    override fun remove(key: String) {
         prefs.edit().remove(key).apply()
     }
 

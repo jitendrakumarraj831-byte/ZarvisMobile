@@ -1,5 +1,6 @@
 package com.zarvismobile.domain.skill
 
+import com.zarvismobile.domain.entity.ActionClass
 import com.zarvismobile.domain.entity.EntitlementLevel
 import com.zarvismobile.domain.entity.JsonSchema
 import com.zarvismobile.domain.entity.PermissionType
@@ -28,6 +29,11 @@ object PhoneFindContactSkillFactory {
         requiredEntitlement = EntitlementLevel.FREE,
         usageCost = UsageCost.FREE,
         riskLevel = RiskLevel.MEDIUM,
+        actionClass = ActionClass.READ_ONLY,
+        capabilityId = "contacts",
+        // Read-only and shown only on this phone: the Contacts permission is the gate; nothing
+        // is shared or uploaded, so no extra per-lookup confirmation (policy agrees: READ_ONLY/MEDIUM).
+        requiresConfirmation = false,
         executesOnDevice = true,
         inputSchema = JsonSchema(requiredFields = setOf("name")),
         handler = handler(contacts),
@@ -46,6 +52,7 @@ object PhoneFindContactSkillFactory {
         SkillResult.Success(
             output = mapOf("name" to contact.displayName, "phoneNumber" to contact.phoneNumber),
             summary = "${contact.displayName}: ${contact.phoneNumber}",
+            evidence = mapOf("source" to "ContactsContract"),
         )
     }
 }

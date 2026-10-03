@@ -11,6 +11,10 @@ android {
         minSdk = 26
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -29,4 +33,8 @@ dependencies {
     api(project(":data:data-remote"))
     api(project(":core:core-security"))
     implementation(libs.coroutines.core)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.coroutines.test)
 }

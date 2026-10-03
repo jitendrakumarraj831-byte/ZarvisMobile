@@ -32,11 +32,13 @@ dependencies {
     implementation(project(":data:data-local"))
     implementation(project(":data:data-remote"))
     implementation(project(":core:core-security"))
+    implementation(project(":data:data-repository"))
     implementation(project(":core:core-ui"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
+    implementation(libs.activity.compose)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
 

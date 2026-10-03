@@ -26,23 +26,45 @@
 
   const API_BASE = resolveApiBase();
 
-  // Sent with every orchestrator turn so replies can address the user by name (see
-  // backend/src/agents/orchestrator.ts's TurnRequest.userName) — just a display label the
-  // model uses, never an identity/auth claim; the account itself is authenticated by the
-  // bearer token regardless of what this says. Defaults to the product owner's own name
-  // for this single-account deployment; editable later by writing localStorage directly
-  // (no settings screen yet — see MASTER_SPEC.md §32 "No login screen yet").
-  if (!localStorage.getItem(STORAGE_KEYS.userName)) {
-    localStorage.setItem(STORAGE_KEYS.userName, "Jitendra Kumar");
+  // A display name used to be pre-filled here with a fixed person's name for every visitor.
+  // Nothing in the UI ever set it, so it is removed rather than sent with requests.
+  try {
+    localStorage.removeItem(STORAGE_KEYS.userName);
+  } catch {}
+
+  const Logic = window.ZarvisLogic;
+  // Declared before init() runs: populateVoiceSelect() uses it during startup, and a `const`
+  // declared further down would still be in its temporal dead zone at that point.
+  const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"];
+  // Also declared up front for the same reason (used by the session code during init()).
+  class SessionEndedError extends Error {}
+  /** The server's structured `error` event for a turn (see routes/orchestrator.ts). */
+  class TurnFailedError extends Error {
+    constructor(payload) {
+      super(payload?.error || "The request could not be completed.");
+      this.name = "TurnFailedError";
+      this.payload = payload || {};
+    }
   }
+  let refreshInFlight = null;
+  let capabilityCache = null;
+  const SESSION_GATE_COPY = {
+    signed_out: ["You're signed out", "Sign in with your email, or start a new guest account on this browser."],
+    account_deleted: ["Your account was deleted", "Start a new guest account, or sign in to a different account."],
+    refresh_token_reused: ["Your session was ended for your security", "A sign-in token was used twice, so ZARVIS ended the session. ZARVIS did not create a new account for you."],
+  };
+
+  const SESSION_KEYS = { isGuest: "zarvis.isGuest", email: "zarvis.email", ended: "zarvis.sessionEnded" };
 
   const COPY = {
     en: {
-      greeting: "Hey, I'm Zarvis. 👋",
-      hero: "Think it. Ask it. Get it done.",
-      subtitle: "Your intelligent AI assistant for conversations, ideas, research, writing, and everyday tasks.",
-      quickActionsLead: "Ask anything. Start anywhere.",
-      placeholder: "Ask Zarvis…",
+      greeting: "ZARVIS",
+      hero: "What should we work on?",
+      subtitle: "Type, speak, or attach a file.",
+      quickActionsLead: "Suggestions",
+      placeholder: "Message ZARVIS…",
+      homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
+      homeSub: "Your AI assistant for chat, voice, files and code.",
       send: "Send",
       stop: "Stop",
       mic: "Speak",
@@ -54,12 +76,24 @@
       // error page), so a raw status code or platform failure text is never what the user
       // sees. The real error is only ever logged via console.error, never rendered here.
       bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
+      aiQuota: { title: "ZARVIS has reached today's AI usage limit.", subtitle: "Nothing was charged. Please try again later." },
+      aiBusy: { title: "ZARVIS is getting too many requests right now.", subtitle: "Nothing was charged. Please wait a moment and try again." },
+      turnBusy: { title: "ZARVIS is still working on this message.", subtitle: "It was not sent twice. Wait a moment, then try again to see the reply." },
+      tooLarge: { title: "This message is too long to send.", subtitle: "Shorten it or attach a smaller document. Nothing was sent." },
       unsupportedFile: {
         title: "Can't read this file type yet.",
         subtitle: "Zarvis can analyze images, .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
       },
       unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
+      imageUnavailable: { title: "Image analysis isn't available right now.", subtitle: "The server has no image model configured. Documents and text files still work." },
+      imageAiDown: { title: "Image analysis couldn't reach the AI service.", subtitle: "Your file is fine and nothing was charged. Please try again in a moment." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
+      voiceUnsupported: { title: "Voice input isn't available in this browser.", subtitle: "Type your request instead, or open ZARVIS in Chrome." },
+      micDenied: { title: "Microphone access is off.", subtitle: "Allow the microphone for this site in your browser settings, then tap the mic again." },
+      noSpeech: { title: "I didn't hear anything.", subtitle: "Tap the mic and speak again." },
+      voiceNetwork: { title: "Voice recognition couldn't connect.", subtitle: "Check your connection and try again, or type instead." },
+      voiceFailed: { title: "Voice input stopped unexpectedly.", subtitle: "Tap the mic to try again, or type instead." },
+      ttsUnavailable: "Spoken reply isn't available right now",
       oversizedFile: {
         title: "That file is too long to send in one go.",
         subtitle: "Try a shorter excerpt or paste the most relevant part directly.",
@@ -88,11 +122,13 @@
       },
     },
     hi: {
-      greeting: "नमस्ते, मैं Zarvis हूँ। 👋",
-      hero: "सोचें। पूछें। हो जाए।",
-      subtitle: "बातचीत, विचार, रिसर्च, लेखन और रोज़मर्रा के कामों के लिए आपका बुद्धिमान AI असिस्टेंट।",
-      quickActionsLead: "कुछ भी पूछें। कहीं से भी शुरू करें।",
-      placeholder: "Zarvis से पूछें…",
+      greeting: "ZARVIS",
+      hero: "आज किस पर काम करें?",
+      subtitle: "लिखें, बोलें या फ़ाइल अटैच करें।",
+      quickActionsLead: "सुझाव",
+      placeholder: "ZARVIS को संदेश भेजें…",
+      homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
+      homeSub: "चैट, आवाज़, फ़ाइलों और कोड के लिए आपका AI असिस्टेंट।",
       send: "भेजें",
       stop: "रोकें",
       mic: "बोलें",
@@ -100,12 +136,24 @@
       thinking: "सोच रहा हूँ…",
       retry: "फिर कोशिश करें",
       bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
+      aiQuota: { title: "ZARVIS की आज की AI उपयोग सीमा पूरी हो गई है।", subtitle: "कोई शुल्क नहीं लगा। कृपया बाद में फिर कोशिश करें।" },
+      aiBusy: { title: "ZARVIS पर अभी बहुत ज़्यादा अनुरोध आ रहे हैं।", subtitle: "कोई शुल्क नहीं लगा। थोड़ा रुककर फिर कोशिश करें।" },
+      turnBusy: { title: "ZARVIS अभी इसी संदेश पर काम कर रहा है।", subtitle: "यह दोबारा नहीं भेजा गया। थोड़ा रुककर जवाब देखने के लिए फिर कोशिश करें।" },
+      tooLarge: { title: "यह संदेश भेजने के लिए बहुत लंबा है।", subtitle: "इसे छोटा करें या छोटा डॉक्यूमेंट अटैच करें। कुछ नहीं भेजा गया।" },
       unsupportedFile: {
         title: "यह फ़ाइल प्रकार अभी पढ़ा नहीं जा सकता।",
         subtitle: "Zarvis इमेज, .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें analyze कर सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
       },
       unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
+      imageUnavailable: { title: "अभी इमेज एनालिसिस उपलब्ध नहीं है।", subtitle: "सर्वर पर इमेज मॉडल सेट नहीं है। डॉक्यूमेंट और टेक्स्ट फ़ाइलें काम करती हैं।" },
+      imageAiDown: { title: "इमेज एनालिसिस AI सेवा तक नहीं पहुँच सका।", subtitle: "आपकी फ़ाइल ठीक है और कोई शुल्क नहीं लगा। थोड़ी देर में फिर कोशिश करें।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
+      voiceUnsupported: { title: "इस ब्राउज़र में वॉइस इनपुट उपलब्ध नहीं है।", subtitle: "टाइप करके पूछें, या ZARVIS को Chrome में खोलें।" },
+      micDenied: { title: "माइक्रोफ़ोन की अनुमति बंद है।", subtitle: "ब्राउज़र सेटिंग्स में इस साइट के लिए माइक्रोफ़ोन चालू करें, फिर माइक दोबारा दबाएं।" },
+      noSpeech: { title: "मुझे कुछ सुनाई नहीं दिया।", subtitle: "माइक दबाकर फिर से बोलें।" },
+      voiceNetwork: { title: "वॉइस पहचान कनेक्ट नहीं हो सकी।", subtitle: "कनेक्शन जांचें और दोबारा कोशिश करें, या टाइप करें।" },
+      voiceFailed: { title: "वॉइस इनपुट अचानक रुक गया।", subtitle: "माइक दबाकर दोबारा कोशिश करें, या टाइप करें।" },
+      ttsUnavailable: "अभी बोलकर जवाब उपलब्ध नहीं है",
       oversizedFile: {
         title: "यह फ़ाइल एक बार में भेजने के लिए बहुत बड़ी है।",
         subtitle: "छोटा हिस्सा आज़माएं या सबसे ज़रूरी टेक्स्ट सीधे पेस्ट करें।",
@@ -223,6 +271,19 @@
     confirmModalBody: document.getElementById("confirm-modal-body"),
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
+    homeGreeting: document.getElementById("home-greeting"),
+    homeTitleSub: document.querySelector(".home-title-sub"),
+    homeOrb: document.getElementById("home-orb"),
+    chatNewBtn: document.getElementById("chat-new-btn"),
+    activityTimeline: document.getElementById("activity-timeline"),
+    activitySearch: document.getElementById("activity-search"),
+    activityFilters: document.getElementById("activity-filters"),
+    metricsUsage: document.getElementById("metrics-usage"),
+    metricsTrend: document.getElementById("metrics-trend"),
+    developerRunStatus: document.getElementById("developer-run-status"),
+    developerLog: document.getElementById("developer-log"),
+    settingsAiProvider: document.getElementById("settings-ai-provider"),
+    settingsNewConversation: document.getElementById("settings-new-conversation"),
   };
 
   const state = {
@@ -263,6 +324,12 @@
   // throwing "Cannot access '...' before initialization".
   let recognition = null;
   let cachedVoices = [];
+  // Presentation state read by Settings, Metrics and Activity (declared early for init()).
+  let currentPlanName = null;
+  let healthCache = null;
+  // In-memory log of what happened in this session (requests, files, developer runs) — the
+  // Activity timeline and Metrics counts. Never persisted, never fabricated.
+  const activityLog = [];
   // Real, client-measured latency of every orchestrator turn this session (recordLatency(),
   // called from submitUtterance() around the actual /orchestrator/turn fetch) — feeds the
   // System Metrics tab. In-memory only, capped, never persisted or fabricated.
@@ -282,10 +349,16 @@
     // startup subsystem (voice, settings, plans, or service-worker registration) fails.
     el.sendBtn.addEventListener("click", () => {
       haptic();
-      if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) cancelCurrentTurn();
-      else submitComposerInput(el.input.value);
+      if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) {
+        // Send turns into Stop under the pointer the moment a turn starts: the second click of
+        // a double-click (or a bounced tap) must not cancel the message just sent.
+        if (Date.now() - stopModeSince < STOP_GRACE_MS) return;
+        cancelCurrentTurn();
+      } else submitComposerInput(el.input.value);
     });
     el.input.addEventListener("keydown", (e) => {
+      // Enter that confirms an IME composition (Hindi/Devanagari keyboards) is not a send.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         submitComposerInput(el.input.value);
@@ -294,6 +367,13 @@
     });
     el.input.addEventListener("input", resizeComposer);
     el.fileInput.addEventListener("change", handleFileSelected);
+    // The attach control is a focusable <label>; a label opens the picker on click only, so
+    // Enter/Space would otherwise do nothing for keyboard users.
+    el.uploadBtn.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (el.uploadBtn.getAttribute("aria-disabled") !== "true") el.fileInput.click();
+    });
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
       clearPendingAttachment();
@@ -312,7 +392,10 @@
       ["capability pages", setupCapabilityPages],
       ["plans", setupPlans],
       ["settings", setupSettings],
+      ["session gate", setupSessionGate],
+      ["account", setupAccountPanel],
       ["developer", setupDeveloper],
+      ["github", setupGithubConnect],
     ];
     for (const [name, initialize] of optionalInitializers) {
       try {
@@ -324,7 +407,9 @@
 
     try {
       await ensureSession();
+      void restoreConversation();
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
+      if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
         if (result.status === "rejected") console.error("Zarvis startup data failed:", result.reason);
       }
@@ -334,6 +419,7 @@
         return;
       }
     } catch (err) {
+      if (err instanceof SessionEndedError) return; // the session gate is showing
       console.error("Zarvis session bootstrap failed:", err);
       addErrorBubble(COPY[state.lang].bootError, () => location.reload());
       setOrbState("ERROR");
@@ -345,10 +431,8 @@
   }
 
   function resolveApiBase() {
-    const params = new URLSearchParams(location.search);
-    const override = params.get("api");
-    if (override) return override.replace(/\/$/, "");
-    return `${location.origin}/api/v1`;
+    // Runs while `const Logic` (below) is still uninitialised: read the global directly.
+    return window.ZarvisLogic.resolveApiBase(location.search, location.origin);
   }
 
   function applyLanguage() {
@@ -360,6 +444,7 @@
     el.heroTitle.textContent = copy.hero;
     el.heroSubtitle.textContent = copy.subtitle;
     el.quickActionsLead.textContent = copy.quickActionsLead;
+    renderHomeGreeting();
     el.input.placeholder = copy.placeholder;
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
@@ -399,49 +484,72 @@
 
   function applyVoiceToggleState() {
     el.settingsVoiceToggle.setAttribute("aria-pressed", String(state.speak));
-    el.settingsVoiceToggle.textContent = state.speak ? "Spoken replies: On" : "Spoken replies: Off";
+    const switchText = el.settingsVoiceToggle.querySelector(".switch-text");
+    if (switchText) switchText.textContent = state.speak ? "On" : "Off";
+    updateSettingsValues();
   }
 
-  // ---- Session (guest account bootstrap + refresh) -------------------------------------
+  // ---- Session (guest bootstrap, refresh rotation, explicit sign-in) ---------------------
+  // The server rotates refresh tokens on every use and revokes the whole session if an old
+  // one is replayed. So: (1) refreshes are de-duplicated within this tab and serialized
+  // across tabs with the Web Locks API, and (2) a failed refresh NEVER creates a new account
+  // silently — only an explicit session_* code ends the session, and then the user chooses
+  // (sign in, or start a new guest account). Network/5xx failures keep the same account.
 
   async function ensureSession() {
     if (localStorage.getItem(STORAGE_KEYS.accessToken)) return;
+    const ended = localStorage.getItem(SESSION_KEYS.ended);
+    if (ended) {
+      showSessionGate(ended);
+      throw new SessionEndedError(ended);
+    }
     await createGuestSession();
   }
 
   async function createGuestSession() {
-    const deviceId = crypto.randomUUID();
-    const email = `guest-${deviceId}@device.zarvismobile.com`;
-    const password = crypto.randomUUID() + crypto.randomUUID();
-    const res = await fetch(`${API_BASE}/auth/signup`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    const res = await fetch(`${API_BASE}/auth/guest`, { method: "POST" });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`Guest signup failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
+      throw new Error(`Guest account creation failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`);
     }
-    const tokens = await res.json();
-    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
-    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+    storeTokens(await res.json());
   }
 
-  // `attempt` walks three stages: 0 = the original call; 1 = retried once after a
-  // successful token refresh; 2 = retried once more after bootstrapping a brand-new guest
-  // account. That last stage matters on its own, not just as a refresh fallback: if the
-  // account this browser's stored tokens point to no longer exists server-side (e.g. the
-  // backend's user data was reset, migrated to a different store, or this is a stale token
-  // from before that migration), /auth/refresh 401s for the exact same "unknown user"
-  // reason the original call did — refreshing can never recover from that. Without this,
-  // a browser that bootstrapped a guest account before such a reset is stuck on 401 for
-  // every request forever, since ensureSession() only ever signs up when *no* token is
-  // stored at all, not when the stored one has gone stale.
-  async function apiFetch(path, options = {}, attempt = 0) {
+  function storeTokens(tokens) {
+    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
+    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
+    localStorage.setItem(SESSION_KEYS.isGuest, String(tokens.isGuest !== false));
+    if (tokens.email) localStorage.setItem(SESSION_KEYS.email, tokens.email);
+    else localStorage.removeItem(SESSION_KEYS.email);
+    localStorage.removeItem(SESSION_KEYS.ended);
+  }
+
+  function clearSessionTokens() {
+    for (const key of [STORAGE_KEYS.accessToken, STORAGE_KEYS.refreshToken, STORAGE_KEYS.conversationId, SESSION_KEYS.isGuest]) {
+      localStorage.removeItem(key);
+    }
+    state.conversationId = null;
+    state.history = [];
+  }
+
+  /** Ends the session locally (tokens are useless now) and asks the user what to do next. */
+  function endSession(reason) {
+    clearSessionTokens();
+    localStorage.setItem(SESSION_KEYS.ended, reason);
+    showSessionGate(reason);
+  }
+
+  async function apiFetch(path, options = {}, retried = false) {
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
-    // A FormData body (the document-upload flow) must NOT get a manual content-type — the
-    // browser sets its own multipart boundary automatically, and overriding it here would
-    // break the upload. Every other caller still sends plain JSON, unchanged.
+    if (!accessToken) {
+      const ended = localStorage.getItem(SESSION_KEYS.ended);
+      if (ended) {
+        showSessionGate(ended);
+        throw new SessionEndedError(ended);
+      }
+    }
+    // A FormData body (document upload) must NOT get a manual content-type: the browser sets
+    // its own multipart boundary.
     const isFormData = options.body instanceof FormData;
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -451,30 +559,457 @@
         ...(options.headers || {}),
       },
     });
-    if (res.status !== 401 || attempt >= 2) return res;
+    if (res.status !== 401 || retried) return res;
 
-    if (attempt === 0 && (await tryRefresh())) {
-      return apiFetch(path, options, 1);
+    const outcome = await refreshSession(accessToken);
+    if (outcome.kind === "refreshed") return apiFetch(path, options, true);
+    if (outcome.kind === "session_ended") {
+      endSession(outcome.code);
+      throw new SessionEndedError(outcome.code);
     }
-    localStorage.removeItem(STORAGE_KEYS.accessToken);
-    localStorage.removeItem(STORAGE_KEYS.refreshToken);
-    await createGuestSession();
-    return apiFetch(path, options, 2);
+    return res; // unreachable: surface the failure honestly; the same account is kept.
   }
 
-  async function tryRefresh() {
+  /** Refreshes once per tab, serialized across tabs; reuses a token another tab already rotated. */
+  function refreshSession(tokenOnFailedRequest) {
+    if (!refreshInFlight) {
+      const run = async () => {
+        const stored = localStorage.getItem(STORAGE_KEYS.accessToken);
+        if (stored && stored !== tokenOnFailedRequest) return { kind: "refreshed" };
+        return doRefresh();
+      };
+      const locked = navigator.locks?.request ? navigator.locks.request("zarvis-refresh", run) : run();
+      refreshInFlight = Promise.resolve(locked).finally(() => {
+        refreshInFlight = null;
+      });
+    }
+    return refreshInFlight;
+  }
+
+  async function doRefresh() {
     const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
-    if (!refreshToken) return false;
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
+    if (!refreshToken) return { kind: "session_ended", code: "session_invalid" };
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch {
+      return { kind: "unreachable" };
+    }
+    if (res.ok) {
+      storeTokens(await res.json());
+      return { kind: "refreshed" };
+    }
+    const body = await res.json().catch(() => ({}));
+    return Logic.classifyRefreshFailure(res.status, body.code) === "session_ended"
+      ? { kind: "session_ended", code: body.code }
+      : { kind: "unreachable" };
+  }
+
+
+  function showSessionGate(reason) {
+    const gate = document.getElementById("session-gate");
+    if (!gate || !gate.hidden) return;
+    const [title, body] = SESSION_GATE_COPY[reason] || [
+      "Your session has ended",
+      "You were signed out on the server (for example from another device). ZARVIS did not create a new account for you.",
+    ];
+    document.getElementById("session-gate-title").textContent = title;
+    document.getElementById("session-gate-body").textContent = body;
+    const email = localStorage.getItem(SESSION_KEYS.email);
+    if (email) document.getElementById("session-gate-email").value = email;
+    document.getElementById("session-gate-error").hidden = true;
+    gate.hidden = false;
+    document.getElementById("session-gate-email").focus();
+  }
+
+  function setupSessionGate() {
+    const gate = document.getElementById("session-gate");
+    const errorNode = document.getElementById("session-gate-error");
+    const fail = (message) => {
+      errorNode.textContent = message;
+      errorNode.hidden = false;
+    };
+    document.getElementById("session-gate-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("session-gate-email").value.trim();
+      const password = document.getElementById("session-gate-password").value;
+      try {
+        await signInWithEmail(email, password);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
     });
-    if (!res.ok) return false;
-    const tokens = await res.json();
-    localStorage.setItem(STORAGE_KEYS.accessToken, tokens.accessToken);
-    localStorage.setItem(STORAGE_KEYS.refreshToken, tokens.refreshToken);
-    return true;
+    document.getElementById("session-gate-guest").addEventListener("click", async () => {
+      try {
+        clearSessionTokens();
+        await createGuestSession();
+        location.reload();
+      } catch (err) {
+        console.error(err);
+        fail("Couldn't reach ZARVIS. Check your connection and try again.");
+      }
+    });
+    gate.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") event.preventDefault(); // the gate must be answered
+    });
+  }
+
+  function authErrorMessage(status, code) {
+    if (code === "email_taken") return "That email already belongs to another ZARVIS account. Sign in with it instead.";
+    if (code === "invalid_credentials") return "Email or password is incorrect.";
+    if (code === "not_guest") return "This account already has a sign-in email.";
+    if (code === "rate_limited" || status === 429) return "Too many attempts. Wait a few minutes and try again.";
+    if (status === 400) return "Check the email address, and use a password of at least 8 characters.";
+    return "That didn't work (HTTP " + status + "). Try again.";
+  }
+
+  async function signInWithEmail(email, password) {
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch {
+      throw new Error("Couldn't reach ZARVIS. Check your connection and try again.");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(authErrorMessage(res.status, body.code));
+    clearSessionTokens();
+    storeTokens(body);
+  }
+
+  async function signOut() {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.warn("Server sign-out failed; clearing this browser's session anyway:", err);
+    }
+    endSession("signed_out");
+  }
+
+  // ---- Account settings (link guest → email for cross-device continuity) ----------------
+
+  async function refreshAccountPanel() {
+    const status = document.getElementById("account-status");
+    const linkForm = document.getElementById("account-link-form");
+    const signinNote = document.getElementById("account-signin-note");
+    const signinTitle = document.getElementById("account-signin-title");
+    if (!status) return;
+    try {
+      const res = await apiFetch("/auth/me");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const me = await res.json();
+      localStorage.setItem(SESSION_KEYS.isGuest, String(me.isGuest));
+      if (me.email) localStorage.setItem(SESSION_KEYS.email, me.email);
+      status.textContent = me.isGuest
+        ? "Guest account on this browser. It has no sign-in email yet, so it only exists here. Link an email to use the same account on your phone or another browser."
+        : "Signed in as " + me.email + ". Use this email on your phone or another browser to continue the same conversations and tasks.";
+      linkForm.hidden = !me.isGuest;
+      signinNote.hidden = !me.isGuest;
+      signinTitle.textContent = me.isGuest ? "Or sign in to a different account" : "Sign in to a different account";
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      status.textContent = "Couldn't load account details. Check your connection.";
+    }
+  }
+
+  function setupAccountPanel() {
+    const errorNode = document.getElementById("account-error");
+    const infoNode = document.getElementById("account-info");
+    const show = (node, text) => {
+      errorNode.hidden = true;
+      infoNode.hidden = true;
+      node.textContent = text;
+      node.hidden = false;
+    };
+    document.getElementById("account-link-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("account-link-email").value.trim();
+      const password = document.getElementById("account-link-password").value;
+      try {
+        const res = await apiFetch("/auth/link", { method: "POST", body: JSON.stringify({ email, password }) });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(authErrorMessage(res.status, body.code));
+        show(infoNode, "Linked. Sign in with " + body.email + " on your phone or another browser to continue with this same account.");
+        document.getElementById("account-link-password").value = "";
+        await refreshAccountPanel();
+      } catch (err) {
+        if (!(err instanceof SessionEndedError)) show(errorNode, err.message);
+      }
+    });
+    document.getElementById("account-signin-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("account-signin-email").value.trim();
+      const password = document.getElementById("account-signin-password").value;
+      try {
+        await signInWithEmail(email, password);
+        location.reload();
+      } catch (err) {
+        show(errorNode, err.message);
+      }
+    });
+  }
+
+  // ---- Conversation recovery ---------------------------------------------------------------
+  // After a reload (or on another browser signed into the same account) only real,
+  // server-persisted messages are shown — nothing is reconstructed or invented.
+
+  async function restoreConversation() {
+    if (!state.conversationId || el.conversation.children.length > 0) return;
+    try {
+      const res = await apiFetch(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
+      if (res.status === 404) {
+        state.conversationId = null;
+        localStorage.removeItem(STORAGE_KEYS.conversationId);
+        return;
+      }
+      if (!res.ok) return;
+      const body = await res.json();
+      for (const message of body.messages || []) {
+        addBubble(message.role === "user" ? "user" : "assistant", message.content, undefined, message.createdAt ? new Date(message.createdAt) : null);
+        state.history.push({ role: message.role, content: message.content });
+      }
+      state.history = state.history.slice(-12);
+      if ((body.messages || []).length) state.firstTurn = false;
+    } catch (err) {
+      if (!(err instanceof SessionEndedError)) console.warn("Conversation restore failed:", err);
+    }
+  }
+
+  // ---- Permissions & Device Access (Phase 1 capability registry) -------------------------
+
+  async function microphonePermissionState() {
+    try {
+      if (!navigator.permissions?.query) return null;
+      const status = await navigator.permissions.query({ name: "microphone" });
+      return status.state;
+    } catch {
+      return null; // e.g. Firefox/Safari don't expose it — reported as "browser decides".
+    }
+  }
+
+  async function renderPermissionCenter() {
+    const list = document.getElementById("permission-center-list");
+    if (!list) return;
+    list.textContent = "Loading…";
+    try {
+      if (!capabilityCache) {
+        const res = await fetch(`${API_BASE}/capabilities`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        capabilityCache = (await res.json()).capabilities;
+      }
+    } catch (err) {
+      console.error(err);
+      list.textContent = "Couldn't load the capability list. Check your connection.";
+      return;
+    }
+    const mic = await microphonePermissionState();
+    list.textContent = "";
+    for (const capability of capabilityCache) {
+      const item = document.createElement("article");
+      item.className = "capability-item";
+      item.dataset.capability = capability.id;
+
+      const header = document.createElement("header");
+      const name = document.createElement("strong");
+      name.textContent = capability.name;
+      const risk = document.createElement("span");
+      risk.className = "z-badge";
+      risk.textContent = Logic.riskLabel(capability.risk);
+      header.append(name, risk);
+
+      const status = document.createElement("p");
+      status.className = "capability-status";
+      status.textContent =
+        "Web: " + Logic.capabilityStatusLabel(capability.platforms.web.status) +
+        " · Android: " + Logic.capabilityStatusLabel(capability.platforms.android.status);
+
+      const access = document.createElement("p");
+      access.className = "capability-access";
+      access.textContent = Logic.webAccessSummary(capability, mic);
+
+      item.append(header, status, access);
+      if (capability.confirmation === "PER_ACTION") {
+        const note = document.createElement("small");
+        note.textContent = "Every action asks for your confirmation.";
+        item.appendChild(note);
+      }
+
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "Learn more";
+      const dl = document.createElement("dl");
+      const rows = [
+        ["Why", capability.rationale.why],
+        ["What data", capability.rationale.data],
+        ["What ZARVIS won't do automatically", capability.rationale.notAutomatic],
+        ["How to revoke", capability.rationale.revoke],
+        ["On the web", capability.platforms.web.note],
+        ["On Android", capability.platforms.android.note],
+        ["Supported", capability.supportedActions.join("; ") || "—"],
+        ["Not supported", capability.unsupportedActions.join("; ")],
+        ["If you say no", capability.denialBehavior + " " + capability.fallback],
+      ];
+      for (const [label, value] of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.append(dt, dd);
+      }
+      details.append(summary, dl);
+      item.appendChild(details);
+      list.appendChild(item);
+    }
+  }
+
+  // ---- Server-issued confirmations -------------------------------------------------------
+  // A higher-risk action returns `confirmation_required` with a one-time id bound to that
+  // exact action. Approve/decline resolves *that id*; nothing is ever re-sent with a flag.
+
+  function renderConfirmationCard(confirmation, container = el.conversation) {
+    const card = document.createElement("div");
+    card.className = "confirm-card";
+    card.dataset.confirmationId = confirmation.id;
+    card.setAttribute("role", "group");
+    card.setAttribute("aria-label", "Confirmation needed");
+
+    const title = document.createElement("strong");
+    title.textContent = "Confirm this action · " + Logic.riskLabel(confirmation.riskLevel);
+    const action = document.createElement("p");
+    action.className = "confirm-action";
+    action.textContent = confirmation.action;
+    const note = document.createElement("small");
+    const expires = new Date(confirmation.expiresAt);
+    note.textContent = "Nothing has been done yet. This approval works once, for this action only" +
+      (Number.isNaN(expires.getTime()) ? "." : ", until " + expires.toLocaleTimeString() + ".");
+
+    const actions = document.createElement("div");
+    actions.className = "modal-actions";
+    const decline = document.createElement("button");
+    decline.type = "button";
+    decline.className = "zarvis-btn zarvis-btn-secondary";
+    decline.textContent = "Decline";
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "zarvis-btn zarvis-btn-primary";
+    approve.textContent = "Approve";
+    actions.append(decline, approve);
+
+    const resolve = async (verb) => {
+      approve.disabled = true;
+      decline.disabled = true;
+      approve.textContent = verb === "approve" ? "Running…" : "Approve";
+      try {
+        const res = await apiFetch(`/confirmations/${encodeURIComponent(confirmation.id)}/${verb}`, { method: "POST" });
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 409 && body.code === "confirmation_already_used") {
+          actions.remove();
+          note.textContent = "Already approved: the action ran once and will not run again. Its result is in the conversation.";
+          return;
+        }
+        if (res.status === 404) {
+          note.textContent = "This confirmation expired or was already used. Nothing was run. Ask again if you still want it.";
+          return;
+        }
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        actions.remove();
+        if (body.outcome?.kind === "confirmation_required" && body.outcome.confirmation) {
+          // What would run changed after approval (e.g. another GitHub account was connected).
+          note.textContent = "The action changed before it ran, so nothing was done. Please review it again.";
+          renderConfirmationCard(body.outcome.confirmation, container);
+          return;
+        }
+        note.textContent = Logic.toolStatusLabel(body.result?.status) + ".";
+        if (container === el.conversation) addBubble("assistant", body.message || "Done.");
+        else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error");
+      } catch (err) {
+        if (err instanceof SessionEndedError) return;
+        console.error(err);
+        note.textContent = "Couldn't reach ZARVIS. If the request got through, its result will appear in the conversation; trying again can never run it twice.";
+        approve.disabled = false;
+        decline.disabled = false;
+        approve.textContent = "Approve";
+      }
+    };
+    approve.addEventListener("click", () => void resolve("approve"));
+    decline.addEventListener("click", () => void resolve("decline"));
+
+    card.append(title, action, note, actions);
+    container.appendChild(card);
+    if (container === el.conversation) scrollConversationToBottom();
+    return card;
+  }
+
+  // ---- GitHub connection (Developer Agent runs as the user's own GitHub identity) -------
+
+  async function refreshGithubStatus() {
+    const statusNode = document.getElementById("github-status");
+    const form = document.getElementById("github-connect-form");
+    const disconnect = document.getElementById("github-disconnect-btn");
+    if (!statusNode) return;
+    try {
+      const res = await apiFetch("/integrations/github");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const status = await res.json();
+      const rowValue = document.querySelector('[data-setting-value="developer"]');
+      if (rowValue) rowValue.textContent = !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
+      renderSettingsSubpageValue();
+      if (!status.available) {
+        statusNode.textContent = "GitHub connection isn't configured on this server. Public repositories can still be analyzed.";
+        form.hidden = true;
+        disconnect.hidden = true;
+      } else if (status.connected) {
+        statusNode.textContent = "Connected as " + status.login + ". Analysis and pull requests run as this GitHub account.";
+        form.hidden = true;
+        disconnect.hidden = false;
+      } else {
+        statusNode.textContent = "Not connected. Public repositories can be analyzed anonymously; private repositories and pull requests need your own token.";
+        form.hidden = false;
+        disconnect.hidden = true;
+      }
+    } catch (err) {
+      if (!(err instanceof SessionEndedError)) statusNode.textContent = "Couldn't check the GitHub connection.";
+    }
+  }
+
+  function setupGithubConnect() {
+    const form = document.getElementById("github-connect-form");
+    if (!form) return;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = document.getElementById("github-token-input");
+      const statusNode = document.getElementById("github-status");
+      const token = input.value.trim();
+      if (!token) return;
+      statusNode.textContent = "Verifying with GitHub…";
+      try {
+        const res = await apiFetch("/integrations/github", { method: "POST", body: JSON.stringify({ token }) });
+        const body = await res.json().catch(() => ({}));
+        input.value = "";
+        if (!res.ok) {
+          statusNode.textContent = body.error || "GitHub connection failed.";
+          return;
+        }
+        await refreshGithubStatus();
+      } catch (err) {
+        if (!(err instanceof SessionEndedError)) statusNode.textContent = "Couldn't reach ZARVIS.";
+      }
+    });
+    document.getElementById("github-disconnect-btn").addEventListener("click", async () => {
+      try {
+        await apiFetch("/integrations/github", { method: "DELETE" });
+      } finally {
+        await refreshGithubStatus();
+      }
+    });
   }
 
   // ---- Skill catalogue -------------------------------------------------------------------
@@ -569,7 +1104,7 @@
 
       const card = document.createElement("button");
       card.type = "button";
-      card.className = "quick-action";
+      card.className = "chip";
       card.innerHTML = `${quickActionIconSvg(group.key)}<span>${labels[group.key]}</span>`;
       card.addEventListener("click", () => {
         haptic();
@@ -604,8 +1139,8 @@
     }
     const byCategory = groupByCategory(state.skills);
     for (const [category, categorySkills] of byCategory) {
-      const label = document.createElement("h3");
-      label.className = "capability-group-label";
+      const label = document.createElement("p");
+      label.className = "group-label";
       label.textContent = categoryLabel(category);
       el.capabilitiesList.appendChild(label);
       for (const skill of categorySkills) el.capabilitiesList.appendChild(renderCapabilityCard(skill));
@@ -613,54 +1148,43 @@
   }
 
   function renderCapabilityCard(skill) {
-    const card = document.createElement("div");
-    card.className = "capability-card";
-
-    const top = document.createElement("div");
-    top.className = "capability-card-top";
-
+    const row = document.createElement("div");
+    row.className = "skill-row";
     const icon = document.createElement("span");
-    icon.className = "capability-icon";
+    icon.className = "row-ico tone-blue";
     icon.innerHTML = categoryIconSvg(skill.category);
-    top.appendChild(icon);
-
-    const heading = document.createElement("div");
-    heading.className = "capability-card-heading";
-    const name = document.createElement("h4");
-    name.className = "capability-card-name";
-    name.textContent = skill.name;
-    heading.appendChild(name);
+    const copy = document.createElement("div");
+    copy.className = "cap-copy";
+    const name = document.createElement("div");
+    name.className = "cap-name";
+    const title = document.createElement("strong");
+    title.textContent = skill.name;
     const risk = document.createElement("span");
     risk.className = "risk-badge";
     risk.dataset.level = skill.riskLevel;
-    risk.textContent = skill.riskLevel;
-    heading.appendChild(risk);
-    top.appendChild(heading);
-
-    card.appendChild(top);
-
+    risk.textContent = Logic.riskLabel ? Logic.riskLabel(skill.riskLevel) : skill.riskLevel;
+    name.append(title, risk);
     const desc = document.createElement("p");
-    desc.className = "capability-card-desc";
+    desc.className = "cap-desc";
     desc.textContent = skill.description;
-    card.appendChild(desc);
-
+    copy.append(name, desc);
     const runBtn = document.createElement("button");
     runBtn.type = "button";
-    runBtn.className = "capability-run-btn";
+    runBtn.className = "cap-action";
     if (skill.upgradeRequired) {
-      runBtn.textContent = "Upgrade required";
+      runBtn.textContent = "Needs upgrade";
       runBtn.disabled = true;
     } else {
-      runBtn.textContent = "Run Agent";
+      runBtn.textContent = "Run";
+      runBtn.setAttribute("aria-label", "Run " + skill.name);
       runBtn.addEventListener("click", () => {
         haptic();
         setActiveView("chat");
         submitUtterance(exampleFor(skill.description));
       });
     }
-    card.appendChild(runBtn);
-
-    return card;
+    row.append(icon, copy, runBtn);
+    return row;
   }
 
   // ---- Bottom nav / view switching ---------------------------------------------------------
@@ -677,19 +1201,13 @@
     chat: el.viewWorkspace,
     capabilities: el.viewCapabilities,
     plans: el.viewPlans,
+    metrics: el.viewMetrics,
     activity: el.viewActivity,
     settings: el.viewSettings,
     feature: el.viewFeature,
-    phone: document.getElementById("view-phone"),
-    files: document.getElementById("view-files"),
-    research: document.getElementById("view-research"),
-    creative: document.getElementById("view-creative"),
-    business: document.getElementById("view-business"),
-    developer: document.getElementById("view-developer"),
-    work: document.getElementById("view-work"),
+    developer: el.viewDeveloper,
   };
-  const WORK_VIEWS = new Set(["capabilities", "phone", "files", "research", "creative", "business", "developer", "plans", "feature"]);
-  const GEMINI_VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir"];
+  const MOBILE_KEYBOARD = window.matchMedia("(max-width: 699px), (pointer: coarse)");
 
   function setupBottomNav() {
     document.body.dataset.activeView = state.activeView;
@@ -713,11 +1231,132 @@
       btn.addEventListener("click", () => setActiveView(btn.dataset.homeView));
     }
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
-    el.activityMetricsBtn?.addEventListener("click", () => setActiveView("metrics"));
-    el.openChatBtn?.addEventListener("click", () => setActiveView("chat"));
-    el.homeDeveloperCard?.addEventListener("click", () => setActiveView("developer"));
-    setupHomeAsk();
+    for (const btn of document.querySelectorAll("[data-nav]")) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView(btn.dataset.nav);
+      });
+    }
+    for (const btn of document.querySelectorAll('[data-home-action="voice"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        startListening();
+      });
+    }
+    for (const btn of document.querySelectorAll('[data-home-action="upload"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        el.fileInput.click();
+      });
+    }
+    el.homeOrb?.addEventListener("click", () => {
+      haptic();
+      setActiveView("chat");
+      startListening();
+    });
+    el.chatNewBtn?.addEventListener("click", () => {
+      haptic();
+      startNewConversation();
+    });
+    // On phones the on-screen keyboard shrinks the viewport; hide the tab bar while typing so
+    // the composer sits directly above the keyboard and nothing is covered.
+    el.input.addEventListener("focus", () => {
+      // With visualViewport the keyboard is detected from the real viewport change (so a
+      // hardware keyboard or a dismissed keyboard never hides the tab bar); focus is only
+      // the fallback for browsers without it.
+      if (MOBILE_KEYBOARD.matches && !window.visualViewport) document.body.classList.add("keyboard-open");
+    });
+    el.input.addEventListener("blur", () => {
+      // Keep the keyboard layout while focus stays inside the composer (e.g. Send).
+      setTimeout(() => {
+        if (!el.composer.contains(document.activeElement)) document.body.classList.remove("keyboard-open");
+      }, 0);
+    });
+    // Tapping Send/mic must not pull focus out of the textarea: the keyboard stays up and the
+    // composer doesn't shift under the finger mid-tap.
+    for (const control of [el.sendBtn, el.micBtn]) {
+      control.addEventListener("pointerdown", (event) => {
+        if (document.activeElement === el.input) event.preventDefault();
+      });
+    }
+    setupKeyboardInset();
+    setupHomeQuickActions();
+    setupActivityControls();
     setupWorkspacePrompts();
+    renderHomeGreeting();
+  }
+
+  /**
+   * Keeps the composer above the on-screen keyboard on every browser. Chrome 108+ honours
+   * interactive-widget=resizes-content (the layout viewport shrinks, so the inset is 0);
+   * older Chrome, WebViews and Safari only shrink the visual viewport, so the composer is
+   * lifted by the keyboard's height (--kb). The keyboard is treated as open only while it
+   * actually covers the screen, so dismissing it with Back restores the tab bar even if the
+   * textarea keeps focus.
+   */
+  function setupKeyboardInset() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    let baseline = { width: window.innerWidth, height: Math.max(window.innerHeight, vv.height) };
+    const update = () => {
+      if (window.innerWidth !== baseline.width) {
+        baseline = { width: window.innerWidth, height: Math.max(window.innerHeight, vv.height) };
+      } else if (document.activeElement !== el.input) {
+        baseline.height = Math.max(baseline.height, window.innerHeight, vv.height);
+      }
+      const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      root.style.setProperty("--kb", inset + "px");
+      if (!MOBILE_KEYBOARD.matches || document.activeElement !== el.input) return;
+      const keyboardShown = baseline.height - vv.height > 120;
+      document.body.classList.toggle("keyboard-open", keyboardShown);
+      if (keyboardShown) scrollConversationToBottom();
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    document.addEventListener("visibilitychange", () => {
+      document.body.classList.toggle("page-hidden", document.hidden);
+    });
+  }
+
+  function setupHomeQuickActions() {
+    const toggle = document.getElementById("home-quick-toggle");
+    const panel = document.getElementById("home-quick");
+    if (!toggle || !panel) return;
+    toggle.addEventListener("click", () => {
+      haptic();
+      const open = panel.hidden;
+      panel.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.classList.toggle("active", open);
+    });
+  }
+
+  function renderHomeGreeting() {
+    if (!el.homeGreeting) return;
+    const copy = COPY[state.lang];
+    const hour = new Date().getHours();
+    const key = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+    el.homeGreeting.textContent = copy.homeGreetings[key];
+    if (el.homeTitleSub) el.homeTitleSub.textContent = copy.homeSub;
+  }
+
+  /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
+   * The previous conversation stays on the server. */
+  function startNewConversation() {
+    if (currentTurnController) cancelCurrentTurn();
+    localStorage.removeItem(STORAGE_KEYS.conversationId);
+    state.conversationId = null;
+    state.history = [];
+    state.firstTurn = true;
+    el.conversation.replaceChildren();
+    syncChatConversationLayout();
+    recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
+    updateSettingsValues();
+    if (state.activeView !== "chat") setActiveView("chat");
+    el.input.focus();
   }
 
   // Home feature cards are real entry points into the same Chat pipeline — no fake
@@ -736,10 +1375,29 @@
     if (el.capabilityHub && window.ZarvisFeatures) {
       window.ZarvisFeatures.renderHub(el.capabilityHub);
       el.capabilityHub.addEventListener("click", (event) => {
-        const button = event.target.closest("[data-feature-page]");
+        const button = event.target.closest("[data-cap-action]");
         if (!button) return;
         haptic();
-        openFeature(button.dataset.featurePage);
+        const action = button.dataset.capAction;
+        if (action === "voice") {
+          setActiveView("chat");
+          startListening();
+        } else if (action === "attach") {
+          setActiveView("chat");
+          el.fileInput.click();
+        } else if (action === "developer") {
+          setActiveView("developer");
+        } else if (action === "settings") {
+          setActiveView("settings");
+          openSettingsPage(button.dataset.capSettings || "voice");
+        } else if (action === "feature") {
+          openFeature(button.dataset.featurePage);
+        } else {
+          setActiveView("chat");
+          el.input.value = button.dataset.capPrompt || "";
+          resizeComposer();
+          el.input.focus();
+        }
       });
     }
   }
@@ -770,7 +1428,8 @@
       return;
     }
     if (feature.action === "phone" || feature.id === "phone") {
-      setActiveView("phone");
+      setActiveView("settings");
+      openSettingsPage("permissions");
       return;
     }
     if (feature.action === "developer" && (!prompt || prompt === feature.prompt)) {
@@ -795,39 +1454,6 @@
     if (!el.chatAnnouncer || !text) return;
     el.chatAnnouncer.textContent = "";
     el.chatAnnouncer.textContent = text;
-  }
-
-  function setupHomeAsk() {
-    const input = document.getElementById("home-ask-input");
-    const send = document.getElementById("home-ask-send");
-    if (!input || !send) return;
-    const ask = () => {
-      const text = input.value.trim();
-      if (!text) {
-        setActiveView("chat");
-        el.input.focus();
-        return;
-      }
-      input.value = "";
-      setActiveView("chat");
-      submitComposerInput(text);
-    };
-    send.addEventListener("click", ask);
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        ask();
-      }
-    });
-    document.getElementById("home-ask-mic")?.addEventListener("click", () => {
-      setActiveView("chat");
-      startListening();
-    });
-    document.getElementById("home-ask-attach")?.addEventListener("click", () => {
-      setActiveView("chat");
-      el.fileInput.click();
-    });
-    document.getElementById("files-attach-btn")?.addEventListener("click", () => el.fileInput.click());
   }
 
   function setupWorkspacePrompts() {
@@ -858,24 +1484,36 @@
     }
     const navView = view === "feature" ? "capabilities" : view;
     for (const item of el.navItems) {
-      const target = item.dataset.view;
-      const inBottom = Boolean(item.closest(".bottom-nav"));
-      const active = target === navView || (inBottom && target === "work" && WORK_VIEWS.has(view));
+      const active = item.dataset.view === navView;
       item.classList.toggle("active", active);
-      if (item.getAttribute("role") !== "tab") item.setAttribute("aria-current", active ? "page" : "false");
+      if (active) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
     }
     el.composer.hidden = view !== "chat";
+    document.body.classList.remove("keyboard-open");
+    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
 
     if (view === "capabilities") renderCapabilities();
     if (view === "plans") refreshPlans();
     if (view === "metrics") {
       renderLatencyLog();
+      renderMetricsUsage();
       refreshMetricsHealth();
       refreshTasks();
       startMetricsPolling();
     }
     if (view === "activity") refreshActivity();
-    if (view === "home") renderHomeActivity();
+    if (view === "home") {
+      renderHomeGreeting();
+      renderHomeActivity();
+    }
+    if (view === "developer") void refreshGithubStatus();
+    if (view === "settings") {
+      updateSettingsValues();
+      void refreshGithubStatus();
+      void loadSettingsSummary();
+    }
+    if (view === "chat") scrollConversationToBottom();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
@@ -889,24 +1527,22 @@
     {
       name: "FREE",
       tag: null,
-      tagline: "Get started with zero commitment.",
-      features: ["LOW-risk, low-cost skills only", "Voice + text, English/Hindi/Hinglish", "Standard response speed"],
+      tagline: "Everything you need to get started.",
+      features: ["Conversation and voice in English, Hindi and Hinglish", "Documents, research, writing and business drafts", "Tracked tasks and Developer Agent analysis"],
       highlighted: false,
     },
     {
       name: "PRO",
       tag: "Recommended",
-      tagline: "Full access across every shipped skill.",
+      tagline: "Every skill ZARVIS ships.",
       features: [
-        "Every skill Zarvis ships, at every risk tier",
-        "Higher usage/credit ceiling",
-        "Priority orchestrator queueing",
+        "Everything in Free",
+        "Developer Agent pull requests, after your approval",
+        "Access to every current skill",
       ],
       highlighted: true,
     },
   ];
-
-  let currentPlanName = null;
 
   function setupPlans() {
     const options = el.billingToggle.querySelectorAll(".billing-option");
@@ -930,8 +1566,8 @@
     el.confirmModalTitle.textContent = title;
     el.confirmModalBody.textContent = body;
     el.confirmModalConfirm.textContent = confirmLabel;
-    el.confirmModalConfirm.classList.toggle("zarvis-btn-danger", destructive);
-    el.confirmModalConfirm.classList.toggle("zarvis-btn-primary", !destructive);
+    el.confirmModalConfirm.classList.toggle("btn-danger", destructive);
+    el.confirmModalConfirm.classList.toggle("btn-primary", !destructive);
     el.confirmModal.hidden = false;
     el.confirmModalCancel.focus();
 
@@ -987,6 +1623,10 @@
     el.appearanceAuroraBtn?.addEventListener("click", () => setAppearance("aurora"));
     el.appearanceDimBtn?.addEventListener("click", () => setAppearance("dim"));
     el.settingsOpenDeveloper?.addEventListener("click", () => setActiveView("developer"));
+    el.settingsNewConversation?.addEventListener("click", () => {
+      haptic();
+      startNewConversation();
+    });
     for (const btn of document.querySelectorAll("[data-settings-open-privacy]")) {
       btn.addEventListener("click", () => openSettingsPage("privacy"));
     }
@@ -994,20 +1634,25 @@
       btn.addEventListener("click", () => {
         haptic();
         setLanguage(btn.dataset.lang);
+        showToast(btn.dataset.lang === "hi" ? "भाषा: हिंदी" : "Language: English");
       });
     }
     el.settingsVoiceToggle.addEventListener("click", () => {
       haptic();
       toggleSpeak();
+      showToast(state.speak ? "Spoken replies on" : "Spoken replies off");
     });
     el.settingsClearSessionBtn.addEventListener("click", () => {
       haptic();
+      const isGuest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
       showConfirmModal({
-        title: "Clear local session?",
-        body: "This removes the session on this device and starts a fresh guest session after reload. Your account is not deleted.",
-        confirmLabel: "Clear session",
-        destructive: false,
-        onConfirm: clearLocalSession,
+        title: "Sign out?",
+        body: isGuest
+          ? "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email in Account first if you want to keep it."
+          : "This ends the session on this browser. Sign in again with your email to continue.",
+        confirmLabel: "Sign out",
+        destructive: isGuest,
+        onConfirm: () => void signOut(),
       });
     });
     el.settingsDeleteBtn.addEventListener("click", () => {
@@ -1030,9 +1675,15 @@
     el.settingsPanels.hidden = false;
     const entry = document.querySelector(`[data-settings-page="${page}"] strong`);
     if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = entry ? entry.textContent : "Settings";
+    const desc = document.getElementById("settings-subpage-desc");
+    if (desc) desc.textContent = document.querySelector(`[data-settings-page="${page}"] small`)?.textContent || "";
+    renderSettingsSubpageValue();
     for (const panel of document.querySelectorAll("[data-settings-panel]")) {
       panel.hidden = panel.dataset.settingsPanel !== page;
     }
+    if (page === "account") void refreshAccountPanel();
+    if (page === "permissions") void renderPermissionCenter();
+    if (page === "ai") void renderAiProvider();
     el.settingsPanelBack?.focus?.();
   }
 
@@ -1047,12 +1698,99 @@
     state.appearance = mode;
     localStorage.setItem("zarvis.appearance", mode);
     applyAppearance();
+    updateSettingsValues();
+    showToast(mode === "dim" ? "Dim appearance" : "Light appearance");
+  }
+
+  let toastTimer = null;
+  /** A short confirmation that a setting was saved (also announced to screen readers). */
+  function showToast(text) {
+    const toast = document.getElementById("toast");
+    if (!toast) return;
+    toast.textContent = text;
+    toast.hidden = false;
+    toast.classList.remove("is-leaving");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.add("is-leaving");
+      toastTimer = setTimeout(() => { toast.hidden = true; }, 220);
+    }, 1800);
+  }
+
+  /** Current value shown on each Settings row. */
+  function updateSettingsValues() {
+    const set = (key, value) => {
+      const node = document.querySelector(`[data-setting-value="${key}"]`);
+      if (node) node.textContent = value;
+    };
+    const email = localStorage.getItem(SESSION_KEYS.email);
+    const isGuest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+    set("account", isGuest ? "Guest" : email || "Signed in");
+    set("subscription", currentPlanName ? formatPlanName(currentPlanName) : "");
+    set("voice", state.speak ? "On" : "Off");
+    set("language", state.lang === "hi" ? "हिंदी" : "English");
+    set("appearance", state.appearance === "dim" ? "Dim" : "Light");
+    set("memory", state.conversationId ? "Saved" : "New");
+    if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
+    set("security", isGuest ? "Guest session" : "Signed in");
+    renderSettingsSubpageValue();
+  }
+
+  /** The open Settings page repeats its current value next to the title. */
+  function renderSettingsSubpageValue() {
+    const badge = document.getElementById("settings-subpage-value");
+    if (!badge) return;
+    const value = state.settingsPage
+      ? document.querySelector(`[data-setting-value="${state.settingsPage}"]`)?.textContent.trim() || ""
+      : "";
+    badge.textContent = value;
+    badge.hidden = !value;
+  }
+
+  /** Fills the Subscription and AI rows from the real APIs when Settings is opened first
+   * (before Plans or Metrics loaded them). Failures leave the value blank, never invented. */
+  async function loadSettingsSummary() {
+    try {
+      if (!healthCache) await fetchHealth();
+    } catch {
+      // Row stays blank; the AI page itself shows the error state.
+    }
+    if (currentPlanName) return;
+    try {
+      const res = await apiFetch("/entitlements/me");
+      if (!res.ok) return;
+      const snapshot = await res.json();
+      if (snapshot?.plan) currentPlanName = snapshot.plan;
+      updateSettingsValues();
+    } catch {
+      // Same: no value rather than a guessed one.
+    }
+  }
+
+  async function fetchHealth() {
+    const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
+    healthCache = await res.json();
+    updateSettingsValues();
+    return healthCache;
+  }
+
+  async function renderAiProvider() {
+    if (!el.settingsAiProvider) return;
+    el.settingsAiProvider.textContent = "Checking…";
+    try {
+      const health = healthCache || (await fetchHealth());
+      el.settingsAiProvider.textContent = health.provider === "google"
+        ? "Google Gemini is answering your requests."
+        : "No AI provider is configured on this server, so answers are limited.";
+    } catch {
+      el.settingsAiProvider.textContent = "Couldn't reach the server to check.";
+    }
   }
 
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#12110f" : "#f4f1eb");
+    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#070a14" : "#f6f7fb");
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -1061,11 +1799,15 @@
   async function refreshActivity() {
     if (!el.activityTaskList) return;
     const refreshBtn = el.activityRefreshBtn;
-    if (refreshBtn) {
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = "Refreshing…";
-    }
+    if (refreshBtn) refreshBtn.disabled = true;
     el.activityTaskList.setAttribute("aria-busy", "true");
+    renderActivityTimeline();
+    if (!el.activityTaskList.children.length) {
+      const skeleton = document.createElement("div");
+      skeleton.className = "skeleton skeleton-row";
+      skeleton.setAttribute("aria-hidden", "true");
+      el.activityTaskList.appendChild(skeleton);
+    }
     let tasks = null;
     try {
       tasks = await fetchTasks();
@@ -1074,32 +1816,18 @@
       tasks = null;
     }
     el.activityTaskList.innerHTML = "";
-    if (refreshBtn) {
-      refreshBtn.disabled = false;
-      refreshBtn.textContent = "Refresh";
-    }
+    if (refreshBtn) refreshBtn.disabled = false;
     el.activityTaskList.removeAttribute("aria-busy");
     if (!tasks) {
-      el.activityTaskList.appendChild(emptyState("Something went wrong", "Try again from Refresh."));
+      el.activityTaskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
       return;
     }
     if (!tasks.length) {
-      el.activityTaskList.appendChild(emptyState("Nothing here yet", "Create a tracked task from Chat. ZARVIS stores the steps. It does not run them."));
+      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here."));
       return;
     }
     for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
-  }
-
-  /** Clears only the session tokens (keeps language/voice preferences) so the next reload
-   * bootstraps a fresh guest account — the web equivalent of Android's "Clear local
-   * session," which does the same thing to its own token storage. */
-  function clearLocalSession() {
-    localStorage.removeItem(STORAGE_KEYS.accessToken);
-    localStorage.removeItem(STORAGE_KEYS.refreshToken);
-    localStorage.removeItem(STORAGE_KEYS.conversationId);
-    state.conversationId = null;
-    state.history = [];
-    location.reload();
+    applyActivityFilter();
   }
 
   async function deleteAccount() {
@@ -1108,7 +1836,8 @@
     try {
       const res = await apiFetch("/account", { method: "DELETE" });
       if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
-      clearLocalSession(); // reloads — a fresh guest session bootstraps on the next load
+      localStorage.removeItem(SESSION_KEYS.email);
+      endSession("account_deleted"); // the user chooses: new guest or sign in — never automatic
     } catch (err) {
       console.error(err);
       el.settingsDeleteBtn.disabled = false;
@@ -1141,59 +1870,53 @@
     });
   }
 
+  /** Asks the server for a one-time confirmation of this exact change, then shows it. */
+  let lastDeveloperAction = null;
+
   async function implementRepo() {
+    lastDeveloperAction = implementRepo;
     const repoUrl = el.developerRepoInput.value.trim();
     const requirement = el.developerRequirementInput.value.trim();
+    el.developerResult.innerHTML = "";
     if (!repoUrl || !requirement) {
-      renderDeveloperMessage("Repository URL and implementation requirement are both required.", "error");
+      renderDeveloperMessage("Add a repository URL and describe the change to implement.", "error", false);
       return;
     }
-    showConfirmModal({
-      title: "Open a pull request?",
-      body: "ZARVIS will create a branch, change bounded text files, and open a pull request. It will not merge. This needs a PRO plan and a configured GitHub token.",
-      confirmLabel: "Implement",
-      destructive: false,
-      onConfirm: () => { void submitImplementation(repoUrl, requirement); },
-    });
-  }
-
-  async function submitImplementation(repoUrl, requirement) {
     el.developerImplementBtn.disabled = true;
-    el.developerImplementBtn.textContent = "Implementing…";
-    setDeveloperStage("implement", "Running", "z-badge-info");
+    setDeveloperStage("implement", "Checking", "z-badge-info");
     try {
-      const res = await apiFetch("/developer/implement", { method: "POST", body: JSON.stringify({ repoUrl, requirement, confirmed: true }) });
+      const res = await apiFetch("/developer/implement", { method: "POST", body: JSON.stringify({ repoUrl, requirement }) });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.kind !== "success") {
-        setDeveloperStage("implement", "Couldn't complete", "z-badge-off");
-        renderDeveloperMessage(body.error || body.result?.userMessage || body.userMessage || "Implementation failed; no change was reported as committed.", "error");
+      if (res.ok && body.kind === "confirmation_required") {
+        setDeveloperStage("implement", "Waiting for you", "z-badge-info");
+        renderConfirmationCard(body.confirmation, el.developerResult);
+        revealDeveloperResult();
         return;
       }
-      setDeveloperStage("implement", "Completed", "z-badge-ok");
-      const output = body.result?.output || {};
-      renderDeveloperMessage(body.result?.summary || "Implementation complete.", "success");
-      if (output.pullRequest?.url) {
-        const link = document.createElement("a");
-        link.className = "zarvis-btn zarvis-btn-secondary";
-        link.href = output.pullRequest.url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = "Open PR #" + output.pullRequest.number;
-        el.developerResult.appendChild(link);
-      }
+      setDeveloperStage("implement", "Couldn't start", "z-badge-err");
+      renderDeveloperMessage(
+        body.structured?.userSafeMessage || body.error || "This change can't run right now (HTTP " + res.status + ").",
+        "error",
+      );
     } catch (err) {
+      if (err instanceof SessionEndedError) return;
       console.error(err);
-      setDeveloperStage("implement", "Couldn't complete", "z-badge-off");
-      renderDeveloperMessage("Developer Agent could not reach the backend.", "error");
+      setDeveloperStage("implement", "Couldn't start", "z-badge-err");
+      renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerImplementBtn.disabled = false;
-      el.developerImplementBtn.textContent = "Implement and open PR";
     }
   }
+
   async function analyzeRepo() {
+    lastDeveloperAction = analyzeRepo;
     const repoUrl = el.developerRepoInput.value.trim();
     el.developerResult.innerHTML = "";
-    if (!repoUrl) return;
+    if (!repoUrl) {
+      renderDeveloperMessage("Add a repository URL, then run Analyze.", "error", false);
+      el.developerRepoInput.focus();
+      return;
+    }
 
     el.developerAnalyzeBtn.disabled = true;
     el.developerAnalyzeBtn.textContent = "Analyzing…";
@@ -1202,15 +1925,15 @@
       const res = await apiFetch("/developer/analyze", { method: "POST", body: JSON.stringify({ repoUrl }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.kind !== "success") {
-        setDeveloperStage("analyze", "Couldn't complete", "z-badge-off");
-        renderDeveloperMessage(body.error || body.userMessage || `Analysis failed (${res.status}).`, "error");
+        setDeveloperStage("analyze", "Couldn't complete", "z-badge-err");
+        renderDeveloperMessage(body.structured?.userSafeMessage || body.error || `Analysis failed (${res.status}).`, "error");
         return;
       }
       setDeveloperStage("analyze", "Completed", "z-badge-ok");
       renderDeveloperMessage(body.result?.summary || "Analyzed.", "success");
     } catch (err) {
       console.error(err);
-      setDeveloperStage("analyze", "Couldn't complete", "z-badge-off");
+      setDeveloperStage("analyze", "Couldn't complete", "z-badge-err");
       renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerAnalyzeBtn.disabled = false;
@@ -1218,7 +1941,7 @@
     }
   }
 
-  function renderDeveloperMessage(message, status) {
+  function renderDeveloperMessage(message, status, retryable = true) {
     const widget = document.createElement("div");
     widget.className = "result-widget";
     widget.dataset.kind = "code";
@@ -1234,12 +1957,70 @@
     renderFormattedText(body, message);
     widget.appendChild(body);
 
+    if (status === "error" && retryable && lastDeveloperAction) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "btn btn-secondary widget-retry";
+      retry.textContent = "Try again";
+      const action = lastDeveloperAction;
+      retry.addEventListener("click", () => {
+        haptic();
+        void action();
+      });
+      widget.appendChild(retry);
+    }
     el.developerResult.appendChild(widget);
+    revealDeveloperResult();
+    // A validation hint (retryable === false) is not a run: no status change, no history entry.
+    if (!retryable && status === "error") return;
     lastDeveloperNote = { status, message };
+    setRunStatus(status === "success" ? "completed" : "failed");
+    const line = String(message || "").split("\n").find((text) => text.trim()) || "";
+    const title = line.replace(/[#*`_>]/g, "").trim().slice(0, 90) || (status === "success" ? "Completed" : "Failed");
+    recordActivity("developer", title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
+    appendDeveloperLog(title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
     renderHomeActivity();
   }
 
+  function revealDeveloperResult() {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => el.developerResult.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" }));
+  }
+
+  const RUN_STATUS_LABELS = { idle: "Idle", thinking: "Thinking", working: "Working", waiting: "Waiting for approval", completed: "Completed", failed: "Failed" };
+
+  function setRunStatus(tone) {
+    if (!el.developerRunStatus) return;
+    el.developerRunStatus.dataset.tone = tone;
+    const label = el.developerRunStatus.querySelector("span:last-child");
+    if (label) label.textContent = RUN_STATUS_LABELS[tone] || tone;
+  }
+
+  function appendDeveloperLog(title, meta, tone) {
+    if (!el.developerLog) return;
+    const item = document.createElement("li");
+    item.className = "timeline-item";
+    item.dataset.tone = tone;
+    const dot = document.createElement("span");
+    dot.className = "timeline-dot";
+    dot.appendChild(svgIcon(tone === "ok" ? "i-check" : "i-x"));
+    const body = document.createElement("div");
+    body.className = "timeline-body";
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const small = document.createElement("div");
+    small.className = "timeline-meta";
+    small.textContent = meta + " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    body.append(strong, small);
+    item.append(dot, body);
+    el.developerLog.querySelector(".timeline-empty")?.remove();
+    el.developerLog.prepend(item);
+  }
+
   function setDeveloperStage(name, label, tone) {
+    const runTone = label === "Checking" ? "thinking" : label === "Running" ? "working" : label === "Waiting for you" ? "waiting"
+      : label === "Completed" ? "completed" : /^Couldn't/.test(label) ? "failed" : null;
+    if (runTone) setRunStatus(runTone);
     const card = document.querySelector(`#developer-stages [data-stage="${name}"] .z-badge`);
     if (!card) return;
     card.textContent = label;
@@ -1253,11 +2034,11 @@
       if (res.ok) {
         const snapshot = await res.json();
         currentPlanName = snapshot.plan;
-        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: snapshot.plan }));
+        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan) }));
         el.plansCurrent.appendChild(renderStatTile({ label: "Credits", value: String(snapshot.creditBalance) }));
-        if (snapshot.trialExpiresAt) {
-          el.plansCurrent.appendChild(renderStatTile({ label: "Trial ends", value: new Date(snapshot.trialExpiresAt).toLocaleDateString() }));
-        }
+        el.plansCurrent.appendChild(renderStatTile({ label: "Trial", value: snapshot.trialExpiresAt ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "None" }));
+        el.plansCurrent.appendChild(renderStatTile({ label: "Billing", value: "Not connected" }));
+        updateSettingsValues();
       }
     } catch {
       // The Free/Pro comparison below still renders regardless — this tile row is a
@@ -1273,7 +2054,7 @@
 
   function renderPlanCard(plan, currentPlan) {
     const card = document.createElement("div");
-    card.className = plan.highlighted ? "z-card z-card-settings plan-card highlighted" : "z-card z-card-settings plan-card";
+    card.className = plan.highlighted ? "plan-card highlighted" : "plan-card";
 
     const top = document.createElement("div");
     top.className = "plan-card-top";
@@ -1295,7 +2076,7 @@
     if (plan.highlighted) {
       const note = document.createElement("p");
       note.className = "plan-card-note";
-      note.textContent = `Billed ${state.billing} · pricing coming soon`;
+      note.textContent = `Billed ${state.billing} · pricing not available yet`;
       card.appendChild(note);
     }
 
@@ -1320,20 +2101,39 @@
 
   const MAX_LATENCY_ENTRIES = 50;
 
-  function recordLatency(label, durationMs, success) {
-    latencyEntries = [{ id: `${Date.now()}-${Math.random()}`, label, durationMs, success }, ...latencyEntries].slice(0, MAX_LATENCY_ENTRIES);
-    if (state.activeView === "metrics") renderLatencyLog();
+  function recordLatency(label, durationMs, success, isVoice = false) {
+    const title = summarizeUtterance(label);
+    latencyEntries = [{ id: `${Date.now()}-${Math.random()}`, label: title, durationMs, success, isVoice }, ...latencyEntries].slice(0, MAX_LATENCY_ENTRIES);
+    recordActivity(isVoice ? "voice" : "conversation", title, success ? (isVoice ? "Voice request" : "Answered") + " · " + durationMs + " ms" : "Didn't complete", success ? "ok" : "error");
+    if (state.activeView === "metrics") {
+      renderLatencyLog();
+      renderMetricsUsage();
+    }
+  }
+
+  /** First line of what the user asked, without an attached document's text. */
+  function summarizeUtterance(text) {
+    const withoutDoc = String(text || "").split("\n\n[Attached document:")[0];
+    const line = withoutDoc.split("\n")[0].trim();
+    return line.length > 90 ? line.slice(0, 87) + "…" : line || "Request";
   }
 
   async function refreshMetricsHealth() {
-    el.metricsHealthGrid.innerHTML = "";
+    let body = null;
     try {
-      const res = await fetch(`${API_BASE.replace(/\/api\/v1$/, "")}/health`);
-      const body = await res.json();
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI Provider", value: body.provider === "google" ? "Gemini (live)" : "Mock" }));
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Backend", value: "Online" }));
+      body = await fetchHealth();
     } catch {
-      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Backend", value: "Offline" }));
+      body = null;
+    }
+    el.metricsHealthGrid.replaceChildren();
+    if (body) {
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "AI provider", value: body.provider === "google" ? "Gemini" : "Not configured" }));
+      // /health reports "degraded" when the database is configured but unusable, "error" when
+      // the server could not start; only "ok" is shown as Online.
+      const server = body.status === "ok" ? "Online" : body.status === "degraded" ? "Database issue" : "Not started";
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Server", value: server }));
+    } else {
+      el.metricsHealthGrid.appendChild(renderStatTile({ label: "Server", value: "Offline" }));
     }
   }
 
@@ -1345,15 +2145,16 @@
         : `${Math.round(latencyEntries.reduce((sum, entry) => sum + entry.durationMs, 0) / latencyEntries.length)}ms`;
     const successRate =
       latencyEntries.length === 0 ? "—" : `${Math.round((latencyEntries.filter((entry) => entry.success).length / latencyEntries.length) * 100)}%`;
-    el.latencyStats.appendChild(renderStatTile({ label: "Avg Latency", value: avgMs }));
-    el.latencyStats.appendChild(renderStatTile({ label: "Turns Logged", value: String(latencyEntries.length) }));
-    el.latencyStats.appendChild(renderStatTile({ label: "Success Rate", value: successRate }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Average", value: avgMs }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Requests", value: String(latencyEntries.length) }));
+    el.latencyStats.appendChild(renderStatTile({ label: "Success", value: successRate }));
+    renderTrend();
 
     el.latencyLog.innerHTML = "";
     if (latencyEntries.length === 0) {
       const empty = document.createElement("p");
       empty.className = "latency-empty";
-      empty.textContent = "No turns yet this session — ask Zarvis something on Workspace and it shows up here instantly.";
+      empty.textContent = "No requests yet this session. Ask ZARVIS something in Chat.";
       el.latencyLog.appendChild(empty);
       return;
     }
@@ -1391,9 +2192,74 @@
     }
   }
 
+  function renderTrend() {
+    if (!el.metricsTrend) return;
+    el.metricsTrend.replaceChildren();
+    const entries = latencyEntries.slice(0, 20).reverse();
+    if (!entries.length) {
+      const empty = document.createElement("p");
+      empty.className = "trend-empty";
+      empty.textContent = "Response times appear here after your first request.";
+      el.metricsTrend.appendChild(empty);
+      return;
+    }
+    const max = Math.max(...entries.map((entry) => entry.durationMs), 1);
+    entries.forEach((entry, index) => {
+      const bar = document.createElement("span");
+      bar.className = "trend-bar" + (entry.success ? "" : " is-failed");
+      bar.style.height = Math.max(4, Math.round((entry.durationMs / max) * 100)) + "%";
+      bar.style.animationDelay = index * 20 + "ms";
+      bar.title = `${entry.label} — ${entry.durationMs} ms`;
+      el.metricsTrend.appendChild(bar);
+    });
+    el.metricsTrend.setAttribute("aria-label", `Response time for the last ${entries.length} requests, longest ${max} ms`);
+  }
+
+  /** Usage for this session (measured here) plus the account's live credit balance. */
+  async function renderMetricsUsage() {
+    if (!el.metricsUsage) return;
+    const count = (type) => activityLog.filter((entry) => entry.type === type).length;
+    const conversations = state.history.filter((message) => message.role === "user").length;
+    const tiles = [
+      { label: "Conversation turns", value: String(conversations) },
+      { label: "AI requests", value: String(latencyEntries.length) },
+      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length) },
+      { label: "Files read", value: String(count("file")) },
+      { label: "Developer runs", value: String(count("developer")) },
+      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—" },
+      { label: "Credits", value: "…", id: "metrics-credits" },
+      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan" },
+    ];
+    el.metricsUsage.replaceChildren(...tiles.map((tile) => {
+      const node = renderStatTile(tile);
+      if (tile.id) node.id = tile.id;
+      return node;
+    }));
+    try {
+      const res = await apiFetch("/entitlements/me");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const snapshot = await res.json();
+      currentPlanName = snapshot.plan;
+      const credits = document.querySelector("#metrics-credits .stat-tile-value");
+      const plan = document.querySelector("#metrics-plan .stat-tile-value");
+      if (credits) credits.textContent = String(snapshot.creditBalance);
+      if (plan) plan.textContent = snapshot.plan;
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      const credits = document.querySelector("#metrics-credits .stat-tile-value");
+      if (credits) credits.textContent = "—";
+    }
+  }
+
+  /** "TRIAL" → "Trial": the same spelling everywhere (Settings, Plans, Metrics). */
+  function formatPlanName(plan) {
+    const name = String(plan || "");
+    return name ? name.charAt(0).toUpperCase() + name.slice(1).toLowerCase() : name;
+  }
+
   function renderStatTile({ label, value }) {
     const tile = document.createElement("div");
-    tile.className = "z-card z-card-stat stat-tile";
+    tile.className = "stat-tile";
     const labelEl = document.createElement("span");
     labelEl.className = "stat-tile-label";
     labelEl.textContent = label;
@@ -1418,95 +2284,207 @@
     return box;
   }
 
+  const ACTIVITY_ICONS = {
+    conversation: "i-chat",
+    voice: "i-mic",
+    ai: "i-sparkle",
+    file: "i-file",
+    developer: "i-code",
+    task: "i-task",
+  };
+  const ACTIVITY_LABELS = {
+    conversation: "Chat",
+    voice: "Voice",
+    ai: "AI action",
+    file: "File",
+    developer: "Developer",
+    task: "Task",
+  };
+  const activityFilter = { type: "all", query: "" };
+
+  function svgIcon(id) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "ico");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#" + id);
+    svg.appendChild(use);
+    return svg;
+  }
+
+  /** Adds one entry to this session's activity (newest first) and refreshes what shows it. */
+  function recordActivity(type, title, meta, tone) {
+    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date() });
+    if (activityLog.length > 200) activityLog.length = 200;
+    if (state.activeView === "activity") renderActivityTimeline();
+    if (state.activeView === "home") renderHomeActivity();
+  }
+
+  function listRow({ icon, tone, title, meta, onClick }) {
+    const row = document.createElement(onClick ? "button" : "div");
+    if (onClick) {
+      row.type = "button";
+      row.addEventListener("click", onClick);
+    }
+    row.className = "list-row";
+    const ico = document.createElement("span");
+    ico.className = "row-ico " + (tone || "tone-blue");
+    ico.appendChild(svgIcon(icon));
+    const copy = document.createElement("span");
+    copy.className = "list-row-copy";
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const small = document.createElement("small");
+    small.textContent = meta;
+    copy.append(strong, small);
+    row.append(ico, copy);
+    if (onClick) {
+      const chev = svgIcon("i-right");
+      chev.classList.add("row-chev");
+      row.appendChild(chev);
+    }
+    return row;
+  }
+
   function renderHomeActivity() {
     const root = document.getElementById("home-activity");
     if (!root) return;
     root.replaceChildren();
-    if (latestTasks === undefined) {
-      const skeleton = document.createElement("div");
-      skeleton.className = "z-skeleton";
-      skeleton.setAttribute("aria-hidden", "true");
-      root.appendChild(skeleton);
-      return;
-    }
+    document.getElementById("home-recent")?.classList.remove("is-empty");
     const rows = [];
+    if (state.pendingAttachment) {
+      rows.push(listRow({ icon: "i-file", tone: "tone-cyan", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
+    }
+    for (const entry of activityLog.slice(0, 3)) {
+      rows.push(listRow({
+        icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
+        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" ? "tone-cyan" : "tone-blue",
+        title: entry.title,
+        meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
+        onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
+      }));
+    }
     if (Array.isArray(latestTasks)) {
-      for (const task of latestTasks.slice(0, 3)) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "z-card z-card-task activity-row";
-        const status = document.createElement("span");
-        status.className = "task-status-badge";
-        status.textContent = task.status;
-        const title = document.createElement("strong");
-        title.textContent = task.goal;
-        const meta = document.createElement("small");
-        meta.textContent = formatRelativeTime(task.createdAt) + " · Status only";
-        button.append(status, title, meta);
-        button.addEventListener("click", () => setActiveView("activity"));
-        rows.push(button);
+      for (const task of latestTasks.slice(0, Math.max(0, 4 - rows.length))) {
+        rows.push(listRow({ icon: "i-task", tone: "tone-pink", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
       }
     }
-    const recentUser = state.history.filter((message) => message.role === "user").slice(-2).reverse();
-    for (const message of recentUser) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "z-card z-card-insight activity-row";
-      const status = document.createElement("span");
-      status.className = "task-status-badge";
-      status.textContent = "Conversation";
-      const title = document.createElement("strong");
-      const line = String(message.content || "").split("\n")[0].replace(/^📎\s*/, "");
-      title.textContent = line.length > 80 ? line.slice(0, 77) + "…" : line;
-      button.append(status, title);
-      button.addEventListener("click", () => setActiveView("chat"));
-      rows.push(button);
-    }
-    if (state.pendingAttachment) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "z-card z-card-status activity-row";
-      const status = document.createElement("span");
-      status.className = "z-badge z-badge-ok";
-      status.textContent = "Ready";
-      const title = document.createElement("strong");
-      title.textContent = state.pendingAttachment.filename;
-      const meta = document.createElement("small");
-      meta.textContent = "Ask about this file in Chat.";
-      button.append(status, title, meta);
-      button.addEventListener("click", () => setActiveView("files"));
-      rows.push(button);
-    }
-    if (lastDeveloperNote) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "z-card z-card-status activity-row";
-      const status = document.createElement("span");
-      status.className = "task-status-badge";
-      status.textContent = lastDeveloperNote.status === "success" ? "Developer" : "Developer";
-      const title = document.createElement("strong");
-      const line = String(lastDeveloperNote.message || "").split("\n")[0];
-      title.textContent = line.length > 80 ? line.slice(0, 77) + "…" : line;
-      button.append(status, title);
-      button.addEventListener("click", () => setActiveView("developer"));
-      rows.push(button);
+    if (!rows.length && state.history.length) {
+      const last = [...state.history].reverse().find((message) => message.role === "user");
+      if (last) rows.push(listRow({ icon: "i-chat", tone: "tone-blue", title: summarizeUtterance(String(last.content || "").replace(/^📎\s*/, "")), meta: "Conversation", onClick: () => setActiveView("chat") }));
     }
     if (!rows.length) {
+      if (latestTasks === undefined) {
+        const skeleton = document.createElement("div");
+        skeleton.className = "skeleton skeleton-row";
+        skeleton.setAttribute("aria-hidden", "true");
+        root.appendChild(skeleton);
+        return;
+      }
       if (latestTasks === null) {
-        const failed = emptyState("Something went wrong", "Tasks could not be loaded. Try again.");
+        const failed = emptyState("Couldn't load your activity", "Check your connection and try again.");
         const retry = document.createElement("button");
         retry.type = "button";
-        retry.className = "zarvis-btn zarvis-btn-secondary";
+        retry.className = "btn btn-secondary";
         retry.textContent = "Try again";
         retry.addEventListener("click", () => { void fetchTasks().catch(() => {}); });
         failed.appendChild(retry);
         root.appendChild(failed);
         return;
       }
-      root.appendChild(emptyState("Your workspace is ready", "Start a conversation or create your first task."));
+      root.appendChild(emptyState("Nothing yet", "Your conversations and actions will appear here."));
+      document.getElementById("home-recent")?.classList.add("is-empty");
       return;
     }
-    for (const row of rows) root.appendChild(row);
+    document.getElementById("home-recent")?.classList.remove("is-empty");
+    rows.forEach((row, index) => {
+      row.style.animationDelay = index * 40 + "ms";
+      root.appendChild(row);
+    });
+  }
+
+  function setupActivityControls() {
+    el.activitySearch?.addEventListener("input", () => {
+      activityFilter.query = el.activitySearch.value.trim().toLowerCase();
+      applyActivityFilter();
+    });
+    el.activityFilters?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-filter]");
+      if (!button) return;
+      haptic();
+      activityFilter.type = button.dataset.filter;
+      for (const seg of el.activityFilters.querySelectorAll("[data-filter]")) {
+        const active = seg === button;
+        seg.classList.toggle("active", active);
+        seg.setAttribute("aria-pressed", String(active));
+      }
+      applyActivityFilter();
+    });
+  }
+
+  function matchesQuery(text) {
+    return !activityFilter.query || String(text || "").toLowerCase().includes(activityFilter.query);
+  }
+
+  function renderActivityTimeline() {
+    const root = el.activityTimeline;
+    if (!root) return;
+    root.replaceChildren();
+    const type = activityFilter.type;
+    const entries = activityLog.filter((entry) => {
+      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai");
+      return typeOk && matchesQuery(entry.title + " " + entry.meta);
+    });
+    if (!entries.length) {
+      const empty = document.createElement("li");
+      empty.className = "timeline-empty";
+      empty.textContent = activityLog.length ? "No activity matches this filter." : "Nothing yet this session. Ask ZARVIS something to get started.";
+      root.appendChild(empty);
+      return;
+    }
+    entries.slice(0, 60).forEach((entry, index) => {
+      const item = document.createElement("li");
+      item.className = "timeline-item";
+      item.dataset.tone = entry.tone;
+      item.style.animationDelay = Math.min(index * 30, 300) + "ms";
+      const dot = document.createElement("span");
+      dot.className = "timeline-dot";
+      dot.appendChild(svgIcon(ACTIVITY_ICONS[entry.type] || "i-sparkle"));
+      const body = document.createElement("div");
+      body.className = "timeline-body";
+      const title = document.createElement("strong");
+      title.textContent = entry.title;
+      const meta = document.createElement("div");
+      meta.className = "timeline-meta";
+      const label = document.createElement("span");
+      label.textContent = ACTIVITY_LABELS[entry.type] || "Activity";
+      const when = document.createElement("span");
+      when.textContent = formatRelativeTime(entry.at);
+      meta.append(label, when);
+      if (entry.meta) {
+        const extra = document.createElement("span");
+        extra.textContent = entry.meta;
+        meta.appendChild(extra);
+      }
+      body.append(title, meta);
+      item.append(dot, body);
+      root.appendChild(item);
+    });
+  }
+
+  /** Shows/hides the timeline and task blocks for the chosen filter, and filters tasks by text. */
+  function applyActivityFilter() {
+    const type = activityFilter.type;
+    const timelineBlock = document.querySelector('[data-activity-block="timeline"]');
+    const taskBlock = document.querySelector('[data-activity-block="task"]');
+    if (timelineBlock) timelineBlock.hidden = type === "task";
+    if (taskBlock) taskBlock.hidden = type !== "all" && type !== "task";
+    renderActivityTimeline();
+    if (el.activityTaskList) {
+      for (const card of el.activityTaskList.querySelectorAll(".task-card")) {
+        card.hidden = !matchesQuery(card.textContent);
+      }
+    }
   }
 
   async function fetchTasks() {
@@ -1561,27 +2539,24 @@
     }
   }
 
-  // User-triggerable transitions per status — mirrors backend/src/tasks/taskService.ts's
-  // VALID_TRANSITIONS, minus the automatic RUNNING->DONE/FAILED transitions no button here
-  // should ever trigger directly.
+  // User-triggerable transitions per status. No task executor exists yet (the backend refuses
+  // resume/retry with task_execution_unavailable), so nothing here offers to start a task:
+  // that would show work that is not happening.
   const TASK_ACTIONS = {
     PENDING: [{ action: "cancel", label: "Cancel", cls: "danger" }],
     RUNNING: [
       { action: "pause", label: "Pause", cls: "" },
       { action: "cancel", label: "Cancel", cls: "danger" },
     ],
-    PAUSED: [
-      { action: "resume", label: "Resume", cls: "primary" },
-      { action: "cancel", label: "Cancel", cls: "danger" },
-    ],
-    FAILED: [{ action: "retry", label: "Retry", cls: "primary" }],
+    PAUSED: [{ action: "cancel", label: "Cancel", cls: "danger" }],
+    FAILED: [],
     DONE: [],
     CANCELLED: [],
   };
 
   function renderTaskCard(task) {
     const card = document.createElement("div");
-    card.className = "z-card z-card-task task-card";
+    card.className = "task-card";
     card.dataset.status = task.status;
     if (task.status === "RUNNING") card.classList.add("glow-active");
 
@@ -1685,7 +2660,7 @@
     if (!utterance) return;
     el.input.value = "";
     addBubble("user", displayText ?? utterance);
-    await runTurn(utterance, isVoice);
+    await runTurn(utterance, isVoice, { clientTurnId: Logic.createClientTurnId() });
   }
 
   /** The actual orchestrator round trip, shared by a fresh submission (submitUtterance,
@@ -1694,6 +2669,9 @@
    * retrying the exact same text would otherwise show it twice; a retry is always treated as
    * typed/text-only, regardless of how the original turn started). */
   async function runTurn(utterance, isVoice = false, options = {}) {
+    // One logical turn = one key. A Retry passes the failed attempt's key back in, so a turn
+    // the server already finished is replayed rather than executed (and charged) again.
+    const clientTurnId = options.clientTurnId || Logic.createClientTurnId();
     if (currentTurnController) {
       currentTurnController.abort();
       stopSpeaking();
@@ -1704,6 +2682,9 @@
     setOrbState("UNDERSTANDING");
     const isFirstTurn = state.firstTurn;
     const startedAt = performance.now();
+    // Declared outside `try` because `finally` below uses them.
+    const ttsQueue = [];
+    let ttsStartTimer = null;
 
     try {
       // Create/resume the AudioContext directly from the user's voice gesture before the
@@ -1716,26 +2697,24 @@
           console.warn("Gemini streaming audio context unavailable:", audioError);
         }
       }
-      setOrbState("EXECUTING");
       const res = await apiFetch("/orchestrator/turn-stream", {
         method: "POST",
         body: JSON.stringify({
           utterance,
           locale: state.lang,
-          userName: localStorage.getItem(STORAGE_KEYS.userName),
           isFirstTurn,
           conversationId: state.conversationId,
           history: state.history.slice(-12),
-          confirmed: options.confirmed === true,
+          clientTurnId,
         }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
         console.error("Realtime orchestrator failed:", res.status, body.error || body.reason);
-        addErrorBubble(COPY[state.lang].bootError, utterance);
+        showTurnFailure(body, utterance, clientTurnId);
         setOrbState("ERROR");
-        recordLatency(utterance, Math.round(performance.now() - startedAt), false);
+        recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
         return;
       }
 
@@ -1745,9 +2724,9 @@
       let fullMessage = "";
       let assistantNode = null;
       let sentenceBuffer = "";
-      const ttsQueue = [];
       const ttsTasks = new Set();
-      let ttsStartTimer = null;
+      let ttsUnavailable = false;
+      let completed = false;
       let firstTextAt = 0;
       let ttsPrimed = false;
 
@@ -1758,10 +2737,16 @@
           !controller.signal.aborted
         ) {
           const next = ttsQueue.shift();
-          const task = speakGeminiStream(next, controller.signal);
+          const task = speakGeminiStream(next.text, controller.signal, next.ticket);
           ttsTasks.add(task);
           task.catch((err) => {
             if (err?.name !== "AbortError") console.warn("Gemini TTS segment failed:", err);
+            // Out of voice quota: every further segment would fail the same way. Keep the
+            // text reply, stop asking for speech in this turn.
+            if (Logic.turnFailureKind({ code: err?.code }) !== "bootError") {
+              ttsUnavailable = true;
+              for (const item of ttsQueue.splice(0)) item.ticket.done();
+            }
           }).finally(() => {
             ttsTasks.delete(task);
             if (ttsQueue.length) drainTts();
@@ -1771,8 +2756,10 @@
 
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
-        if (!clean || !isVoice || !state.speak) return;
-        ttsQueue.push(clean);
+        if (!clean || !isVoice || !state.speak || ttsUnavailable) return;
+        // The ticket is taken at enqueue time, so playback order == reply order even when a
+        // later segment's audio downloads first.
+        ttsQueue.push({ text: clean, ticket: ttsSegments.next() });
         if (immediate || ttsPrimed) {
           ttsPrimed = true;
           drainTts();
@@ -1808,13 +2795,30 @@
           localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
           return;
         }
+        // Real backend stages only (model step / tool started / tool finished) — no simulated steps.
+        if (event === "progress" && data) {
+          if (data.type === "tool_started") {
+            setOrbState("EXECUTING");
+            showProgress(thinkingNode, "Using " + data.skillId + "…");
+          } else if (data.type === "tool_finished") {
+            showProgress(thinkingNode, data.skillId + ": " + Logic.toolStatusLabel(data.status));
+          } else if (data.type === "thinking" && data.step > 1) {
+            setOrbState("UNDERSTANDING");
+            showProgress(thinkingNode, "Reviewing the result…");
+          }
+          return;
+        }
+        if (event === "error") {
+          throw new TurnFailedError(data);
+        }
         if (event === "delta" && typeof data?.text === "string") {
           fullMessage += data.text;
           sentenceBuffer += data.text;
           if (!assistantNode) {
             thinkingNode.remove();
             assistantNode = addBubble("assistant", "", utterance);
-            setOrbState("SPEAKING");
+            assistantNode.closest(".bubble")?.classList.add("is-streaming");
+            // "Speaking" is set by the audio pipeline only when sound actually starts.
           }
           renderFormattedText(assistantNode, fullMessage);
           scrollConversationToBottom();
@@ -1837,6 +2841,7 @@
           return;
         }
         if (event === "done") {
+          completed = true;
           if (ttsStartTimer) {
             clearTimeout(ttsStartTimer);
             ttsStartTimer = null;
@@ -1848,8 +2853,8 @@
           state.history = state.history.slice(-12);
           renderHomeActivity();
           state.firstTurn = false;
-          recordLatency(utterance, Math.round(performance.now() - startedAt), true);
-          renderToolActivity(data?.toolCalls, utterance, assistantNode);
+          recordLatency(utterance, Math.round(performance.now() - startedAt), true, isVoice);
+          renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           await drainTts();
@@ -1859,26 +2864,9 @@
       };
 
       const processBuffer = async (flush = false) => {
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-        for (const raw of events) {
-          let event = "message";
-          let data = "";
-          for (const line of raw.split("\n")) {
-            if (line.startsWith("event:")) event = line.slice(6).trim();
-            if (line.startsWith("data:")) data += line.slice(5).trim();
-          }
-          if (data) await consumeEvent(event, JSON.parse(data));
-        }
-        if (flush && buffer.trim()) {
-          let event = "message", data = "";
-          for (const line of buffer.split("\n")) {
-            if (line.startsWith("event:")) event = line.slice(6).trim();
-            if (line.startsWith("data:")) data += line.slice(5).trim();
-          }
-          if (data) await consumeEvent(event, JSON.parse(data));
-          buffer = "";
-        }
+        const parsed = Logic.parseSseEvents(buffer, flush);
+        buffer = parsed.rest;
+        for (const { event, data } of parsed.events) await consumeEvent(event, data);
       };
 
       while (true) {
@@ -1888,30 +2876,50 @@
         await processBuffer();
       }
       await processBuffer(true);
+      // The stream ended without `done` or `error` (platform timeout, dropped connection):
+      // that is a failed turn, not a silent success — show it and offer Retry.
+      if (!completed && !controller.signal.aborted) throw new Error("Turn stream ended before completion");
       if (!assistantNode && fullMessage.trim()) {
         thinkingNode.remove();
         assistantNode = addBubble("assistant", fullMessage, utterance);
       }
     } catch (err) {
       if (err?.name === "AbortError") return;
+      if (err instanceof SessionEndedError) {
+        setOrbState("IDLE");
+        return;
+      }
       console.error(err);
-      addErrorBubble(COPY[state.lang].bootError, utterance);
+      showTurnFailure(err instanceof TurnFailedError ? err.payload : null, utterance, clientTurnId);
       setOrbState("ERROR");
-      recordLatency(utterance, Math.round(performance.now() - startedAt), false);
+      recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
     } finally {
       if (ttsStartTimer) {
         clearTimeout(ttsStartTimer);
         ttsStartTimer = null;
       }
+      // Segments that will never be played must release their turn, or later speech would wait forever.
+      for (const item of ttsQueue.splice(0)) item.ticket.done();
+      for (const streaming of el.conversation.querySelectorAll(".bubble.is-streaming")) streaming.classList.remove("is-streaming");
       if (!thinkingNode.isConnected) {
         // no-op; the real assistant bubble is already rendered
       } else {
         thinkingNode.remove();
       }
       if (currentTurnController === controller) currentTurnController = null;
+      updateComposerMode(); // Send/Stop must reflect that no turn is in flight any more
     }
   }
 
+
+  /** An exhausted daily AI quota cannot be fixed by retrying now: say so, offer no Retry.
+   * A short rate limit and every other failure keep the Retry action. */
+  function showTurnFailure(payload, utterance, clientTurnId) {
+    const kind = Logic.turnFailureKind(payload);
+    // Retrying cannot help today's exhausted quota or a message over the size limit.
+    if (kind === "aiQuota" || kind === "tooLarge") addSystemNotice(COPY[state.lang][kind]);
+    else addErrorBubble(COPY[state.lang][kind], () => runTurn(utterance, false, { clientTurnId }));
+  }
 
   /** Cancels whatever ZARVIS is currently doing (thinking or speaking) without starting a
    * new turn — the composer's Stop action (see updateComposerMode()) and the sole way to
@@ -1928,21 +2936,31 @@
     if (el.viewWorkspace) el.viewWorkspace.classList.toggle("has-messages", active);
   }
 
+  // The page (not the conversation element) scrolls; keep the newest message above the
+  // floating composer.
   function scrollConversationToBottom() {
-    if (!el.conversation) return;
-    el.conversation.scrollTop = el.conversation.scrollHeight;
-    requestAnimationFrame(() => {
-      el.conversation.scrollTop = el.conversation.scrollHeight;
-    });
+    if (!el.conversation || state.activeView !== "chat") return;
+    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+    toBottom();
+    requestAnimationFrame(toBottom);
   }
 
-  function addBubble(role, text, utterance) {
+  /** `at` is when the message was sent: now for a new message, the server's createdAt for
+   * restored history, or null when unknown (then no time is shown rather than a wrong one). */
+  function addBubble(role, text, utterance, at = new Date()) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${role}`;
     bubble.setAttribute("data-role", role);
     const label = document.createElement("span");
     label.className = "bubble-role";
     label.textContent = role === "user" ? "You" : role === "assistant" ? "ZARVIS" : role === "tool" ? "Action" : "Status";
+    if (at instanceof Date && !Number.isNaN(at.getTime())) {
+      const time = document.createElement("time");
+      time.className = "bubble-time";
+      time.dateTime = at.toISOString();
+      time.textContent = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      label.append(" ", time);
+    }
     bubble.appendChild(label);
     const body = document.createElement("div");
     body.className = "bubble-body";
@@ -1952,33 +2970,35 @@
     if (role === "assistant") {
       const actions = document.createElement("div");
       actions.className = "bubble-actions";
-      const copyBtn = document.createElement("button");
-      copyBtn.type = "button";
-      copyBtn.textContent = "Copy";
+      const actionButton = (iconId, label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        const labelNode = document.createElement("span");
+        labelNode.textContent = label;
+        button.append(svgIcon(iconId), labelNode);
+        return { button, labelNode };
+      };
+      const { button: copyBtn, labelNode: copyLabel } = actionButton("i-file", "Copy");
       copyBtn.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(body.innerText || text);
-          copyBtn.textContent = "Copied";
+          await navigator.clipboard.writeText(bubblePlainText(body) || text);
+          copyLabel.textContent = "Copied";
         } catch {
-          copyBtn.textContent = "Copy failed";
+          copyLabel.textContent = "Copy failed";
         }
       });
       actions.appendChild(copyBtn);
       if (utterance) {
-        const again = document.createElement("button");
-        again.type = "button";
-        again.textContent = "Regenerate";
+        const { button: again } = actionButton("i-refresh", "Regenerate");
         again.addEventListener("click", () => {
           bubble.remove();
           runTurn(utterance, false);
         });
         actions.appendChild(again);
       }
-      const listen = document.createElement("button");
-      listen.type = "button";
-      listen.textContent = "Listen";
+      const { button: listen } = actionButton("i-wave", "Listen");
       listen.addEventListener("click", () => {
-        void speak(body.innerText || text, null, true);
+        void speak(bubblePlainText(body) || text, null, true);
       });
       actions.appendChild(listen);
       bubble.appendChild(actions);
@@ -1990,87 +3010,93 @@
     return body;
   }
 
-  const TOOL_OUTCOMES = {
-    success: { label: "Completed", tone: "success", detail: "The skill finished. The reply includes its result." },
-    confirmation_declined: { label: "Needs confirmation", tone: "confirm", detail: "This action has not run." },
-    execution_failed: { label: "Couldn't complete", tone: "failed", detail: "The skill reported a failure." },
-    verification_failed: { label: "Couldn't complete", tone: "failed", detail: "Verification failed, so the action was not completed." },
-    skill_not_found: { label: "Unavailable", tone: "failed", detail: "ZARVIS does not have a skill for that." },
-    validation_failed: { label: "Needs details", tone: "confirm", detail: "Some required details were missing." },
-    permission_denied: { label: "Permission required", tone: "confirm", detail: "A required permission is not granted." },
-    entitlement_denied: { label: "Unavailable on this plan", tone: "failed", detail: "This account cannot run that skill." },
+  const TOOL_TONES = {
+    COMPLETED: "success",
+    USER_ACTION_REQUIRED: "confirm",
+    CONFIRMATION_REQUIRED: "confirm",
+    PERMISSION_REQUIRED: "confirm",
+    DENIED: "failed",
+    UNSUPPORTED: "failed",
+    FAILED: "failed",
   };
 
-  function renderToolActivity(toolCalls, utterance) {
+  /** One row per tool call, from the backend's structured result (blueprint §10). */
+  function renderToolActivity(toolCalls) {
     if (!Array.isArray(toolCalls) || toolCalls.length === 0) return;
     for (const call of toolCalls) {
-      const kind = call?.outcome?.kind || "unknown";
-      const outcome = TOOL_OUTCOMES[kind] || { label: "Reported", tone: "", detail: "ZARVIS returned a tool result." };
+      if (call?.outcome?.kind === "confirmation_required" && call.outcome.confirmation) {
+        renderConfirmationCard(call.outcome.confirmation);
+        continue;
+      }
+      const statusCode = call?.result?.status || (call?.outcome?.kind === "success" ? "COMPLETED" : "FAILED");
       const row = document.createElement("div");
-      row.className = "z-card z-card-tool tool-row";
-      row.dataset.status = kind;
-      row.dataset.tone = outcome.tone;
+      row.className = "tool-row";
+      row.dataset.status = statusCode;
+      row.dataset.tone = TOOL_TONES[statusCode] || "";
       const top = document.createElement("div");
       top.className = "tool-row-top";
       const title = document.createElement("strong");
-      title.textContent = call.skillId || "Tool";
+      title.textContent = skillDisplayName(call.skillId);
+      title.title = call.skillId || "";
       const status = document.createElement("span");
       status.className = "z-badge";
-      status.textContent = outcome.label;
+      status.textContent = Logic.toolStatusLabel(statusCode);
       top.append(title, status);
       row.appendChild(top);
       const note = document.createElement("p");
       note.className = "stage-note";
-      const summary = call?.outcome?.result?.summary || call?.outcome?.result?.userMessage;
-      const brief = summary ? String(summary).replace(/\s+/g, " ").slice(0, 180) : "";
-      note.textContent = brief ? outcome.detail + " " + brief : outcome.detail;
+      const message = call?.result?.userSafeMessage || "";
+      note.textContent = String(message).replace(/\s+/g, " ").slice(0, 220);
       row.appendChild(note);
-      if (kind === "confirmation_declined" && utterance) {
-        const confirm = document.createElement("button");
-        confirm.type = "button";
-        confirm.className = "zarvis-btn zarvis-btn-primary";
-        confirm.textContent = "Confirm and continue";
-        confirm.addEventListener("click", () => {
-          confirm.disabled = true;
-          runTurn(utterance, false, { confirmed: true });
-        });
-        row.appendChild(confirm);
-      }
       el.conversation.appendChild(row);
+      recordActivity("ai", skillDisplayName(call.skillId), Logic.toolStatusLabel(statusCode), statusCode === "COMPLETED" ? "ok" : TOOL_TONES[statusCode] === "failed" ? "error" : "");
     }
     scrollConversationToBottom();
   }
 
-  /** Render a safe subset of Markdown used by ZARVIS replies without exposing arbitrary HTML. */
-  function renderFormattedText(container, text) {
-    const escaped = String(text ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/\x27/g, "&#39;");
-    const lines = escaped.split(/\r?\n/);
-    const html = [];
-    let inList = false;
-    for (const line of lines) {
-      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-      if (bullet) {
-        if (!inList) { html.push("<ul class=\"reply-list\">"); inList = true; }
-        html.push(`<li>${formatInlineMarkdown(bullet[1])}</li>`);
-        continue;
-      }
-      if (inList) { html.push("</ul>"); inList = false; }
-      if (!line.trim()) html.push('<div class="reply-spacer" aria-hidden="true"></div>');
-      else html.push(`<div class="reply-line">${formatInlineMarkdown(line)}</div>`);
-    }
-    if (inList) html.push("</ul>");
-    container.innerHTML = html.join("");
+  function skillDisplayName(skillId) {
+    const skill = state.skills.find((item) => item.id === skillId);
+    return skill ? skill.name : skillId || "Tool";
   }
 
-  function formatInlineMarkdown(line) {
-    return line
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  function showProgress(thinkingNode, text) {
+    if (!thinkingNode?.isConnected) return;
+    let note = thinkingNode.querySelector(".progress-note");
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "progress-note";
+      thinkingNode.appendChild(note);
+    }
+    note.textContent = text;
+  }
+
+  /** Render a safe subset of Markdown (all input escaped first — see web/logic.js, tested). */
+  /** A reply's readable text, without the code blocks' Copy buttons. */
+  function bubblePlainText(body) {
+    const clone = body.cloneNode(true);
+    for (const button of clone.querySelectorAll(".code-copy")) button.remove();
+    return clone.innerText || clone.textContent || "";
+  }
+
+  function renderFormattedText(container, text) {
+    container.innerHTML = Logic.formatReplyHtml(text);
+    for (const pre of container.querySelectorAll("pre.reply-code")) {
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "code-copy";
+      copy.setAttribute("aria-label", "Copy code");
+      copy.textContent = "Copy";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(pre.querySelector("code")?.textContent || "");
+          copy.textContent = "Copied";
+        } catch {
+          copy.textContent = "Copy failed";
+        }
+        setTimeout(() => { copy.textContent = "Copy"; }, 1800);
+      });
+      pre.prepend(copy);
+    }
   }
 
   /** A transient "thinking" placeholder shown for the UNDERSTANDING/EXECUTING span of a
@@ -2082,7 +3108,7 @@
     bubble.className = "bubble assistant thinking";
     bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
     el.conversation.appendChild(bubble);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     return bubble;
   }
 
@@ -2120,7 +3146,7 @@
     bubble.appendChild(retryBtn);
 
     el.conversation.appendChild(bubble);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     announceChat(errorCopy.title + ". " + errorCopy.subtitle);
     return bubble;
   }
@@ -2143,7 +3169,7 @@
     bubble.appendChild(subtitle);
 
     el.conversation.appendChild(bubble);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
     announceChat(copy.title + ". " + copy.subtitle);
     return bubble;
   }
@@ -2197,7 +3223,7 @@
         addSystemNotice(COPY[state.lang].oversizedFile);
         return;
       }
-      setExtractingState(true);
+      setExtractingState(true, file);
       try {
         const formData = new FormData();
         formData.append("file", file, file.name);
@@ -2205,7 +3231,7 @@
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           console.error(`Image analysis failed (${res.status}):`, body.error);
-          addSystemNotice(noticeForExtractError(body.error));
+          addSystemNotice(noticeForExtractError(body.error, body.code));
           return;
         }
         const { text } = await res.json();
@@ -2240,6 +3266,7 @@
         addSystemNotice(COPY[state.lang].oversizedFile);
         return;
       }
+      setAttachmentPreview(file);
       setPendingAttachment(file.name, text);
       return;
     }
@@ -2249,7 +3276,7 @@
       addSystemNotice(COPY[state.lang].oversizedFile);
       return;
     }
-    setExtractingState(true);
+    setExtractingState(true, file);
     try {
       const formData = new FormData();
       formData.append("file", file, file.name);
@@ -2257,7 +3284,7 @@
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         console.error(`Document extraction failed (${res.status}):`, body.error);
-        addSystemNotice(noticeForExtractError(body.error));
+        addSystemNotice(noticeForExtractError(body.error, body.code));
         return;
       }
       const { text } = await res.json();
@@ -2270,10 +3297,14 @@
     }
   }
 
-  function noticeForExtractError(code) {
+  function noticeForExtractError(code, aiCode) {
+    if (code === "ai_quota_exceeded") return COPY[state.lang][Logic.turnFailureKind({ code: aiCode }) === "aiBusy" ? "aiBusy" : "aiQuota"];
     if (code === "unsupported_file_type") return COPY[state.lang].unsupportedFile;
     if (code === "document_too_long") return COPY[state.lang].oversizedFile;
     if (code === "empty_document") return COPY[state.lang].emptyFile;
+    if (code === "image_analysis_unavailable") return COPY[state.lang].imageUnavailable;
+    if (code === "ai_unavailable") return COPY[state.lang].imageAiDown;
+    if (code === "file_too_large") return COPY[state.lang].oversizedFile;
     return COPY[state.lang].unreadableFile;
   }
 
@@ -2290,7 +3321,44 @@
     node.append(strong, span);
   }
 
-  function setExtractingState(isExtracting) {
+  let attachmentPreviewUrl = null;
+
+  /** Shows a local thumbnail for an image attachment (a blob: URL; nothing is uploaded for
+   * the preview), or the file icon for documents. */
+  function setAttachmentPreview(file) {
+    const holder = el.attachmentChip?.querySelector(".attachment-ico");
+    if (!holder) return;
+    if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+    attachmentPreviewUrl = null;
+    holder.replaceChildren();
+    if (file && classifyLocalFile(file) === "image") {
+      attachmentPreviewUrl = URL.createObjectURL(file);
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = attachmentPreviewUrl;
+      holder.appendChild(img);
+      holder.classList.add("has-preview");
+    } else {
+      holder.appendChild(svgIcon("i-file"));
+      holder.classList.remove("has-preview");
+    }
+  }
+
+  function setExtractingState(isExtracting, file) {
+    // While the file is read the chip shows it with an indeterminate progress bar: the
+    // request reports no percentage, so no fake one is shown.
+    if (isExtracting && file) {
+      setAttachmentPreview(file);
+      el.attachmentName.textContent = file.name;
+      el.attachmentStatus.textContent = COPY[state.lang].extracting;
+      el.attachmentChip.hidden = false;
+    }
+    el.attachmentChip.classList.toggle("is-loading", isExtracting);
+    el.attachmentRemoveBtn.hidden = isExtracting;
+    if (!isExtracting && !state.pendingAttachment) {
+      el.attachmentChip.hidden = true;
+      setAttachmentPreview(null);
+    }
     el.uploadBtn.setAttribute("aria-disabled", String(isExtracting));
     el.uploadBtn.classList.toggle("is-disabled", isExtracting);
     el.fileInput.disabled = isExtracting;
@@ -2307,6 +3375,7 @@
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
     setFilesState(`${filename} is ready. Ask about it in Chat.`, "ready");
+    recordActivity("file", filename, "Ready to ask about", "ok");
     renderHomeActivity();
     el.input.focus();
   }
@@ -2314,6 +3383,7 @@
   function clearPendingAttachment() {
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
+    setAttachmentPreview(null);
     setFilesState("Attach a file, then ask about it in Chat.");
     renderHomeActivity();
   }
@@ -2439,7 +3509,7 @@
       stopSpeaking();
     });
     node.appendChild(row);
-    el.conversation.scrollTop = el.conversation.scrollHeight;
+    scrollConversationToBottom();
   }
 
   function detachWaveform(node) {
@@ -2454,6 +3524,7 @@
   function setOrbState(newState) {
     el.orb.dataset.state = newState;
     el.heroStatus.dataset.state = newState;
+    document.body.dataset.orbState = newState;
     // A natural-language status ("Working…", "काम कर रहा हूँ…"), never the raw internal
     // state name — showing enum values like "EXECUTING" or "UNDERSTANDING" verbatim would be
     // exactly the kind of developer/debug leak the product content rules rule out. The
@@ -2471,6 +3542,7 @@
   function updateComposerMode() {
     const busy = isBusy();
     const copy = COPY[state.lang];
+    if (busy && !el.sendBtn.classList.contains("stop-mode")) stopModeSince = Date.now();
     el.sendBtn.classList.toggle("stop-mode", busy);
     el.sendBtn.title = busy ? copy.stop : copy.send;
     el.sendBtn.setAttribute("aria-label", busy ? copy.stop : copy.send);
@@ -2481,6 +3553,9 @@
   // used by the composer's Send/Stop toggle (updateComposerMode) and cancelCurrentTurn's
   // Escape-key guard, both via isBusy() below.
   const BUSY_STATES = ["UNDERSTANDING", "EXECUTING", "SUCCESS", "SPEAKING"];
+  /** When Send last turned into Stop, and how long a click right after that is ignored. */
+  let stopModeSince = 0;
+  const STOP_GRACE_MS = 600;
   function isBusy() {
     return currentTurnController !== null || BUSY_STATES.includes(el.orb.dataset.state);
   }
@@ -2499,7 +3574,7 @@
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("./sw.js", { updateViaCache: "none" })
-        .then((registration) => registration.update())
+        .then((registration) => registration?.update())
         .catch((err) => console.error("Service worker registration failed:", err));
     }
   }
@@ -2539,10 +3614,20 @@
       if (el.orb.dataset.state === "LISTENING") setOrbState("IDLE");
     });
 
-    recognition.addEventListener("error", () => {
+    recognition.addEventListener("error", (event) => {
       el.micBtn.setAttribute("aria-pressed", "false");
       el.orb.setAttribute("aria-pressed", "false");
       if (!currentTurnController) setOrbState("ERROR");
+      // Say why, in plain words; a deliberate stop ("aborted") needs no message.
+      const copy = COPY[state.lang];
+      const notice = {
+        "not-allowed": copy.micDenied,
+        "service-not-allowed": copy.micDenied,
+        "audio-capture": copy.micDenied,
+        "no-speech": copy.noSpeech,
+        network: copy.voiceNetwork,
+      }[event?.error] || (event?.error === "aborted" ? null : copy.voiceFailed);
+      if (notice) addSystemNotice(notice);
     });
 
     el.micBtn.addEventListener("click", toggleListening);
@@ -2566,7 +3651,10 @@
   }
 
   function startListening() {
-    if (!recognition) return;
+    if (!recognition) {
+      addSystemNotice(COPY[state.lang].voiceUnsupported);
+      return;
+    }
     if (currentTurnController) cancelCurrentTurn();
     stopSpeaking();
     recognition.lang = state.lang === "hi" ? "hi-IN" : "en-US";
@@ -2610,6 +3698,7 @@
     populateVoiceSelect();
     el.voiceSelect?.addEventListener("change", () => {
       localStorage.setItem(STORAGE_KEYS.ttsVoice, el.voiceSelect.value);
+      showToast("Voice: " + el.voiceSelect.value);
     });
   }
 
@@ -2647,12 +3736,15 @@
   // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node, force = false) {
     if ((!state.speak && !force) || !text) return;
-    setOrbState("SPEAKING");
     if (node) attachWaveform(node);
     try {
       await speakWithGemini(text);
     } catch (err) {
-      if (err?.name !== "AbortError") console.warn("Gemini TTS unavailable:", err);
+      if (err?.name !== "AbortError") {
+        console.warn("Gemini TTS unavailable:", err);
+        // An explicit Listen tap gets visible feedback instead of silence.
+        if (force) showToast(COPY[state.lang].ttsUnavailable);
+      }
     } finally {
       if (node) detachWaveform(node);
       if (el.orb.dataset.state === "SPEAKING") setOrbState("IDLE");
@@ -2660,14 +3752,16 @@
   }
 
   let activeAudio = null;
-  let activeTtsController = null;
+  // Every in-flight TTS request. Two reply segments stream at once, so Stop must abort all of
+  // them, not only the most recently started one.
+  const activeTtsControllers = new Set();
   let activeAudioContext = null;
   let ttsScheduledUntil = 0;
   const ttsSources = new Set();
 
   async function speakWithGemini(text) {
     const controller = new AbortController();
-    activeTtsController = controller;
+    activeTtsControllers.add(controller);
     try {
       const res = await apiFetch("/tts/synthesize", {
         method: "POST",
@@ -2682,6 +3776,8 @@
       activeAudio = audio;
       try {
         await new Promise((resolve, reject) => {
+          // "Speaking" only once the browser reports audio is actually playing.
+          audio.addEventListener("playing", () => setOrbState("SPEAKING"), { once: true });
           audio.addEventListener("ended", resolve, { once: true });
           audio.addEventListener("pause", resolve, { once: true });
           audio.addEventListener("error", () => reject(new Error("Gemini audio playback failed")), { once: true });
@@ -2693,7 +3789,7 @@
       }
       setOrbState("IDLE");
     } finally {
-      activeTtsController = null;
+      activeTtsControllers.delete(controller);
     }
   }
 
@@ -2702,73 +3798,74 @@
   const TTS_MIN_START_AHEAD_SECONDS = 0.06;
   const TTS_MAX_CONCURRENT_STREAMS = 2;
 
-  async function speakGeminiStream(text, signal) {
-    setOrbState("SPEAKING");
+  const ttsSegments = Logic.createOrderedSegments();
+
+  /**
+   * Streams one reply segment as raw 24 kHz PCM. Up to TTS_MAX_CONCURRENT_STREAMS segments
+   * may download at once, but each waits for its [ticket] before scheduling any audio, and
+   * schedules strictly after the previous segment's audio — so segments never overlap.
+   */
+  async function speakGeminiStream(text, signal, ticket = ttsSegments.next()) {
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
-    activeTtsController = controller;
+    activeTtsControllers.add(controller);
+    let myTurn = false;
+    ticket.ready.then(() => {
+      myTurn = true;
+    });
 
     try {
       const res = await apiFetch("/tts/synthesize-stream", {
         method: "POST",
         body: JSON.stringify({ text, voice: selectedTtsVoice() }),
-        signal,
+        signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
         const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
-        throw new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
+        const error = new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
+        error.code = body?.code;
+        throw error;
       }
 
-      const audioContext =
-        activeAudioContext || new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
+      const audioContext = activeAudioContext || new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
       activeAudioContext = audioContext;
       if (audioContext.state === "suspended") await audioContext.resume();
 
       const reader = res.body.getReader();
-
-      // HTTP fetch chunks are arbitrary byte ranges, not PCM-frame boundaries.
-      // Keep one trailing byte until the next read so Int16 samples never become
-      // misaligned when a network chunk ends on an odd byte.
+      // Network chunks are arbitrary byte ranges; keep a trailing odd byte for the next read
+      // so 16-bit samples never become misaligned.
       let pendingByte = null;
-
-      // Gemini streaming TTS is raw 16-bit little-endian PCM. Build a small jitter
-      // buffer before scheduling the first samples; otherwise a slow network read can
-      // make the AudioContext timeline catch up and create an audible gap.
       const pendingPcm = [];
       let pendingBytes = 0;
       let primed = false;
-      let scheduledUntil = Math.max(
-        audioContext.currentTime + TTS_PREROLL_SECONDS,
-        ttsScheduledUntil,
-      );
+      let scheduledUntil = null;
 
       const schedulePcm = (bytes) => {
         if (!bytes?.byteLength) return;
         const usableLength = bytes.byteLength - (bytes.byteLength % 2);
         if (usableLength <= 0) return;
-
         const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, usableLength / 2);
         const buffer = audioContext.createBuffer(1, pcm.length, TTS_SAMPLE_RATE);
         const channel = buffer.getChannelData(0);
-        for (let i = 0; i < pcm.length; i += 1) {
-          channel[i] = pcm[i] / 32768;
-        }
+        for (let i = 0; i < pcm.length; i += 1) channel[i] = pcm[i] / 32768;
 
         const source = audioContext.createBufferSource();
         source.buffer = buffer;
         source.connect(audioContext.destination);
-
-        // Never schedule into the past. The initial 650 ms preroll provides
-        // headroom for normal Gemini/network jitter.
-        scheduledUntil = Math.max(
-          scheduledUntil,
-          audioContext.currentTime + TTS_MIN_START_AHEAD_SECONDS,
-        );
+        const earliest = audioContext.currentTime + TTS_MIN_START_AHEAD_SECONDS;
+        if (scheduledUntil === null) {
+          // First audio of this segment: start after everything already scheduled.
+          scheduledUntil = Math.max(earliest, ttsScheduledUntil);
+          const startsInMs = Math.max(0, (scheduledUntil - audioContext.currentTime) * 1000);
+          setTimeout(() => {
+            if (!controller.signal.aborted) setOrbState("SPEAKING");
+          }, startsInMs);
+        }
+        scheduledUntil = Math.max(scheduledUntil, earliest);
         source.start(scheduledUntil);
         scheduledUntil += buffer.duration;
-
         ttsSources.add(source);
         source.onended = () => ttsSources.delete(source);
         ttsScheduledUntil = scheduledUntil;
@@ -2791,7 +3888,6 @@
         const { value, done } = await reader.read();
         if (done) break;
         if (!value?.byteLength) continue;
-
         let bytes = value;
         if (pendingByte !== null) {
           const merged = new Uint8Array(bytes.byteLength + 1);
@@ -2800,18 +3896,17 @@
           bytes = merged;
           pendingByte = null;
         }
-
         if (bytes.byteLength % 2 !== 0) {
           pendingByte = bytes[bytes.byteLength - 1];
           bytes = bytes.subarray(0, bytes.byteLength - 1);
         }
         if (!bytes.byteLength) continue;
-
         pendingPcm.push(bytes);
         pendingBytes += bytes.byteLength;
 
-        // Hold roughly 650 ms of PCM before the first schedule operation.
-        // Afterwards each network chunk is scheduled contiguously.
+        // Buffer ~TTS_PREROLL_SECONDS before the first schedule to absorb network jitter, and
+        // never schedule before it is this segment's turn.
+        if (!myTurn) continue;
         const bufferedSeconds = pendingBytes / 2 / TTS_SAMPLE_RATE;
         if (!primed && bufferedSeconds >= TTS_PREROLL_SECONDS) {
           flushPending();
@@ -2820,16 +3915,14 @@
           flushPending();
         }
       }
-
-      if (pendingByte !== null) {
-        // A valid PCM stream must contain complete 16-bit samples. Do not invent
-        // a sample from a lone trailing byte.
-        pendingByte = null;
-      }
-      flushPending();
+      // A lone trailing byte is not a complete sample; it is dropped, not invented.
+      pendingByte = null;
+      await ticket.ready;
+      if (!controller.signal.aborted) flushPending();
     } finally {
+      ticket.done();
       signal?.removeEventListener("abort", onAbort);
-      if (activeTtsController === controller) activeTtsController = null;
+      activeTtsControllers.delete(controller);
     }
   }
 
@@ -2841,7 +3934,8 @@
   }
 
   function stopSpeaking() {
-    if (activeTtsController) activeTtsController.abort();
+    for (const controller of activeTtsControllers) controller.abort();
+    activeTtsControllers.clear();
     if (activeAudio) activeAudio.pause();
     for (const source of ttsSources) {
       try { source.stop(); } catch {}

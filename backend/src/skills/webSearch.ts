@@ -1,3 +1,6 @@
+import { beginModelCall } from "../ai/callTrace.js";
+import { classifyGeminiFailure, providerErrorUserMessage, retryDelayMs, sleep, toProviderError } from "../ai/geminiErrors.js";
+import { SkillUserError } from "../tooling/toolPipeline.js";
 import type { SkillDefinition } from "../domain/types.js";
 
 export interface SearchResult {
@@ -6,8 +9,14 @@ export interface SearchResult {
   snippet: string;
 }
 
+export interface SearchResponse {
+  /** The provider's grounded answer text (empty when the provider returns only links). */
+  answer: string;
+  results: SearchResult[];
+}
+
 export interface SearchProvider {
-  search(query: string): Promise<SearchResult[]>;
+  search(query: string): Promise<SearchResponse>;
 }
 
 /**
@@ -21,27 +30,50 @@ export class GeminiSearchProvider implements SearchProvider {
     private readonly baseUrl = "https://generativelanguage.googleapis.com/v1beta",
   ) {}
 
-  async search(query: string): Promise<SearchResult[]> {
-    const response = await fetch(
-      `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent?key=${this.apiKey}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text:
-                `Search the web for: ${query}. Return a concise answer and rely on current web sources. Do not invent sources.`,
-            }],
-          }],
-          tools: [{ googleSearch: {} }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
-        }),
-      },
-    );
-    if (!response.ok) {
+  async search(query: string): Promise<SearchResponse> {
+    const body = JSON.stringify({
+      contents: [{
+        parts: [{
+          text:
+            `Search the web for: ${query}. Return a concise answer and rely on current web sources. Do not invent sources.`,
+        }],
+      }],
+      tools: [{ googleSearch: {} }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
+    });
+    let response: Response;
+    const call = beginModelCall("search", this.model);
+    for (let attempt = 0; ; attempt += 1) {
+      call.httpRequests += 1;
+      response = await fetchWithTimeout(
+        `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`,
+        { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
+        60_000,
+      );
+      if (response.ok) {
+        call.servedModel = this.model;
+        call.outcome = "ok";
+        break;
+      }
+      call.status = response.status;
       const detail = await response.text().catch(() => "");
-      throw new Error(`Gemini Google Search failed: ${response.status} ${response.statusText} ${detail}`.trim());
+      const failure = classifyGeminiFailure(response.status, detail, response.headers.get("retry-after"));
+      const wait = retryDelayMs(failure, attempt);
+      if (wait !== null) {
+        await sleep(wait);
+        continue;
+      }
+      const error = toProviderError("Gemini Google Search", response.status, response.statusText, failure, detail);
+      if (failure.kind === "quota") {
+        // A quota/rate limit is a known, explainable condition: report it as such so the agent
+        // loop stops instead of searching again (each retry would hit the same limit).
+        throw new SkillUserError(
+          error.code === "AI_QUOTA_EXCEEDED" ? "ai_quota_exceeded" : "ai_rate_limited",
+          providerErrorUserMessage(error),
+          error.retryable,
+        );
+      }
+      throw error;
     }
 
     const json = (await response.json()) as GeminiSearchResponse;
@@ -56,11 +88,21 @@ export class GeminiSearchProvider implements SearchProvider {
       results.push({
         title: web.title || new URL(web.uri).hostname,
         url: web.uri,
-        snippet: answer.slice(0, 500),
+        snippet: "",
       });
       if (results.length >= 8) break;
     }
-    return results;
+    return { answer, results };
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -75,8 +117,10 @@ interface GeminiSearchResponse {
 
 /** Deterministic fallback used only when GEMINI_API_KEY is not configured (local/tests). */
 export class MockSearchProvider implements SearchProvider {
-  async search(query: string): Promise<SearchResult[]> {
-    return [
+  async search(query: string): Promise<SearchResponse> {
+    return {
+      answer: `[Mock search — no live provider configured] No real answer for "${query}".`,
+      results: [
       {
         title: `Mock result 1 for "${query}"`,
         url: "https://example.com/result-1",
@@ -87,7 +131,18 @@ export class MockSearchProvider implements SearchProvider {
         url: "https://example.com/result-2",
         snippet: "Configure GEMINI_API_KEY to enable live Google Search grounding.",
       },
-    ];
+      ],
+    };
+  }
+}
+
+/** Production without a live search provider: fail honestly, never return placeholder results. */
+export class UnavailableSearchProvider implements SearchProvider {
+  async search(): Promise<SearchResponse> {
+    throw new SkillUserError(
+      "search_provider_unavailable",
+      "Web search isn't available right now: no search provider is configured on this server. Nothing was searched or charged.",
+    );
   }
 }
 
@@ -102,6 +157,7 @@ export function createWebSearchSkill(provider: SearchProvider): SkillDefinition 
     requiredEntitlement: "FREE",
     usageCost: { value: 2, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "READ_ONLY",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["query"], properties: { query: "string" } },
@@ -110,16 +166,18 @@ export function createWebSearchSkill(provider: SearchProvider): SkillDefinition 
       if (!query) {
         return { kind: "failure", reason: "missing_query", userMessage: "What would you like me to search for?" };
       }
-      const results = await provider.search(query);
+      const { answer, results } = await provider.search(query);
       if (results.length === 0) {
+        // No grounding sources means the answer can't be attributed — never present it as sourced.
         return { kind: "failure", reason: "no_results", userMessage: `I couldn't find sourced web results for "${query}".` };
       }
+      const sources = results.slice(0, 5).map((result, index) => `[${index + 1}] ${result.title} — ${result.url}`).join("\n");
       return {
         kind: "success",
-        output: { query, results },
-        summary:
-          `Found ${results.length} live web source(s) for "${query}". Top sources: ` +
-          results.slice(0, 3).map((result) => `${result.title} — ${result.url}`).join(" | "),
+        output: { query, answer, results },
+        // The model receives the grounded answer AND its sources, so its reply can be based
+        // on what the search actually returned instead of guessing from titles alone.
+        summary: `${answer.trim() || "(The search returned sources but no summary text.)"}\n\nSources:\n${sources}`,
       };
     },
   };

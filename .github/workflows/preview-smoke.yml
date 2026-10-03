@@ -1,0 +1,44 @@
+name: Live preview API smoke test
+
+# A deployment being "Ready" is not the same as its API working. When Vercel reports a
+# successful deployment (it posts a GitHub deployment_status), scripts/live-smoke.mjs calls
+# the live URL the way the clients do. Only statuses and non-secret fields are logged; no
+# token or password is ever printed, and the sign-up account it creates is deleted.
+#
+# If the deployment is behind Vercel Deployment Protection, set the repository secret
+# VERCEL_AUTOMATION_BYPASS_SECRET (Vercel → Settings → Deployment Protection → Protection
+# Bypass for Automation); without it a protected preview answers 401 and this job says so.
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Deployment URL to test (https://…vercel.app)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      # The script from the deployed commit, so the checks match the code under test.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Health, the auth lifecycle (guest, sign-up, login, refresh rotation and replay, logout),
+      # error handling, streaming, turn replay, a real model answer, a real web search, PDF
+      # upload, TTS, and account deletion. See scripts/live-smoke.mjs.
+      - name: Live API checks
+        env:
+          BASE_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node scripts/live-smoke.mjs

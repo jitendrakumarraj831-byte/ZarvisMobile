@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { abortError, classifyGeminiFailure, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "./geminiErrors.js";
+import { logger } from "../security/redact.js";
+import { beginModelCall } from "./callTrace.js";
 import type {
   AIProvider,
   AIRequest,
@@ -30,101 +33,102 @@ export class GeminiProvider implements AIProvider {
   ) {}
 
   async generate(request: AIRequest): Promise<AIResponse> {
-    const models = [request.modelConfig.model, "gemini-3.8-flash"].filter(
-      (model, index, all) => model && all.indexOf(model) === index,
-    );
-    let lastError: Error | undefined;
-
-    // 503/429 are transient Gemini capacity/rate-limit failures. Retry with jitter first,
-    // then move to a stable fallback model so one busy model does not take ZARVIS offline.
-    for (const model of models) {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const body = toGeminiRequestBody(request);
-        const res = await fetchWithTimeout(
-          `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${this.apiKey}`,
-          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
-          90_000,
-        );
-        if (res.ok) {
-          const json = (await res.json()) as GeminiGenerateResponse;
-          return fromGeminiResponse(json);
-        }
-
-        const text = await res.text().catch(() => "");
-        lastError = new Error(
-          `Gemini generateContent failed: ${res.status} ${res.statusText} ${text}`.trim(),
-        );
-
-        if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
-        if (attempt < 2) await sleepWithJitter(attempt, res.headers.get("retry-after"));
-      }
-    }
-
-    throw lastError ?? new Error("Gemini generateContent failed without a response");
+    const res = await this.send(request, "generateContent", "Gemini generateContent", 90_000);
+    const json = (await res.json()) as GeminiGenerateResponse;
+    if (json.responseId) request.trace?.responseIds.push(json.responseId);
+    return fromGeminiResponse(json);
   }
 
   async *streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk> {
-    const models = [request.modelConfig.model, "gemini-3.8-flash"].filter(
+    // Retries happen only inside send(), i.e. before any byte of the stream was read, so an
+    // already-rendered reply is never duplicated.
+    const res = await this.send(request, "streamGenerateContent?alt=sse", "Gemini streamGenerateContent", 120_000);
+    if (!res.body) throw new Error("Gemini streamGenerateContent returned no body");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const payload = trimmed.slice("data:".length).trim();
+          if (!payload || payload === "[DONE]") continue;
+          const chunk = JSON.parse(payload) as GeminiGenerateResponse;
+          const text = extractText(chunk);
+          if (text) yield { delta: text, done: false };
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    yield { delta: "", done: true };
+  }
+
+  /**
+   * Sends one logical request. Retries follow ai/geminiErrors.ts: a daily quota fails at once
+   * (no retry, no fallback model), a short per-minute limit is retried once, transient 5xx
+   * errors get a bounded backoff and may move to the fallback model.
+   */
+  private async send(request: AIRequest, method: string, label: string, timeoutMs: number): Promise<Response> {
+    const models = [request.modelConfig.model, FALLBACK_MODEL].filter(
       (model, index, all) => model && all.indexOf(model) === index,
     );
+    const body = JSON.stringify(toGeminiRequestBody(request));
     let lastError: Error | undefined;
+    const call = beginModelCall(request.purpose ?? "planner", request.modelConfig.model, request.modelCallId);
 
-    // Match generate(): transient capacity/quota failures should not immediately surface to
-    // the user. Retry briefly, then try the fallback model. We only retry before a stream has
-    // produced data, so we never duplicate already-rendered text.
     for (const model of models) {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const body = toGeminiRequestBody(request);
+      for (let attempt = 0; ; attempt += 1) {
+        if (request.signal?.aborted) throw abortError();
+        if (request.trace) request.trace.httpRequests += 1;
+        call.httpRequests += 1;
         const res = await fetchWithTimeout(
-          `${this.baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          },
-          120_000,
+          `${this.baseUrl}/models/${encodeURIComponent(model)}:${method}`,
+          { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
+          timeoutMs,
+          request.signal,
         );
-
-        if (res.ok && res.body) {
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          try {
-            while (true) {
-              const { value, done } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() ?? "";
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith("data:")) continue;
-                const payload = trimmed.slice("data:".length).trim();
-                if (!payload || payload === "[DONE]") continue;
-                const chunk = JSON.parse(payload) as GeminiGenerateResponse;
-                const text = extractText(chunk);
-                if (text) yield { delta: text, done: false };
-              }
-            }
-          } finally {
-            reader.releaseLock();
+        if (res.ok) {
+          request.trace?.servedModels?.push(model);
+          call.servedModel = model;
+          call.outcome = "ok";
+          if (model !== request.modelConfig.model) {
+            logger.warn("Gemini answered with the fallback model", {
+              modelCallId: call.modelCallId,
+              configuredModel: request.modelConfig.model,
+              servedModel: model,
+              label,
+            });
           }
-          yield { delta: "", done: true };
-          return;
+          return res;
         }
+        call.status = res.status;
 
         const text = await res.text().catch(() => "");
-        lastError = new Error(
-          `Gemini streamGenerateContent failed: ${res.status} ${res.statusText} ${text}`.trim(),
-        );
-        if (![408, 429, 500, 502, 503, 504].includes(res.status)) throw lastError;
-        if (attempt < 2) await sleepWithJitter(attempt, res.headers.get("retry-after"));
+        const failure = classifyGeminiFailure(res.status, text, res.headers.get("retry-after"));
+        lastError = toProviderError(label, res.status, res.statusText, failure, text);
+        if (failure.kind === "fatal") throw lastError;
+        const wait = retryDelayMs(failure, attempt);
+        if (wait === null) {
+          if (!shouldTryNextModel(failure)) throw lastError;
+          break;
+        }
+        await sleep(wait, request.signal);
       }
     }
 
-    throw lastError ?? new Error("Gemini streamGenerateContent failed without a response");
+    throw lastError ?? new Error(`${label} failed without a response`);
   }
 }
+
+/** Used when the configured model is unavailable (404) or overloaded (5xx). */
+const FALLBACK_MODEL = "gemini-3.8-flash";
 
 interface GeminiPart {
   text?: string;
@@ -150,6 +154,7 @@ interface GeminiRequestBody {
 }
 
 interface GeminiGenerateResponse {
+  responseId?: string;
   candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
   usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
 }
@@ -243,12 +248,15 @@ async function fetchWithTimeout(
   input: string,
   init: RequestInit,
   timeoutMs: number,
+  cancel?: AbortSignal,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = cancel ? AbortSignal.any([controller.signal, cancel]) : controller.signal;
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetch(input, { ...init, signal });
   } catch (error) {
+    if (cancel?.aborted) throw abortError();
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("Gemini request timed out");
     }
@@ -256,13 +264,4 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
   }
-}
-
-function sleepWithJitter(attempt: number, retryAfterHeader?: string | null): Promise<void> {
-  const retryAfter = Number(retryAfterHeader);
-  const baseMs = Number.isFinite(retryAfter) && retryAfter > 0
-    ? Math.min(30_000, retryAfter * 1000)
-    : 1000 * 2 ** attempt;
-  const jitterMs = Math.floor(Math.random() * 400);
-  return new Promise((resolve) => setTimeout(resolve, baseMs + jitterMs));
 }

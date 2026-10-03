@@ -17,10 +17,11 @@ class PhoneFindContactSkillFactoryTest {
     private val context = SkillExecutionContext(accountId = "acc-1")
 
     @Test
-    fun `is registered as MEDIUM risk requiring CONTACTS, per the SKILLS-md rubric`() {
+    fun `is a MEDIUM risk read-only lookup gated by the CONTACTS permission, no per-lookup confirmation`() {
         val skill = PhoneFindContactSkillFactory.create(FakeContactLookupPort())
         assertEquals(RiskLevel.MEDIUM, skill.riskLevel)
-        assertTrue(skill.requiresConfirmation)
+        assertEquals("contacts", skill.capabilityId)
+        assertTrue(!com.zarvismobile.domain.capability.ActionPolicy.requiresConfirmation(skill))
         assertEquals(listOf(PermissionType.CONTACTS), skill.requiredPermissions)
     }
 

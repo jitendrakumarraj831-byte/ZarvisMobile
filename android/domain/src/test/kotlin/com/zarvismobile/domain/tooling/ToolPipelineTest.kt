@@ -6,6 +6,12 @@ import com.zarvismobile.domain.FakePermissionPort
 import com.zarvismobile.domain.FakeUsagePort
 import com.zarvismobile.domain.FixedClockPort
 import com.zarvismobile.domain.entity.AccountEntitlementSnapshot
+import com.zarvismobile.domain.entity.ActionClass
+import com.zarvismobile.domain.entity.PreparedAction
+import com.zarvismobile.domain.entity.SkillPreparer
+import com.zarvismobile.domain.port.ConfirmationPort
+import com.zarvismobile.domain.port.EntitlementPort
+import com.zarvismobile.domain.port.PermissionPort
 import com.zarvismobile.domain.entity.EntitlementLevel
 import com.zarvismobile.domain.entity.JsonSchema
 import com.zarvismobile.domain.entity.PermissionType
@@ -154,5 +160,84 @@ class ToolPipelineTest {
         val failed = assertIs<ToolExecutionOutcome.ExecutionFailed>(outcome)
         assertEquals("boom", failed.result.reason)
         assertTrue(usagePort.charges.isEmpty())
+    }
+
+    @Test
+    fun `a thrown platform error becomes an honest failure, not a crash, and is not charged`() = runTest {
+        val skill = lowRiskSkill(
+            usageCost = UsageCost(5),
+            handler = SkillHandler { _, _ -> throw SecurityException("permission revoked mid-call") },
+        )
+        val usagePort = FakeUsagePort(100)
+        val outcome = pipeline(skill, usagePort = usagePort).execute(ToolCall(skillId = skill.id, input = SkillInput(mapOf("query" to "x"))), context)
+        val failed = assertIs<ToolExecutionOutcome.ExecutionFailed>(outcome)
+        assertEquals("handler_error", failed.result.reason)
+        assertTrue(usagePort.charges.isEmpty())
+    }
+
+    @Test
+    fun `a blank required field is treated as missing`() = runTest {
+        val outcome = pipeline(lowRiskSkill()).execute(ToolCall(skillId = "web.search", input = SkillInput(mapOf("query" to "  "))), context)
+        assertIs<ToolExecutionOutcome.ValidationFailed>(outcome)
+    }
+
+    @Test
+    fun `policy forces confirmation for external communication even when the skill does not ask`() = runTest {
+        val confirmations = FakeConfirmationPort(approve = false)
+        val skill = lowRiskSkill().copy(actionClass = ActionClass.EXTERNAL_COMMUNICATION, requiresConfirmation = false)
+        val outcome = pipeline(skill, confirmationPort = confirmations).execute(ToolCall(skillId = skill.id, input = SkillInput(mapOf("query" to "x"))), context)
+        assertIs<ToolExecutionOutcome.ConfirmationDeclined>(outcome)
+        assertEquals(ActionClass.EXTERNAL_COMMUNICATION, confirmations.lastRequest?.actionClass)
+    }
+
+    @Test
+    fun `the confirmation shows the prepared exact action and the handler receives the prepared input`() = runTest {
+        var received: Map<String, Any?> = emptyMap()
+        val confirmations = FakeConfirmationPort(approve = true)
+        val skill = lowRiskSkill(handler = SkillHandler { input, _ -> received = input.values; SkillResult.Success(emptyMap(), "done") })
+            .copy(
+                riskLevel = RiskLevel.HIGH,
+                preparer = SkillPreparer { input, _ -> PreparedAction.Ready("Call Mom at 900", SkillInput(input.values + ("resolved" to "900"))) },
+            )
+        val outcome = pipeline(skill, confirmationPort = confirmations).execute(ToolCall(skillId = skill.id, input = SkillInput(mapOf("query" to "mom"))), context)
+        assertIs<ToolExecutionOutcome.Success>(outcome)
+        assertEquals("Call Mom at 900", confirmations.lastRequest?.summary)
+        assertEquals("900", received["resolved"])
+    }
+
+    @Test
+    fun `a failed prepare stops before confirmation`() = runTest {
+        val confirmations = FakeConfirmationPort(approve = true)
+        val skill = lowRiskSkill().copy(
+            riskLevel = RiskLevel.HIGH,
+            preparer = SkillPreparer { _, _ -> PreparedAction.Failed(SkillResult.Failure("contact_not_found", "No such contact.")) },
+        )
+        val outcome = pipeline(skill, confirmationPort = confirmations).execute(ToolCall(skillId = skill.id, input = SkillInput(mapOf("query" to "x"))), context)
+        assertEquals("contact_not_found", assertIs<ToolExecutionOutcome.ExecutionFailed>(outcome).result.reason)
+        assertEquals(null, confirmations.lastRequest)
+    }
+
+    @Test
+    fun `permission revoked while the confirmation dialog was open is caught before acting`() = runTest {
+        var granted = true
+        val permissions = PermissionPort { granted }
+        val confirmations = ConfirmationPort { granted = false; true }
+        var handlerCalled = false
+        val skill = lowRiskSkill(
+            requiredPermissions = listOf(PermissionType.PHONE_CALL),
+            handler = SkillHandler { _, _ -> handlerCalled = true; SkillResult.Success(emptyMap(), "called") },
+        ).copy(riskLevel = RiskLevel.HIGH)
+        val pipeline = ToolPipeline(registryWith(skill), permissions, FakeEntitlementPort(proSnapshot), FakeUsagePort(100), confirmations, FixedClockPort(now))
+        val outcome = pipeline.execute(ToolCall(skillId = skill.id, input = SkillInput(mapOf("query" to "x"))), context)
+        assertIs<ToolExecutionOutcome.PermissionDenied>(outcome)
+        assertTrue(!handlerCalled)
+    }
+
+    @Test
+    fun `a free zero-cost skill needs no entitlement network call, so device actions work offline`() = runTest {
+        val offline = EntitlementPort { error("offline") }
+        val skill = lowRiskSkill()
+        val pipeline = ToolPipeline(registryWith(skill), FakePermissionPort(), offline, FakeUsagePort(0), FakeConfirmationPort(true), FixedClockPort(now))
+        assertIs<ToolExecutionOutcome.Success>(pipeline.execute(ToolCall(skillId = skill.id, input = SkillInput(mapOf("query" to "x"))), context))
     }
 }

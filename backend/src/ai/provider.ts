@@ -25,11 +25,34 @@ export interface ModelConfiguration {
   maxTokens?: number;
 }
 
+/**
+ * Per-turn accounting a provider fills in, so one user turn's real cost (every HTTP request,
+ * including retries) is observable in one log line. Optional: callers that don't care omit it.
+ */
+export interface ProviderTrace {
+  /** HTTP requests actually sent to the provider, retries included. */
+  httpRequests: number;
+  /** Provider-side ids of the responses (e.g. Gemini `responseId`), when returned. */
+  responseIds: string[];
+  /**
+   * The model that actually answered each successful request, in order. Differs from the
+   * configured model when the provider fell back (404 / 5xx), so a switch is never silent.
+   */
+  servedModels?: string[];
+}
+
 export interface AIRequest {
   systemPrompt: string;
   messages: ConversationMessage[];
   tools?: ToolDefinition[];
   modelConfig: ModelConfiguration;
+  /** Cancels the request (and any retry wait) when the user's turn is abandoned. */
+  signal?: AbortSignal;
+  trace?: ProviderTrace;
+  /** Correlation id of this logical model call (generated when absent). */
+  modelCallId?: string;
+  /** Who is calling: the orchestrator's planner, or a skill generating content. */
+  purpose?: "planner" | "generation";
 }
 
 export interface ToolCallRequest {

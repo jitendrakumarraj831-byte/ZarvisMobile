@@ -20,6 +20,7 @@ export function createAutomationCancelWorkflowSkill(taskService: TaskService): S
     requiredEntitlement: "FREE",
     usageCost: { value: 0, unit: "credits" },
     riskLevel: "LOW",
+    actionClass: "LOW_IMPACT",
     requiresConfirmation: false,
     executesOnDevice: false,
     inputSchema: { requiredFields: ["goalMatch"], properties: { goalMatch: "string" } },

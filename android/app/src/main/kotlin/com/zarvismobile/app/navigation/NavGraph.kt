@@ -3,11 +3,11 @@ package com.zarvismobile.app.navigation
 import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,7 +55,7 @@ private val BOTTOM_NAV_ITEMS = listOf(
     ZarvisNavItem(Routes.HOME, "Home", Icons.Filled.Home),
     ZarvisNavItem(Routes.CHAT, "Chat", Icons.Filled.ChatBubble),
     ZarvisNavItem(Routes.CAPABILITIES, "Capabilities", Icons.Filled.Explore),
-    ZarvisNavItem(Routes.ACTIVITY, "Tasks", Icons.Filled.List),
+    ZarvisNavItem(Routes.ACTIVITY, "Tasks", Icons.AutoMirrored.Filled.List),
     ZarvisNavItem(Routes.MORE, "Work", Icons.Filled.Apps),
 )
 

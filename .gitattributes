@@ -1,0 +1,7 @@
+# Keep shell scripts and the Gradle wrapper runnable when the repository is checked out on
+# Windows (Git for Windows defaults to core.autocrlf=true, which would turn them into CRLF
+# files that bash cannot run: "$'\r': command not found", "/bin/sh^M: bad interpreter").
+*.sh      text eol=lf
+gradlew   text eol=lf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf

@@ -1,3 +1,4 @@
+import { SkillUserError } from "../tooling/toolPipeline.js";
 import type { AIProvider, ModelConfiguration } from "./provider.js";
 
 export interface ContentGenerator {
@@ -27,6 +28,7 @@ export class AIContentGenerator implements ContentGenerator {
 
   async generate(prompt: string): Promise<string> {
     const response = await this.provider.generate({
+      purpose: "generation",
       systemPrompt: this.systemPrompt,
       messages: [{ role: "user", content: prompt }],
       modelConfig: this.modelConfig,
@@ -42,5 +44,20 @@ export class MockContentGenerator implements ContentGenerator {
 
   async generate(prompt: string): Promise<string> {
     return `[Mock ${this.label} — no live AI provider configured, see AI_ARCHITECTURE.md] Draft based on: "${prompt}"`;
+  }
+}
+
+/**
+ * Production without a live AI provider: fail honestly instead of returning a placeholder as
+ * a completed (and charged) result. The pipeline reports it as FAILED and charges nothing.
+ */
+export class UnavailableContentGenerator implements ContentGenerator {
+  constructor(private readonly label: string) {}
+
+  async generate(): Promise<string> {
+    throw new SkillUserError(
+      "ai_provider_unavailable",
+      `ZARVIS can't write a ${this.label} right now: no AI provider is configured on this server. Nothing was generated or charged.`,
+    );
   }
 }

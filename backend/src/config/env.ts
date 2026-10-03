@@ -30,8 +30,6 @@ export const env = {
    * see store/inMemoryStore.ts; it does not survive process restarts or serverless cold starts). */
   databaseUrl: process.env.POSTGRES_URL || process.env.DATABASE_URL,
   /** Direct provider credentials. Never expose these to the mobile/web clients. */
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-  openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
   /** Google has retired `gemini-2.5-flash` for new API users. The production logs showed
    * a 404 for that model, with Google's API explicitly directing new users to
@@ -53,15 +51,14 @@ export const env = {
       : process.env.GEMINI_TTS_MODEL.trim(),
   /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
-  githubAppId: process.env.GITHUB_APP_ID,
-  githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
-  /** Optional GitHub token for private repositories and higher API rate limits. */
-  githubToken: process.env.GITHUB_TOKEN,
+  isProduction: process.env.NODE_ENV === "production",
+  /** GitHub REST API base URL (override only for GitHub Enterprise Server or a local test stub). */
+  githubApiBaseUrl: process.env.GITHUB_API_BASE_URL?.trim() || "https://api.github.com",
+  /** base64 32-byte AES key for per-user integration credentials (security/secretBox.ts). */
+  integrationEncryptionKey: process.env.INTEGRATION_ENCRYPTION_KEY,
   playBillingServiceAccountJson: process.env.PLAY_BILLING_SERVICE_ACCOUNT_JSON,
   /** Must match the Android app's applicationId — see android/app/build.gradle.kts. */
   playBillingPackageName: process.env.PLAY_BILLING_PACKAGE_NAME || "com.zarvismobile.app",
-  /** Official production domain — see MASTER_SPEC.md §12a (Web Client Architecture). */
-  publicAppUrl: process.env.PUBLIC_APP_URL || "https://zarvismobile.com",
   /** Comma-separated list of allowed browser origins for CORS; defaults cover the product domain + local dev. */
   corsOrigins: (
     process.env.CORS_ORIGINS ||

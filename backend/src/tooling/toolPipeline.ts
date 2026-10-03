@@ -1,18 +1,43 @@
+import { policyRequiresConfirmation } from "../capabilities/registry.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import { InsufficientCreditsError } from "../store/store.js";
-import type { PermissionType, SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
+import type {
+  PermissionType,
+  SkillDefinition,
+  SkillExecutionContext,
+  SkillInput,
+  SkillResult,
+  ToolCall,
+  ToolExecutionOutcome,
+} from "../domain/types.js";
+import { logger } from "../security/redact.js";
 import type { ClockPort, ConfirmationPort, EntitlementPort, PermissionPort, UsagePort } from "./ports.js";
 import { systemClockPort } from "./ports.js";
 import type { SkillRegistry } from "./skillRegistry.js";
 
 /**
- * The mandatory security boundary described in MASTER_SPEC.md §7 and SECURITY.md —
- * mirrors android/domain/tooling/ToolPipeline.kt stage-for-stage. No skill handler is ever
- * invoked except through this pipeline, and no stage can be skipped by a caller. This is
- * the backend's *authoritative* enforcement — the Android pipeline exists for responsive
- * UX only (see ARCHITECTURE.md "Backend/Android parity note").
+ * A skill handler may throw this to report an expected, user-explainable failure (e.g. a
+ * GitHub 404) with a safe message. Any other thrown error is reported generically.
+ */
+export class SkillUserError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly userMessage: string,
+    readonly retryable = false,
+  ) {
+    super(userMessage);
+    this.name = "SkillUserError";
+  }
+}
+
+const MAX_ACTION_DESCRIPTION_CHARS = 600;
+
+/**
+ * The mandatory security boundary (blueprint §9): mirrors
+ * android/domain/tooling/ToolPipeline.kt stage-for-stage. No skill handler is ever invoked
+ * except through this pipeline, and no stage can be skipped by a caller.
  *
- * Registry -> Validation -> Permission -> Entitlement -> Confirmation -> Execution -> Verification
+ * Registry -> Validation -> Permission -> Entitlement -> Policy/Confirmation -> Execution -> Verification
  */
 export class ToolPipeline {
   constructor(
@@ -31,9 +56,11 @@ export class ToolPipeline {
       return { kind: "skill_not_found", skillId: call.skillId };
     }
 
-    // 2. Validation
-    const providedKeys = new Set(Object.keys(call.input.values));
-    const missingFields = skill.inputSchema.requiredFields.filter((field) => !providedKeys.has(field));
+    // 2. Validation — present AND non-blank; an empty string is not a provided value.
+    const missingFields = skill.inputSchema.requiredFields.filter((field) => {
+      const value = call.input.values[field];
+      return value === undefined || value === null || (typeof value === "string" && value.trim().length === 0);
+    });
     if (missingFields.length > 0) {
       return { kind: "validation_failed", missingFields };
     }
@@ -55,24 +82,68 @@ export class ToolPipeline {
       return { kind: "entitlement_denied", decision };
     }
 
-    // 5. Confirmation (MEDIUM/HIGH risk — ambiguous conversation never counts as consent)
-    if (skill.requiresConfirmation) {
-      const approved = await this.confirmationPort.confirm(
-        { skillId: skill.id, summary: skill.description, riskLevel: skill.riskLevel },
+    // 5. Prepare — check preconditions and describe the exact action before any confirmation.
+    let action = describeAction(skill, call.input);
+    if (skill.prepare) {
+      let prepared;
+      try {
+        prepared = await skill.prepare(call.input, context);
+      } catch (err) {
+        prepared = {
+          kind: "failed" as const,
+          failure:
+            err instanceof SkillUserError
+              ? { kind: "failure" as const, reason: err.reason, userMessage: err.userMessage }
+              : { kind: "failure" as const, reason: "prepare_error", userMessage: `${skill.name} couldn't check its requirements, so nothing was done. Please try again.` },
+        };
+      }
+      if (prepared.kind === "failed") return { kind: "execution_failed", result: prepared.failure };
+      action = truncate(prepared.description);
+    }
+
+    // 6. Policy + confirmation. The policy can only add a requirement, never remove one.
+    if (requiresConfirmation(skill)) {
+      const confirmation = await this.confirmationPort.confirm(
+        {
+          skillId: skill.id,
+          skillName: skill.name,
+          action,
+          riskLevel: skill.riskLevel,
+          actionClass: skill.actionClass,
+          input: call.input.values,
+        },
         context,
       );
-      if (!approved) {
-        return { kind: "confirmation_declined", skillId: skill.id };
+      if (!confirmation.approved) {
+        return { kind: "confirmation_required", confirmation: confirmation.pending };
       }
     }
 
-    // 6. Execution
-    const result = await skill.handler(call.input, context);
+    // 7. Execution — a thrown error is an honest failure, never an unhandled 500 that
+    // takes the whole conversation turn down with it.
+    let result: SkillResult;
+    try {
+      result = await skill.handler(call.input, context);
+    } catch (err) {
+      if (err instanceof SkillUserError) {
+        result = { kind: "failure", reason: err.reason, userMessage: err.userMessage };
+      } else {
+        logger.error("Skill handler threw", {
+          skillId: skill.id,
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+        });
+        result = {
+          kind: "failure",
+          reason: "handler_error",
+          userMessage: `${skill.name} ran into an error, so nothing was completed. Please try again.`,
+        };
+      }
+    }
     if (result.kind === "failure") {
       return { kind: "execution_failed", result };
     }
 
-    // 7. Verification — never report success on an empty/absent result
+    // 8. Verification — never report success on an empty/absent result
     if (result.summary.trim().length === 0) {
       return { kind: "verification_failed", skillId: skill.id, reason: "Skill reported success with no result summary" };
     }
@@ -84,13 +155,35 @@ export class ToolPipeline {
         await this.usagePort.charge(context.accountId, skill.usageCost, skill.id);
         chargedCredits = skill.usageCost.value;
       } catch (err) {
-        if (err instanceof InsufficientCreditsError) {
-          return { kind: "entitlement_denied", decision: { allowed: false, reason: "OUT_OF_CREDITS" } };
-        }
-        throw err;
+        // The action has already run (e.g. a PR was opened); reporting it as denied or failed
+        // would be false and invite a duplicate retry. A concurrent request spent the credits
+        // in between — the result stays a success, uncharged, and the shortfall is logged.
+        logger.warn("Usage charge failed after a verified success; reported as uncharged", {
+          skillId: skill.id,
+          error: err instanceof InsufficientCreditsError ? "insufficient_credits" : (err instanceof Error ? err.message : String(err)).slice(0, 300),
+        });
       }
     }
 
     return { kind: "success", result, chargedCredits };
   }
+}
+
+export function requiresConfirmation(skill: SkillDefinition): boolean {
+  return skill.requiresConfirmation || policyRequiresConfirmation(skill.actionClass, skill.riskLevel);
+}
+
+/** What the user is asked to approve: the skill's own description of this exact call. */
+export function describeAction(skill: SkillDefinition, input: SkillInput): string {
+  const text = skill.describeAction
+    ? skill.describeAction(input)
+    : `${skill.name}: ` +
+      Object.entries(input.values)
+        .map(([key, value]) => `${key} = ${typeof value === "string" ? value : JSON.stringify(value)}`)
+        .join("; ");
+  return truncate(text);
+}
+
+function truncate(text: string): string {
+  return text.length > MAX_ACTION_DESCRIPTION_CHARS ? text.slice(0, MAX_ACTION_DESCRIPTION_CHARS - 1) + "…" : text;
 }
