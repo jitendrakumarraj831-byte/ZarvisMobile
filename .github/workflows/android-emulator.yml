@@ -20,7 +20,9 @@ concurrency:
 jobs:
   emulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # A full run takes ~4 min of tests on API 30/34 and ~13 on API 26, plus ~8 min of setup and
+    # build. The emulator step has its own, tighter limit so evidence is still uploaded.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +36,12 @@ jobs:
             arch: x86_64
           - api-level: 34
             arch: x86_64
+          # Self-test of the harness, not of ZARVIS: kills the API 26 emulator during phase D
+          # and passes only if verify.sh stops on its own with "EMULATOR LOST" / "NOT RUN"
+          # (the failure that once hung this job for 51 minutes). See selftest-emulator-loss.sh.
+          - api-level: 26
+            arch: x86
+            mode: harness-selftest
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +81,7 @@ jobs:
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pzarvis.devApiHost=10.0.2.2 --stacktrace --console=plain
 
       - name: Run on the emulator
+        timeout-minutes: 40
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -82,13 +91,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated
           disable-animations: true
           working-directory: android
-          script: bash scripts/emulator/verify.sh ${{ matrix.api-level }}
+          script: bash scripts/emulator/${{ matrix.mode == 'harness-selftest' && 'selftest-emulator-loss.sh' || 'verify.sh' }} ${{ matrix.api-level }}
 
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-evidence-api${{ matrix.api-level }}
+          name: emulator-evidence-api${{ matrix.api-level }}${{ matrix.mode && format('-{0}', matrix.mode) || '' }}
           path: |
             android/build/emulator-evidence/
             /tmp/backend.log
