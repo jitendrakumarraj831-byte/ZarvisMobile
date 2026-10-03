@@ -124,8 +124,11 @@ export function documentsRouter(): Router {
           next();
           return;
         }
-        const reason = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE" ? "file_too_large" : "upload_failed";
-        res.status(400).json({ error: reason });
+        if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+          res.status(413).json({ error: "file_too_large", maxBytes: MAX_UPLOAD_BYTES });
+          return;
+        }
+        res.status(400).json({ error: "upload_failed" });
       });
     },
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
@@ -151,10 +154,20 @@ export function documentsRouter(): Router {
             sizeBytes: file.size,
             error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
           });
-          if (err instanceof AIProviderError && err.code !== "AI_UNAVAILABLE") {
-            // Out of AI quota is not "your file is unreadable": say what actually happened.
-            res.status(429).json({ ...providerErrorPayload(err), error: "ai_quota_exceeded", code: err.code });
-            return;
+          if (err instanceof AIProviderError) {
+            // A provider failure is not "your file is unreadable": say what actually happened.
+            // `message` is the honest user-facing text; `error` stays a machine-readable reason.
+            const { error: message, ...payload } = providerErrorPayload(err);
+            if (err.code !== "AI_UNAVAILABLE") {
+              res.status(429).json({ ...payload, message, error: "ai_quota_exceeded" });
+              return;
+            }
+            // Gemini refusing the image itself (400 INVALID_ARGUMENT) is the one provider answer
+            // that does mean the file could not be read. An outage or a rejected key is ours.
+            if (err.status !== 400) {
+              res.status(503).json({ ...payload, message, error: "ai_unavailable" });
+              return;
+            }
           }
           res.status(422).json({ error: "extraction_failed" });
         }

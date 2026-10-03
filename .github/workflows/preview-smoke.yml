@@ -1,10 +1,9 @@
 name: Live preview API smoke test
 
 # A deployment being "Ready" is not the same as its API working. When Vercel reports a
-# successful deployment (it posts a GitHub deployment_status), this calls the live URL the
-# way the web client does on its first chat: /health → POST /auth/guest → GET /auth/me →
-# POST /orchestrator/turn-stream "Hi". Only HTTP statuses and non-secret response fields
-# are logged; the guest access token is never printed.
+# successful deployment (it posts a GitHub deployment_status), scripts/live-smoke.mjs calls
+# the live URL the way the clients do. Only statuses and non-secret fields are logged; no
+# token or password is ever printed, and the sign-up account it creates is deleted.
 #
 # If the deployment is behind Vercel Deployment Protection, set the repository secret
 # VERCEL_AUTOMATION_BYPASS_SECRET (Vercel → Settings → Deployment Protection → Protection
@@ -24,64 +23,22 @@ jobs:
   smoke:
     if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      BASE_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
-      BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+    timeout-minutes: 12
     steps:
-      - name: Call the live API like the web client's first chat
-        shell: bash
-        run: |
-          set -uo pipefail
-          BASE="${BASE_URL%/}"
-          echo "Deployment: $BASE"
-          H=()
-          # Only whether the secret exists is printed; GitHub also masks its value in every log line.
-          if [ -n "${BYPASS:-}" ]; then
-            H=(-H "x-vercel-protection-bypass: $BYPASS")
-            echo "Vercel protection bypass secret: configured"
-          else
-            echo "Vercel protection bypass secret: not configured"
-          fi
-          fail=0
+      # The script from the deployed commit, so the checks match the code under test.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha || github.sha }}
 
-          out=$(curl -sS -m 30 "${H[@]}" -o health.json -w '%{http_code} %{redirect_url}' "$BASE/health" || echo "000 ")
-          code=${out%% *}; redirect=${out#* }
-          echo "GET /health → HTTP $code"
-          # Vercel Deployment Protection answers 401, or 302/307 to vercel.com's login, before
-          # the request ever reaches api/index.ts. That is not an API result.
-          if { [ "$code" = "401" ] && grep -qi "vercel" health.json; } || { [[ "$code" =~ ^30[127]$ ]] && [[ "$redirect" == *vercel.com* ]]; }; then
-            if [ -n "${BYPASS:-}" ]; then
-              echo "::error::Vercel Deployment Protection rejected the bypass secret (HTTP $code to the Vercel login), so the API was not reached. The repository secret VERCEL_AUTOMATION_BYPASS_SECRET does not match this project's current Protection Bypass for Automation value (Vercel → Settings → Deployment Protection); it may have been regenerated or copied from another project."
-            else
-              echo "::error::This deployment is behind Vercel Deployment Protection (HTTP $code to the Vercel login), so the API was not reached. Add the repository secret VERCEL_AUTOMATION_BYPASS_SECRET (Vercel → Settings → Deployment Protection → Protection Bypass for Automation) and re-run this workflow."
-            fi
-            exit 1
-          fi
-          # status, provider and (on a failed startup) reason/stage: no secrets in this body.
-          node -e 'try{const b=JSON.parse(require("fs").readFileSync("health.json","utf8"));console.log("  health:",JSON.stringify({status:b.status,provider:b.provider,database:b.database,reason:b.reason,stage:b.stage}))}catch{console.log("  health: (not JSON)")}'
-          [ "$code" = "200" ] || { echo "::error::/health returned $code"; fail=1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
-          code=$(curl -sS -m 30 "${H[@]}" -X POST -o guest.json -w '%{http_code}' "$BASE/api/v1/auth/guest" || echo 000)
-          echo "POST /api/v1/auth/guest → HTTP $code"
-          if [ "$code" != "201" ] && [ "$code" != "200" ]; then
-            node -e 'try{const b=JSON.parse(require("fs").readFileSync("guest.json","utf8"));console.log("  error:",JSON.stringify({error:b.error,code:b.code}))}catch{console.log("  error body is not JSON")}'
-            echo "::error::Guest session creation failed ($code): this is the first request of every new visitor's chat."
-            exit 1
-          fi
-          TOKEN=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("guest.json","utf8")).accessToken||"")')
-          echo "::add-mask::$TOKEN"
-
-          code=$(curl -sS -m 30 "${H[@]}" -H "Authorization: Bearer $TOKEN" -o me.json -w '%{http_code}' "$BASE/api/v1/auth/me" || echo 000)
-          echo "GET /api/v1/auth/me → HTTP $code (a 401 here after a 201 above means sessions don't persist across instances)"
-          [ "$code" = "200" ] || fail=1
-
-          code=$(curl -sS -m 60 -N "${H[@]}" -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-            -d '{"utterance":"Hi","locale":"en","isFirstTurn":true,"history":[]}' -o turn.txt -w '%{http_code}' "$BASE/api/v1/orchestrator/turn-stream" || echo 000)
-          echo "POST /api/v1/orchestrator/turn-stream \"Hi\" → HTTP $code"
-          grep -oE '^event: [a-z_]+' turn.txt | sort | uniq -c | sed 's/^/  /' || true
-          if grep -q '^event: done' turn.txt && grep -q '^event: delta' turn.txt; then echo "  reply received"; else
-            node -e 'const t=require("fs").readFileSync("turn.txt","utf8");const m=t.match(/event: error\ndata: (.*)/);let e=m?m[1]:t.slice(0,200);try{e=JSON.stringify({error:JSON.parse(m?m[1]:t).error,code:JSON.parse(m?m[1]:t).code})}catch{}console.log("  error:",e)'
-            fail=1
-          fi
-          exit $fail
+      # Health, the auth lifecycle (guest, sign-up, login, refresh rotation and replay, logout),
+      # error handling, streaming, turn replay, a real model answer, a real web search, PDF
+      # upload, TTS, and account deletion. See scripts/live-smoke.mjs.
+      - name: Live API checks
+        env:
+          BASE_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node scripts/live-smoke.mjs

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GeminiProvider } from "../../src/ai/geminiProvider.js";
 import type { AIRequest } from "../../src/ai/provider.js";
+import { logger } from "../../src/security/redact.js";
 
 const baseRequest: AIRequest = {
   systemPrompt: "You are ZARVIS.",
@@ -122,6 +123,29 @@ describe("GeminiProvider.streamGenerate", () => {
       { delta: "", done: true },
     ]);
     expect(calls).toBe(4);
+  });
+
+  it("a fallback-model answer is recorded and logged, never silent", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls += 1;
+      if (url.includes("models/gemini-2.0-flash:")) return new Response("busy", { status: 503, statusText: "Service Unavailable" });
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }), { status: 200 });
+    }));
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const trace = { httpRequests: 0, responseIds: [] as string[], servedModels: [] as string[] };
+
+    const response = await new GeminiProvider("test-key").generate({ ...baseRequest, trace });
+
+    expect(response.message.content).toBe("ok");
+    expect(trace.servedModels).toEqual(["gemini-3.8-flash"]);
+    expect(trace.httpRequests).toBe(calls);
+    expect(warn).toHaveBeenCalledWith("Gemini answered with the fallback model", expect.objectContaining({
+      modelCallId: expect.any(String),
+      configuredModel: "gemini-2.0-flash",
+      servedModel: "gemini-3.8-flash",
+    }));
+    warn.mockRestore();
   });
 
   it("yields incremental text deltas parsed from the SSE stream", async () => {

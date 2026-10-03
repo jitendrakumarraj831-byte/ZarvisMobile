@@ -30,8 +30,6 @@ export const env = {
    * see store/inMemoryStore.ts; it does not survive process restarts or serverless cold starts). */
   databaseUrl: process.env.POSTGRES_URL || process.env.DATABASE_URL,
   /** Direct provider credentials. Never expose these to the mobile/web clients. */
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-  openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
   /** Google has retired `gemini-2.5-flash` for new API users. The production logs showed
    * a 404 for that model, with Google's API explicitly directing new users to
@@ -61,8 +59,6 @@ export const env = {
   playBillingServiceAccountJson: process.env.PLAY_BILLING_SERVICE_ACCOUNT_JSON,
   /** Must match the Android app's applicationId — see android/app/build.gradle.kts. */
   playBillingPackageName: process.env.PLAY_BILLING_PACKAGE_NAME || "com.zarvismobile.app",
-  /** Official production domain — see MASTER_SPEC.md §12a (Web Client Architecture). */
-  publicAppUrl: process.env.PUBLIC_APP_URL || "https://zarvismobile.com",
   /** Comma-separated list of allowed browser origins for CORS; defaults cover the product domain + local dev. */
   corsOrigins: (
     process.env.CORS_ORIGINS ||

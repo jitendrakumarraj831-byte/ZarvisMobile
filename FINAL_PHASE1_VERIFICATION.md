@@ -1,6 +1,6 @@
 # Final Phase 1 Verification — PR #78
 
-**Latest run:** final hardening pass, 2026-10-02 (afternoon UTC).
+**Latest run:** PR #79 reliability and merge-gate pass (next section). Before it: final hardening pass, 2026-10-02 (afternoon UTC).
 **Verified code head:** `5cc165fc42bbb4516a38bd825ca07782ceda755a`; the commit after it changes only reports.
 - Branch `claude/laughing-shannon-m3zu32`; 86 commits ahead of `main`, 0 behind; merges with no conflict.
 - Details, root causes and evidence: [`DEEP_AUDIT_2026-10-02.md`](DEEP_AUDIT_2026-10-02.md) §6.
@@ -13,6 +13,48 @@
 - PR #78 was not merged.
 
 Status values: PASS, FAIL, PARTIAL, BLOCKED (cannot run where it was attempted; reason given), NOT TESTED. No emulator result is counted as a physical-device result. This report does not claim the app is bug-free.
+
+## PR #79 reliability and merge-gate pass (2026-10-02, evening)
+
+- **Branch:** `claude/optimistic-lovelace-y9w9q6` (PR #79), stacked on this PR's branch.
+  Merge decision and every result: [ZARVIS_FINAL_MERGE_GATE.md](./ZARVIS_FINAL_MERGE_GATE.md).
+  Details: [ZARVIS_PRODUCTION_READINESS.md](./ZARVIS_PRODUCTION_READINESS.md),
+  [ZARVIS_SYSTEM_CONNECTION_MAP.md](./ZARVIS_SYSTEM_CONNECTION_MAP.md),
+  [ZARVIS_API_CONTRACT_AUDIT.md](./ZARVIS_API_CONTRACT_AUDIT.md),
+  [ZARVIS_ENVIRONMENT_MATRIX.md](./ZARVIS_ENVIRONMENT_MATRIX.md).
+- **Gate: NOT READY TO MERGE INTO MAIN.** Blockers: the Nothing Phone 2A run (NOT TESTED),
+  production verification of the new code (only possible after it is deployed), and a completed
+  live web search (the live run so far met the per-minute Gemini limit).
+
+### Corrections to earlier rows in this file
+
+1. **Live chat (row 19 of the final hardening pass, row 8c of the 00:25 re-run).** "Live
+   preview smoke … chat turn PASS" proved auth, the database and streaming only. "Hi" is answered
+   by a deterministic fast path that never calls Gemini, and `provider: google` in `/health` only
+   means the key variable is non-empty. A real Gemini answer on the preview was first verified by
+   PR #79's smoke test.
+2. **Responsive 341/341, keyboard 12/12, accessibility "0 issues", voice UI 12/12, service
+   worker (earlier runs).** These came from scripts that were never committed, so they cannot be
+   re-run or reviewed. The committed suite `web/e2e/quality.e2e.cjs` (PR #79) found real
+   accessibility violations they had not reported: `aria-prohibited-attr` on the home wordmark and
+   the attach control, and 2.3:1 text contrast on the Developer "Verify" stage. It also found an
+   attach control unusable from the keyboard, and double-click on Send cancelling the message.
+   All are fixed. The earlier figures are superseded by that suite's results.
+
+### Results (local, this session)
+
+| # | Check | Status | Evidence |
+|---|---|---|---|
+| R1 | Backend typecheck (backend + root), `npm run build` | PASS | clean |
+| R2 | Backend tests, in-memory + Postgres 16 | PASS | 358 passed, 2 skipped (live-credential tests) |
+| R3 | Web unit tests | PASS | 13/13 |
+| R4 | Web E2E, Phase 1 (real backend + Postgres + GitHub stub) | PASS | 19/19 |
+| R5 | Web quality E2E (responsive, axe, keyboard, SW, voice, duplicate submissions) | PASS | 14/14, twice in CI order |
+| R6 | Android `:domain:test` | PASS | 120/120 (JDK 17) |
+| R7 | Android `clean test lint check assemble* bundleRelease` | BLOCKED locally (`dl.google.com` 403 through the sandbox proxy) | run in CI: see the merge gate |
+| R8 | Live preview (`scripts/live-smoke.mjs`) | PASS with 1 WARN | 19 PASS: health, guest, sign-up, login, refresh rotation and replay refusal, logout, errors, streaming, replay, real Gemini answer, PDF upload, 415, TTS audio, account deletion. WARN: web search ran once and met the per-minute limit |
+| R9 | Production | NOT TESTED | `zarvismobile.com` is denied by this sandbox's network policy, and it serves `main` until the merge |
+| R10 | Nothing Phone 2A | **NOT TESTED** | no device in this session |
 
 ## Final hardening pass (head `5cc165f`)
 

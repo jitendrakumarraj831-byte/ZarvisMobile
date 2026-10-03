@@ -5,13 +5,36 @@ import {
   EmailTakenError,
   InsufficientCreditsError,
   type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
-  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type UsageEntry, type User
+  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
+  type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
+
+/**
+ * Ids that reach the store from a client (a conversation, confirmation or task id in a URL or
+ * body) are looked up in UUID columns. Postgres rejects a non-UUID value with an error (22P02),
+ * which surfaced as a 500 on every request carrying it, e.g. a stale conversation id stored by
+ * a browser made every turn fail. A value that is not a UUID cannot name a row: not found, the
+ * same answer InMemoryStore gives.
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (value: string): boolean => UUID_PATTERN.test(value);
 const TRIAL_INCLUDED_CREDITS = 50;
 
+/**
+ * Advisory lock key that orders schema setup against multi-table writes. The schema script is
+ * one multi-statement query, i.e. one implicit transaction: it locks `users` (ALTER/UPDATE) and
+ * then the indexed tables (CREATE INDEX takes a ShareLock even when the index exists).
+ * deleteAccount locks those tables first and `users` last. Run concurrently (a serverless cold
+ * start during an account deletion) they deadlocked and Postgres aborted one. Schema setup
+ * takes this lock exclusively, deleteAccount shared, both before any table lock, so they never
+ * interleave. Arbitrary constant: "ZARV" in ASCII.
+ */
+const SCHEMA_LOCK_KEY = 0x5a415256;
+
 const SCHEMA = `
+  SELECT pg_advisory_xact_lock(${SCHEMA_LOCK_KEY});
   CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
@@ -112,6 +135,17 @@ const SCHEMA = `
     scopes TEXT NOT NULL,
     connected_at TIMESTAMPTZ NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS turn_records (
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    client_turn_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    conversation_id UUID,
+    result JSONB,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (account_id, client_turn_id)
+  );
+  ALTER TABLE turn_records ADD COLUMN IF NOT EXISTS fingerprint TEXT;
   CREATE INDEX IF NOT EXISTS auth_sessions_account_idx ON auth_sessions (account_id);
   CREATE INDEX IF NOT EXISTS confirmations_account_idx ON confirmations (account_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS conversation_messages_conversation_created_idx
@@ -238,11 +272,13 @@ export class PostgresStore implements Store {
   }
 
   async getSession(sessionId: string): Promise<AuthSession | undefined> {
+    if (!isUuid(sessionId)) return undefined;
     const { rows } = await this.query<SessionRow>("SELECT * FROM auth_sessions WHERE id = $1", [sessionId]);
     return rows[0] ? toSession(rows[0]) : undefined;
   }
 
   async rotateSession(sessionId: string, expectedHash: string, newHash: string, newExpiresAt: Date, now: Date): Promise<boolean> {
+    if (!isUuid(sessionId)) return false;
     const { rowCount } = await this.query(
       `UPDATE auth_sessions SET refresh_token_hash = $3, expires_at = $4, last_used_at = $5
        WHERE id = $1 AND refresh_token_hash = $2 AND revoked_at IS NULL AND expires_at > $5`,
@@ -252,6 +288,7 @@ export class PostgresStore implements Store {
   }
 
   async revokeSession(sessionId: string, now: Date): Promise<void> {
+    if (!isUuid(sessionId)) return;
     await this.query("UPDATE auth_sessions SET revoked_at = $2 WHERE id = $1 AND revoked_at IS NULL", [sessionId, now]);
   }
 
@@ -268,6 +305,7 @@ export class PostgresStore implements Store {
   }
 
   async getConfirmation(accountId: string, confirmationId: string): Promise<ConfirmationRecord | undefined> {
+    if (!isUuid(confirmationId)) return undefined;
     const { rows } = await this.query<ConfirmationRow>(
       "SELECT * FROM confirmations WHERE id = $1 AND account_id = $2",
       [confirmationId, accountId],
@@ -281,6 +319,7 @@ export class PostgresStore implements Store {
     status: Exclude<ConfirmationStatus, "PENDING">,
     now: Date,
   ): Promise<ConfirmationRecord | undefined> {
+    if (!isUuid(confirmationId)) return undefined;
     const { rows } = await this.query<ConfirmationRow>(
       `UPDATE confirmations SET status = $3, resolved_at = $4
        WHERE id = $1 AND account_id = $2 AND status = 'PENDING' AND expires_at > $4
@@ -376,6 +415,7 @@ export class PostgresStore implements Store {
     try {
       await this.ensureSchema();
       await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock_shared($1)", [SCHEMA_LOCK_KEY]);
       const { rows } = await client.query<AccountRow>("SELECT * FROM accounts WHERE id = $1 FOR UPDATE", [
         accountId,
       ]);
@@ -391,6 +431,7 @@ export class PostgresStore implements Store {
       await client.query("DELETE FROM trials WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM credit_balances WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM tasks WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM turn_records WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM conversations WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM accounts WHERE id = $1", [accountId]);
       await client.query("DELETE FROM users WHERE id = $1", [account.user_id]);
@@ -468,6 +509,64 @@ export class PostgresStore implements Store {
     }));
   }
 
+  async claimTurn(accountId: string, clientTurnId: string, fingerprint: string, now: Date, staleBefore: Date): Promise<TurnClaim> {
+    await this.query("DELETE FROM turn_records WHERE account_id = $1 AND updated_at < $2", [
+      accountId,
+      new Date(now.getTime() - TURN_RECORD_RETENTION_MS),
+    ]);
+    // The primary key makes exactly one of several concurrent first attempts win.
+    const inserted = await this.query(
+      `INSERT INTO turn_records (account_id, client_turn_id, fingerprint, status, created_at, updated_at)
+       VALUES ($1, $2, $3, 'running', $4, $4) ON CONFLICT DO NOTHING RETURNING account_id`,
+      [accountId, clientTurnId, fingerprint, now],
+    );
+    if (inserted.rows.length > 0) return { kind: "claimed" };
+    // A failed or abandoned attempt may run again; the row lock lets only one retry win.
+    const previous = await this.query<TurnRecordRow>(
+      "SELECT * FROM turn_records WHERE account_id = $1 AND client_turn_id = $2",
+      [accountId, clientTurnId],
+    );
+    const stored = previous.rows[0]?.fingerprint;
+    if (stored && stored !== fingerprint) return { kind: "conflict" };
+    const reclaimed = await this.query(
+      `UPDATE turn_records SET status = 'running', updated_at = $3
+       WHERE account_id = $1 AND client_turn_id = $2
+         AND (status = 'failed' OR (status = 'running' AND updated_at < $4))
+       RETURNING account_id`,
+      [accountId, clientTurnId, now, staleBefore],
+    );
+    if (reclaimed.rows.length > 0) return { kind: "claimed", previous: previous.rows[0] ? toTurnRecord(previous.rows[0]) : undefined };
+    const { rows } = await this.query<TurnRecordRow>(
+      "SELECT * FROM turn_records WHERE account_id = $1 AND client_turn_id = $2",
+      [accountId, clientTurnId],
+    );
+    return rows[0]?.status === "completed" ? { kind: "completed", record: toTurnRecord(rows[0]) } : { kind: "in_progress" };
+  }
+
+  async updateTurn(
+    accountId: string,
+    clientTurnId: string,
+    patch: { status?: TurnRecordStatus; conversationId?: string; result?: unknown },
+    now: Date,
+  ): Promise<void> {
+    await this.query(
+      `UPDATE turn_records SET
+         status = COALESCE($3, status),
+         conversation_id = COALESCE($4, conversation_id),
+         result = COALESCE($5::jsonb, result),
+         updated_at = $6
+       WHERE account_id = $1 AND client_turn_id = $2`,
+      [
+        accountId,
+        clientTurnId,
+        patch.status ?? null,
+        patch.conversationId ?? null,
+        patch.result === undefined ? null : JSON.stringify(patch.result),
+        now,
+      ],
+    );
+  }
+
   async createConversation(accountId: string, title?: string): Promise<Conversation> {
     const id = randomUUID();
     const now = new Date();
@@ -479,6 +578,7 @@ export class PostgresStore implements Store {
   }
 
   async getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined> {
+    if (!isUuid(conversationId)) return undefined;
     const { rows } = await this.query<ConversationRow>(
       "SELECT * FROM conversations WHERE id = $1 AND account_id = $2",
       [conversationId, accountId],
@@ -552,6 +652,7 @@ export class PostgresStore implements Store {
   }
 
   async getTask(taskId: string): Promise<Task | undefined> {
+    if (!isUuid(taskId)) return undefined;
     const { rows } = await this.query<TaskRow>("SELECT * FROM tasks WHERE id = $1", [taskId]);
     return rows[0] ? toTask(rows[0]) : undefined;
   }
@@ -792,4 +893,28 @@ export function poolConfigFor(
     return { connectionString: url.toString(), ssl: { rejectUnauthorized: false } };
   }
   return { connectionString: url.toString(), ssl: caCert ? { rejectUnauthorized: true, ca: caCert } : { rejectUnauthorized: true } };
+}
+
+interface TurnRecordRow extends QueryResultRow {
+  account_id: string;
+  client_turn_id: string;
+  status: TurnRecordStatus;
+  conversation_id: string | null;
+  fingerprint: string | null;
+  result: unknown;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function toTurnRecord(row: TurnRecordRow): TurnRecord {
+  return {
+    accountId: row.account_id,
+    clientTurnId: row.client_turn_id,
+    status: row.status,
+    conversationId: row.conversation_id ?? undefined,
+    fingerprint: row.fingerprint ?? undefined,
+    result: row.result ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

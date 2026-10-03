@@ -183,7 +183,13 @@ export class RealGitHubClient implements GitHubClient {
     const { owner, repo } = parseRepoUrl(repoUrl);
     const commitShas: string[] = [];
     for (const file of files) {
-      const encodedPath = file.path.split("/").map(encodeURIComponent).join("/");
+      // encodeURIComponent leaves "." and ".." intact and URL parsing resolves them, so such a
+      // segment would send this write (with the user's token) to a different GitHub endpoint.
+      const segments = file.path.split("/");
+      if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+        throw new GitHubApiError(422, `Refusing an unsafe repository path: ${JSON.stringify(file.path.slice(0, 120))}`);
+      }
+      const encodedPath = segments.map(encodeURIComponent).join("/");
       let existingSha: string | undefined;
       try {
         const existing = await this.request<{ sha: string }>(

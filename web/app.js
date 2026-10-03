@@ -78,12 +78,15 @@
       bootError: { title: "Zarvis can't connect right now.", subtitle: "Please try again in a moment." },
       aiQuota: { title: "ZARVIS has reached today's AI usage limit.", subtitle: "Nothing was charged. Please try again later." },
       aiBusy: { title: "ZARVIS is getting too many requests right now.", subtitle: "Nothing was charged. Please wait a moment and try again." },
+      turnBusy: { title: "ZARVIS is still working on this message.", subtitle: "It was not sent twice. Wait a moment, then try again to see the reply." },
+      tooLarge: { title: "This message is too long to send.", subtitle: "Shorten it or attach a smaller document. Nothing was sent." },
       unsupportedFile: {
         title: "Can't read this file type yet.",
         subtitle: "Zarvis can analyze images, .txt, .md, .csv, .json, .pdf, and .docx files. Try one of those, or paste the text directly.",
       },
       unreadableFile: { title: "Zarvis couldn't read this document.", subtitle: "Please try another file." },
       imageUnavailable: { title: "Image analysis isn't available right now.", subtitle: "The server has no image model configured. Documents and text files still work." },
+      imageAiDown: { title: "Image analysis couldn't reach the AI service.", subtitle: "Your file is fine and nothing was charged. Please try again in a moment." },
       emptyFile: { title: "That file looks empty.", subtitle: "Try a different file or paste the text directly." },
       voiceUnsupported: { title: "Voice input isn't available in this browser.", subtitle: "Type your request instead, or open ZARVIS in Chrome." },
       micDenied: { title: "Microphone access is off.", subtitle: "Allow the microphone for this site in your browser settings, then tap the mic again." },
@@ -135,12 +138,15 @@
       bootError: { title: "Zarvis से अभी कनेक्शन नहीं हो पा रहा है।", subtitle: "कृपया थोड़ी देर बाद फिर कोशिश करें।" },
       aiQuota: { title: "ZARVIS की आज की AI उपयोग सीमा पूरी हो गई है।", subtitle: "कोई शुल्क नहीं लगा। कृपया बाद में फिर कोशिश करें।" },
       aiBusy: { title: "ZARVIS पर अभी बहुत ज़्यादा अनुरोध आ रहे हैं।", subtitle: "कोई शुल्क नहीं लगा। थोड़ा रुककर फिर कोशिश करें।" },
+      turnBusy: { title: "ZARVIS अभी इसी संदेश पर काम कर रहा है।", subtitle: "यह दोबारा नहीं भेजा गया। थोड़ा रुककर जवाब देखने के लिए फिर कोशिश करें।" },
+      tooLarge: { title: "यह संदेश भेजने के लिए बहुत लंबा है।", subtitle: "इसे छोटा करें या छोटा डॉक्यूमेंट अटैच करें। कुछ नहीं भेजा गया।" },
       unsupportedFile: {
         title: "यह फ़ाइल प्रकार अभी पढ़ा नहीं जा सकता।",
         subtitle: "Zarvis इमेज, .txt, .md, .csv, .json, .pdf और .docx फ़ाइलें analyze कर सकता है। इनमें से कोई आज़माएं, या टेक्स्ट सीधे पेस्ट करें।",
       },
       unreadableFile: { title: "Zarvis इस डॉक्यूमेंट को पढ़ नहीं सका।", subtitle: "कृपया कोई दूसरी फ़ाइल आज़माएं।" },
       imageUnavailable: { title: "अभी इमेज एनालिसिस उपलब्ध नहीं है।", subtitle: "सर्वर पर इमेज मॉडल सेट नहीं है। डॉक्यूमेंट और टेक्स्ट फ़ाइलें काम करती हैं।" },
+      imageAiDown: { title: "इमेज एनालिसिस AI सेवा तक नहीं पहुँच सका।", subtitle: "आपकी फ़ाइल ठीक है और कोई शुल्क नहीं लगा। थोड़ी देर में फिर कोशिश करें।" },
       emptyFile: { title: "यह फ़ाइल खाली लग रही है।", subtitle: "कोई दूसरी फ़ाइल आज़माएं या टेक्स्ट सीधे पेस्ट करें।" },
       voiceUnsupported: { title: "इस ब्राउज़र में वॉइस इनपुट उपलब्ध नहीं है।", subtitle: "टाइप करके पूछें, या ZARVIS को Chrome में खोलें।" },
       micDenied: { title: "माइक्रोफ़ोन की अनुमति बंद है।", subtitle: "ब्राउज़र सेटिंग्स में इस साइट के लिए माइक्रोफ़ोन चालू करें, फिर माइक दोबारा दबाएं।" },
@@ -343,8 +349,12 @@
     // startup subsystem (voice, settings, plans, or service-worker registration) fails.
     el.sendBtn.addEventListener("click", () => {
       haptic();
-      if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) cancelCurrentTurn();
-      else submitComposerInput(el.input.value);
+      if (isBusy() && !el.input.value.trim() && !state.pendingAttachment) {
+        // Send turns into Stop under the pointer the moment a turn starts: the second click of
+        // a double-click (or a bounced tap) must not cancel the message just sent.
+        if (Date.now() - stopModeSince < STOP_GRACE_MS) return;
+        cancelCurrentTurn();
+      } else submitComposerInput(el.input.value);
     });
     el.input.addEventListener("keydown", (e) => {
       // Enter that confirms an IME composition (Hindi/Devanagari keyboards) is not a send.
@@ -357,6 +367,13 @@
     });
     el.input.addEventListener("input", resizeComposer);
     el.fileInput.addEventListener("change", handleFileSelected);
+    // The attach control is a focusable <label>; a label opens the picker on click only, so
+    // Enter/Space would otherwise do nothing for keyboard users.
+    el.uploadBtn.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (el.uploadBtn.getAttribute("aria-disabled") !== "true") el.fileInput.click();
+    });
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
       clearPendingAttachment();
@@ -414,10 +431,8 @@
   }
 
   function resolveApiBase() {
-    const params = new URLSearchParams(location.search);
-    const override = params.get("api");
-    if (override) return override.replace(/\/$/, "");
-    return `${location.origin}/api/v1`;
+    // Runs while `const Logic` (below) is still uninitialised: read the global directly.
+    return window.ZarvisLogic.resolveApiBase(location.search, location.origin);
   }
 
   function applyLanguage() {
@@ -2524,20 +2539,17 @@
     }
   }
 
-  // User-triggerable transitions per status — mirrors backend/src/tasks/taskService.ts's
-  // VALID_TRANSITIONS, minus the automatic RUNNING->DONE/FAILED transitions no button here
-  // should ever trigger directly.
+  // User-triggerable transitions per status. No task executor exists yet (the backend refuses
+  // resume/retry with task_execution_unavailable), so nothing here offers to start a task:
+  // that would show work that is not happening.
   const TASK_ACTIONS = {
     PENDING: [{ action: "cancel", label: "Cancel", cls: "danger" }],
     RUNNING: [
       { action: "pause", label: "Pause", cls: "" },
       { action: "cancel", label: "Cancel", cls: "danger" },
     ],
-    PAUSED: [
-      { action: "resume", label: "Resume", cls: "primary" },
-      { action: "cancel", label: "Cancel", cls: "danger" },
-    ],
-    FAILED: [{ action: "retry", label: "Retry", cls: "primary" }],
+    PAUSED: [{ action: "cancel", label: "Cancel", cls: "danger" }],
+    FAILED: [],
     DONE: [],
     CANCELLED: [],
   };
@@ -2648,7 +2660,7 @@
     if (!utterance) return;
     el.input.value = "";
     addBubble("user", displayText ?? utterance);
-    await runTurn(utterance, isVoice);
+    await runTurn(utterance, isVoice, { clientTurnId: Logic.createClientTurnId() });
   }
 
   /** The actual orchestrator round trip, shared by a fresh submission (submitUtterance,
@@ -2657,6 +2669,9 @@
    * retrying the exact same text would otherwise show it twice; a retry is always treated as
    * typed/text-only, regardless of how the original turn started). */
   async function runTurn(utterance, isVoice = false, options = {}) {
+    // One logical turn = one key. A Retry passes the failed attempt's key back in, so a turn
+    // the server already finished is replayed rather than executed (and charged) again.
+    const clientTurnId = options.clientTurnId || Logic.createClientTurnId();
     if (currentTurnController) {
       currentTurnController.abort();
       stopSpeaking();
@@ -2690,13 +2705,14 @@
           isFirstTurn,
           conversationId: state.conversationId,
           history: state.history.slice(-12),
+          clientTurnId,
         }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
         console.error("Realtime orchestrator failed:", res.status, body.error || body.reason);
-        showTurnFailure(body, utterance);
+        showTurnFailure(body, utterance, clientTurnId);
         setOrbState("ERROR");
         recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
         return;
@@ -2874,7 +2890,7 @@
         return;
       }
       console.error(err);
-      showTurnFailure(err instanceof TurnFailedError ? err.payload : null, utterance);
+      showTurnFailure(err instanceof TurnFailedError ? err.payload : null, utterance, clientTurnId);
       setOrbState("ERROR");
       recordLatency(utterance, Math.round(performance.now() - startedAt), false, isVoice);
     } finally {
@@ -2898,10 +2914,11 @@
 
   /** An exhausted daily AI quota cannot be fixed by retrying now: say so, offer no Retry.
    * A short rate limit and every other failure keep the Retry action. */
-  function showTurnFailure(payload, utterance) {
+  function showTurnFailure(payload, utterance, clientTurnId) {
     const kind = Logic.turnFailureKind(payload);
-    if (kind === "aiQuota") addSystemNotice(COPY[state.lang].aiQuota);
-    else addErrorBubble(COPY[state.lang][kind], utterance);
+    // Retrying cannot help today's exhausted quota or a message over the size limit.
+    if (kind === "aiQuota" || kind === "tooLarge") addSystemNotice(COPY[state.lang][kind]);
+    else addErrorBubble(COPY[state.lang][kind], () => runTurn(utterance, false, { clientTurnId }));
   }
 
   /** Cancels whatever ZARVIS is currently doing (thinking or speaking) without starting a
@@ -3286,6 +3303,8 @@
     if (code === "document_too_long") return COPY[state.lang].oversizedFile;
     if (code === "empty_document") return COPY[state.lang].emptyFile;
     if (code === "image_analysis_unavailable") return COPY[state.lang].imageUnavailable;
+    if (code === "ai_unavailable") return COPY[state.lang].imageAiDown;
+    if (code === "file_too_large") return COPY[state.lang].oversizedFile;
     return COPY[state.lang].unreadableFile;
   }
 
@@ -3523,6 +3542,7 @@
   function updateComposerMode() {
     const busy = isBusy();
     const copy = COPY[state.lang];
+    if (busy && !el.sendBtn.classList.contains("stop-mode")) stopModeSince = Date.now();
     el.sendBtn.classList.toggle("stop-mode", busy);
     el.sendBtn.title = busy ? copy.stop : copy.send;
     el.sendBtn.setAttribute("aria-label", busy ? copy.stop : copy.send);
@@ -3533,6 +3553,9 @@
   // used by the composer's Send/Stop toggle (updateComposerMode) and cancelCurrentTurn's
   // Escape-key guard, both via isBusy() below.
   const BUSY_STATES = ["UNDERSTANDING", "EXECUTING", "SUCCESS", "SPEAKING"];
+  /** When Send last turned into Stop, and how long a click right after that is ignored. */
+  let stopModeSince = 0;
+  const STOP_GRACE_MS = 600;
   function isBusy() {
     return currentTurnController !== null || BUSY_STATES.includes(el.orb.dataset.state);
   }

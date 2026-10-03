@@ -10,6 +10,7 @@ import type { EntitlementPort } from "../../src/tooling/ports.js";
 import { SkillRegistry } from "../../src/tooling/skillRegistry.js";
 import { ToolPipeline } from "../../src/tooling/toolPipeline.js";
 import { DAILY, quotaBody } from "../ai/geminiFixtures.js";
+import { logger } from "../../src/security/redact.js";
 
 /**
  * Request economy: how many real Gemini HTTP requests one user turn sends, for each kind of
@@ -116,5 +117,40 @@ describe("Gemini requests per user turn", () => {
     const result = await orchestrator.runTurn({ accountId, utterance: "kal ka weather?" });
     expect(calls).toEqual(["planner", "search"]);
     expect(result.toolCalls).toHaveLength(1);
+  });
+
+  describe("the per-turn log accounts for every Gemini request, skills' own calls included", () => {
+    function turnLog() {
+      const info = vi.spyOn(logger, "info");
+      return () => {
+        const entry = info.mock.calls.find(([message]) => message === "Turn finished");
+        info.mockRestore();
+        return entry?.[1] as { aiCalls: number; aiHttpRequests: number; aiCallLog: Array<{ modelCallId: string; kind: string; outcome: string; servedModel?: string; status?: number }> };
+      };
+    }
+
+    it.each([
+      ["web search", { planner: [{ call: "web.search", args: { query: "weather" } }, { text: "Sunny." }] }, "kal ka weather?", ["planner", "search", "planner"]],
+      ["poem", { planner: [{ call: "creative.write_poem", args: { prompt: "monsoon" } }, { text: "Here it is." }] }, "monsoon par poem likho", ["planner", "generation", "planner"]],
+    ] as const)("%s: one record per request, each with its own modelCallId", async (_label, scenario, utterance, kinds) => {
+      const calls = stubGemini(scenario as unknown as Scenario);
+      const { orchestrator, accountId } = await setup();
+      const read = turnLog();
+      await orchestrator.runTurn({ accountId, utterance });
+      const log = read();
+      expect(log.aiCallLog.map((c) => c.kind)).toEqual([...kinds]);
+      expect(log.aiCalls).toBe(calls.length);
+      expect(log.aiHttpRequests).toBe(calls.length);
+      expect(new Set(log.aiCallLog.map((c) => c.modelCallId)).size).toBe(calls.length);
+      expect(log.aiCallLog.every((c) => c.outcome === "ok" && c.servedModel === "gemini-3.6-flash")).toBe(true);
+    });
+
+    it("a failed search is logged as a failed call with its status", async () => {
+      stubGemini({ planner: [{ call: "web.search", args: { query: "w" } }], search: { status: 429, body: quotaBody(DAILY) } });
+      const { orchestrator, accountId } = await setup();
+      const read = turnLog();
+      await orchestrator.runTurn({ accountId, utterance: "kal ka weather?" });
+      expect(read().aiCallLog.map((c) => [c.kind, c.outcome, c.status])).toEqual([["planner", "ok", undefined], ["search", "error", 429]]);
+    });
   });
 });

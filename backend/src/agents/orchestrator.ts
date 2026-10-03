@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
 import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
 import { stableJson } from "../util/stableJson.js";
-import type { ConversationMessage as StoredConversationMessage, Store } from "../store/store.js";
+import type { ConversationMessage as StoredConversationMessage, Store, TurnRecord } from "../store/store.js";
 import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
@@ -12,6 +12,7 @@ import type { ToolPipeline } from "../tooling/toolPipeline.js";
 import { classifyIdentityQuestion, creatorIdentityForPrompt, identityResponse } from "../config/zarvisProfile.js";
 import { abortError } from "../ai/geminiErrors.js";
 import { logger } from "../security/redact.js";
+import { withModelCallLog, type ModelCallRecord } from "../ai/callTrace.js";
 
 export interface TurnRequest {
   accountId: string;
@@ -27,6 +28,11 @@ export interface TurnRequest {
   conversationId?: string;
   /** Correlation id for this one user turn; generated when the caller has none. */
   turnId?: string;
+  /**
+   * The client's idempotency key for this logical user turn, reused when it re-sends the same
+   * turn (Retry). A completed turn is replayed instead of executed again; see claimTurn.
+   */
+  clientTurnId?: string;
   /** Aborted when the client goes away: no further model or tool call starts after that. */
   signal?: AbortSignal;
 }
@@ -45,7 +51,33 @@ export interface TurnResult {
   toolCalls: TurnToolCall[];
   conversationId: string;
   turnId: string;
+  /** True when this is the stored result of an already-completed turn: nothing was executed. */
+  replayed?: boolean;
 }
+
+/** The same logical turn (clientTurnId) is being executed by another request right now. */
+export class TurnInProgressError extends Error {
+  readonly code = "turn_in_progress";
+  constructor() {
+    super("This message is still being processed.");
+    this.name = "TurnInProgressError";
+  }
+}
+
+/** The client reused a clientTurnId for a different message (a client bug): nothing runs. */
+export class ClientTurnIdReusedError extends Error {
+  readonly code = "client_turn_id_reused";
+  constructor() {
+    super("This message id was already used for a different message.");
+    this.name = "ClientTurnIdReusedError";
+  }
+}
+
+/**
+ * A `running` turn record older than this belongs to a request that died (a killed serverless
+ * invocation, a crash): a retry may take it over. Longer than any bounded agent turn.
+ */
+const STALE_TURN_MS = 5 * 60 * 1000;
 
 /** Real progress of a turn, emitted only when the stage actually happens (no simulated steps). */
 export type TurnEvent =
@@ -58,7 +90,15 @@ interface TurnStats {
   modelCalls: number;
   providerHttpRequests: number;
   providerResponseIds: string[];
-  toolCalls: Array<{ toolCallId: string; skillId: string }>;
+  servedModels: string[];
+  toolCalls: Array<{ toolCallId: string; skillId: string; reused?: boolean }>;
+  /** Successful executions of this attempt, by request key; kept if the turn fails. */
+  completedTools: Array<{ requestKey: string; call: TurnToolCall }>;
+}
+
+/** What a failed attempt leaves for its retry: the tool executions that already succeeded. */
+interface FailedAttemptResult {
+  completedTools?: Array<{ requestKey: string; call: TurnToolCall }>;
 }
 
 const MAX_AGENT_STEPS = 5;
@@ -100,28 +140,84 @@ export class Orchestrator {
 
   async runTurn(request: TurnRequest, onEvent: (event: TurnEvent) => void = () => {}): Promise<TurnResult> {
     const turnId = request.turnId ?? randomUUID();
-    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], toolCalls: [] };
+    const stats: TurnStats = { modelCalls: 0, providerHttpRequests: 0, providerResponseIds: [], servedModels: [], toolCalls: [], completedTools: [] };
     const startedAt = Date.now();
+    const { clientTurnId } = request;
     let outcome = "error";
+    let previousAttempt: TurnRecord | undefined;
+    if (clientTurnId) {
+      const now = new Date();
+      const fingerprint = createHash("sha256").update(request.utterance.trim()).digest("hex");
+      const claim = await this.store.claimTurn(request.accountId, clientTurnId, fingerprint, now, new Date(now.getTime() - STALE_TURN_MS));
+      if (claim.kind === "conflict") {
+        logger.warn("clientTurnId reused for a different message", { turnId, clientTurnId });
+        throw new ClientTurnIdReusedError();
+      }
+      if (claim.kind === "in_progress") {
+        logger.info("Turn duplicate rejected while in progress", { turnId, clientTurnId });
+        throw new TurnInProgressError();
+      }
+      if (claim.kind === "completed") {
+        const stored = claim.record.result as TurnResult | undefined;
+        if (stored && typeof stored.message === "string") {
+          // A re-sent turn that already finished (e.g. its stream dropped after the server
+          // completed it): return what it produced. No model call, no tool, no charge.
+          logger.info("Turn replayed from its stored result", { turnId, clientTurnId, originalTurnId: stored.turnId });
+          onEvent({ type: "conversation", conversationId: stored.conversationId });
+          return { ...stored, replayed: true };
+        }
+      }
+      if (claim.kind === "claimed") previousAttempt = claim.previous;
+    }
+    const modelCallLog: ModelCallRecord[] = [];
     try {
-      const result = await this.executeTurn({ ...request, turnId }, onEvent, stats);
+      const result = await withModelCallLog(modelCallLog, () => this.executeTurn({ ...request, turnId }, onEvent, stats, previousAttempt));
       outcome = "completed";
+      if (clientTurnId) await this.recordTurn(request.accountId, clientTurnId, { status: "completed", result });
       return result;
     } catch (error) {
       outcome = error instanceof Error && error.name === "AbortError" ? "cancelled" : error instanceof Error ? error.name : "error";
+      // Keep what already succeeded, so the user's Retry reuses it instead of running (and
+      // charging) the same tool again.
+      if (clientTurnId) {
+        const kept: FailedAttemptResult = { completedTools: stats.completedTools };
+        await this.recordTurn(request.accountId, clientTurnId, { status: "failed", result: kept });
+      }
       throw error;
     } finally {
       // One line per user turn: how much real work it caused. A single message producing two
       // web.search executions or many provider requests is visible here.
       logger.info("Turn finished", {
         turnId,
+        clientTurnId,
+        retryOfFailedAttempt: previousAttempt !== undefined,
         outcome,
         durationMs: Date.now() - startedAt,
+        // Planner steps only; `aiCalls` below counts every provider call the turn caused,
+        // skills' own calls (search grounding, generation) included.
         modelCalls: stats.modelCalls,
+        aiCalls: modelCallLog.length,
+        aiHttpRequests: modelCallLog.reduce((sum, call) => sum + call.httpRequests, 0),
+        aiCallLog: modelCallLog.slice(0, 20),
         providerHttpRequests: stats.providerHttpRequests,
         providerResponseIds: stats.providerResponseIds.slice(0, 10),
+        configuredModel: this.modelConfig.model,
+        servedModels: [...new Set(stats.servedModels)],
         toolCalls: stats.toolCalls,
       });
+    }
+  }
+
+  /** Turn bookkeeping must never replace the turn's real outcome with a storage error. */
+  private async recordTurn(
+    accountId: string,
+    clientTurnId: string,
+    patch: { status?: "completed" | "failed"; conversationId?: string; result?: unknown },
+  ): Promise<void> {
+    try {
+      await this.store.updateTurn(accountId, clientTurnId, patch, new Date());
+    } catch (err) {
+      logger.error("Could not record the turn's state", { clientTurnId, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -129,10 +225,14 @@ export class Orchestrator {
     request: TurnRequest & { turnId: string },
     onEvent: (event: TurnEvent) => void,
     stats: TurnStats,
+    previousAttempt?: TurnRecord,
   ): Promise<TurnResult> {
     const { turnId, signal } = request;
-    const conversation = request.conversationId
-      ? await this.store.getConversation(request.accountId, request.conversationId)
+    // A retry of a failed attempt continues in the conversation that attempt already wrote
+    // the user's message to, even if the client never learned its id.
+    const conversationId = previousAttempt?.conversationId ?? request.conversationId;
+    const conversation = conversationId
+      ? await this.store.getConversation(request.accountId, conversationId)
       : undefined;
     const activeConversation = conversation ?? await this.store.createConversation(
       request.accountId,
@@ -158,13 +258,25 @@ export class Orchestrator {
     }
 
     onEvent({ type: "conversation", conversationId: activeConversation.id });
-    await this.store.appendConversationMessages([{
-      id: randomUUID(),
-      conversationId: activeConversation.id,
-      role: "user",
-      content: request.utterance.trim().slice(0, 12000),
-      createdAt: new Date(),
-    }]);
+    // The failed attempt being retried already stored this message: store it once.
+    const userMessageStored = previousAttempt?.conversationId === activeConversation.id;
+    if (userMessageStored) {
+      // History is read before the current message is added below; drop the stored copy so
+      // the model sees this message once, as the current one.
+      const last = persistedMessages[persistedMessages.length - 1];
+      if (last?.role === "user" && last.content === request.utterance.trim().slice(0, 12000)) persistedMessages.pop();
+    } else {
+      await this.store.appendConversationMessages([{
+        id: randomUUID(),
+        conversationId: activeConversation.id,
+        role: "user",
+        content: request.utterance.trim().slice(0, 12000),
+        createdAt: new Date(),
+      }]);
+      if (request.clientTurnId) {
+        await this.recordTurn(request.accountId, request.clientTurnId, { conversationId: activeConversation.id });
+      }
+    }
 
     // Greetings are conversational turns, not agent tasks. Do not expose the tool catalogue
     // to the model for a simple greeting: otherwise a model can incorrectly reuse a previous
@@ -209,9 +321,13 @@ export class Orchestrator {
 
     const results: TurnToolCall[] = [];
     const executedToolRequests = new Set<string>();
+    /** Successful executions of the failed attempt being retried, reused for the same request. */
+    const reusable = new Map(
+      ((previousAttempt?.result as FailedAttemptResult | undefined)?.completedTools ?? []).map((entry) => [entry.requestKey, entry.call] as const),
+    );
     /** Skills whose service already failed in this turn; they are not run again. */
     const failedSkills = new Set<string>();
-    const trace = { httpRequests: 0, responseIds: [] as string[] };
+    const trace = { httpRequests: 0, responseIds: [] as string[], servedModels: stats.servedModels };
     const messages: ConversationMessage[] = [
       ...persistedMessages.map((message) => ({
         role: message.role === "tool" ? "user" as const : message.role,
@@ -227,6 +343,8 @@ export class Orchestrator {
       let aiResponse;
       try {
         aiResponse = await this.provider.generate({
+          modelCallId: randomUUID(),
+          purpose: "planner",
           systemPrompt: buildSystemPrompt(request, step, results.length > 0),
           messages,
           tools,
@@ -276,17 +394,31 @@ export class Orchestrator {
         executedToolRequests.add(requestKey);
         if (signal?.aborted) throw abortError();
 
-        const toolCall: ToolCall = {
-          id: randomUUID(),
-          skillId: call.skillId,
-          input: { values: call.input },
-        };
-        stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
-        onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
-        const outcome = await this.pipeline.execute(toolCall, context);
-        const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
-        results.push({ toolCallId: toolCall.id, skillId: call.skillId, outcome, result });
-        onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status });
+        const previous = reusable.get(requestKey);
+        let outcome: ToolExecutionOutcome;
+        if (previous) {
+          // The failed attempt already ran this exact request successfully (and charged it):
+          // use that result. Same toolCallId, because it is the same execution.
+          outcome = previous.outcome;
+          stats.toolCalls.push({ toolCallId: previous.toolCallId, skillId: call.skillId, reused: true });
+          results.push(previous);
+          stats.completedTools.push({ requestKey, call: previous });
+          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: previous.toolCallId, status: previous.result.status });
+        } else {
+          const toolCall: ToolCall = {
+            id: randomUUID(),
+            skillId: call.skillId,
+            input: { values: call.input },
+          };
+          stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
+          onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
+          outcome = await this.pipeline.execute(toolCall, context);
+          const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
+          const executed = { toolCallId: toolCall.id, skillId: call.skillId, outcome, result };
+          results.push(executed);
+          if (outcome.kind === "success") stats.completedTools.push({ requestKey, call: executed });
+          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status });
+        }
         executedAny = true;
 
         if (outcome.kind === "execution_failed" && INFRASTRUCTURE_FAILURES.has(outcome.result.reason)) {

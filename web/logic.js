@@ -210,7 +210,35 @@
     const code = payload && (payload.code || payload.type);
     if (code === "AI_QUOTA_EXCEEDED") return "aiQuota";
     if (code === "AI_RATE_LIMITED" || code === "rate_limited") return "aiBusy";
+    if (code === "turn_in_progress") return "turnBusy";
+    if (code === "payload_too_large") return "tooLarge";
     return "bootError";
+  }
+
+  /** API base URL. A `?api=` override may only point at this same origin: the client sends
+   * its access and refresh tokens to that base, so a crafted link must never be able to aim
+   * them at another host (CSP connect-src 'self' blocks that too; this does not rely on it). */
+  function resolveApiBase(search, origin) {
+    const fallback = origin + "/api/v1";
+    const override = new URLSearchParams(search).get("api");
+    if (!override) return fallback;
+    try {
+      const url = new URL(override, origin);
+      if (url.origin !== origin) return fallback;
+      return (url.origin + url.pathname).replace(/\/$/, "");
+    } catch {
+      return fallback;
+    }
+  }
+
+  /** The idempotency key of one logical user turn: created once per submission and reused by
+   * its Retry, so the server never executes the same turn twice (backend routes/orchestrator.ts). */
+  function createClientTurnId(cryptoImpl) {
+    const c = cryptoImpl || (typeof crypto !== "undefined" ? crypto : undefined);
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+    const bytes = new Uint8Array(16);
+    c.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
 
   function riskLabel(risk) {
@@ -229,5 +257,7 @@
     webAccessSummary,
     riskLabel,
     turnFailureKind,
+    createClientTurnId,
+    resolveApiBase,
   };
 });

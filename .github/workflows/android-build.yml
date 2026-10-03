@@ -61,18 +61,21 @@ jobs:
           echo "APK size: $SIZE bytes"
           test "$SIZE" -gt 0 || { echo "::error::$APK is empty"; exit 1; }
           # A valid APK is a zip carrying a binary manifest and at least one dex file.
-          unzip -l "$APK" | grep -q "AndroidManifest.xml" || { echo "::error::no AndroidManifest.xml in APK"; exit 1; }
-          unzip -l "$APK" | grep -q "classes.dex" || { echo "::error::no classes.dex in APK"; exit 1; }
+          # Capture first, then grep a here-string: under pipefail, `cmd | grep -q` fails at random
+          # when grep exits on its first match and cmd then dies of SIGPIPE.
+          LISTING=$(unzip -l "$APK")
+          grep -q "AndroidManifest.xml" <<<"$LISTING" || { echo "::error::no AndroidManifest.xml in APK"; exit 1; }
+          grep -q "classes.dex" <<<"$LISTING" || { echo "::error::no classes.dex in APK"; exit 1; }
           # Inspect the binary manifest: the right package, version and SDK levels were built.
           AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)
           test -n "$AAPT2" || { echo "::error::aapt2 not found under $ANDROID_HOME/build-tools"; exit 1; }
           BADGING=$("$AAPT2" dump badging "$APK")
           echo "$BADGING" | head -n 6
-          echo "$BADGING" | grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'" \
+          grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'" <<<"$BADGING" \
             || { echo "::error::unexpected package name/versionCode/versionName in the debug APK"; exit 1; }
-          echo "$BADGING" | grep -q "^minSdkVersion:'26'" || { echo "::error::minSdkVersion is not 26"; exit 1; }
-          echo "$BADGING" | grep -q "^targetSdkVersion:'34'" || { echo "::error::targetSdkVersion is not 34"; exit 1; }
-          echo "$BADGING" | grep -q "^launchable-activity:" || { echo "::error::no launchable activity in the debug APK"; exit 1; }
+          grep -q "^minSdkVersion:'26'" <<<"$BADGING" || { echo "::error::minSdkVersion is not 26"; exit 1; }
+          grep -q "^targetSdkVersion:'34'" <<<"$BADGING" || { echo "::error::targetSdkVersion is not 34"; exit 1; }
+          grep -q "^launchable-activity:" <<<"$BADGING" || { echo "::error::no launchable activity in the debug APK"; exit 1; }
 
       # The base URL is compiled into BuildConfig, so this is what the app on the device
       # actually dials. Guards against the build type losing its buildConfigField.
@@ -122,12 +125,12 @@ jobs:
           ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=192.168.1.50 --console=plain
           NSC=$(find app/build/generated -name network_security_config.xml | head -n 1)
           cat "$NSC"
-          exempted_hosts "$NSC" | grep -qx '192.168.1.50' \
+          grep -qx '192.168.1.50' <<<"$(exempted_hosts "$NSC")" \
             || { echo "::error::LAN dev host was not exempted"; exit 1; }
           # A public host must never be granted a cleartext exemption, even in debug.
           ./gradlew :app:generateDebugNetworkSecurityConfig -Pzarvis.devApiHost=staging.example.com --console=plain
           cat "$NSC"
-          if exempted_hosts "$NSC" | grep -qx 'staging.example.com'; then
+          if grep -qx 'staging.example.com' <<<"$(exempted_hosts "$NSC")"; then
             echo "::error::a public host was granted a cleartext exemption"; exit 1
           fi
           echo "OK: exemption tracks the configured LAN host; public hosts stay HTTPS-only"
@@ -179,7 +182,7 @@ jobs:
           test -f "$AAB" || { echo "::error::$AAB does not exist"; exit 1; }
           echo "release APK size: $(stat -c%s "$APK") bytes"
           echo "release AAB size: $(stat -c%s "$AAB") bytes"
-          unzip -l "$APK" | grep -q "classes.dex" || { echo "::error::no classes.dex in release APK"; exit 1; }
+          grep -q "classes.dex" <<<"$(unzip -l "$APK")" || { echo "::error::no classes.dex in release APK"; exit 1; }
 
       # Guards against the release build type losing its buildConfigField, or (worse)
       # silently inheriting a dev/localhost URL — see the debug-side assertion above.
@@ -200,13 +203,15 @@ jobs:
           AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
           for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk; do
             echo "=== $APK ($(stat -c%s "$APK") bytes)"
-            "$AAPT2" dump badging "$APK" | grep -E "^(package|sdkVersion|minSdkVersion|targetSdkVersion|launchable-activity|uses-feature|application-debuggable)" || true
-            "$AAPT2" dump badging "$APK" | grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'.*compileSdkVersion='34'" \
+            BADGING=$("$AAPT2" dump badging "$APK")
+            grep -E "^(package|sdkVersion|minSdkVersion|targetSdkVersion|launchable-activity|uses-feature|application-debuggable)" <<<"$BADGING" || true
+            grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'.*compileSdkVersion='34'" <<<"$BADGING" \
               || { echo "::error::$APK: unexpected identity or compileSdkVersion"; exit 1; }
             echo "dex files: $(unzip -l "$APK" | grep -c 'classes[0-9]*\.dex')"
           done
-          # A release APK must not be debuggable.
-          if "$AAPT2" dump badging app/build/outputs/apk/release/app-release-unsigned.apk | grep -q application-debuggable; then
+          # A release APK must not be debuggable. (A piped `grep -q` here could hide a match: the
+          # match makes aapt2 die of SIGPIPE, and pipefail then turns the `if` false.)
+          if grep -q application-debuggable <<<"$("$AAPT2" dump badging app/build/outputs/apk/release/app-release-unsigned.apk)"; then
             echo "::error::release APK is debuggable"; exit 1
           fi
           AAB=app/build/outputs/bundle/release/app-release.aab

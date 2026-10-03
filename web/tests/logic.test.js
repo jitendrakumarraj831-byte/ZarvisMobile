@@ -110,3 +110,30 @@ test("a failed turn shows quota/rate-limit copy only for those structured errors
   assert.equal(L.turnFailureKind({ error: "The request could not be completed.", retryable: true }), "bootError");
   assert.equal(L.turnFailureKind(undefined), "bootError");
 });
+
+test("turn failures: in-progress duplicates and oversized messages get their own honest copy", () => {
+  assert.equal(L.turnFailureKind({ code: "turn_in_progress" }), "turnBusy");
+  assert.equal(L.turnFailureKind({ code: "payload_too_large" }), "tooLarge");
+  assert.equal(L.turnFailureKind({ code: "AI_QUOTA_EXCEEDED" }), "aiQuota");
+  assert.equal(L.turnFailureKind(null), "bootError");
+});
+
+test("clientTurnId: unique per call, accepted by the backend's key format", () => {
+  const ids = new Set(Array.from({ length: 50 }, () => L.createClientTurnId()));
+  assert.equal(ids.size, 50);
+  for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{8,100}$/);
+  // Browsers without crypto.randomUUID (older Safari, insecure origins) still get a valid key.
+  const fallback = L.createClientTurnId({ getRandomValues: (a) => a.fill(171) });
+  assert.match(fallback, /^[A-Za-z0-9_-]{8,100}$/);
+});
+
+test("?api= can only point at this origin: tokens are never sent to a host from a link", () => {
+  const o = "https://zarvismobile.com";
+  assert.equal(L.resolveApiBase("", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=/api/v1/", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=https://zarvismobile.com/api/v2", o), o + "/api/v2");
+  assert.equal(L.resolveApiBase("?api=https://attacker.example/api/v1", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=//attacker.example/api/v1", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=https://zarvismobile.com.attacker.example/api", o), o + "/api/v1");
+  assert.equal(L.resolveApiBase("?api=javascript:alert(1)", o), o + "/api/v1");
+});
