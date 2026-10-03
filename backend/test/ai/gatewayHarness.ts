@@ -58,6 +58,15 @@ export interface ProviderStub {
   openrouter: RecordedCall[];
 }
 
+/** The request's host name, parsed (never matched as a substring, so a look-alike URL cannot pass for a provider). */
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 /** Routes `fetch` by provider host. A host with no responder fails the test: nothing may reach it. */
 export function stubProviders(handlers: { gemini?: Responder; openrouter?: Responder }, extraOpenRouterHosts: string[] = []): ProviderStub {
   const calls: RecordedCall[] = [];
@@ -65,11 +74,13 @@ export function stubProviders(handlers: { gemini?: Responder; openrouter?: Respo
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
       const url = String(input);
-      const host: RecordedCall["host"] = url.includes("generativelanguage.googleapis.com")
-        ? "gemini"
-        : url.includes("openrouter.ai") || extraOpenRouterHosts.some((extra) => url.includes(extra))
-          ? "openrouter"
-          : "other";
+      const hostname = hostnameOf(url);
+      const host: RecordedCall["host"] =
+        hostname === "generativelanguage.googleapis.com"
+          ? "gemini"
+          : hostname === "openrouter.ai" || extraOpenRouterHosts.includes(hostname)
+            ? "openrouter"
+            : "other";
       const headers: Record<string, string> = {};
       for (const [name, value] of Object.entries((init?.headers ?? {}) as Record<string, string>)) headers[name.toLowerCase()] = value;
       const call: RecordedCall = { url, host, method: init?.method ?? "GET", headers, body: init?.body ? JSON.parse(String(init.body)) : undefined, signal: init?.signal };

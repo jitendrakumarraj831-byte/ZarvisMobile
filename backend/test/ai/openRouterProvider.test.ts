@@ -92,6 +92,23 @@ describe("OpenRouterProvider request", () => {
     expect(stub.calls.map((call) => call.headers.authorization)).toEqual(["Bearer first-key-0000000000", "Bearer second-key-1111111111"]);
   });
 
+  it("the harness routes by the parsed host name, so a look-alike URL is never mistaken for a provider", async () => {
+    // These tests prove the key only goes to the right host. A provider's name inside a path, a
+    // query or a longer host name must therefore not be answered by that provider's stub.
+    const stub = stubProviders({ gemini: () => new Response("never"), openrouter: openRouterText("never") });
+    const lookalikes = [
+      "https://evil.example/generativelanguage.googleapis.com/v1",
+      "https://generativelanguage.googleapis.com.evil.example/v1",
+      "https://evil.example/?next=openrouter.ai",
+      "https://openrouter.ai.evil.example/api/v1",
+    ];
+    for (const url of lookalikes) await expect(fetch(url)).rejects.toThrow(/unexpected request to other/);
+
+    expect(stub.calls.map((call) => call.host)).toEqual(Array(lookalikes.length).fill("other"));
+    expect(stub.gemini).toHaveLength(0);
+    expect(stub.openrouter).toHaveLength(0);
+  });
+
   it("without a key it fails before any request, non-retryably", async () => {
     const stub = stubProviders({ openrouter: openRouterText("never") });
     const failure = await error(provider({ apiKey: () => undefined }).generate(request()));
