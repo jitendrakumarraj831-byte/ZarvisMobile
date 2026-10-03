@@ -47,7 +47,7 @@ for other origins; a per-IP ceiling of 600/min on `/api/v1`; errors are
 | POST | `/api/v1/tasks/:id/{resume,retry}` | Bearer, owner | — | — | always 409 `task_execution_unavailable` (no executor exists; status unchanged) | no | — | — |
 | POST | `/api/v1/tts/synthesize` | Bearer | 40/min | `{text, voice?}` | WAV; 503 no key; 429 quota | chunked body | yes | yes |
 | POST | `/api/v1/tts/synthesize-stream` | Bearer | 40/min | `{text, voice?}` | PCM stream | **yes** | yes | — |
-| POST | `/api/v1/documents/extract` | Bearer | 60/min/IP + 20/min/account | multipart `file` ≤4 MB | `{text ≤60k chars, kind?}`; 400/413/415/422/429/503 codes | no | yes | — |
+| POST | `/api/v1/documents/extract` | Bearer | 60/min/IP + 20/min/account | multipart `file` ≤4 MB | `{text ≤60k chars, kind?}`; 400 `no_file`/`upload_failed`, 413 `file_too_large`/`document_too_long`, 415, 422 `extraction_failed`/`empty_document`, 429 `ai_quota_exceeded` (+ AI `code`), 503 `image_analysis_unavailable`/`ai_unavailable` | no | yes | — |
 | POST | `/api/v1/billing/webhook` | Bearer | — | purchase token | plan | no | — | — (no Play Billing client) |
 
 Never called by either client (served, used by tests/ops only): `GET /confirmations/:id`.
@@ -68,6 +68,7 @@ Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/gi
 | C7 | `clientTurnId` reuse | one key = one message | a reused key with other text replayed the earlier answer | fingerprint bound to the key; 409 `client_turn_id_reused` | `turnIdempotency.test.ts` |
 | C8 | Task resume/retry | a reported state is a real state | `resume`/`retry` set `RUNNING` with no executor | 409 `task_execution_unavailable`; clients offer no Start/Resume/Retry | `api.test.ts`, `taskService.test.ts` |
 | C9 | Retry after a late failure | a Retry does not repeat work already done | the tool that succeeded before the failure ran and was charged again | the failed attempt's successful executions are reused (same `toolCallId`) | `turnIdempotency.test.ts` |
+| C10 | Image analysis failures | an error names what failed | a Gemini outage or rejected key → **422 `extraction_failed`** ("couldn't read this document"); an oversized upload → 400 | outage / key → 503 `ai_unavailable` (structured, `message`, no provider body); Gemini rejecting the image (400) stays 422; size cap → 413 `file_too_large`; web copy in English and Hindi | `test/api/imageAnalysisErrors.test.ts` |
 
 ## 3. Checked and consistent
 

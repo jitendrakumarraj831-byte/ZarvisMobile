@@ -46,6 +46,7 @@ Every row was reproduced before the fix and has a regression test that fails wit
 | 16 | Low (defence in depth) | `?api=` could aim tokens at another host | no origin check (CSP blocked it) | `17ced73` | `web/tests/logic.test.js` |
 | 17 | Low (defence in depth) | GitHub client accepted `.`/`..` path segments in writes | `encodeURIComponent` keeps them; URL parsing resolves them | `b1ef300` | `githubClientPaths.test.ts` |
 | 18 | Low (config) | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PUBLIC_APP_URL` read, never used | dead config | `7d7dd47` | typecheck |
+| 19 | Medium (honesty) | Image upload during a Gemini outage or with a rejected key said "couldn't read this document" (422); oversized upload answered 400 | every non-quota provider error was mapped to `extraction_failed` | `0d26b73` | `imageAnalysisErrors.test.ts` (5) |
 
 ## 3. Known and not fixed
 
@@ -80,7 +81,7 @@ Exact CI numbers for the final head are in [ZARVIS_FINAL_MERGE_GATE.md](./ZARVIS
 | Area | Check | Result | Evidence |
 |---|---|---|---|
 | Backend | typecheck (backend, root), `npm run build` | PASS | local and CI `backend` |
-| Backend | unit + integration, in-memory and Postgres 16 | PASS: 353 passed, 2 skipped (live credentials) | local; CI `backend` |
+| Backend | unit + integration, in-memory and Postgres 16 | PASS: 358 passed, 2 skipped (live credentials) | local; CI `backend` |
 | Security | auth, sessions, refresh replay, cross-account, confirmation replay, route auth coverage, rate limits, CSP, GitHub per-user, path segments, SSRF host restriction | PASS | `phase1Security`, `routeAuthCoverage`, `githubClientPaths`, `turnIdempotency` (cross-account) |
 | Web | unit | PASS 13/13 | `node --test` |
 | Web | Phase 1 E2E (real backend + Postgres) | PASS 19/19 | local; CI `web-e2e` |

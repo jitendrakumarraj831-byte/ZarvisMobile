@@ -46,7 +46,7 @@ Status values: PASS, FAIL, PARTIAL, BLOCKED (cannot run where it was attempted; 
 | # | Check | Status | Evidence |
 |---|---|---|---|
 | R1 | Backend typecheck (backend + root), `npm run build` | PASS | clean |
-| R2 | Backend tests, in-memory + Postgres 16 | PASS | 353 passed, 2 skipped (live-credential tests) |
+| R2 | Backend tests, in-memory + Postgres 16 | PASS | 358 passed, 2 skipped (live-credential tests) |
 | R3 | Web unit tests | PASS | 13/13 |
 | R4 | Web E2E, Phase 1 (real backend + Postgres + GitHub stub) | PASS | 19/19 |
 | R5 | Web quality E2E (responsive, axe, keyboard, SW, voice, duplicate submissions) | PASS | 14/14, twice in CI order |
