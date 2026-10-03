@@ -38,16 +38,45 @@ Agents should:
 
 The AI must distinguish permission denial, unsupported capability, required user action, authentication failure, provider failure, timeout, verification failure, partial success and cancellation.
 
+## AI Model Gateway
+
+Nothing in ZARVIS names an AI vendor except the two adapters. The planner, the content skills and
+image analysis call one **ModelGateway** (`backend/src/ai/modelGateway.ts`), which is itself an
+`AIProvider`. It routes each request to a configured model that **declares** every capability the
+request needs (text, streaming, tools, vision, structured output, long context, coding, reasoning),
+and, when the primary provider fails for a temporary, provider-side reason, makes exactly one more
+attempt on the fallback provider if it can serve the same request.
+
+```
+ZARVIS Brain → ModelGateway → Gemini      (primary: chat, tools, vision, search grounding, voice)
+                            → OpenRouter  (fallback: only what its configured model declares)
+```
+
+- The fallback never hides a real bug: authentication errors, invalid requests, a missing model, a
+  capability the fallback does not declare, an application error and a cancelled turn never fall
+  back.
+- A provider switch is never silent: the answer carries `AICallMeta` (provider, model, fallback,
+  reason), the call log records both attempts, and one structured log line is written per call.
+- Web search (Google Search grounding) and text to speech (Gemini native audio) are not behind the
+  gateway. They are never answered by another provider.
+- One user turn is still one generation: no hedging, one fallback hop, bounded retries, and the
+  `clientTurnId` ledger below is unchanged.
+
+Architecture, the capability matrix, fallback rules, configuration, Vercel setup, observability and
+troubleshooting: **[AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md)**.
+
 ## Provider failures, quota and retries
 
 Every Gemini call (chat generation, web-search grounding, TTS, image analysis) uses one
-policy, `backend/src/ai/geminiErrors.ts`:
+policy, `backend/src/ai/geminiErrors.ts`, and OpenRouter shares its retry rules (the gateway
+document lists them for both providers):
 
 | Failure | What happens |
 |---|---|
 | 429 for an exhausted **daily/project quota** (`QuotaFailure` quota id `...PerDay...`, e.g. `generate_content_free_tier_requests`) | No retry and no fallback model. `AIProviderError` `AI_QUOTA_EXCEEDED`, `retryable: false`. |
 | 429 for a **per-minute** rate limit | One retry, only when the advised wait (`RetryInfo` / `Retry-After`) is ≤ 8 s. Otherwise `AI_RATE_LIMITED` with `retryAfterMs`. |
-| 408 / 5xx | At most two retries with exponential backoff and jitter, then the fallback model. |
+| 408 / 5xx / network failure | At most two retries with exponential backoff and jitter, then the fallback model. |
+| Timeout | Not retried: the provider may still be working. A structured `AI_PROVIDER_TIMEOUT` (wire `AI_UNAVAILABLE`, retryable). |
 | 404 (model not available) | Next candidate model. |
 | Other 4xx | Fails at once. |
 
@@ -82,7 +111,13 @@ charged for a failed generation.
 - **Fallback model.** On 404 or a 5xx that outlasts its bounded retries, chat and TTS move to
   the fallback model. This is never silent: a warning names the `modelCallId`, the configured
   and the serving model, and `servedModel` records it in `aiCallLog`
-  (`geminiProvider.test.ts`). A daily quota never falls back.
+  (`geminiProvider.test.ts`). A daily quota never falls back to another *model*.
+- **Fallback provider.** After Gemini's own retries and model fallback, the ModelGateway may make
+  one attempt on OpenRouter (see "AI Model Gateway"). A daily quota does fall back to another
+  *provider* (without retrying first), because a different provider has a different quota.
+- Every call in `aiCallLog` names its `provider`; a fallback attempt carries `fallback: true` and
+  `fallbackReason`, and shares the `modelCallId` of the attempt it replaced. The turn line also
+  reports `aiLogicalCalls`, `aiProviders`, `aiFallbackCalls` and `chargedCredits`.
 
 ## Tasks
 
@@ -91,7 +126,8 @@ reported as running: `resume` / `retry` answer `task_execution_unavailable`.
 
 ## No AI credential
 
-In production with no `GEMINI_API_KEY`, every model call fails with `AI_UNAVAILABLE` (503) and
-`/health` reports `provider: none`. The deterministic mock provider, mock search and mock
+In production with neither `GEMINI_API_KEY` nor `OPENROUTER_API_KEY`, every model call fails with
+`AI_UNAVAILABLE` (503) and `/health` reports `provider: none`. With only `OPENROUTER_API_KEY`,
+OpenRouter answers the requests its model declares it can serve. The deterministic mock provider, mock search and mock
 content generators exist for development and tests only. Greetings and creator questions need
 no model and still answer.

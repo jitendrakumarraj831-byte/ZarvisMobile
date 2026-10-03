@@ -42,7 +42,7 @@ export class GeminiSearchProvider implements SearchProvider {
       generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
     });
     let response: Response;
-    const call = beginModelCall("search", this.model);
+    const call = beginModelCall("search", this.model, undefined, "google");
     for (let attempt = 0; ; attempt += 1) {
       call.httpRequests += 1;
       response = await fetchWithTimeout(

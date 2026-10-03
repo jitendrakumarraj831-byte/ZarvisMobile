@@ -13,6 +13,7 @@ import { classifyIdentityQuestion, creatorIdentityForPrompt, identityResponse } 
 import { abortError } from "../ai/geminiErrors.js";
 import { logger } from "../security/redact.js";
 import { withModelCallLog, type ModelCallRecord } from "../ai/callTrace.js";
+import { correlationFields, runWithCorrelation } from "../observability/requestContext.js";
 
 export interface TurnRequest {
   accountId: string;
@@ -91,7 +92,7 @@ interface TurnStats {
   providerHttpRequests: number;
   providerResponseIds: string[];
   servedModels: string[];
-  toolCalls: Array<{ toolCallId: string; skillId: string; reused?: boolean }>;
+  toolCalls: Array<{ toolCallId: string; skillId: string; reused?: boolean; chargedCredits?: number }>;
   /** Successful executions of this attempt, by request key; kept if the turn fails. */
   completedTools: Array<{ requestKey: string; call: TurnToolCall }>;
 }
@@ -171,7 +172,10 @@ export class Orchestrator {
     }
     const modelCallLog: ModelCallRecord[] = [];
     try {
-      const result = await withModelCallLog(modelCallLog, () => this.executeTurn({ ...request, turnId }, onEvent, stats, previousAttempt));
+      // The turn's ids are in scope for everything it causes (the gateway's log lines carry them).
+      const result = await withModelCallLog(modelCallLog, () =>
+        runWithCorrelation({ turnId, clientTurnId }, () => this.executeTurn({ ...request, turnId }, onEvent, stats, previousAttempt)),
+      );
       outcome = "completed";
       if (clientTurnId) await this.recordTurn(request.accountId, clientTurnId, { status: "completed", result });
       return result;
@@ -188,6 +192,7 @@ export class Orchestrator {
       // One line per user turn: how much real work it caused. A single message producing two
       // web.search executions or many provider requests is visible here.
       logger.info("Turn finished", {
+        ...correlationFields(),
         turnId,
         clientTurnId,
         retryOfFailedAttempt: previousAttempt !== undefined,
@@ -198,6 +203,12 @@ export class Orchestrator {
         modelCalls: stats.modelCalls,
         aiCalls: modelCallLog.length,
         aiHttpRequests: modelCallLog.reduce((sum, call) => sum + call.httpRequests, 0),
+        // Logical calls (a fallback adds a second record to the same modelCallId), the providers
+        // that took part, and how many records answered a request the primary had failed.
+        aiLogicalCalls: new Set(modelCallLog.map((call) => call.modelCallId)).size,
+        aiProviders: [...new Set(modelCallLog.map((call) => call.provider).filter((provider): provider is string => !!provider))],
+        aiFallbackCalls: modelCallLog.filter((call) => call.fallback).length,
+        chargedCredits: stats.toolCalls.reduce((sum, call) => sum + (call.chargedCredits ?? 0), 0),
         aiCallLog: modelCallLog.slice(0, 20),
         providerHttpRequests: stats.providerHttpRequests,
         providerResponseIds: stats.providerResponseIds.slice(0, 10),
@@ -400,7 +411,7 @@ export class Orchestrator {
           // The failed attempt already ran this exact request successfully (and charged it):
           // use that result. Same toolCallId, because it is the same execution.
           outcome = previous.outcome;
-          stats.toolCalls.push({ toolCallId: previous.toolCallId, skillId: call.skillId, reused: true });
+          stats.toolCalls.push({ toolCallId: previous.toolCallId, skillId: call.skillId, reused: true, chargedCredits: 0 });
           results.push(previous);
           stats.completedTools.push({ requestKey, call: previous });
           onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: previous.toolCallId, status: previous.result.status });
@@ -410,9 +421,12 @@ export class Orchestrator {
             skillId: call.skillId,
             input: { values: call.input },
           };
-          stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
+          const statEntry: TurnStats["toolCalls"][number] = { toolCallId: toolCall.id, skillId: call.skillId };
+          stats.toolCalls.push(statEntry);
           onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
           outcome = await this.pipeline.execute(toolCall, context);
+          // What this execution actually charged: a failed or blocked one is 0.
+          statEntry.chargedCredits = outcome.kind === "success" ? outcome.chargedCredits : 0;
           const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
           const executed = { toolCallId: toolCall.id, skillId: call.skillId, outcome, result };
           results.push(executed);

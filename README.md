@@ -255,6 +255,7 @@ All permanent Markdown documentation is kept in the repository root so the proje
 | [SECURITY.md](./SECURITY.md) | Security, risk and authorization rules |
 | [PRIVACY.md](./PRIVACY.md) | Privacy and notification privacy rules |
 | [AI_ARCHITECTURE.md](./AI_ARCHITECTURE.md) | AI, planning, agents and execution boundary |
+| [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) | AI Model Gateway: providers (Gemini, OpenRouter), capability routing, fallback, configuration, Vercel setup, troubleshooting |
 | [SKILLS.md](./SKILLS.md) | Skill model and capability contracts |
 | [DEVELOPER_AGENT.md](./DEVELOPER_AGENT.md) | Developer Agent workflow and safety |
 | [SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md) | Billing, credits and entitlement rules |

@@ -11,8 +11,15 @@
  * errors get a small bounded backoff.
  */
 
-export type AIErrorCode = "AI_QUOTA_EXCEEDED" | "AI_RATE_LIMITED" | "AI_UNAVAILABLE";
-export type QuotaType = "daily" | "per_minute" | "unknown";
+import { defaultKindFor, type AIErrorCode, type AIErrorKind, type AttemptSummary } from "./errorTaxonomy.js";
+
+export type { AIErrorCode } from "./errorTaxonomy.js";
+
+/**
+ * `credits` is an exhausted paid balance (OpenRouter 402): like a daily quota it cannot recover
+ * inside a request, so it is never retried; unlike a daily quota it does not reset "today".
+ */
+export type QuotaType = "daily" | "per_minute" | "unknown" | "credits";
 
 /** What the provider itself said, kept for the server log so a failure's cause can be proven
  * (which quota, which model). Never sent to the client and never contains the API key. */
@@ -24,6 +31,13 @@ export interface ProviderFailureEvidence {
 
 /** A provider failure the API can report to the user as a structured, honest error. */
 export class AIProviderError extends Error {
+  /** The structured classification (see errorTaxonomy.ts). Internal: clients get `code`. */
+  readonly kind: AIErrorKind;
+  /** The provider that produced the failure, when known. Set by the adapter or the gateway. */
+  provider?: string;
+  /** Every provider attempt of the logical call that ended in this error. Log-only. */
+  attempts?: AttemptSummary[];
+
   constructor(
     message: string,
     readonly code: AIErrorCode,
@@ -32,9 +46,12 @@ export class AIProviderError extends Error {
     readonly retryAfterMs?: number,
     readonly quotaType?: QuotaType,
     readonly evidence: ProviderFailureEvidence = {},
+    options: { kind?: AIErrorKind; provider?: string } = {},
   ) {
     super(message);
     this.name = "AIProviderError";
+    this.kind = options.kind ?? defaultKindFor(code, status);
+    this.provider = options.provider;
   }
 }
 
@@ -43,6 +60,13 @@ export type GeminiFailure =
   | { kind: "transient"; retryAfterMs?: number }
   | { kind: "not_found" }
   | { kind: "fatal" };
+
+/**
+ * The same union under its provider-neutral name: `retryDelayMs` and `shouldTryNextModel` are the
+ * one retry policy for every provider (Gemini and OpenRouter alike), so a daily quota is never
+ * retried and a transient failure is retried at most twice, whichever provider reported it.
+ */
+export type ProviderFailure = GeminiFailure;
 
 const TRANSIENT_STATUSES = new Set([408, 500, 502, 503, 504]);
 
@@ -98,8 +122,9 @@ export function retryDelayMs(failure: GeminiFailure, attempt: number, random: ()
     return base > MAX_IN_REQUEST_WAIT_MS ? null : base + jitter;
   }
   if (failure.kind === "quota") {
-    // A daily/project quota cannot recover within this request: never retry it.
-    if (failure.quotaType === "daily" || attempt >= 1) return null;
+    // A daily/project quota (or an exhausted credit balance) cannot recover within this
+    // request: never retry it.
+    if (failure.quotaType === "daily" || failure.quotaType === "credits" || attempt >= 1) return null;
     const base = failure.retryAfterMs ?? 2000;
     return base > MAX_IN_REQUEST_WAIT_MS ? null : base + jitter;
   }
@@ -128,6 +153,10 @@ export function toProviderError(label: string, status: number, statusText: strin
 export function providerErrorLogFields(error: AIProviderError) {
   return {
     code: error.code,
+    // The structured kind and the provider that produced the failure (internal; never sent to a client).
+    kind: error.kind,
+    provider: error.provider,
+    attempts: error.attempts,
     status: error.status,
     retryAfterMs: error.retryAfterMs,
     quotaType: error.quotaType,
@@ -140,11 +169,19 @@ export function providerErrorLogFields(error: AIProviderError) {
 /** User-facing text for a provider error. Never includes provider bodies or keys. */
 export function providerErrorUserMessage(error: AIProviderError): string {
   if (error.code === "AI_QUOTA_EXCEEDED") {
+    // "for today" is only true for a daily quota; a spent credit balance or an unknown limit
+    // does not reset at midnight, so it is not described that way.
+    if (error.quotaType === "credits" || error.quotaType === "unknown") {
+      return "ZARVIS has reached the current AI usage limit, so this request was not completed. Nothing was charged. Please try again later.";
+    }
     return "ZARVIS has reached its AI usage limit for today, so this request was not completed. Nothing was charged. Please try again later.";
   }
   if (error.code === "AI_RATE_LIMITED") {
     const seconds = error.retryAfterMs ? Math.max(1, Math.ceil(error.retryAfterMs / 1000)) : undefined;
     return `ZARVIS is receiving too many requests right now${seconds ? ` — please try again in about ${seconds} seconds` : " — please try again shortly"}. Nothing was charged.`;
+  }
+  if (error.kind === "AI_PROVIDER_CAPABILITY_UNSUPPORTED") {
+    return "This request needs an AI capability that is not available right now, so it was not completed. Nothing was charged.";
   }
   return "The AI service is temporarily unavailable, so this request was not completed. Nothing was charged. Please try again.";
 }

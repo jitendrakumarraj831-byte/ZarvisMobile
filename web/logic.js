@@ -215,6 +215,17 @@
     return "bootError";
   }
 
+  /**
+   * What the server's `/health` `provider` means for the Settings and Metrics pages. Truthful
+   * for every value the server can report: Gemini or OpenRouter answering, or nothing configured
+   * (the development mock and the production fail-closed `none` both read "Not configured").
+   */
+  function aiProviderStatus(provider) {
+    if (provider === "google") return { configured: true, label: "Gemini", sentence: "Google Gemini is answering your requests." };
+    if (provider === "openrouter") return { configured: true, label: "OpenRouter", sentence: "OpenRouter is answering your requests." };
+    return { configured: false, label: "Not configured", sentence: "No AI provider is configured on this server, so answers are limited." };
+  }
+
   /** API base URL. A `?api=` override may only point at this same origin: the client sends
    * its access and refresh tokens to that base, so a crafted link must never be able to aim
    * them at another host (CSP connect-src 'self' blocks that too; this does not rely on it). */
@@ -257,6 +268,7 @@
     webAccessSummary,
     riskLabel,
     turnFailureKind,
+    aiProviderStatus,
     createClientTurnId,
     resolveApiBase,
   };

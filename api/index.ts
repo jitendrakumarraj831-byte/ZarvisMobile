@@ -64,7 +64,8 @@ function classifyStartupError(err: unknown): string {
   if (/Cannot find package|Cannot find module|ERR_MODULE_NOT_FOUND/i.test(message)) return "module_dependency_missing";
   if (/does not provide an export|has no exported member/i.test(message)) return "module_export_mismatch";
   if (/Unexpected token|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_FILE_EXTENSION/i.test(message)) return "module_load_error";
-  if (/No AIProvider registered/i.test(message)) return "ai_provider_config_invalid";
+  // A present-but-invalid AI setting (config/aiConfig.ts); the message names variables, never values.
+  if (/Invalid AI configuration/i.test(message)) return "ai_provider_config_invalid";
   return "unknown_startup_error";
 }
 
@@ -78,7 +79,7 @@ function buildFallbackApp(err: unknown, stage = "startup"): Express {
   // Duplicated one-liner (not imported from ai/providerFactory.ts) rather than a shared
   // helper: that module also imports config/env.ts, the very thing that may have just thrown,
   // and Node caches a module's evaluation failure — a second import of it fails the same way.
-  const provider = process.env.GEMINI_API_KEY ? "google" : "mock";
+  const provider = process.env.GEMINI_API_KEY ? "google" : process.env.OPENROUTER_API_KEY ? "openrouter" : "mock";
   app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider, reason, stage }));
   app.use((_req, res) => res.status(500).json({ error: "Server is misconfigured; check environment variables." }));
   return app;

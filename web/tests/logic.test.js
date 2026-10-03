@@ -137,3 +137,15 @@ test("?api= can only point at this origin: tokens are never sent to a host from 
   assert.equal(L.resolveApiBase("?api=https://zarvismobile.com.attacker.example/api", o), o + "/api/v1");
   assert.equal(L.resolveApiBase("?api=javascript:alert(1)", o), o + "/api/v1");
 });
+
+test("the AI provider status shown in Settings and Metrics is truthful for every provider the server can report", () => {
+  assert.deepEqual(L.aiProviderStatus("google"), { configured: true, label: "Gemini", sentence: "Google Gemini is answering your requests." });
+  assert.deepEqual(L.aiProviderStatus("openrouter"), { configured: true, label: "OpenRouter", sentence: "OpenRouter is answering your requests." });
+  // The development mock and the production fail-closed provider are both "nothing real configured".
+  for (const provider of ["mock", "none", undefined, null, "", "something-else"]) {
+    const status = L.aiProviderStatus(provider);
+    assert.equal(status.configured, false);
+    assert.equal(status.label, "Not configured");
+    assert.match(status.sentence, /No AI provider is configured/);
+  }
+});

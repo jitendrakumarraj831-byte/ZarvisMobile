@@ -1,5 +1,6 @@
 import { Orchestrator } from "./agents/orchestrator.js";
-import { getProvider, defaultModelConfig } from "./ai/providerFactory.js";
+import { getModelGateway } from "./ai/providerFactory.js";
+import type { ModelGateway } from "./ai/modelGateway.js";
 import { GeminiTtsProvider } from "./ai/geminiTts.js";
 import { AuthService } from "./auth/authService.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
@@ -28,6 +29,8 @@ function defaultStore(): Store {
 export interface ContainerOptions {
   /** Test seam: build GitHub clients without network access. Production uses RealGitHubClient. */
   githubClientFactory?: GitHubClientFactory;
+  /** Test seam: the AI Model Gateway. Production uses the process-wide one built from the environment. */
+  modelGateway?: ModelGateway;
 }
 
 /**
@@ -41,15 +44,17 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     secretBox,
     options.githubClientFactory ?? ((token) => new RealGitHubClient(token, env.githubApiBaseUrl)),
   );
-  const registry = buildSkillRegistry(store, githubAccess);
+  // Every AI call in the process goes through this one gateway (ai/modelGateway.ts). Building it
+  // validates the AI configuration, so a bad setting stops startup here with a clear message.
+  const modelGateway = options.modelGateway ?? getModelGateway();
+  const registry = buildSkillRegistry(store, githubAccess, modelGateway);
   const entitlementPort = new StoreEntitlementPort(store);
   const usagePort = new StoreUsagePort(store);
   const permissionPort = new StorePermissionPort(store);
   const confirmationService = new ServerConfirmationService(store);
 
   const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationService);
-  const provider = getProvider(defaultModelConfig);
-  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider, defaultModelConfig, store);
+  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, modelGateway, modelGateway.defaultModelConfig(), store);
   const authService = new AuthService(store);
   const taskService = new TaskService(store);
   const billingVerifier = env.playBillingServiceAccountJson
@@ -72,6 +77,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     ttsProvider,
     confirmationService,
     githubAccess,
+    modelGateway,
   };
 }
 
