@@ -308,3 +308,42 @@ content generator, stubs only `fetch`, and counts Gemini HTTP requests per turn.
 **Verdict: AUTOMATED VERIFICATION PASS / PHYSICAL DEVICE VERIFICATION PENDING**
 
 This is not a claim that the app is bug-free: the physical-device run, a live Gemini quota event and real-device audio are still untested.
+
+## 7. API 26 emulator job that never ended (2026-10-03)
+
+**Symptom.** On head `4d0d497` the API 26 job ran for 68 minutes until it was cancelled
+(run 37087642864). API 30 and 34 passed on the same code.
+
+**Root cause (from the job log).**
+1. The emulator stopped responding during phase D, in the camera test: no instrumentation result
+   was printed.
+2. `adb shell` then fails at once, so E and F were reported "FAILED" within 6 ms without running.
+3. `adb logcat` behaves differently: without a device it waits for one. The unbounded
+   `adb logcat -d` after phase F therefore never returned, and the log was silent for 51 minutes.
+
+The System UI crashes and the absent permission dialog are the known Android 8.0 platform defect
+(NPE in `StatusBar.onKeyguardOccludedChanged`). They were handled already and did not cause the
+hang. Why the emulator itself died is not established: that run's logcat is in its evidence
+artifact, which cannot be downloaded from this environment.
+
+**Fix (`ffb6401`, `scripts/emulator/verify.sh` and the emulator workflow).**
+- Every adb call that can block is bounded. verify.sh has a 40-minute budget, and the workflow
+  step has a hard 50-minute limit.
+- The device is checked after each phase:
+  - device lost → **INFRA FAILURE** with diagnostics (adb devices, the emulator process on the
+    runner, memory, the last instrumentation output, the logcat captured before the loss), and
+    every later phase is **NOT RUN**;
+  - failure with the device up → **FAILED** with focus, activity and System UI diagnostics.
+  - Both fail the job.
+- The API 26 permission-dialog tests are **PLATFORM-BLOCKED** only with evidence from that run:
+  a new System UI crash, or its crash dialog in front. Without that evidence they count as FAILED.
+  No test was removed, skipped or weakened.
+- Every run ends with a phase summary and a RESULT line.
+
+**Proof.**
+
+| Check | Result |
+|---|---|
+| Local, fake adb that behaves like the real one (logcat waits, shell fails) | Old script: "D/E/F FAILED", then hangs until killed. New script: ends in 3 s, D INFRA FAILURE, E/F NOT RUN, exit 1. Also verified: all-pass (exit 0), PLATFORM-BLOCKED with evidence, FAILED without evidence, time budget exhausted (INCOMPLETE, exit 1) |
+| CI, emulator killed before phase D on API 26 (temporary commit `df9986e`, reverted in `0d44dba`) | Job ended on its own after 566 s of verify.sh: D INFRA FAILURE, E/F NOT RUN, diagnostics in the log, exit 1. API 30/34 passed in the same run |
+| CI, normal full matrix on `0d44dba` | API 26: A, B1, B2, revoke, D, E, F PASS; A-dialog PLATFORM-BLOCKED (14 System UI crashes in that run); 687 s. API 30: all phases PASS, 216 s. API 34: all phases PASS, 294 s. StrictMode 0 / ANR 0 on all three. All 20 checks green |
