@@ -1,15 +1,28 @@
 import { randomUUID } from "node:crypto";
-import { abortError, classifyGeminiFailure, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "./geminiErrors.js";
+import {
+  AIProviderError,
+  abortError,
+  classifyGeminiFailure,
+  retryDelayMs,
+  shouldTryNextModel,
+  sleep,
+  toProviderError,
+  type ProviderFailure,
+} from "./geminiErrors.js";
 import { logger } from "../security/redact.js";
 import { beginModelCall } from "./callTrace.js";
+import { analyzeImageWithGemini } from "./geminiVision.js";
 import type {
   AIProvider,
   AIRequest,
   AIResponse,
   AIResponseChunk,
   ConversationMessage,
+  ImageAnalysisRequest,
+  ImageAnalysisResult,
   ToolDefinition,
 } from "./provider.js";
+import { isAbortError, isTransportError, readJsonBody, timeoutError, transportFailure, unreadableResponse } from "./transportErrors.js";
 
 /**
  * Real [AIProvider] adapter for Google Gemini — see AI_ARCHITECTURE.md "Provider
@@ -27,16 +40,43 @@ import type {
 export class GeminiProvider implements AIProvider {
   readonly id = "google";
 
+  /**
+   * `apiKey` may be a function so the key is read when a request is made, not captured at
+   * construction: the ModelGateway registers this provider once and asks `isConfigured()` per
+   * request, which keeps image analysis honest about a key that is absent or later configured.
+   */
   constructor(
-    private readonly apiKey: string,
+    private readonly apiKey: string | (() => string | undefined),
     private readonly baseUrl = "https://generativelanguage.googleapis.com/v1beta",
   ) {}
 
+  private key(): string {
+    const key = typeof this.apiKey === "function" ? this.apiKey() : this.apiKey;
+    if (!key) {
+      throw new AIProviderError("Gemini API key is not configured", "AI_UNAVAILABLE", 503, false, undefined, undefined, {}, { provider: this.id });
+    }
+    return key;
+  }
+
   async generate(request: AIRequest): Promise<AIResponse> {
     const res = await this.send(request, "generateContent", "Gemini generateContent", 90_000);
-    const json = (await res.json()) as GeminiGenerateResponse;
+    const json = await readJsonBody<GeminiGenerateResponse>(res, "Gemini generateContent", this.id, request.modelConfig.model);
     if (json.responseId) request.trace?.responseIds.push(json.responseId);
     return fromGeminiResponse(json);
+  }
+
+  /** Image understanding; the retry policy and model order are in ai/geminiVision.ts. */
+  async analyzeImage(request: ImageAnalysisRequest): Promise<ImageAnalysisResult> {
+    const text = await analyzeImageWithGemini(request.data, request.mimeType, {
+      apiKey: this.key(),
+      // The chosen model first, then current multimodal fallbacks.
+      models: [request.modelConfig.model, "gemini-3.8-flash", "gemini-3.5-flash-lite"],
+      baseUrl: this.baseUrl,
+      signal: request.signal,
+      trace: request.trace,
+      modelCallId: request.modelCallId,
+    });
+    return { text };
   }
 
   async *streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk> {
@@ -59,13 +99,24 @@ export class GeminiProvider implements AIProvider {
           if (!trimmed.startsWith("data:")) continue;
           const payload = trimmed.slice("data:".length).trim();
           if (!payload || payload === "[DONE]") continue;
-          const chunk = JSON.parse(payload) as GeminiGenerateResponse;
+          let chunk: GeminiGenerateResponse;
+          try {
+            chunk = JSON.parse(payload) as GeminiGenerateResponse;
+          } catch {
+            throw unreadableResponse("Gemini streamGenerateContent", this.id, request.modelConfig.model);
+          }
           const text = extractText(chunk);
           if (text) yield { delta: text, done: false };
         }
       }
+    } catch (error) {
+      // The body ended early or the connection broke mid-stream: a provider failure, not a crash.
+      if (isAbortError(error) || error instanceof AIProviderError || !isTransportError(error)) throw error;
+      throw transportFailure("Gemini streamGenerateContent", this.id, error, request.modelConfig.model);
     } finally {
-      reader.releaseLock();
+      // Also runs when the consumer stops early (client gone, caller done): cancel the upstream
+      // response instead of leaving it open to download text nobody will read.
+      await reader.cancel().catch(() => {});
     }
     yield { delta: "", done: true };
   }
@@ -81,19 +132,39 @@ export class GeminiProvider implements AIProvider {
     );
     const body = JSON.stringify(toGeminiRequestBody(request));
     let lastError: Error | undefined;
-    const call = beginModelCall(request.purpose ?? "planner", request.modelConfig.model, request.modelCallId);
+    const call = beginModelCall(request.purpose ?? "planner", request.modelConfig.model, request.modelCallId, this.id);
+    const key = this.key();
 
     for (const model of models) {
       for (let attempt = 0; ; attempt += 1) {
         if (request.signal?.aborted) throw abortError();
         if (request.trace) request.trace.httpRequests += 1;
         call.httpRequests += 1;
-        const res = await fetchWithTimeout(
-          `${this.baseUrl}/models/${encodeURIComponent(model)}:${method}`,
-          { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
-          timeoutMs,
-          request.signal,
-        );
+        let res: Response;
+        try {
+          res = await fetchWithTimeout(
+            `${this.baseUrl}/models/${encodeURIComponent(model)}:${method}`,
+            { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": key }, body },
+            timeoutMs,
+            request.signal,
+            this.id,
+            model,
+          );
+        } catch (error) {
+          // A timeout and a cancelled turn end the call; only a network failure (the request
+          // never completed) is retried, under the same bounded policy as a transient 5xx.
+          if (!isTransportError(error)) throw error;
+          lastError = transportFailure(label, this.id, error, model);
+          call.failure = { code: "AI_UNAVAILABLE", model };
+          const failure: ProviderFailure = { kind: "transient" };
+          const wait = retryDelayMs(failure, attempt);
+          if (wait === null) {
+            if (!shouldTryNextModel(failure)) throw lastError;
+            break;
+          }
+          await sleep(wait, request.signal);
+          continue;
+        }
         if (res.ok) {
           request.trace?.servedModels?.push(model);
           call.servedModel = model;
@@ -113,6 +184,7 @@ export class GeminiProvider implements AIProvider {
         const text = await res.text().catch(() => "");
         const failure = classifyGeminiFailure(res.status, text, res.headers.get("retry-after"));
         const providerError = toProviderError(label, res.status, res.statusText, failure, text, model);
+        providerError.provider = this.id;
         lastError = providerError;
         call.failure = { code: providerError.code, quotaType: providerError.quotaType, ...providerError.evidence };
         if (failure.kind === "fatal") throw lastError;
@@ -250,7 +322,9 @@ async function fetchWithTimeout(
   input: string,
   init: RequestInit,
   timeoutMs: number,
-  cancel?: AbortSignal,
+  cancel: AbortSignal | undefined,
+  provider: string,
+  model: string,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -259,8 +333,9 @@ async function fetchWithTimeout(
     return await fetch(input, { ...init, signal });
   } catch (error) {
     if (cancel?.aborted) throw abortError();
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Gemini request timed out");
+    if (isAbortError(error)) {
+      // Our own time budget ran out. Keeps the long-standing message "Gemini request timed out".
+      throw timeoutError("Gemini request", provider, model);
     }
     throw error;
   } finally {

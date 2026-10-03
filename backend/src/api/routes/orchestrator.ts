@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type Response } from "express";
 import { AIProviderError, providerErrorLogFields, providerErrorPayload } from "../../ai/geminiErrors.js";
 import { ClientTurnIdReusedError, TurnInProgressError, type Orchestrator, type TurnEvent, type TurnRequest } from "../../agents/orchestrator.js";
+import { correlationOf, runWithCorrelation } from "../../observability/requestContext.js";
 import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
@@ -50,10 +51,12 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         if (!res.destroyed) res.write("event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n");
       };
       try {
-        const result = await orchestrator.runTurn({ ...request, turnId, signal: cancel.signal }, (event: TurnEvent) => {
-          if (event.type === "conversation") send("meta", { conversationId: event.conversationId, turnId });
-          else send("progress", event);
-        });
+        const result = await runWithCorrelation(correlationOf(req), () =>
+          orchestrator.runTurn({ ...request, turnId, signal: cancel.signal }, (event: TurnEvent) => {
+            if (event.type === "conversation") send("meta", { conversationId: event.conversationId, turnId });
+            else send("progress", event);
+          }),
+        );
         send("delta", { text: result.message });
         send("done", {
           message: result.message,
@@ -96,7 +99,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
       const cancel = abortOnClientGone(res);
       const turnId = randomUUID();
       try {
-        res.json(await orchestrator.runTurn({ ...request, turnId, signal: cancel.signal }));
+        res.json(await runWithCorrelation(correlationOf(req), () => orchestrator.runTurn({ ...request, turnId, signal: cancel.signal })));
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (err instanceof TurnInProgressError) {

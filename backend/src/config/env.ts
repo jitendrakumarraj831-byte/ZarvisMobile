@@ -51,6 +51,28 @@ export const env = {
       : process.env.GEMINI_TTS_MODEL.trim(),
   /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
+  /**
+   * OpenRouter, the AI Model Gateway's second provider (see ../../AI_MODEL_GATEWAY.md). Server-side
+   * only, like every provider key: never sent to a client, a log or an error response.
+   * Absent = no OpenRouter; the gateway then answers through Gemini alone.
+   */
+  openRouterApiKey: process.env.OPENROUTER_API_KEY?.trim() || undefined,
+  /**
+   * The settings below are read raw. `config/aiConfig.ts` validates and resolves them once at
+   * startup, so a typo stops the server with a clear message instead of misrouting requests.
+   */
+  openRouterBaseUrl: process.env.OPENROUTER_BASE_URL,
+  openRouterModel: process.env.OPENROUTER_MODEL,
+  openRouterModelCapabilities: process.env.OPENROUTER_MODEL_CAPABILITIES,
+  openRouterModelContextTokens: process.env.OPENROUTER_MODEL_CONTEXT_TOKENS,
+  openRouterTimeoutMs: process.env.OPENROUTER_TIMEOUT_MS,
+  /** `gemini` (default) or `openrouter`. */
+  aiPrimaryProvider: process.env.AI_PRIMARY_PROVIDER,
+  /** `openrouter` / `gemini` (default: the provider that is not the primary) or `none`. */
+  aiFallbackProvider: process.env.AI_FALLBACK_PROVIDER,
+  /** Optional JSON array describing every model and its capabilities; see ai/modelCatalog.ts. */
+  aiModelCatalogJson: process.env.AI_MODEL_CATALOG_JSON,
+  aiQuotaCooldownMs: process.env.AI_QUOTA_COOLDOWN_MS,
   isProduction: process.env.NODE_ENV === "production",
   /** GitHub REST API base URL (override only for GitHub Enterprise Server or a local test stub). */
   githubApiBaseUrl: process.env.GITHUB_API_BASE_URL?.trim() || "https://api.github.com",
