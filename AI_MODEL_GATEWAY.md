@@ -383,7 +383,9 @@ voice: `POST /api/v1/tts/synthesize` returns a WAV file (Android, the web Listen
 client's spoken replies). Both take `{ text, voice? }`, need a Bearer token, are limited to 40
 requests a minute per account, and cut the text to 2,000 and 1,200 characters. No AI provider is
 involved, so a spent Gemini or OpenRouter quota never silences the voice and a failing voice never
-touches a reply.
+touches a reply. Each answer names its engine in `X-Zarvis-TTS` (`edge`, `edge-stream`) and the voice
+that spoke in `X-Zarvis-TTS-Voice` (for example `hi-IN-SwaraNeural`: a voice name, nothing of the
+text), so a deployment can be checked, from outside, for the voice it really used.
 
 **The voice** is Microsoft Edge's neural voices (the service behind Edge's Read Aloud), reached by
 `tts/edgeTtsProvider.ts` behind the `TtsProvider` interface (`tts/provider.ts`): the routes ask for
@@ -620,21 +622,75 @@ Vercel build was not run from this environment):
   root `package.json`: Vercel installs the root one, and CI typechecks the entrypoint against it.
   Both are loaded on first use, so requests that never speak do not pay for them at start-up. Measured
   on Node 22: about 50 ms to load `ws`, 10 ms the decoder and 12 ms its first start, once per instance.
-- *Node version.* The project's Node version in Vercel must be **22.x** (the backend's `engines`), or at
-  least 20.19: `mpg123-decoder` is an ES module in a package that does not say so, which Node reads
-  correctly only since 22.7 and 20.19. An older runtime fails the first spoken reply (`BAD_AUDIO`,
-  "The audio decoder could not start"; the `cause` in the function log's `TTS failed before audio`
-  line says `Cannot use import statement outside a module`), not start-up.
+- *Node version.* Measured, not assumed: from a root-only install (which is what Vercel builds, with no
+  `backend/node_modules`), `ws` loads and `mpg123-decoder` decodes a real MP3 to the right number of
+  samples on Node 18.20.8, 20.18.3, 20.19.0, 22.22.0 and 24.21.0. Select the version the rest of the
+  backend needs (`engines`: 22 or later). If the decoder or `ws` ever cannot load, the first spoken reply
+  fails (`BAD_AUDIO`, "The audio decoder could not start", or `UNAVAILABLE`) and the function log's
+  `TTS failed before audio` line carries the system error as `cause`; start-up and every other route
+  are unaffected, and the reply is still shown as text.
+- *What goes into the function.* The same tracer Vercel uses (`@vercel/nft`), run on a fresh root-only
+  install, includes the eight `backend/src/tts` files, `ws`, `mpg123-decoder` and the three packages it
+  needs. Nothing is left out and no separate `.wasm` file is needed.
 - *Network.* The function makes one outbound WebSocket (TLS, port 443) to `speech.platform.bing.com`
   per spoken part. Vercel functions may open outbound connections; they cannot accept WebSockets,
   and none is needed. No key, no account and no extra service.
-- *Duration.* A spoken sentence is a request of about one to three seconds; nothing here raises the
-  function's maximum duration.
+- *Duration and size.* A spoken sentence from the web client is a request of about one to three
+  seconds; nothing here raises the function's maximum duration (`vercel.json` sets none, so the
+  platform's default for the plan applies). The **WAV endpoint is the exposed one**: it takes up to 2,000
+  characters, which is about two minutes of speech, and 24 kHz 16-bit mono is 48 KB a second, so that is
+  about 6 MB in one response, while Vercel answers at most about 4.5 MB in one piece (about 94 seconds of
+  speech, 1,300 to 1,500 characters at a normal pace; an estimate, not a measurement). Text longer than
+  that fails on Vercel with the platform's own error (Listen shows its toast; the reply stays as text).
+  The route before the Edge voice took the same 2,000 characters and returned the same 24 kHz 16-bit
+  mono WAV, so the size is not new, but the live smoke test now asks for the longest text on purpose and
+  says plainly (`WARN`) when the platform refuses it. The stream endpoint has no
+  such limit, because it is not sent in one piece.
 - *Runtime state.* The decoder is WebAssembly with its code inside the JavaScript, so there is no
   `.wasm` file to include. The circuit breaker and the cap on syntheses live in each instance.
+  Memory: eight maximum-length WAV requests at once (the cap on syntheses) took a local server from
+  117 MB to a peak of 284 MB, well inside a function's usual 1 GB.
+- *Cancelling.* A client that goes away aborts the request in the function, which closes the connection
+  to the service and frees the decoder (tested locally down to the socket). Whether the platform delivers
+  a client's disconnect to a running function is the platform's behaviour and cannot be seen from outside,
+  so the live smoke test shows only that the service stays able to serve after six abandoned streams.
 - *Whether the service accepts Vercel's addresses is not known from here*: it is an unofficial service
-  and it can refuse a cloud provider's network. The check is the live smoke test, which runs after
-  every deployment and fails if either TTS endpoint does not return real audio.
+  and it can refuse a cloud provider's network (a secondary source says Microsoft has tightened
+  filtering of cloud address ranges; the community client's issue tracker shows 403 and 503 refusals,
+  and none of them is a fact about Vercel). The check is the live smoke test, which runs after every
+  deployment and prints a **VOICE SUMMARY** (below).
+
+**Prove the voice works on the deployment (live audit).** Two checks run against the real deployment, after
+each Preview deployment is Ready, and both write their results to the run's summary page:
+
+- `scripts/live-smoke.mjs` (workflow *Live preview API smoke test*): English, Hindi and Hinglish on
+  **both** endpoints, each asserted for the format the clients play (a 24 kHz mono 16-bit WAV; headerless
+  24 kHz PCM), for audio whose length fits the text, for `X-Zarvis-TTS` and for the **voice that spoke**
+  (`X-Zarvis-TTS-Voice` must be `hi-IN-SwaraNeural` for Hindi and `en-US-JennyNeural` for English, or the
+  voices set in `TTS_HI_VOICE`, `TTS_EN_VOICE` and `TTS_HINGLISH_VOICE`: set the same names as the
+  repository variables `EXPECT_HI_VOICE`, `EXPECT_EN_VOICE`, `EXPECT_HINGLISH_VOICE`, which both
+  workflows read); a long reply (does the stream arrive
+  progressively, or only at the end?); the longest text the WAV endpoint accepts (see Duration and size
+  above); six streams abandoned after their first bytes and two WAV requests dropped, after which the
+  next request must still be served; and the plain answers to bad requests. It ends with a
+  **VOICE SUMMARY**: *voice service reached*, *English*, *Hindi*, *Hinglish*, *Streaming*, *Unary*,
+  *Cancellation*, each PASS, WARN, FAIL or NOT RUN. A check that did not run because English had
+  already failed on both endpoints is reported FAIL, never skipped silently. `ONLY=tts BASE_URL=https://…
+  node scripts/live-smoke.mjs` runs just this, against any deployment, without spending AI quota.
+- `web/e2e/tts-audit.cjs` (workflow *Edge TTS live audit (browser)*, Previews and by hand): the real web
+  client in a real Chromium against the deployment, with only the AI's answer fixed. English, Hindi and
+  Hinglish replies are spoken in the right voice and played in order; a long reply streams two requests at
+  a time with no overlap; Stop silences the reply and asks for nothing more, and the next reply plays;
+  a new message, typed or spoken, cancels the reply being spoken and nothing of the old reply is asked for
+  again; the Listen button plays a WAV in English and in Hindi; and when the voice answers 503 or cannot be
+  reached at all, the AI's reply is on screen, the orb is idle and the next message is answered. One extra
+  scenario uses a real AI answer and warns if the AI has no quota. `AUDIT_FAILURES=natural` instead
+  audits a server whose own voice is failing.
+
+Neither can make Microsoft fail on a deployment: a deployed voice failure is only seen when it happens.
+The same scenarios were run for real, locally, against a service that is genuinely broken in each way
+(nothing listening, HTTP 403, silence, a drop mid-stream, `TTS_PROVIDER=none`, a missing decoder package),
+and against the real Microsoft address from an environment whose network policy blocks it (§8).
 
 **Prove the voice works (live probe).** Nothing in the build environment can reach Microsoft, so nothing
 here has ever called the real service except through this probe. The manual **Edge TTS live probe**
@@ -673,7 +729,7 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 | Preview works, Production does not (or the reverse) | the variable exists in only one environment | set it for both, redeploy, compare `/health` |
 | An image is not read on fallback | the OpenRouter model has no `vision`, or the image is HEIC/HEIF | declare `vision`; HEIC/HEIF are only read by Gemini |
 | The web app's Listen says "Spoken reply isn't available right now", or sentences are not spoken | the voice failed and the toast does not say why | the function log's `TTS failed before audio` line names the kind (`UNAVAILABLE`, `TIMEOUT`, `REJECTED`, `NO_AUDIO`, `BAD_AUDIO`). The reply is unaffected: it is a separate request, made after the text is on screen |
-| Every spoken reply fails: `REJECTED` (HTTP 403, "refused the connection") | Microsoft's service refused this server's connection: it blocks the address, or it changed what it requires (the `Sec-MS-GEC` token, the browser version it expects). Retrying does not help; the connection is retried only once, for a clock disagreement | run the Edge TTS live probe (§5): if it passes, the service refuses Vercel's network and not the code; if it fails too, the protocol changed and the constants in `tts/edgeTransport.ts` need updating. Meanwhile `TTS_PROVIDER=none` makes the app say honestly that voice is off |
+| Every spoken reply fails: `REJECTED` (HTTP 403, "refused the connection") | Microsoft's service refused this server's connection: it blocks the address, or it changed what it requires (the `Sec-MS-GEC` token, the browser version it expects). Retrying does not help; the connection is retried only once, for a clock disagreement. The log line says by how much the clocks still differed after the correction ("HTTP 403 twice; ... still N s"): a large N is a clock problem, about zero is a blocked address or a changed protocol | run the Edge TTS live probe (§5): if it passes, the service refuses Vercel's network and not the code; if it fails too, the protocol changed and the constants in `tts/edgeTransport.ts` need updating. Meanwhile `TTS_PROVIDER=none` makes the app say honestly that voice is off |
 | Spoken replies stop for half a minute after a few failures | the circuit breaker: three requests in a row failed, so requests fail at once (`503 tts_unavailable`, with `Retry-After`) until one is let through | it closes by itself when the service answers; the failures before it are in the log |
 | `503 tts_unavailable` straight away, with no failures in the log | this instance already has 8 syntheses running and 16 waiting (a burst), so it said busy at once | retry after the `Retry-After`; it is per instance |
 | `BAD_AUDIO` | the service sent audio ZARVIS will not play: not MP3, or not 24 kHz (it is never played at the wrong speed) | the service changed its output format; the log line gives the sample rate |
@@ -703,6 +759,8 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 | `test/tts/ttsRoutes.test.ts` | the real routes with a scripted voice: WAV and PCM contracts, validation and auth, every failure kind's status and code, a failure before and after sound, a client that disconnects, a slow reader, simultaneous streams, the 40-a-minute limit, and a turn that finishes while the voice is broken |
 | `test/tts/ttsConfig.test.ts` | the settings, a wrong value reported and replaced, `none`, the WAV header |
 | `test/live/edgeTts.live.test.ts` | opt-in only (`ZARVIS_LIVE_TESTS=1`): the real service, from the Edge TTS live probe workflow |
+| `web/e2e/tts-audit.cjs` (workflow *Edge TTS live audit (browser)*; not in the regular CI, because it depends on a service that is not ours) | the spoken reply end to end in real Chromium against a running server or a deployment: three languages and their voices, a long reply in order, Stop, a new message (typed and spoken), the Listen button, a failing voice (answered 503, unreachable, or failing for real) with the AI's reply still on screen and the next message answered |
+| `scripts/live-smoke.mjs` (voice section; workflow *Live preview API smoke test*) | the same from the API side, on a deployment: both endpoints, three languages, the voice header, a long stream, the longest WAV, cancellation, bad requests, and the VOICE SUMMARY |
 | `web/e2e/quality.e2e.cjs` (voice steps, CI `web-e2e`) | in real Chromium: one recognition result is one turn and its spoken reply starts none; a spoken reply of several sentences asks the voice for every one and ends with the orb idle; Stop silences it and the orb stays idle |
 
 ---
@@ -744,6 +802,36 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
   code is arranged so that updating the constants, replacing the transport (`EdgeTransport`) or the
   whole provider (`TtsProvider`) touches no route and no client. Azure AI Speech offers the same neural
   voice names as a supported, contracted service, for an Azure account.
+- **The voice on Vercel: the final audit (2026-10-04), what it showed and what it could not.**
+  *Not shown, and it blocks calling the voice production ready:* the real handshake from a Vercel
+  deployment to Microsoft's service. The environment this was built in cannot reach
+  `speech.platform.bing.com` (its network policy answers the connection with HTTP 403, which the code
+  reports as `REJECTED`, exactly what a real refusal would look like), cannot reach any Vercel host,
+  holds no Vercel credential, and a Preview deployment only exists after a push. So nothing here has
+  spoken to Microsoft and nothing here has run on Vercel. The live smoke test and the browser audit
+  (§5) are built to settle it from the first Preview of this code; until one of them prints PASS for
+  *voice service reached*, the voice is not shown to work in production, and if it prints FAIL,
+  Microsoft refuses Vercel's addresses (or the protocol changed) and `TTS_PROVIDER=none` is the honest
+  setting until another transport or provider is plugged in behind `TtsProvider`.
+  *Shown for real, locally* (real Chromium, real Express app, real `EdgeTtsProvider`, real WebSocket
+  and real MP3 decoding; only the far end was a local stand-in, so the audio is a tone, not speech):
+  the English, Hindi and Hinglish scenarios of the browser audit pass, each in its voice, on both
+  endpoints, 11 of 11 on three runs in a row and once more against a stand-in that speaks for as long as
+  the text would take (up to 130 s of audio in one reply); Stop, and a new message typed or spoken, leave nothing of
+  the old reply asked for and the orb idle; and with the far end failing for real (nothing listening, HTTP
+  403, silence until the timeout, a drop in the middle of a sentence, the real Microsoft address from an
+  environment that blocks it, `TTS_PROVIDER=none`, and the decoder package missing from the install) the AI's
+  reply is on screen, the orb idle and the next message answered every time. The log of such a failure says
+  what failed and why (kind, message, system error), never the text.
+  *Shown by inspecting the platform:* the function bundle the tracer builds contains everything the voice
+  loads; the decoder and `ws` load and decode on Node 18.20.8 to 24.21.0 from a root-only install; the
+  protocol constants are identical to the newest release of the community `edge-tts` client (7.2.8,
+  2026-03-22), whose tracker in the weeks before this audit shows no wave of 403s but does show reports of
+  503 handshake errors and of intermittent "no audio was received" for some voices. A sentence that comes
+  back with no audio is not retried here (`NO_AUDIO` is not retryable): the next sentence goes on and the
+  reply has a gap. If the live service does that often, allow one retry for it in `tts/edgeTtsProvider.ts`.
+  *Known limit, not new:* the WAV endpoint cannot deliver more than about 94 seconds of speech from
+  Vercel (§5, Duration and size).
 - **Two web client defects found while checking the voice, and fixed.** Running the real client in
   Chromium against the voice routes showed that a spoken turn could end before its speech had begun: it
   waited only for audio that already existed, and a finished turn drops the sentences still waiting for

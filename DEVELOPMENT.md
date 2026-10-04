@@ -75,6 +75,10 @@ on-device thing that this does not touch.
 
 To try the real service from a machine that can reach it:
 `ZARVIS_LIVE_TESTS=1 npx vitest run test/live/edgeTts.live.test.ts` (in `backend/`), or run the
-**Edge TTS live probe** workflow. It is an unofficial service with no guarantee: if it stops working,
+**Edge TTS live probe** workflow. To check a deployed site (a Vercel preview, or production) the way
+a person uses it: `ONLY=tts BASE_URL=https://… node scripts/live-smoke.mjs` prints a VOICE SUMMARY
+(English, Hindi, Hinglish, streaming, unary, cancellation), and
+`ZARVIS_URL=https://… node web/e2e/tts-audit.cjs` plays spoken replies in a real Chromium (needs
+Playwright); both run by themselves after each Preview deployment. It is an unofficial service with no guarantee: if it stops working,
 `TTS_PROVIDER=none` makes the app say so honestly, and the provider boundary
 (`backend/src/tts/provider.ts`) is where another voice would plug in.
