@@ -510,9 +510,11 @@ reach openrouter.ai):
    tool support). Every line names the model that actually answered, which matters because
    `openrouter/free` is a router that can serve each request with a different free model. A model that
    called the tool then gets one real ZARVIS turn (the planner prompt with the real skill registry)
-   through an OpenRouter-only gateway, up to three models in turn, and that turn is the verdict: the
-   exact `OPENROUTER_MODEL` and `OPENROUTER_MODEL_CAPABILITIES=tools` to copy into Vercel are printed
-   only for a model that answered it correctly. The key is never printed. A run sends up to about 20
+   through an OpenRouter-only gateway, up to three models in turn (a pinned model before a router,
+   unless you named a model: a router can serve each request with a different model, and the
+   account's data policy can leave its pool empty for one request and not for the next). That turn is
+   the verdict: the exact `OPENROUTER_MODEL` and `OPENROUTER_MODEL_CAPABILITIES=tools` to copy into
+   Vercel are printed only for a model that answered it correctly. The key is never printed. A run sends up to about 20
    requests, which count against the free-model limits (the 429 row in §6).
 
 Without the workflow, the same proof is to set `AI_PRIMARY_PROVIDER=openrouter` and

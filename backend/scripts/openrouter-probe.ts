@@ -10,9 +10,10 @@
  *   1. the public model list: how many free models support tools (no key is sent);
  *   2. for the configured model, and then down a ranked list of free models that the list says
  *      support tools (until a few of them answer): a plain request, then a tool-call request;
- *   3. for the first model that called the tool, one real ZARVIS turn (planner prompt with the real
- *      skill registry) through an OpenRouter-only ModelGateway. That turn is the verdict: a model
- *      is recommended only when it answers it correctly.
+ *   3. for the models that called the tool (a pinned model before a router, up to three), one real
+ *      ZARVIS turn (planner prompt with the real skill registry) through an OpenRouter-only
+ *      ModelGateway. That turn is the verdict: a model is recommended only when it answers it
+ *      correctly.
  *
  * The API key is only ever sent as the Authorization header by the adapter. It is registered with
  * the log redactor and never printed. Output is one `PASS|WARN|FAIL|SKIP name — detail` line per
@@ -366,8 +367,13 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
   }
 
   // A model is given a real turn once it has called the tool; that turn, not the plain request, decides.
-  // A few other models get one too when the first does not answer it correctly.
-  const eligible = results.filter((r) => r.text.status !== "FAIL" && r.tools.status === "PASS");
+  // A pinned model goes before a router (a router can serve each request with a different model, and an
+  // account's data policy can leave its pool empty for one request and not for the next), unless a model was
+  // asked for by name. A few more models get a turn when the first does not answer it correctly.
+  const isRouter = (id: string): boolean => id.startsWith("openrouter/");
+  const asked = Boolean(options.model?.trim());
+  const rank = (r: ModelResult): number => (asked && r.model === model ? 0 : isRouter(r.model) ? 2 : 1);
+  const eligible = results.filter((r) => r.text.status !== "FAIL" && r.tools.status === "PASS").sort((a, b) => rank(a) - rank(b));
   let recommended: ModelResult | undefined;
   for (const candidate of eligible.slice(0, MAX_TURN_TRIES)) {
     const turn = await realTurn({ apiKey, baseUrl: options.baseUrl?.trim() || undefined, model: candidate.model });
@@ -388,8 +394,10 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
     print("Settings to copy into Vercel (Preview and Production; no secret in them):");
     print(`  OPENROUTER_MODEL=${recommended.model}`);
     print("  OPENROUTER_MODEL_CAPABILITIES=tools");
-    if (recommended.model.startsWith("openrouter/")) {
+    if (isRouter(recommended.model)) {
       print(`${recommended.model} is a router: each request can be served by a different free model (the lines above name who answered). To pin one, set OPENROUTER_MODEL to a model id that passed.`);
+    } else if (results.some((r) => isRouter(r.model) && r.text.status !== "FAIL" && r.tools.status === "PASS")) {
+      print("A pinned model is the predictable choice: a router such as openrouter/free can serve each request with a different free model, and an account's data policy can leave its pool empty for a request.");
     }
     if (alsoPassed.length > 0) print(`Also passed the plain and tool-call requests (no real turn run): ${alsoPassed.join(", ")}`);
   } else if (eligible.length > 0) {

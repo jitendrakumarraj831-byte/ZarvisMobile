@@ -313,8 +313,8 @@ describe("runProbe against what a live OpenRouter returned", () => {
     expect(output).toMatch(/SKIP vendor\/a:free · tool call — not tried/);
     // A refusal costs one request (no tool call is spent on it); the working models cost two each, plus one real turn.
     expect(chatCalls(stub)).toHaveLength(2 + 1 + 1 + 2 + 2 + 1);
-    // A model that refuses is not a reason to stop recommending the one that works.
-    expect(outcome.recommended).toBe("openrouter/free");
+    // A model that refuses is not a reason to stop recommending one that works: the first pinned model that answered.
+    expect(outcome.recommended).toBe("vendor/c:free");
   });
 
   it("stops walking after a bounded number of attempts when every candidate refuses", async () => {
@@ -337,16 +337,17 @@ describe("runProbe against what a live OpenRouter returned", () => {
   });
 
   it("recommends only a model that answers the real turn, and gives the next model that called the tool a turn too", async () => {
-    const planner: Responder = (call) => (call.body.model === "openrouter/free" ? answerAs("I am not sure about that.")(call) : answerAs("It is 4.")(call));
+    const planner: Responder = (call) => (call.body.model === "vendor/a:free" ? answerAs("I am not sure about that.")(call) : answerAs("It is 4.")(call));
     const { outcome, output, stub } = await probe({ candidates: 1 }, { catalog: longCatalog(), planner });
 
     expect(output).toMatch(/WARN a real ZARVIS turn \(OpenRouter only\) — answered, but not with 4: "I am not sure about that\./);
     expect(output).toMatch(/PASS a real ZARVIS turn \(OpenRouter only\) — answered: "It is 4\./);
-    expect(outcome.recommended).toBe("vendor/a:free");
-    expect(outcome.results[0]!.turn!.status).toBe("WARN");
-    expect(outcome.results[1]!.turn!.status).toBe("PASS");
-    expect(output).toMatch(/OPENROUTER_MODEL=vendor\/a:free/);
-    expect(chatCalls(stub).filter(isPlanner).map((c) => c.body.model)).toEqual(["openrouter/free", "vendor/a:free"]);
+    expect(outcome.results[1]!.turn!.status).toBe("WARN");
+    expect(outcome.results[0]!.turn!.status).toBe("PASS");
+    expect(outcome.recommended).toBe("openrouter/free");
+    expect(output).toMatch(/OPENROUTER_MODEL=openrouter\/free/);
+    // The pinned model was given its turn first; the router only got one because the pinned model did not answer.
+    expect(chatCalls(stub).filter(isPlanner).map((c) => c.body.model)).toEqual(["vendor/a:free", "openrouter/free"]);
   });
 
   it("gives at most three models a real turn, and recommends none when none answers it", async () => {
@@ -359,11 +360,23 @@ describe("runProbe against what a live OpenRouter returned", () => {
     expect(output).not.toMatch(/OPENROUTER_MODEL=/);
   });
 
-  it("says the configured model is a router, and lists the other models that passed, so one can be pinned", async () => {
-    const { output } = await probe({ candidates: 2 });
+  it("prefers a pinned model that answers the real turn to the router that also passed, and says why", async () => {
+    const { outcome, output, stub } = await probe({ candidates: 2 });
 
+    expect(outcome.recommended).toBe("vendor/big-free:free");
+    expect(output).toMatch(/OPENROUTER_MODEL=vendor\/big-free:free/);
+    expect(output).toMatch(/A pinned model is the predictable choice: a router such as openrouter\/free can serve each request with a different free model/);
+    expect(output).toMatch(/Also passed the plain and tool-call requests \(no real turn run\): openrouter\/free, vendor\/mid-free:free/);
+    expect(chatCalls(stub).filter(isPlanner).map((c) => c.body.model)).toEqual(["vendor/big-free:free"]);
+  });
+
+  it("gives a model that was asked for by name its real turn first, even a router, and says it is a router", async () => {
+    const { outcome, output, stub } = await probe({ model: "openrouter/free", candidates: 2 });
+
+    expect(outcome.recommended).toBe("openrouter/free");
     expect(output).toMatch(/openrouter\/free is a router: each request can be served by a different free model/);
     expect(output).toMatch(/Also passed the plain and tool-call requests \(no real turn run\): vendor\/big-free:free, vendor\/mid-free:free/);
+    expect(chatCalls(stub).filter(isPlanner).map((c) => c.body.model)).toEqual(["openrouter/free"]);
   });
 
   it("lists the free tool-capable models of the public list, so a model can be chosen by hand", async () => {
@@ -389,21 +402,20 @@ describe("runProbe against what a live OpenRouter returned", () => {
     expect(outcome.results.map((r) => r.model)).toEqual(["openrouter/free"]);
   });
 
-  it("recommends a model to pin when the account's data policy refuses the router's real turn (the live failure)", async () => {
+  it("when the account's data policy refuses a real turn (the live failure) the whole reason is shown, and a model that passes is recommended", async () => {
     const policy =
       "0 endpoints out of 8 requested are available matching your guardrail restrictions and data policy. We removed them for the following reasons (an endpoint may have matched multiple reasons): ZDR violations (8)";
-    const planner: Responder = (call) => (call.body.model === "openrouter/free" ? openRouterFail(404, policy)(call) : answerAs("It is 4.")(call));
+    const planner: Responder = (call) => (call.body.model === "vendor/seed-a:free" ? openRouterFail(404, policy)(call) : answerAs("It is 4.")(call));
     const { outcome, output } = await probe(
       { candidates: 2 },
       { catalog: longCatalog(), text: openRouterText("OK", "vendor/seed-a:free"), tools: toolCallServedBy("vendor/seed-b:free"), planner },
     );
 
-    // The router's own real turn was refused, and the whole reason is on the line.
-    expect(output).toMatch(/FAIL a real ZARVIS turn \(OpenRouter only\) — AI_PROVIDER_CAPABILITY_UNSUPPORTED \(HTTP 404\).*ZDR violations \(8\) \(model openrouter\/free\)/);
-    // A model that the router served does answer it, so that one is what to pin.
-    expect(outcome.recommended).toBe("vendor/seed-a:free");
-    expect(output).toMatch(/OPENROUTER_MODEL=vendor\/seed-a:free/);
-    expect(output).not.toMatch(/is a router/);
+    // The first real turn was refused, and the whole reason is on the line (not cut where the reasons begin).
+    expect(output).toMatch(/FAIL a real ZARVIS turn \(OpenRouter only\) — AI_PROVIDER_CAPABILITY_UNSUPPORTED \(HTTP 404\).*ZDR violations \(8\) \(model vendor\/seed-a:free\)/);
+    // The next model that the router served does answer it, so that one is what to pin.
+    expect(outcome.recommended).toBe("vendor/seed-b:free");
+    expect(output).toMatch(/OPENROUTER_MODEL=vendor\/seed-b:free/);
     expect(outcome.ok).toBe(true);
   });
 
