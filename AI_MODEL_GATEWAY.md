@@ -683,12 +683,14 @@ each Preview deployment is Ready, and both write their results to the run's summ
 - `web/e2e/tts-audit.cjs` (workflow *Edge TTS live audit (browser)*, Previews and by hand): the real web
   client in a real Chromium against the deployment, with only the AI's answer fixed. English, Hindi and
   Hinglish replies are spoken in the right voice and played in order; a long reply streams two requests at
-  a time with no overlap; Stop silences the reply and asks for nothing more, and the next reply plays;
+  a time with no overlap, and the orb says "speaking" until the speech has ended; Stop silences the reply and asks for nothing more, and the next reply plays;
   a new message, typed or spoken, cancels the reply being spoken and nothing of the old reply is asked for
   again; the Listen button plays a WAV in English and in Hindi; and when the voice answers 503 or cannot be
   reached at all, the AI's reply is on screen, the orb is idle and the next message is answered. One extra
   scenario uses a real AI answer and warns if the AI has no quota. `AUDIT_FAILURES=natural` instead
-  audits a server whose own voice is failing.
+  audits a server whose own voice is failing, and `AUDIT_SLOW_STARTUP_MS=2000` delays the page's start-up
+  requests the way a cold serverless function would. A failed check prints the voice requests (when each
+  started and ended, with its status) and the orb's timeline.
 
 Neither can make Microsoft fail on a deployment: a deployed voice failure is only seen when it happens.
 The same scenarios were run for real, locally, against a service that is genuinely broken in each way
@@ -841,6 +843,18 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
   *A wrong prediction, corrected:* an earlier version of this document said a WAV longer than about 94
   seconds could not be delivered from Vercel (a documented limit of about 4.5 MB in one response). The
   deployment delivered 5.1 MB; the estimate was wrong and is removed.
+- **A third web client defect, found by the first audit on Vercel, not fixed here.** One of twelve
+  browser scenarios failed on the second Preview: the long reply's orb went idle about a second after
+  the speech began. The cause is in the page, not in the voice: `init()` in `web/app.js` ends with an
+  unconditional `setOrbState("IDLE")`, after the session, the skills and the tasks have loaded, so a turn that
+  begins before start-up finishes (a fast tap on a cold serverless function, where start-up takes seconds)
+  has its orb state overwritten while it is still speaking. It is old (nothing in this change touches it) and
+  small: the speech continues and Stop still works, only the orb and its label say "Ready". The audit had
+  started its turn before the page was ready, so it now waits for that last start-up step, and it checks
+  that the orb stays on "speaking" until the speech has ended (with a start-up slowed down on purpose, the
+  new check fails on the old behaviour and passes with the wait). The one-line fix is to set the orb to
+  idle there only when nothing is happening: `setOrbState(isBusy() || state === "LISTENING" ? state : "IDLE")`.
+  It is left out of this change, which is about the voice; say if it should go in.
 - **Two web client defects found while checking the voice, and fixed.** Running the real client in
   Chromium against the voice routes showed that a spoken turn could end before its speech had begun: it
   waited only for audio that already existed, and a finished turn drops the sentences still waiting for

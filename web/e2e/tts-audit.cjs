@@ -27,6 +27,8 @@
  *   AUDIT_REAL_AI=1        one extra scenario with a real AI answer (WARN if the AI has no quota)
  *   AUDIT_ONLY             a regular expression: run only the scenarios whose name matches
  *   AUDIT_LIVE=0|1         force the "deployed site" behaviour (audio length checks, longer waits) off or on
+ *   AUDIT_SLOW_STARTUP_MS  delay the page's two start-up requests (skills, tasks) by this long, as a cold serverless
+ *                          function would: a turn that starts before start-up ends must still keep its state
  *
  * Against anything but localhost it also checks that the audio is as long as the text says it should
  * be (a voice that answers 200 with a second of noise is not a pass). The account each scenario
@@ -54,6 +56,7 @@ const LIVE = process.env.AUDIT_LIVE ? process.env.AUDIT_LIVE === "1" : !/^(local
 const FAILURES = process.env.AUDIT_FAILURES || "intercept";
 const REAL_AI = process.env.AUDIT_REAL_AI === "1";
 const ONLY = process.env.AUDIT_ONLY ? new RegExp(process.env.AUDIT_ONLY, "i") : null;
+const SLOW_STARTUP_MS = Number(process.env.AUDIT_SLOW_STARTUP_MS || 0);
 const EXPECT = {
   hi: process.env.EXPECT_HI_VOICE || "hi-IN-SwaraNeural",
   en: process.env.EXPECT_EN_VOICE || "en-US-JennyNeural",
@@ -161,7 +164,7 @@ async function step(name, fn) {
     }
   } catch (err) {
     results.push({ name, status: "FAIL" });
-    const message = err && err.message ? err.message.split("\n").slice(0, 8).join("\n    ") : String(err);
+    const message = err && err.message ? err.message.split("\n").slice(0, 18).join("\n    ") : String(err);
     console.log("FAIL", name, `(${took()})\n    ${message}`);
     if (process.env.GITHUB_ACTIONS) console.log(`::error::${name}: ${String(err && err.message).split("\n")[0]}`);
   }
@@ -263,6 +266,10 @@ function wavHead(head, total) {
 async function openChat(page) {
   await page.goto(BASE);
   await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"), null, { timeout: 45_000 });
+  // The orb starts as IDLE in the markup, before the app has finished starting. The last start-up step (after the
+  // session, the skills and the tasks have loaded) sets it again and records it on <body>, and it overwrites whatever
+  // a turn begun before it has set by then. On a cold serverless function start-up takes seconds, so wait for that step.
+  await page.waitForFunction(() => document.body.dataset.orbState === "IDLE", null, { timeout: 45_000 });
   await page.waitForFunction(() => document.querySelector("#orb") && document.querySelector("#orb").dataset.state === "IDLE", null, { timeout: 45_000 });
   await page.evaluate(() => document.querySelector('[data-view="chat"]').click());
 }
@@ -304,6 +311,12 @@ async function scenario(browser, { replies }, body) {
     });
   }
   const page = await context.newPage();
+  if (SLOW_STARTUP_MS) {
+    await page.route(/\/api\/v1\/(skills|tasks)(\?|$)/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, SLOW_STARTUP_MS));
+      await route.fallback();
+    });
+  }
   const errors = [];
   const consoleErrors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -330,8 +343,25 @@ async function snapshot(page, tts) {
   return { ...data, tts: tts.entries, peak: tts.peak };
 }
 
-/** What a spoken reply must look like once it has been spoken. */
-function expectSpoken(run, { voice, requests }) {
+/** What the voice requests and the orb did, for the message of a failed check. */
+function describeRun(run) {
+  const t0 = Math.min(Date.now(), ...run.tts.map((entry) => entry.startedAt));
+  const rows = run.tts.slice(0, 12).map((entry) => `    ${entry.endpoint} +${entry.startedAt - t0} ms, status ${entry.status ?? "none"}${entry.failed ? `, failed ${entry.failed}` : ""}, ${entry.finishedAt ? `ended +${entry.finishedAt - t0} ms` : "still open"}, ${entry.bytes} B for ${entry.text.length} characters`);
+  const orb = run.states.slice(0, 16).map((state) => `${state.s}@${Math.round(state.at)}`).join(" > ");
+  return `  voice requests (${run.tts.length}):\n${rows.join("\n")}\n  orb: ${orb}`;
+}
+
+/** What a spoken reply must look like once it has been spoken; a failure carries what the page and the service did. */
+function expectSpoken(run, options) {
+  try {
+    return checkSpoken(run, options);
+  } catch (error) {
+    if (error instanceof Error) error.message += `\n${describeRun(run)}`;
+    throw error;
+  }
+}
+
+function checkSpoken(run, { voice, requests }) {
   const streams = run.tts.filter((entry) => entry.endpoint === "synthesize-stream");
   assert.ok(streams.length >= requests, `expected at least ${requests} stream requests, saw ${streams.length}`);
   for (const entry of streams) {
@@ -353,6 +383,11 @@ function expectSpoken(run, { voice, requests }) {
   assert.ok(overlap < 0.01, `consecutive audio overlapped by ${overlap.toFixed(3)} s`);
   assert.ok(run.states.some((state) => state.s === "SPEAKING"), "the orb never showed that it was speaking");
   assert.equal(run.states[run.states.length - 1].s, "IDLE", "the orb did not end idle");
+  // ...and not before the speech has ended: the orb says "speaking" for as long as the scheduled audio plays.
+  const speakingFrom = run.states.find((state) => state.s === "SPEAKING").at;
+  const idleAt = run.states[run.states.length - 1].at;
+  const timeline = Math.max(...run.sources.map((source) => source.when + source.duration)) - Math.min(...run.sources.map((source) => source.when));
+  assert.ok((idleAt - speakingFrom) / 1000 >= timeline - 1.5, `the orb went idle ${(timeline - (idleAt - speakingFrom) / 1000).toFixed(1)} s before the ${timeline.toFixed(1)} s of speech had ended`);
   const firstAudio = run.sources.length && run.sayAt ? Math.round(run.sources[0].at - run.sayAt) : undefined;
   return `${streams.length} requests, ${received.toFixed(1)} s of audio, voice ${voice}${firstAudio === undefined ? "" : `, first sound ${firstAudio} ms after the message`}`;
 }
