@@ -10,7 +10,8 @@
  * it is never counted as a pass in the reports. Any FAIL exits 1.
  *
  * No token, password or secret is ever printed. The sign-up account this creates is deleted at
- * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), 1 TTS request.
+ * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests). The 2 TTS requests
+ * (one WAV, one stream) go to the Edge voice service, which needs no key and costs nothing.
  */
 
 let BASE = (process.env.BASE_URL || "").replace(/\/$/, "");
@@ -28,6 +29,16 @@ function report(status, name, detail = "") {
   if (status === "FAIL" && process.env.GITHUB_ACTIONS) console.log(`::error::${name}: ${detail}`);
 }
 
+/** The facts of a 16-bit PCM WAV file, or null when the bytes are not one. */
+function wavFacts(bytes) {
+  if (bytes.length < 44 || bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WAVE") return null;
+  const sampleRate = bytes.readUInt32LE(24);
+  const channels = bytes.readUInt16LE(22);
+  const bits = bytes.readUInt16LE(34);
+  const dataBytes = bytes.readUInt32LE(40);
+  return { sampleRate, channels, bits, seconds: dataBytes / (sampleRate * channels * (bits / 8)) };
+}
+
 async function call(method, path, { token, body, raw, headers = {}, timeoutMs = 60_000 } = {}) {
   const h = { ...headers };
   if (BYPASS) h["x-vercel-protection-bypass"] = BYPASS;
@@ -39,10 +50,11 @@ async function call(method, path, { token, body, raw, headers = {}, timeoutMs = 
     payload = JSON.stringify(body);
   }
   const res = await fetch(BASE + path, { method, headers: h, body: payload, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
-  const text = method === "HEAD" ? "" : await res.text();
+  const bytes = method === "HEAD" ? Buffer.alloc(0) : Buffer.from(await res.arrayBuffer());
+  const text = bytes.toString("utf8");
   let json;
   try { json = JSON.parse(text); } catch { json = undefined; }
-  return { status: res.status, headers: res.headers, text, json };
+  return { status: res.status, headers: res.headers, text, json, bytes };
 }
 
 /** POST /orchestrator/turn-stream; returns the parsed SSE events. */
@@ -261,11 +273,28 @@ async function main() {
   report(unsupported.status === 415 ? "PASS" : "FAIL", "an unsupported file type is refused (415)", `HTTP ${unsupported.status}`);
 
   // ---- TTS -----------------------------------------------------------------------------------
+  // Spoken replies use Edge's neural voices: an unofficial service, reached from the network this
+  // API runs on. So this is the check that proves the voice works where it is deployed. It needs
+  // no key; both endpoints must return real audio in the formats the clients play.
   const tts = await call("POST", "/api/v1/tts/synthesize", { token: guestToken, body: { text: "Hello from ZARVIS." }, timeoutMs: 90_000 });
-  const type = tts.headers.get("content-type") || "";
-  if (tts.status === 200 && /audio/.test(type)) report("PASS", "TTS returns audio", type);
-  else if (tts.status === 429) report("WARN", "TTS", `quota (${tts.json?.code ?? "429"}); no audio verified`);
-  else report("FAIL", "TTS returns audio", `HTTP ${tts.status} ${type} ${tts.json?.code ?? ""}`);
+  const wav = wavFacts(tts.bytes);
+  const engine = tts.headers.get("x-zarvis-tts");
+  if (tts.status === 200 && /audio\/wav/.test(tts.headers.get("content-type") || "") && wav && wav.sampleRate === 24000 && wav.channels === 1 && wav.bits === 16 && wav.seconds > 0.5) {
+    report("PASS", "TTS returns a playable WAV", `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit${engine ? `, spoken by ${engine}` : ""}`);
+  } else if (tts.status === 503 && tts.json?.code === "tts_disabled") {
+    report("WARN", "TTS", "spoken replies are switched off on this server (TTS_PROVIDER=none); no audio verified");
+  } else {
+    report("FAIL", "TTS returns a playable WAV", `HTTP ${tts.status} ${tts.headers.get("content-type") || ""} ${tts.json?.code ?? ""} ${wav ? JSON.stringify(wav) : "(not a WAV file)"}`);
+  }
+  const stream = await call("POST", "/api/v1/tts/synthesize-stream", { token: guestToken, body: { text: "Hello from ZARVIS. This is the streamed voice." }, timeoutMs: 90_000 });
+  const streamType = stream.headers.get("content-type") || "";
+  if (stream.status === 200 && /audio\/l16/.test(streamType) && /rate=24000/.test(streamType) && stream.bytes.length > 24000 && stream.bytes.length % 2 === 0 && stream.bytes.subarray(0, 4).toString("ascii") !== "RIFF") {
+    report("PASS", "TTS streams 24 kHz PCM", `${(stream.bytes.length / 2 / 24000).toFixed(1)} s of 16-bit mono${stream.headers.get("x-zarvis-tts") ? `, ${stream.headers.get("x-zarvis-tts")}` : ""}`);
+  } else if (stream.status === 503 && stream.json?.code === "tts_disabled") {
+    report("WARN", "TTS stream", "spoken replies are switched off on this server (TTS_PROVIDER=none); no audio verified");
+  } else {
+    report("FAIL", "TTS streams 24 kHz PCM", `HTTP ${stream.status} ${streamType} ${stream.json?.code ?? ""} ${stream.bytes.length} bytes`);
+  }
 
   // ---- Cleanup -------------------------------------------------------------------------------
   if (accountToken) {
