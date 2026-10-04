@@ -8,10 +8,11 @@
  * It uses this repository's own adapter (`src/ai/openRouterProvider.ts`), not a separate client:
  *
  *   1. the public model list: how many free models support tools (no key is sent);
- *   2. for the configured model, and for a few free models that the list says support tools:
- *      a plain request, then a tool-call request;
- *   3. for the first model that passes both, one real ZARVIS turn (planner prompt with the real
- *      skill registry) through an OpenRouter-only ModelGateway.
+ *   2. for the configured model, and then down a ranked list of free models that the list says
+ *      support tools (until a few of them answer): a plain request, then a tool-call request;
+ *   3. for the first model that called the tool, one real ZARVIS turn (planner prompt with the real
+ *      skill registry) through an OpenRouter-only ModelGateway. That turn is the verdict: a model
+ *      is recommended only when it answers it correctly.
  *
  * The API key is only ever sent as the Authorization header by the adapter. It is registered with
  * the log redactor and never printed. Output is one `PASS|WARN|FAIL|SKIP name — detail` line per
@@ -30,7 +31,7 @@ import { DEFAULT_OPENROUTER_BASE_URL, OpenRouterProvider } from "../src/ai/openR
 import type { AIRequest, ToolDefinition } from "../src/ai/provider.js";
 import { redactString, registerSecret } from "../src/security/redact.js";
 
-export type RowStatus = "PASS" | "WARN" | "FAIL" | "SKIP";
+export type RowStatus = "PASS" | "WARN" | "FAIL" | "SKIP" | "INFO";
 export interface ProbeRow {
   status: RowStatus;
   name: string;
@@ -40,6 +41,8 @@ export interface ModelResult {
   model: string;
   text: ProbeRow;
   tools: ProbeRow;
+  /** The real ZARVIS turn, for a model that was given one. */
+  turn?: ProbeRow;
 }
 export interface ProbeOptions {
   apiKey: string | undefined;
@@ -53,9 +56,9 @@ export interface ProbeOptions {
   print?: (line: string) => void;
 }
 export interface ProbeOutcome {
-  /** True when some tested model passed both checks and the real turn did not fail. */
+  /** True when some tested model called the tool and then answered a real ZARVIS turn correctly. */
   ok: boolean;
-  /** The model to configure, when one passed both checks. */
+  /** The model to configure: the first one that did. */
   recommended?: string;
   rows: ProbeRow[];
   results: ModelResult[];
@@ -65,6 +68,15 @@ const DEFAULT_MODEL = "openrouter/free";
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
 const MIN_CONTEXT_FOR_CANDIDATES = 32_000;
 const REQUEST_TIMEOUT_MS = 45_000;
+/**
+ * Output budget of the plain and tool-call requests. A reasoning model spends part of it thinking
+ * before it writes: with 32 tokens the first live run got an empty message from `openrouter/free`.
+ */
+const PROBE_MAX_TOKENS = 256;
+/** How many more candidates than asked for may be tried when some refuse (each costs a free-tier request). */
+const EXTRA_CANDIDATE_ATTEMPTS = 4;
+/** How many models are given a real ZARVIS turn when the earlier ones do not answer it correctly. */
+const MAX_TURN_TRIES = 2;
 
 // ---- the public model list ----------------------------------------------------------------------
 
@@ -84,7 +96,8 @@ export function parseModelList(json: unknown): CatalogModel[] {
   const models: CatalogModel[] = [];
   for (const entry of data) {
     const item = entry as { id?: unknown; context_length?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; supported_parameters?: unknown } | null;
-    if (!item || typeof item.id !== "string" || item.id === "") continue;
+    // An id that is not a plain model id is never printed or sent back to the API.
+    if (!item || typeof item.id !== "string" || !MODEL_ID.test(item.id)) continue;
     const contextLength = Number(item.context_length);
     models.push({
       id: item.id,
@@ -113,13 +126,25 @@ async function fetchModelList(baseUrl: string): Promise<CatalogModel[]> {
 
 // ---- one model: a plain request, then a tool call -----------------------------------------------
 
+/**
+ * Text from the network on one log line: GitHub Actions reads a line that starts with `::` as a
+ * workflow command, so a line break inside what a server sent must not start a new line.
+ */
+const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
+
 /** What an operator needs from a failure: the structured kind, the HTTP status and a bounded, scrubbed message. */
 function describeError(error: unknown): string {
-  if (error instanceof AIProviderError) return `${error.kind} (HTTP ${error.status || "none"}): ${redactString(error.message)}`.slice(0, 300);
-  return redactString(error instanceof Error ? error.message : String(error)).slice(0, 300);
+  if (error instanceof AIProviderError) return oneLine(`${error.kind} (HTTP ${error.status || "none"}): ${redactString(error.message)}`).slice(0, 300);
+  return oneLine(redactString(error instanceof Error ? error.message : String(error))).slice(0, 300);
 }
 
 const seconds = (started: number): string => ((Date.now() - started) / 1000).toFixed(1);
+
+/** `(served by X)` when OpenRouter says another model than the one asked for answered (a router picks its own). */
+function servedNote(records: readonly ModelCallRecord[], model: string): string {
+  const served = records.find((record) => record.servedModel)?.servedModel;
+  return served && served !== model ? ` (served by ${served})` : "";
+}
 
 const ADD_TOOL: ToolDefinition = {
   // A dotted name on purpose: ZARVIS skill ids contain dots, which the adapter must encode and decode.
@@ -132,44 +157,58 @@ function request(model: string, overrides: Partial<AIRequest>): AIRequest {
   return {
     systemPrompt: "You are a connectivity probe. Follow the instruction exactly and briefly.",
     messages: [],
-    modelConfig: { provider: "openrouter", model, maxTokens: 128 },
+    modelConfig: { provider: "openrouter", model, maxTokens: PROBE_MAX_TOKENS },
     ...overrides,
   };
 }
 
-async function probeText(provider: OpenRouterProvider, model: string): Promise<ProbeRow> {
+interface TextProbe {
+  row: ProbeRow;
+  /** True when OpenRouter rejected the key itself (HTTP 401): no model can get around that, so none is tried. */
+  keyRejected: boolean;
+}
+
+async function probeText(provider: OpenRouterProvider, model: string): Promise<TextProbe> {
   const name = `${model} · plain request`;
   const records: ModelCallRecord[] = [];
   const started = Date.now();
   try {
     const response = await withModelCallLog(records, () =>
-      provider.generate(request(model, { messages: [{ role: "user", content: "Reply with the single word OK." }], purpose: "generation", modelConfig: { provider: "openrouter", model, maxTokens: 32 } })),
+      provider.generate(request(model, { messages: [{ role: "user", content: "Reply with the single word OK." }], purpose: "generation" })),
     );
     const answer = response.message.content.trim();
-    if (!answer) return { status: "WARN", name, detail: "the model returned an empty message" };
+    if (!answer) {
+      // A reasoning model can spend its whole budget thinking and write nothing: the token count shows it.
+      const used = response.usage.completionTokens;
+      return { row: { status: "WARN", name, detail: `the model returned an empty message${servedNote(records, model)}; it used ${used} of ${PROBE_MAX_TOKENS} completion tokens` }, keyRejected: false };
+    }
     const served = records.find((record) => record.servedModel)?.servedModel;
-    return { status: "PASS", name, detail: `"${redactString(answer).slice(0, 40)}" from ${served ?? model} in ${seconds(started)} s` };
+    return { row: { status: "PASS", name, detail: `"${oneLine(redactString(answer)).slice(0, 40)}" from ${served ?? model} in ${seconds(started)} s` }, keyRejected: false };
   } catch (error) {
-    return { status: "FAIL", name, detail: describeError(error) };
+    return { row: { status: "FAIL", name, detail: describeError(error) }, keyRejected: error instanceof AIProviderError && error.status === 401 };
   }
 }
 
 async function probeTools(provider: OpenRouterProvider, model: string): Promise<ProbeRow> {
   const name = `${model} · tool call`;
+  const records: ModelCallRecord[] = [];
   const started = Date.now();
   try {
-    const response = await provider.generate(
-      request(model, { messages: [{ role: "user", content: "Use the probe.add tool to add 2 and 3. Call the tool; do not answer in text." }], tools: [ADD_TOOL], purpose: "planner" }),
+    const response = await withModelCallLog(records, () =>
+      provider.generate(
+        request(model, { messages: [{ role: "user", content: "Use the probe.add tool to add 2 and 3. Call the tool; do not answer in text." }], tools: [ADD_TOOL], purpose: "planner" }),
+      ),
     );
+    const served = servedNote(records, model);
     const call = response.toolCalls.find((candidate) => candidate.skillId === ADD_TOOL.name);
     if (call) {
       const { a, b } = call.input as { a?: unknown; b?: unknown };
       const numeric = Number(a) === 2 && Number(b) === 3;
       return numeric
-        ? { status: "PASS", name, detail: `called ${call.skillId} with a=2, b=3 in ${seconds(started)} s` }
-        : { status: "WARN", name, detail: `called ${call.skillId} but with unexpected arguments: ${redactString(JSON.stringify(call.input)).slice(0, 80)}` };
+        ? { status: "PASS", name, detail: `called ${call.skillId} with a=2, b=3 in ${seconds(started)} s${served}` }
+        : { status: "WARN", name, detail: `called ${call.skillId} but with unexpected arguments: ${oneLine(redactString(JSON.stringify(call.input))).slice(0, 80)}${served}` };
     }
-    return { status: "WARN", name, detail: "the model answered in text and did not call the tool, so tool support is unclear" };
+    return { status: "WARN", name, detail: `the model answered in text and did not call the tool, so tool support is unclear${served}` };
   } catch (error) {
     return { status: "FAIL", name, detail: describeError(error) };
   }
@@ -200,6 +239,15 @@ async function realTurn(options: { apiKey: string; baseUrl: string | undefined; 
       },
       { isProduction: true },
     );
+    // The orchestrator keeps its own call log, so the models that answered are read where the gateway
+    // reports them: on each response's `meta` (a router such as openrouter/free picks its own model).
+    const servedBy = new Set<string>();
+    const generate = gateway.generate.bind(gateway);
+    gateway.generate = async (aiRequest) => {
+      const response = await generate(aiRequest);
+      if (response.meta?.model) servedBy.add(response.meta.model);
+      return response;
+    };
     const store = new InMemoryStore();
     const container = buildContainer(store, { modelGateway: gateway });
     const user = await store.createUser(`probe-${randomUUID()}@probe.invalid`, "x");
@@ -207,18 +255,19 @@ async function realTurn(options: { apiKey: string; baseUrl: string | undefined; 
     const result = await container.orchestrator.runTurn({ accountId: account.id, utterance: "What is 2 plus 2? Answer in one short sentence.", locale: "en" });
     const counters = gateway.getProviderStatus().counters;
     const tools = result.toolCalls.map((call) => call.skillId);
-    const message = redactString(result.message).replace(/\s+/g, " ").trim();
+    const message = oneLine(redactString(result.message));
     const correct = /\b(4|four)\b/i.test(message);
+    const served = [...servedBy];
     return [
       {
         status: correct ? "PASS" : "WARN",
         name,
-        detail: `${correct ? "answered" : "answered, but not with 4"}: "${message.slice(0, 120)}" (tools used: ${tools.length ? tools.join(", ") : "none"}) in ${seconds(started)} s`,
+        detail: `${correct ? "answered" : "answered, but not with 4"}: "${message.slice(0, 120)}" (tools used: ${tools.length ? tools.join(", ") : "none"}; served by ${served.length ? served.join(", ") : options.model}) in ${seconds(started)} s`,
       },
       { status: counters.failed === 0 ? "PASS" : "WARN", name: "gateway counters for that turn", detail: `calls=${counters.calls} succeeded=${counters.succeeded} failed=${counters.failed} fallbacks=${counters.fallbacks}` },
     ];
   } catch (error) {
-    return [{ status: "FAIL", name, detail: describeError(error) }];
+    return [{ status: "FAIL", name, detail: `${describeError(error)} (model ${options.model})` }];
   }
 }
 
@@ -256,7 +305,13 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
   try {
     catalog = await fetchModelList(baseUrl);
     const free = catalog.filter((m) => m.free);
-    add({ status: "PASS", name: "public model list", detail: `${catalog.length} models, ${free.length} free, ${free.filter((m) => m.tools).length} free with tool support` });
+    const freeWithTools = free.filter((m) => m.tools).sort((a, b) => b.contextLength - a.contextLength || a.id.localeCompare(b.id));
+    add({ status: "PASS", name: "public model list", detail: `${catalog.length} models, ${free.length} free, ${freeWithTools.length} free with tool support` });
+    if (freeWithTools.length > 0) {
+      // So a model can be chosen by hand (the workflow's `model` input) when the walk below does not find one.
+      const shown = freeWithTools.slice(0, 30).map((m) => `${m.id} (${Math.round(m.contextLength / 1000)}k)`);
+      add({ status: "INFO", name: "free models with tool support", detail: `${shown.join(", ")}${freeWithTools.length > shown.length ? `, and ${freeWithTools.length - shown.length} more` : ""}` });
+    }
     const listed = catalog.find((m) => m.id === model);
     if (listed) {
       add({ status: listed.tools ? "PASS" : "WARN", name: `${model} · per the public list`, detail: `context ${listed.contextLength}, ${listed.free ? "free" : "paid"}, tool support ${listed.tools ? "yes" : "no"}` });
@@ -268,57 +323,83 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
   }
 
   const provider = new OpenRouterProvider({ apiKey, baseUrl, timeoutMs: REQUEST_TIMEOUT_MS });
-  const toTest = [model, ...pickCandidates(catalog, candidateCount, [model]).map((m) => m.id)];
-  for (const id of toTest) {
-    const text = add(await probeText(provider, id));
+  // The candidates are a ranked list to walk, not a fixed few: a model can be listed as free with tool
+  // support and still refuse an ordinary app (HTTP 403 "only available on agentic harnesses"). The walk
+  // goes on until `candidateCount` of them answered; the cap bounds the free-tier requests it spends.
+  const ranked = candidateCount > 0 ? pickCandidates(catalog, candidateCount + EXTRA_CANDIDATE_ATTEMPTS, [model]).map((m) => m.id) : [];
+  let answering = 0;
+  let keyRejected = false;
+  for (const [index, id] of [model, ...ranked].entries()) {
+    if (index > 0 && (keyRejected || answering >= candidateCount)) break;
+    const plain = await probeText(provider, id);
+    const text = add(plain.row);
+    keyRejected = plain.keyRejected;
     // A rejected key, an empty balance or a privacy block already ended the plain request: do not spend more.
     const tools =
       text.status === "FAIL"
         ? add({ status: "SKIP", name: `${id} · tool call`, detail: "not tried: the plain request failed" })
         : add(await probeTools(provider, id));
     results.push({ model: id, text, tools });
+    if (index > 0 && text.status !== "FAIL") answering += 1;
+  }
+  if (keyRejected && ranked.length > 0) {
+    add({ status: "SKIP", name: "other models", detail: "not tried: OpenRouter rejected the API key (HTTP 401), and no other model can change that" });
   }
 
-  const winner = results.find((r) => r.text.status === "PASS" && r.tools.status === "PASS");
-  let turnFailed = false;
-  if (winner) {
-    const turn = await realTurn({ apiKey, baseUrl: options.baseUrl?.trim() || undefined, model: winner.model });
+  // A model is given a real turn once it has called the tool; that turn, not the plain request, decides.
+  // A few other models get one too when the first does not answer it correctly.
+  const eligible = results.filter((r) => r.text.status !== "FAIL" && r.tools.status === "PASS");
+  let recommended: ModelResult | undefined;
+  for (const candidate of eligible.slice(0, MAX_TURN_TRIES)) {
+    const turn = await realTurn({ apiKey, baseUrl: options.baseUrl?.trim() || undefined, model: candidate.model });
     for (const row of turn) add(row);
-    turnFailed = turn.some((row) => row.status === "FAIL");
-  } else {
-    add({ status: "SKIP", name: "a real ZARVIS turn (OpenRouter only)", detail: "not run: no tested model passed both the plain and the tool-call request" });
+    candidate.turn = turn[0];
+    if (turn[0]?.status === "PASS") {
+      recommended = candidate;
+      break;
+    }
+  }
+  if (eligible.length === 0) {
+    add({ status: "SKIP", name: "a real ZARVIS turn (OpenRouter only)", detail: "not run: no tested model passed the tool-call request" });
   }
 
-  const recommended = winner && !turnFailed ? winner.model : undefined;
+  const alsoPassed = results.filter((r) => r !== recommended && r.text.status === "PASS" && r.tools.status === "PASS").map((r) => r.model);
+  print("");
   if (recommended) {
-    print("");
     print("Settings to copy into Vercel (Preview and Production; no secret in them):");
-    print(`  OPENROUTER_MODEL=${recommended}`);
+    print(`  OPENROUTER_MODEL=${recommended.model}`);
     print("  OPENROUTER_MODEL_CAPABILITIES=tools");
+    if (recommended.model.startsWith("openrouter/")) {
+      print(`${recommended.model} is a router: each request can be served by a different free model (the lines above name who answered). To pin one, set OPENROUTER_MODEL to a model id that passed.`);
+    }
+    if (alsoPassed.length > 0) print(`Also passed the plain and tool-call requests (no real turn run): ${alsoPassed.join(", ")}`);
+  } else if (eligible.length > 0) {
+    print("A model called the tool, but none of the models given a real ZARVIS turn answered it correctly: see the lines above. Try another model with the workflow's `model` input.");
   } else if (results.some((r) => r.text.status === "PASS")) {
-    print("");
     print("OpenRouter answers plain requests, but no tested model passed the tool-call request, so chat turns cannot fall back to it yet (text-only skills can). Try another model with the workflow's `model` input.");
+  } else if (results.some((r) => r.text.status === "WARN")) {
+    print("OpenRouter accepted the requests, but the tested models returned empty messages and none called the tool. Try another model with the workflow's `model` input.");
   } else {
-    print("");
     print("No tested model answered. The FAIL lines above carry the structured kind and HTTP status; the troubleshooting table in AI_MODEL_GATEWAY.md explains each.");
   }
-  writeStepSummary(results, recommended);
-  return { ok: recommended !== undefined, recommended, rows, results };
+  writeStepSummary(results, recommended?.model);
+  return { ok: recommended !== undefined, recommended: recommended?.model, rows, results };
 }
 
 const escapeCell = (text: string): string => text.replace(/[|`\r\n]+/g, " ").trim();
+const cell = (row: ProbeRow): string => `${row.status}: ${escapeCell(row.detail)}`;
 
 /** Mirrors the result into the GitHub Actions job summary, when running there. */
 function writeStepSummary(results: readonly ModelResult[], recommended: string | undefined): void {
   const path = process.env.GITHUB_STEP_SUMMARY;
   if (!path) return;
-  const lines = ["## OpenRouter live probe", "", "| Model | Plain request | Tool call |", "|---|---|---|"];
-  for (const r of results) lines.push(`| \`${escapeCell(r.model)}\` | ${r.text.status}: ${escapeCell(r.text.detail)} | ${r.tools.status}: ${escapeCell(r.tools.detail)} |`);
+  const lines = ["## OpenRouter live probe", "", "| Model | Plain request | Tool call | Real ZARVIS turn |", "|---|---|---|---|"];
+  for (const r of results) lines.push(`| \`${escapeCell(r.model)}\` | ${cell(r.text)} | ${cell(r.tools)} | ${r.turn ? cell(r.turn) : "not run"} |`);
   lines.push("");
   lines.push(
     recommended
       ? `**Recommended:** \`OPENROUTER_MODEL=${escapeCell(recommended)}\` and \`OPENROUTER_MODEL_CAPABILITIES=tools\` (Vercel, Preview and Production).`
-      : "**No model passed both checks yet.** See the job log for the structured error of each failure.",
+      : "**No model has passed a real ZARVIS turn yet.** See the job log for the structured error of each failure.",
   );
   try {
     appendFileSync(path, lines.join("\n") + "\n");

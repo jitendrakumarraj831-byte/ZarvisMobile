@@ -13,8 +13,8 @@ name: OpenRouter live probe
 #     (remove and add it again to re-run). Same-repository pull requests only: GitHub passes no
 #     secrets to a fork's workflow run, so a fork gets "OPENROUTER_API_KEY not set".
 #
-# The key is only sent as an Authorization header by the adapter and is never printed. A run sends a
-# handful of requests (free models have per-minute and per-day limits), so it is never scheduled.
+# The key is only sent as an Authorization header by the adapter and is never printed. A run sends up
+# to about 16 requests (free models have per-minute and per-day limits), so it is never scheduled.
 on:
   workflow_dispatch:
     inputs:
@@ -41,7 +41,8 @@ jobs:
     # Any other label on any pull request starts this workflow and is skipped here.
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'openrouter-probe'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Each request may wait up to 45 s; a run that walks past several refusing models needs room.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
