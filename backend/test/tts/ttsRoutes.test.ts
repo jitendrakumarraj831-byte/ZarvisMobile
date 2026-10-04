@@ -50,6 +50,18 @@ describe("POST /api/v1/tts/synthesize", () => {
     expect(wav.pcm.equals(tone)).toBe(true);
   });
 
+  it("names the voice that spoke in X-Zarvis-TTS-Voice, and sends no such header when the provider does not say", async () => {
+    const speaking = appWith(new FakeTtsProvider({ resolved: { voice: "hi-IN-SwaraNeural", language: "hi" } }));
+    const res = await post(speaking, UNARY, await guestToken(speaking), { text: "नमस्ते" });
+    expect(res.status).toBe(200);
+    expect(res.headers["x-zarvis-tts-voice"]).toBe("hi-IN-SwaraNeural");
+
+    const silent = appWith(new FakeTtsProvider());
+    const other = await post(silent, UNARY, await guestToken(silent), { text: "Hello" });
+    expect(other.status).toBe(200);
+    expect(other.headers["x-zarvis-tts-voice"]).toBeUndefined();
+  });
+
   it("passes the voice and the text to the provider, cutting the text to its limit", async () => {
     const provider = new FakeTtsProvider();
     const app = appWith(provider);
@@ -156,6 +168,18 @@ describe("POST /api/v1/tts/synthesize-stream", () => {
     expect(body.length % 2).toBe(0);
     expect(body.subarray(0, 4).toString("ascii")).not.toBe("RIFF"); // no header: the client schedules raw samples
     expect(body.equals(Buffer.concat(chunks))).toBe(true);
+  });
+
+  it("names the voice that spoke in X-Zarvis-TTS-Voice, and sends no such header when the provider does not say", async () => {
+    const speaking = appWith(new FakeTtsProvider({ resolved: { voice: "en-US-JennyNeural", language: "en" } }));
+    const res = await post(speaking, STREAM, await guestToken(speaking), { text: "Hello there" });
+    expect(res.status).toBe(200);
+    expect(res.headers["x-zarvis-tts-voice"]).toBe("en-US-JennyNeural");
+
+    const silent = appWith(new FakeTtsProvider());
+    const other = await post(silent, STREAM, await guestToken(silent), { text: "Hello there" });
+    expect(other.status).toBe(200);
+    expect(other.headers["x-zarvis-tts-voice"]).toBeUndefined();
   });
 
   it("keeps the audio in the order it was produced, however many chunks there are", async () => {

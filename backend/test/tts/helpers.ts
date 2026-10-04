@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { EdgeTransport } from "../../src/tts/edgeTransport.js";
 import { TtsProviderError, abortError, sleep, type TtsOptions, type TtsProvider } from "../../src/tts/provider.js";
+import type { SpeechLanguage } from "../../src/tts/voices.js";
 import { pcmToWav } from "../../src/tts/wav.js";
 
 /**
@@ -101,6 +102,8 @@ export interface FakeProviderBehaviour {
   delayMs?: number;
   /** Never speaks until the signal aborts. */
   hang?: boolean;
+  /** The voice the provider reports through `onResolved`, as the real one does before it speaks. */
+  resolved?: { voice: string; language: SpeechLanguage };
 }
 
 /** A scripted `TtsProvider` for the route tests. */
@@ -118,6 +121,7 @@ export class FakeTtsProvider implements TtsProvider {
 
   async synthesize(text: string, options: TtsOptions = {}): Promise<Buffer> {
     this.calls.push({ kind: "unary", text, voice: options.voice, signal: options.signal });
+    if (this.behaviour.resolved) options.onResolved?.(this.behaviour.resolved);
     if (this.behaviour.hang) await this.hang(options.signal);
     if (this.behaviour.delayMs) await sleep(this.behaviour.delayMs, options.signal);
     if (this.behaviour.error && !this.behaviour.errorAfter) throw this.behaviour.error;
@@ -127,6 +131,7 @@ export class FakeTtsProvider implements TtsProvider {
   async *synthesizeStream(text: string, options: TtsOptions = {}): AsyncGenerator<Buffer> {
     this.calls.push({ kind: "stream", text, voice: options.voice, signal: options.signal });
     try {
+      if (this.behaviour.resolved) options.onResolved?.(this.behaviour.resolved);
       if (this.behaviour.hang) await this.hang(options.signal);
       if (this.behaviour.error && !this.behaviour.errorAfter) throw this.behaviour.error;
       let sent = 0;

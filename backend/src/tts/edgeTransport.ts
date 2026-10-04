@@ -192,7 +192,10 @@ export class WebSocketEdgeTransport implements EdgeTransport {
         yield* this.session(ssml, signal);
       } catch (second) {
         if (second instanceof ClockSkewRejection) {
-          throw new TtsProviderError("The voice service refused the connection", "REJECTED", false);
+          // Both refusals are HTTP 403. What separates "our clock or token is off" from "this address is blocked"
+          // is whether the clocks still differ after the correction, so the log says by how much.
+          const seconds = Math.round(second.skewMs / 1000);
+          throw new TtsProviderError(`The voice service refused the connection (HTTP 403 twice; after correcting for its clock, the difference was still ${seconds} s)`, "REJECTED", false);
         }
         throw second;
       }

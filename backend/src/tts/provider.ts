@@ -12,6 +12,7 @@
  * - `synthesizeStream`: headerless 16-bit little-endian mono PCM at 24 kHz, in order, as it is
  *   produced (what the web client's AudioContext schedules).
  */
+import type { SpeechLanguage } from "./voices.js";
 
 export interface TtsOptions {
   /**
@@ -21,6 +22,12 @@ export interface TtsOptions {
   voice?: unknown;
   /** Aborting stops synthesis and releases the upstream connection. It is not a failure. */
   signal?: AbortSignal;
+  /**
+   * Told which voice will speak, once it is chosen and before any audio is produced (not called
+   * when there is nothing to say). The route reports it in `X-Zarvis-TTS-Voice`, so a deployment
+   * can be checked for which voice it really used. It must not throw.
+   */
+  onResolved?: (info: { voice: string; language: SpeechLanguage }) => void;
 }
 
 export interface TtsProvider {

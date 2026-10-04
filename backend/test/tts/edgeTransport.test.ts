@@ -211,6 +211,8 @@ describe("WebSocketEdgeTransport: the clock", () => {
     expect(error).toBeInstanceOf(TtsProviderError);
     expect(error).toMatchObject({ kind: "REJECTED", retryable: false });
     expect(server.refused).toHaveLength(2);
+    // The log line must let an operator tell a clock or token problem from a blocked address.
+    expect((error as Error).message).toMatch(/HTTP 403 twice; after correcting for its clock, the difference was still -?\d+ s/);
   });
 
   it("calls a 403 with no usable Date header a refusal at once", async () => {

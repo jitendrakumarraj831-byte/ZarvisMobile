@@ -1,6 +1,6 @@
 import { Router, type Response } from "express";
 import { logger } from "../../security/redact.js";
-import { TtsProviderError, type TtsProvider } from "../../tts/provider.js";
+import { TtsProviderError, type TtsOptions, type TtsProvider } from "../../tts/provider.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
@@ -50,7 +50,10 @@ export function ttsRouter(provider: TtsProvider | null): Router {
         if (!res.writableFinished) controller.abort();
       };
       res.on("close", onClose);
-      const iterator = provider.synthesizeStream(text.slice(0, MAX_STREAM_TEXT_CHARS), { voice, signal: controller.signal })[Symbol.asyncIterator]();
+      const spoken = voiceReport();
+      const iterator = provider
+        .synthesizeStream(text.slice(0, MAX_STREAM_TEXT_CHARS), { voice, signal: controller.signal, onResolved: spoken.onResolved })
+        [Symbol.asyncIterator]();
       let first: IteratorResult<Buffer>;
       try {
         first = await iterator.next();
@@ -76,6 +79,7 @@ export function ttsRouter(provider: TtsProvider | null): Router {
         "Cache-Control": "no-cache, no-transform",
         "X-Accel-Buffering": "no",
         "X-Zarvis-TTS": `${provider.id}-stream`,
+        ...spoken.headers(),
       });
       res.flushHeaders?.();
 
@@ -134,9 +138,10 @@ export function ttsRouter(provider: TtsProvider | null): Router {
         if (!res.writableFinished) controller.abort();
       };
       res.on("close", onClose);
+      const spoken = voiceReport();
       let wav: Buffer;
       try {
-        wav = await provider.synthesize(text.slice(0, MAX_UNARY_TEXT_CHARS), { voice, signal: controller.signal });
+        wav = await provider.synthesize(text.slice(0, MAX_UNARY_TEXT_CHARS), { voice, signal: controller.signal, onResolved: spoken.onResolved });
       } catch (error) {
         res.off("close", onClose);
         if (controller.signal.aborted) return;
@@ -145,12 +150,28 @@ export function ttsRouter(provider: TtsProvider | null): Router {
         return;
       }
       res.off("close", onClose);
-      res.set({ "Content-Type": "audio/wav", "X-Zarvis-TTS": provider.id });
+      res.set({ "Content-Type": "audio/wav", "X-Zarvis-TTS": provider.id, ...spoken.headers() });
       res.send(wav);
     }),
   );
 
   return router;
+}
+
+/**
+ * Which voice spoke a response, as `X-Zarvis-TTS-Voice` (a voice name such as `hi-IN-SwaraNeural`;
+ * no text, no user data). It lets a deployment be checked for the voice it really used, from
+ * outside: the live smoke test asserts it for Hindi and for English. A provider that does not
+ * report its voice simply sends no header.
+ */
+function voiceReport(): { onResolved: NonNullable<TtsOptions["onResolved"]>; headers: () => Record<string, string> } {
+  let voice: string | undefined;
+  return {
+    onResolved: (info) => {
+      voice = info.voice;
+    },
+    headers: (): Record<string, string> => (voice ? { "X-Zarvis-TTS-Voice": voice } : {}),
+  };
 }
 
 /** What stopped a voice, for whoever reads the log: the kind, our message, and the system error under it (never the text spoken). */
