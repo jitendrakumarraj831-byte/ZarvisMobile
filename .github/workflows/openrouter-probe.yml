@@ -14,7 +14,7 @@ name: OpenRouter live probe
 #     secrets to a fork's workflow run, so a fork gets "OPENROUTER_API_KEY not set".
 #
 # The key is only sent as an Authorization header by the adapter and is never printed. A run sends up
-# to about 16 requests (free models have per-minute and per-day limits), so it is never scheduled.
+# to about 20 requests (free models have per-minute and per-day limits), so it is never scheduled.
 on:
   workflow_dispatch:
     inputs:

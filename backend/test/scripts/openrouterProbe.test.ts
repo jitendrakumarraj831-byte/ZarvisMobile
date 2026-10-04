@@ -35,10 +35,35 @@ const emptyAnswer =
       { status: 200 },
     );
 
+/** A correct tool call that a router says another model served. */
+const toolCallServedBy =
+  (served: string): Responder =>
+  () =>
+    new Response(
+      JSON.stringify({
+        id: "gen-or-4",
+        model: served,
+        choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "probe-add", arguments: JSON.stringify({ a: 2, b: 3 }) } }] }, finish_reason: "tool_calls" }],
+      }),
+      { status: 200 },
+    );
+
 /** What the first live run got from two models that the public list called free and tool-capable. */
 const agenticOnly = (model: string): Responder => openRouterFail(403, `${model} is only available on agentic harnesses. Try plugging it into a coding agent.`);
 
 const json = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+
+/** Answers as the model that was asked for, like an ordinary (non-router) model does. */
+const answerAs =
+  (text: string): Responder =>
+  (call) =>
+    openRouterText(text, String(call.body?.model))(call);
+const callAs =
+  (name: string, args: unknown): Responder =>
+  async (call) => {
+    const reply = await openRouterCall(name, args)(call);
+    return json({ ...((await reply.json()) as object), model: String(call.body?.model) });
+  };
 
 /** The kinds of request the probe sends, told apart the way OpenRouter would see them. */
 const isModelList = (call: RecordedCall) => call.url.endsWith("/models");
@@ -60,9 +85,9 @@ function openRouter(script: Script = {}): Responder {
   return (call) => {
     if (isModelList(call)) return json(script.catalog ?? catalogBody());
     const model = String(call.body?.model);
-    if (isToolProbe(call)) return (script.toolsBy?.[model] ?? script.tools ?? openRouterCall("probe-add", { a: 2, b: 3 }))(call);
-    if (isPlanner(call)) return (script.planner ?? openRouterText("2 plus 2 is 4."))(call);
-    return (script.textBy?.[model] ?? script.text ?? openRouterText("OK"))(call);
+    if (isToolProbe(call)) return (script.toolsBy?.[model] ?? script.tools ?? callAs("probe-add", { a: 2, b: 3 }))(call);
+    if (isPlanner(call)) return (script.planner ?? answerAs("2 plus 2 is 4."))(call);
+    return (script.textBy?.[model] ?? script.text ?? answerAs("OK"))(call);
   };
 }
 
@@ -127,7 +152,7 @@ describe("runProbe against a stubbed OpenRouter", () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.recommended).toBe("openrouter/free");
     expect(output).toMatch(/PASS public model list — 6 models, 5 free, 4 free with tool support/);
-    expect(output).toMatch(/PASS openrouter\/free · plain request — "OK" from vendor\/served-free-model:free/);
+    expect(output).toMatch(/PASS openrouter\/free · plain request — "OK" from openrouter\/free in/);
     expect(output).toMatch(/PASS openrouter\/free · tool call — called probe\.add with a=2, b=3/);
     expect(output).toMatch(/PASS a real ZARVIS turn \(OpenRouter only\) — answered: "2 plus 2 is 4\."/);
     expect(output).toMatch(/OPENROUTER_MODEL=openrouter\/free\n {2}OPENROUTER_MODEL_CAPABILITIES=tools/);
@@ -271,7 +296,7 @@ describe("runProbe against what a live OpenRouter returned", () => {
   });
 
   it("names the model that actually answered when a router picked it", async () => {
-    const { output } = await probe({});
+    const { output } = await probe({}, { text: openRouterText("OK"), tools: openRouterCall("probe-add", { a: 2, b: 3 }), planner: openRouterText("2 plus 2 is 4.") });
 
     expect(output).toMatch(/PASS openrouter\/free · tool call — called probe\.add with a=2, b=3 in [\d.]+ s \(served by vendor\/served-tool-model\)/);
     expect(output).toMatch(/\(tools used: none; served by vendor\/served-free-model:free\)/);
@@ -293,7 +318,7 @@ describe("runProbe against what a live OpenRouter returned", () => {
   });
 
   it("stops walking after a bounded number of attempts when every candidate refuses", async () => {
-    const refusing: Responder = (call) => (call.body.model === "openrouter/free" ? openRouterText("OK")(call) : agenticOnly(String(call.body.model))(call));
+    const refusing: Responder = (call) => (call.body.model === "openrouter/free" ? answerAs("OK")(call) : agenticOnly(String(call.body.model))(call));
     const { outcome, stub } = await probe({ candidates: 2 }, { catalog: longCatalog(), text: refusing });
 
     // Two asked for, four extra attempts: 1 configured + 6 candidates, never g.
@@ -312,7 +337,7 @@ describe("runProbe against what a live OpenRouter returned", () => {
   });
 
   it("recommends only a model that answers the real turn, and gives the next model that called the tool a turn too", async () => {
-    const planner: Responder = (call) => (call.body.model === "openrouter/free" ? openRouterText("I am not sure about that.")(call) : openRouterText("It is 4.")(call));
+    const planner: Responder = (call) => (call.body.model === "openrouter/free" ? answerAs("I am not sure about that.")(call) : answerAs("It is 4.")(call));
     const { outcome, output, stub } = await probe({ candidates: 1 }, { catalog: longCatalog(), planner });
 
     expect(output).toMatch(/WARN a real ZARVIS turn \(OpenRouter only\) — answered, but not with 4: "I am not sure about that\./);
@@ -324,10 +349,10 @@ describe("runProbe against what a live OpenRouter returned", () => {
     expect(chatCalls(stub).filter(isPlanner).map((c) => c.body.model)).toEqual(["openrouter/free", "vendor/a:free"]);
   });
 
-  it("gives at most two models a real turn, and recommends none when neither answers it", async () => {
-    const { outcome, output, stub } = await probe({ candidates: 3 }, { catalog: longCatalog(), planner: openRouterText("No idea.") });
+  it("gives at most three models a real turn, and recommends none when none answers it", async () => {
+    const { outcome, output, stub } = await probe({ candidates: 4 }, { catalog: longCatalog(), planner: answerAs("No idea.") });
 
-    expect(chatCalls(stub).filter(isPlanner)).toHaveLength(2);
+    expect(chatCalls(stub).filter(isPlanner)).toHaveLength(3);
     expect(outcome.ok).toBe(false);
     expect(outcome.recommended).toBeUndefined();
     expect(output).toMatch(/none of the models given a real ZARVIS turn answered it correctly/);
@@ -345,6 +370,41 @@ describe("runProbe against what a live OpenRouter returned", () => {
     const { output } = await probe({});
 
     expect(output).toMatch(/INFO free models with tool support — openrouter\/free \(200k\), vendor\/big-free:free \(131k\), vendor\/mid-free:free \(66k\), vendor\/small-free:free \(8k\)/);
+  });
+
+  it("tries the models a router served before the public list's ranking: they are known to be reachable with this key", async () => {
+    // openrouter/free served one model for the plain request and another for the tool call.
+    const { outcome, output } = await probe(
+      { candidates: 2 },
+      { catalog: longCatalog(), text: openRouterText("OK", "vendor/seed-a:free"), tools: toolCallServedBy("vendor/seed-b:free") },
+    );
+
+    expect(outcome.results.map((r) => r.model)).toEqual(["openrouter/free", "vendor/seed-a:free", "vendor/seed-b:free"]);
+    expect(output).toMatch(/PASS openrouter\/free · plain request — "OK" from vendor\/seed-a:free/);
+  });
+
+  it("asks nobody else when no candidates are wanted, even if a router served other models", async () => {
+    const { outcome } = await probe({ candidates: 0 }, { catalog: longCatalog(), text: openRouterText("OK", "vendor/seed-a:free") });
+
+    expect(outcome.results.map((r) => r.model)).toEqual(["openrouter/free"]);
+  });
+
+  it("recommends a model to pin when the account's data policy refuses the router's real turn (the live failure)", async () => {
+    const policy =
+      "0 endpoints out of 8 requested are available matching your guardrail restrictions and data policy. We removed them for the following reasons (an endpoint may have matched multiple reasons): ZDR violations (8)";
+    const planner: Responder = (call) => (call.body.model === "openrouter/free" ? openRouterFail(404, policy)(call) : answerAs("It is 4.")(call));
+    const { outcome, output } = await probe(
+      { candidates: 2 },
+      { catalog: longCatalog(), text: openRouterText("OK", "vendor/seed-a:free"), tools: toolCallServedBy("vendor/seed-b:free"), planner },
+    );
+
+    // The router's own real turn was refused, and the whole reason is on the line.
+    expect(output).toMatch(/FAIL a real ZARVIS turn \(OpenRouter only\) — AI_PROVIDER_CAPABILITY_UNSUPPORTED \(HTTP 404\).*ZDR violations \(8\) \(model openrouter\/free\)/);
+    // A model that the router served does answer it, so that one is what to pin.
+    expect(outcome.recommended).toBe("vendor/seed-a:free");
+    expect(output).toMatch(/OPENROUTER_MODEL=vendor\/seed-a:free/);
+    expect(output).not.toMatch(/is a router/);
+    expect(outcome.ok).toBe(true);
   });
 
   it("keeps text from the network on one line: a line break in an error must not start a workflow command", async () => {

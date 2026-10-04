@@ -500,11 +500,20 @@ reach openrouter.ai):
    secrets to a fork). Once the workflow file is on the default branch: Actions, **OpenRouter live
    probe**, Run workflow, with an optional `model` to test first and a count of other free models
    with tool support to try.
-3. Read the job log or its summary: per model, a plain request and a tool call (`PASS`, `WARN`,
-   `FAIL`, with the structured kind and HTTP status of a failure: a rejected key, an empty balance, a
-   free-model privacy block, a model without tool support), then one real ZARVIS turn through an
-   OpenRouter-only gateway, then the exact `OPENROUTER_MODEL` and `OPENROUTER_MODEL_CAPABILITIES`
-   to copy into Vercel. The key is never printed.
+3. Read the job log or its summary. The probe tests the configured model (default `openrouter/free`),
+   then the models that router actually served (they are known to be reachable with this key and
+   this account's settings), then down the public list of free models with tool support, until a few
+   of them answered. A model can be listed as free and tool-capable and still be refused (the 403 and
+   404 rows in §6), so a refusal does not end the probe. Per model: a plain request and a tool call
+   (`PASS`, `WARN`, `FAIL`, with the structured kind, the HTTP status and OpenRouter's whole
+   explanation of a failure: a rejected key, an empty balance, a data-policy refusal, a model without
+   tool support). Every line names the model that actually answered, which matters because
+   `openrouter/free` is a router that can serve each request with a different free model. A model that
+   called the tool then gets one real ZARVIS turn (the planner prompt with the real skill registry)
+   through an OpenRouter-only gateway, up to three models in turn, and that turn is the verdict: the
+   exact `OPENROUTER_MODEL` and `OPENROUTER_MODEL_CAPABILITIES=tools` to copy into Vercel are printed
+   only for a model that answered it correctly. The key is never printed. A run sends up to about 20
+   requests, which count against the free-model limits (the 429 row in §6).
 
 Without the workflow, the same proof is to set `AI_PRIMARY_PROVIDER=openrouter` and
 `AI_FALLBACK_PROVIDER=none` on a Preview deployment (with `OPENROUTER_MODEL_CAPABILITIES=tools`),
@@ -525,6 +534,9 @@ send a message, and remove both again.
 | `AI_PROVIDER_CAPABILITY_UNSUPPORTED` | the request needs something no configured model declares (tools, vision, coding, a larger context, a HEIC image) | declare the capability, change the model, or configure Gemini |
 | OpenRouter 402 | the OpenRouter balance is empty (it blocks free models too) | add credits; it is reported as a spent quota, never retried |
 | OpenRouter 429 | free-model caps (OpenRouter documents per-minute and per-day limits that depend on the account's credit history: https://openrouter.ai/docs) | retried once if the wait is short; a daily cap is not retried |
+| `AI_PROVIDER_AUTH_ERROR`, HTTP 403, "... is only available on agentic harnesses" | that model is restricted to approved coding-agent apps; the key is fine. The live probe met it for two models that the public list showed as free with tool support | choose another model. A 403 is never a fallback reason; the probe walks past such models |
+| `AI_PROVIDER_CAPABILITY_UNSUPPORTED`, HTTP 404, "0 endpoints out of N requested are available matching your guardrail restrictions and data policy ..." | the OpenRouter account's own data-policy or guardrail settings (the message names the reason, for example ZDR, zero data retention) removed every endpoint that could serve this request. The probe met it for the real ZARVIS turn through `openrouter/free` while smaller requests were served | the setting is in OpenRouter (Settings, Privacy; Guardrails), not in this repository: allow the endpoints you need, or pin a model whose endpoints pass your policy (the probe tries the models its router served and prints the whole reason list) |
+| The probe shows `WARN ... plain request ... empty message` | a reasoning model spent its output budget thinking and wrote no text (the line gives the model and the tokens used); `openrouter/free` is a router, so which model answers varies per request | the real ZARVIS turn decides. For predictable behaviour pin a model id that passed (`OPENROUTER_MODEL`) |
 | A tool call runs with "missing details" | the model returned tool arguments that are not valid JSON, so the input is empty (never invented) | use a model with reliable function calling |
 | Answers differ in quality or language after a fallback | a different, possibly free, model answered | check `model` and `fallbackReason` in `AI call` |
 | Turns time out on Vercel | the function's maximum duration is shorter than Gemini plus OpenRouter | raise it, or lower `OPENROUTER_TIMEOUT_MS` |
@@ -545,7 +557,7 @@ send a message, and remove both again.
 | `test/agents/gatewayTurns.test.ts` | one turn through the real orchestrator, pipeline, skills and providers: request counts, billing, replay, concurrent duplicates, Retry, disconnect (also on real Postgres in CI) |
 | `test/api/gatewayApi.test.ts` | `/health`, request ids and log correlation, nothing provider-specific reaches a client, image route, TTS independence, a real HTTP disconnect |
 | `test/security/redact.test.ts`, `test/ai/contentGenerator.test.ts`, `test/observability/requestContext.test.ts` | redaction, skill error mapping, correlation ids |
-| `test/scripts/openrouterProbe.test.ts` | the live-probe script against a stubbed OpenRouter: model-list parsing and candidate choice, pass / warn / fail for each check, the key only in the Authorization header and never printed, the real turn |
+| `test/scripts/openrouterProbe.test.ts` | the live-probe script against a stubbed OpenRouter: model-list parsing and candidate choice, pass / warn / fail for each check, the key only in the Authorization header and never printed, walking past models that refuse (403) within a bounded number of attempts, a rejected key ending the probe, the real turn as the verdict (a second model gets one when the first does not answer it), the serving model named, text from the network kept on one log line |
 
 ---
 

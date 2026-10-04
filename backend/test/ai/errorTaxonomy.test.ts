@@ -146,10 +146,11 @@ describe("OpenRouter failure classification (same retry policy as Gemini)", () =
     expect(moderation.kind).toBe("AI_PROVIDER_INVALID_REQUEST");
     expect(moderation.message).not.toContain("private user text"); // user content never reaches an error message
 
-    const auth = toOpenRouterError("OpenRouter chat completions", 401, "Unauthorized", { kind: "fatal" }, JSON.stringify({ error: { code: 401, message: `bad key sk-or-v1-${"a".repeat(30)} ${"x".repeat(500)}` } }));
+    const auth = toOpenRouterError("OpenRouter chat completions", 401, "Unauthorized", { kind: "fatal" }, JSON.stringify({ error: { code: 401, message: `bad key sk-or-v1-${"a".repeat(30)} ${"x".repeat(5000)}` } }));
     expect(auth.kind).toBe("AI_PROVIDER_AUTH_ERROR");
     expect(auth.message).not.toMatch(/sk-or-v1-a{10}/);
-    expect(auth.message.length).toBeLessThan(300);
+    // The detail keeps at most 600 characters of OpenRouter's message (a routing refusal lists its reasons last).
+    expect(auth.message.length).toBeLessThan(700);
     expect(auth).toMatchObject({ provider: "openrouter", retryable: false, code: "AI_UNAVAILABLE" });
   });
 });

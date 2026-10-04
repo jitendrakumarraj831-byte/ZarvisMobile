@@ -76,7 +76,9 @@ const PROBE_MAX_TOKENS = 256;
 /** How many more candidates than asked for may be tried when some refuse (each costs a free-tier request). */
 const EXTRA_CANDIDATE_ATTEMPTS = 4;
 /** How many models are given a real ZARVIS turn when the earlier ones do not answer it correctly. */
-const MAX_TURN_TRIES = 2;
+const MAX_TURN_TRIES = 3;
+/** A failure keeps this much of OpenRouter's explanation: a routing refusal lists its reasons last. */
+const MAX_DETAIL_CHARS = 900;
 
 // ---- the public model list ----------------------------------------------------------------------
 
@@ -134,17 +136,19 @@ const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 /** What an operator needs from a failure: the structured kind, the HTTP status and a bounded, scrubbed message. */
 function describeError(error: unknown): string {
-  if (error instanceof AIProviderError) return oneLine(`${error.kind} (HTTP ${error.status || "none"}): ${redactString(error.message)}`).slice(0, 300);
-  return oneLine(redactString(error instanceof Error ? error.message : String(error))).slice(0, 300);
+  if (error instanceof AIProviderError) return oneLine(`${error.kind} (HTTP ${error.status || "none"}): ${redactString(error.message)}`).slice(0, MAX_DETAIL_CHARS);
+  return oneLine(redactString(error instanceof Error ? error.message : String(error))).slice(0, MAX_DETAIL_CHARS);
 }
 
 const seconds = (started: number): string => ((Date.now() - started) / 1000).toFixed(1);
 
-/** `(served by X)` when OpenRouter says another model than the one asked for answered (a router picks its own). */
-function servedNote(records: readonly ModelCallRecord[], model: string): string {
+/** The model OpenRouter says answered, when it is not the one asked for: a router picks its own. */
+function servedInstead(records: readonly ModelCallRecord[], model: string): string | undefined {
   const served = records.find((record) => record.servedModel)?.servedModel;
-  return served && served !== model ? ` (served by ${served})` : "";
+  return served && served !== model ? served : undefined;
 }
+
+const servedNote = (served: string | undefined): string => (served ? ` (served by ${served})` : "");
 
 const ADD_TOOL: ToolDefinition = {
   // A dotted name on purpose: ZARVIS skill ids contain dots, which the adapter must encode and decode.
@@ -162,8 +166,12 @@ function request(model: string, overrides: Partial<AIRequest>): AIRequest {
   };
 }
 
-interface TextProbe {
+interface Probed {
   row: ProbeRow;
+  /** The model that answered when a router picked another one than was asked for. */
+  served?: string;
+}
+interface TextProbe extends Probed {
   /** True when OpenRouter rejected the key itself (HTTP 401): no model can get around that, so none is tried. */
   keyRejected: boolean;
 }
@@ -177,19 +185,19 @@ async function probeText(provider: OpenRouterProvider, model: string): Promise<T
       provider.generate(request(model, { messages: [{ role: "user", content: "Reply with the single word OK." }], purpose: "generation" })),
     );
     const answer = response.message.content.trim();
+    const served = servedInstead(records, model);
     if (!answer) {
       // A reasoning model can spend its whole budget thinking and write nothing: the token count shows it.
       const used = response.usage.completionTokens;
-      return { row: { status: "WARN", name, detail: `the model returned an empty message${servedNote(records, model)}; it used ${used} of ${PROBE_MAX_TOKENS} completion tokens` }, keyRejected: false };
+      return { row: { status: "WARN", name, detail: `the model returned an empty message${servedNote(served)}; it used ${used} of ${PROBE_MAX_TOKENS} completion tokens` }, served, keyRejected: false };
     }
-    const served = records.find((record) => record.servedModel)?.servedModel;
-    return { row: { status: "PASS", name, detail: `"${oneLine(redactString(answer)).slice(0, 40)}" from ${served ?? model} in ${seconds(started)} s` }, keyRejected: false };
+    return { row: { status: "PASS", name, detail: `"${oneLine(redactString(answer)).slice(0, 40)}" from ${served ?? model} in ${seconds(started)} s` }, served, keyRejected: false };
   } catch (error) {
     return { row: { status: "FAIL", name, detail: describeError(error) }, keyRejected: error instanceof AIProviderError && error.status === 401 };
   }
 }
 
-async function probeTools(provider: OpenRouterProvider, model: string): Promise<ProbeRow> {
+async function probeTools(provider: OpenRouterProvider, model: string): Promise<Probed> {
   const name = `${model} · tool call`;
   const records: ModelCallRecord[] = [];
   const started = Date.now();
@@ -199,18 +207,18 @@ async function probeTools(provider: OpenRouterProvider, model: string): Promise<
         request(model, { messages: [{ role: "user", content: "Use the probe.add tool to add 2 and 3. Call the tool; do not answer in text." }], tools: [ADD_TOOL], purpose: "planner" }),
       ),
     );
-    const served = servedNote(records, model);
+    const served = servedInstead(records, model);
     const call = response.toolCalls.find((candidate) => candidate.skillId === ADD_TOOL.name);
     if (call) {
       const { a, b } = call.input as { a?: unknown; b?: unknown };
       const numeric = Number(a) === 2 && Number(b) === 3;
       return numeric
-        ? { status: "PASS", name, detail: `called ${call.skillId} with a=2, b=3 in ${seconds(started)} s${served}` }
-        : { status: "WARN", name, detail: `called ${call.skillId} but with unexpected arguments: ${oneLine(redactString(JSON.stringify(call.input))).slice(0, 80)}${served}` };
+        ? { row: { status: "PASS", name, detail: `called ${call.skillId} with a=2, b=3 in ${seconds(started)} s${servedNote(served)}` }, served }
+        : { row: { status: "WARN", name, detail: `called ${call.skillId} but with unexpected arguments: ${oneLine(redactString(JSON.stringify(call.input))).slice(0, 80)}${servedNote(served)}` }, served };
     }
-    return { status: "WARN", name, detail: `the model answered in text and did not call the tool, so tool support is unclear${served}` };
+    return { row: { status: "WARN", name, detail: `the model answered in text and did not call the tool, so tool support is unclear${servedNote(served)}` }, served };
   } catch (error) {
-    return { status: "FAIL", name, detail: describeError(error) };
+    return { row: { status: "FAIL", name, detail: describeError(error) } };
   }
 }
 
@@ -319,30 +327,41 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
       add({ status: "WARN", name: `${model} · per the public list`, detail: "not found; check the spelling on openrouter.ai/models" });
     }
   } catch (error) {
-    add({ status: "WARN", name: "public model list", detail: `unavailable (${describeError(error)}); other candidates are skipped` });
+    add({ status: "WARN", name: "public model list", detail: `unavailable (${describeError(error)}); the list's candidates are skipped` });
   }
 
   const provider = new OpenRouterProvider({ apiKey, baseUrl, timeoutMs: REQUEST_TIMEOUT_MS });
-  // The candidates are a ranked list to walk, not a fixed few: a model can be listed as free with tool
-  // support and still refuse an ordinary app (HTTP 403 "only available on agentic harnesses"). The walk
-  // goes on until `candidateCount` of them answered; the cap bounds the free-tier requests it spends.
-  const ranked = candidateCount > 0 ? pickCandidates(catalog, candidateCount + EXTRA_CANDIDATE_ATTEMPTS, [model]).map((m) => m.id) : [];
+  // The candidates are a queue to walk, not a fixed few. A model can be listed as free with tool support
+  // and still refuse an ordinary app (HTTP 403 "only available on agentic harnesses") or be removed by the
+  // account's data policy (HTTP 404). The walk goes on until `candidateCount` of them answered; the cap
+  // bounds the free-tier requests it spends.
+  const maxCandidates = candidateCount > 0 ? candidateCount + EXTRA_CANDIDATE_ATTEMPTS : 0;
+  const ranked = maxCandidates > 0 ? pickCandidates(catalog, maxCandidates, [model]).map((m) => m.id) : [];
+  const queue = [model];
   let answering = 0;
   let keyRejected = false;
-  for (const [index, id] of [model, ...ranked].entries()) {
+  for (let index = 0; index < queue.length; index += 1) {
     if (index > 0 && (keyRejected || answering >= candidateCount)) break;
+    const id = queue[index]!;
     const plain = await probeText(provider, id);
     const text = add(plain.row);
     keyRejected = plain.keyRejected;
     // A rejected key, an empty balance or a privacy block already ended the plain request: do not spend more.
-    const tools =
-      text.status === "FAIL"
-        ? add({ status: "SKIP", name: `${id} · tool call`, detail: "not tried: the plain request failed" })
-        : add(await probeTools(provider, id));
+    const toolsProbe: Probed =
+      text.status === "FAIL" ? { row: { status: "SKIP", name: `${id} · tool call`, detail: "not tried: the plain request failed" } } : await probeTools(provider, id);
+    const tools = add(toolsProbe.row);
     results.push({ model: id, text, tools });
     if (index > 0 && text.status !== "FAIL") answering += 1;
+    if (index === 0 && maxCandidates > 0) {
+      // A router (openrouter/free) serves a different model per request. Those models are known to be
+      // reachable with this key and this account's settings, so they are tried before the list's ranking.
+      for (const next of [plain.served, toolsProbe.served, ...ranked]) {
+        if (next && MODEL_ID.test(next) && !queue.includes(next)) queue.push(next);
+      }
+      queue.length = Math.min(queue.length, 1 + maxCandidates);
+    }
   }
-  if (keyRejected && ranked.length > 0) {
+  if (keyRejected && queue.length > 1) {
     add({ status: "SKIP", name: "other models", detail: "not tried: OpenRouter rejected the API key (HTTP 401), and no other model can change that" });
   }
 

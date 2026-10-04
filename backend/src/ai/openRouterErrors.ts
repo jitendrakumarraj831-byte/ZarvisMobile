@@ -37,7 +37,12 @@ export interface OpenRouterErrorInfo {
   hintText: string;
 }
 
-const MAX_DETAIL_CHARS = 200;
+/**
+ * How much of OpenRouter's own message an error keeps. A routing refusal ("0 endpoints out of 8 are
+ * available matching your guardrail restrictions and data policy ...") lists its reasons last, after
+ * about 200 characters, and the reasons are what says which account setting to change.
+ */
+const MAX_DETAIL_CHARS = 600;
 
 export function parseOpenRouterError(bodyText: string): OpenRouterErrorInfo {
   let parsed: OpenRouterErrorBody | undefined;

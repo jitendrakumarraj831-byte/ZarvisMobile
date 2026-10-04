@@ -178,6 +178,18 @@ describe("OpenRouterProvider retries and timeouts (one shared policy)", () => {
     }
   });
 
+  it("keeps OpenRouter's explanation of a routing refusal, reasons included, and bounds it", async () => {
+    const refusal =
+      "0 endpoints out of 8 requested are available matching your guardrail restrictions and data policy. We removed them for the following reasons (an endpoint may have matched multiple reasons): ZDR violations (8)";
+    stubProviders({ openrouter: openRouterFail(404, refusal) });
+    const refused = await error(provider().generate(request()));
+    expect(refused.message).toContain("ZDR violations (8)");
+
+    stubProviders({ openrouter: openRouterFail(404, "x".repeat(5000)) });
+    const endless = await error(provider().generate(request()));
+    expect(endless.message.length).toBeLessThan(700);
+  });
+
   it("retries a network failure a bounded number of times", async () => {
     const stub = stubProviders({
       openrouter: () => {
