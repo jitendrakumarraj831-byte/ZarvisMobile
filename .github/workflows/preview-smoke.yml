@@ -36,9 +36,15 @@ jobs:
 
       # Health, the auth lifecycle (guest, sign-up, login, refresh rotation and replay, logout),
       # error handling, streaming, turn replay, a real model answer, a real web search, PDF
-      # upload, TTS, and account deletion. See scripts/live-smoke.mjs.
+      # upload, the voice (English, Hindi and Hinglish on both endpoints, a long reply, the longest
+      # WAV, cancelling, with a VOICE SUMMARY), and account deletion. See scripts/live-smoke.mjs.
       - name: Live API checks
         env:
           BASE_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
           BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          # Only if the deployment sets TTS_EN_VOICE / TTS_HI_VOICE / TTS_HINGLISH_VOICE: the same names as
+          # repository variables, so the voice checks expect them. Unset, the built-in voices are expected.
+          EXPECT_EN_VOICE: ${{ vars.EXPECT_EN_VOICE }}
+          EXPECT_HI_VOICE: ${{ vars.EXPECT_HI_VOICE }}
+          EXPECT_HINGLISH_VOICE: ${{ vars.EXPECT_HINGLISH_VOICE }}
         run: node scripts/live-smoke.mjs
