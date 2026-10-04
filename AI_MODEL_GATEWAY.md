@@ -488,12 +488,35 @@ between serverless instances.
 4. A rejected setting shows as `/health` 500 `ai_provider_config_invalid` with the variable named in
    the function log.
 
+**Prove OpenRouter works (live probe).** OpenRouter is the *backup*: while Gemini is healthy it is
+never asked, so a working deployment shows nothing of it, and `aiFallback: true` only proves a key is
+present, not that it is valid or that a model can serve chat. The manual **OpenRouter live probe**
+workflow calls the live API through this repository's own adapter, from GitHub Actions (which can
+reach openrouter.ai):
+
+1. Add the repository secret `OPENROUTER_API_KEY` (Settings, Secrets and variables, Actions).
+2. Start it. From a pull request branch, add the label `openrouter-probe` to the pull request
+   (remove and add it again to re-run; same-repository pull requests only, because GitHub passes no
+   secrets to a fork). Once the workflow file is on the default branch: Actions, **OpenRouter live
+   probe**, Run workflow, with an optional `model` to test first and a count of other free models
+   with tool support to try.
+3. Read the job log or its summary: per model, a plain request and a tool call (`PASS`, `WARN`,
+   `FAIL`, with the structured kind and HTTP status of a failure: a rejected key, an empty balance, a
+   free-model privacy block, a model without tool support), then one real ZARVIS turn through an
+   OpenRouter-only gateway, then the exact `OPENROUTER_MODEL` and `OPENROUTER_MODEL_CAPABILITIES`
+   to copy into Vercel. The key is never printed.
+
+Without the workflow, the same proof is to set `AI_PRIMARY_PROVIDER=openrouter` and
+`AI_FALLBACK_PROVIDER=none` on a Preview deployment (with `OPENROUTER_MODEL_CAPABILITIES=tools`),
+send a message, and remove both again.
+
 ---
 
 ## 6. Troubleshooting
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
+| "OpenRouter does not work", but Gemini does | OpenRouter is the backup: with Gemini healthy it is never asked, and on Production it does not exist until this code is merged | Nothing is wrong. To see it answer, prove it with the live probe (§5), or make it primary on a Preview deployment for a moment |
 | Gemini hits its quota and users still see the quota error | the fallback is off, not configured, or cannot serve the request | `/health`: `aiFallback` present? `aiFallbackTools` true? (false = the OpenRouter model declares no `tools`, which every chat turn needs). In the `AI call failed` log line, `attempts` listing only `google` means the fallback was never tried |
 | No fallback for chat turns only; content skills do fall back | the OpenRouter model does not declare `tools` (the safe default) | verify the model supports function calling, then `OPENROUTER_MODEL_CAPABILITIES=tools` |
 | Nothing falls back, and logs show `AI_PROVIDER_AUTH_ERROR` | a provider rejects its key (never a fallback reason) | fix the key; `AI call failed` names which provider |
@@ -522,6 +545,7 @@ between serverless instances.
 | `test/agents/gatewayTurns.test.ts` | one turn through the real orchestrator, pipeline, skills and providers: request counts, billing, replay, concurrent duplicates, Retry, disconnect (also on real Postgres in CI) |
 | `test/api/gatewayApi.test.ts` | `/health`, request ids and log correlation, nothing provider-specific reaches a client, image route, TTS independence, a real HTTP disconnect |
 | `test/security/redact.test.ts`, `test/ai/contentGenerator.test.ts`, `test/observability/requestContext.test.ts` | redaction, skill error mapping, correlation ids |
+| `test/scripts/openrouterProbe.test.ts` | the live-probe script against a stubbed OpenRouter: model-list parsing and candidate choice, pass / warn / fail for each check, the key only in the Authorization header and never printed, the real turn |
 
 ---
 
@@ -529,8 +553,10 @@ between serverless instances.
 
 - **OpenRouter has not been exercised against the live API.** The build environment's network policy
   blocks `openrouter.ai`, so the adapter follows OpenRouter's documented OpenAI-compatible contract
-  and is verified against stubbed HTTP responses only (as the Gemini tests have always been). First
-  real use: set `OPENROUTER_API_KEY` in Preview, confirm `/health` shows `aiFallback: true` (and
+  and is verified against stubbed HTTP responses only (as the Gemini tests have always been). The
+  manual **OpenRouter live probe** workflow (§5) is how to close this gap from GitHub Actions; until
+  someone has run it, treat OpenRouter as unproven. First real use in a deployment: set
+  `OPENROUTER_API_KEY` in Preview, confirm `/health` shows `aiFallback: true` (and
   `aiFallbackTools: true`, or chat turns will not fall back), run the
   smoke test, and watch the function log for the first real Gemini quota or outage event (an
   `AI provider fallback` line). An invalid Gemini key is deliberately not a fallback reason, so it

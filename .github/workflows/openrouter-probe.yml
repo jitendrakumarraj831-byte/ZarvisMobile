@@ -1,0 +1,68 @@
+name: OpenRouter live probe
+
+# Manual only. The environment this repository is developed in cannot reach openrouter.ai, so nothing
+# else here has ever called the live OpenRouter API. This runs the repository's own adapter
+# (backend/src/ai/openRouterProvider.ts) against it with the repository secret OPENROUTER_API_KEY and
+# reports whether OpenRouter works for ZARVIS and which model to configure. See
+# backend/scripts/openrouter-probe.ts and AI_MODEL_GATEWAY.md.
+#
+# Two ways to start it:
+#   - "Run workflow" in the Actions tab (workflow_dispatch). GitHub only offers that once this file is
+#     on the default branch.
+#   - From a pull request branch, before that: add the label `openrouter-probe` to the pull request
+#     (remove and add it again to re-run). Same-repository pull requests only: GitHub passes no
+#     secrets to a fork's workflow run, so a fork gets "OPENROUTER_API_KEY not set".
+#
+# The key is only sent as an Authorization header by the adapter and is never printed. A run sends a
+# handful of requests (free models have per-minute and per-day limits), so it is never scheduled.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "OpenRouter model id to test first (blank = openrouter/free)"
+        required: false
+        default: ""
+      candidates:
+        description: "How many other free models that support tools to also try (0 to 5)"
+        required: false
+        default: "2"
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openrouter-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    # Any other label on any pull request starts this workflow and is skipped here.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'openrouter-probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      # The inputs reach the script through the environment, never through the shell command line.
+      # (They are empty for a label-started run, which then uses the defaults.)
+      - name: Probe OpenRouter
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PROBE_MODEL: ${{ inputs.model }}
+          PROBE_CANDIDATES: ${{ inputs.candidates }}
+        run: npx tsx scripts/openrouter-probe.ts
