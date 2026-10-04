@@ -110,7 +110,7 @@ shipped client, and neither calls an AI provider.
 | root: `npx tsc -p tsconfig.json --noEmit` (the Vercel entrypoint) | pass |
 | web: `node --check` on the four scripts, `node --test web/tests/*.test.js` | pass, 13/13 |
 | Android | **not runnable here**: no Android SDK, and `dl.google.com` is blocked (the same limit the earlier audits recorded); Android runs on GitHub Actions |
-| OpenRouter | **not reachable here**: `openrouter.ai` is blocked by this environment's network policy, so nothing in this work was verified against the live OpenRouter API (see §8) |
+| OpenRouter | **not reachable from the build sandbox**: `openrouter.ai` is blocked by this environment's network policy, so the unit tests use stubbed HTTP. The adapter was verified against the live API afterwards, from GitHub Actions, with the live probe (§5; what it showed is in §8) |
 
 ---
 
@@ -565,14 +565,23 @@ send a message, and remove both again.
 
 ## 8. Limitations and operating notes
 
-- **OpenRouter has not been exercised against the live API.** The build environment's network policy
-  blocks `openrouter.ai`, so the adapter follows OpenRouter's documented OpenAI-compatible contract
-  and is verified against stubbed HTTP responses only (as the Gemini tests have always been). The
-  manual **OpenRouter live probe** workflow (§5) is how to close this gap from GitHub Actions; until
-  someone has run it, treat OpenRouter as unproven. First real use in a deployment: set
-  `OPENROUTER_API_KEY` in Preview, confirm `/health` shows `aiFallback: true` (and
-  `aiFallbackTools: true`, or chat turns will not fall back), run the
-  smoke test, and watch the function log for the first real Gemini quota or outage event (an
+- **What the live OpenRouter probe has and has not shown (2026-10-04).** The build environment's
+  network policy blocks `openrouter.ai`, so the unit tests use stubbed HTTP responses (as the Gemini
+  tests always have). The manual **OpenRouter live probe** (§5) called the live API through this
+  adapter, from GitHub Actions, with the repository secret. It showed that the key is accepted, that a
+  plain request and a tool call (with a dotted tool name) work, and that a complete ZARVIS planner
+  turn is answered through OpenRouter alone: through the `openrouter/free` router in one run, and
+  pinned to `inclusionai/ling-3.0-flash-sante:free` in another. It also showed that availability under
+  a free account is uneven: models that the public list calls free and tool-capable were refused (HTTP
+  403 "only available on agentic harnesses"; HTTP 404 "guardrail restrictions and data policy"), and
+  the router was refused by the account's data policy in one run and passed in the next. So pin a model
+  that the probe verified, and run the probe again when a model stops working. **Not verified:** a
+  real Gemini quota or outage event falling back to OpenRouter in a deployed environment, end to end.
+  The fallback logic is verified against stubs and the OpenRouter half in isolation by the probe; the
+  Vercel value of `OPENROUTER_API_KEY` itself was not exercised (the probe used the GitHub secret).
+  First real use in a deployment: set `OPENROUTER_API_KEY` in Preview, confirm `/health` shows
+  `aiFallback: true` (and `aiFallbackTools: true`, or chat turns will not fall back), run the smoke
+  test, and watch the function log for the first real Gemini quota or outage event (an
   `AI provider fallback` line). An invalid Gemini key is deliberately not a fallback reason, so it
   cannot be used to force one.
 - **Android** was not changed and could not be built here (no Android SDK; `dl.google.com` is
