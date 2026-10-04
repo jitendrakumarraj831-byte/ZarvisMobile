@@ -57,7 +57,11 @@ const plannerOnly = (planner: Responder): Responder => (call) => (call.body?.too
 describe("GET /health", () => {
   it("keeps its shape, and adds aiFallback only while a fallback provider is active", async () => {
     const both = await request(appWith()).get("/health");
-    expect(both.body).toEqual({ status: "ok", provider: "google", aiFallback: true, database: "not_configured" });
+    // The default OpenRouter model declares no tools, so a chat turn cannot fall back: /health says so.
+    expect(both.body).toEqual({ status: "ok", provider: "google", aiFallback: true, aiFallbackTools: false, database: "not_configured" });
+
+    const withTools = await request(appWith({ openRouterModelCapabilities: "tools" })).get("/health");
+    expect(withTools.body).toEqual({ status: "ok", provider: "google", aiFallback: true, aiFallbackTools: true, database: "not_configured" });
 
     const geminiOnly = await request(appWith({ openRouterApiKey: undefined })).get("/health");
     expect(geminiOnly.body).toEqual({ status: "ok", provider: "google", database: "not_configured" });

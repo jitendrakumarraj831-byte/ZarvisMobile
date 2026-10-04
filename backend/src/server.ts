@@ -101,9 +101,13 @@ export function buildServer(container: Container): Express {
     const database = (await container.store.healthCheck?.()) ?? "not_configured";
     const healthy = database === "ok" || database === "not_configured";
     // `provider` is the one that answers by default. `aiFallback` appears only while a fallback
-    // provider is active; it names no model, address or key.
+    // provider is active, and `aiFallbackTools` then says whether its model can take the tool-using
+    // planner step of a chat turn (false: chat turns will not fall back). Neither names a model,
+    // address or key.
     const ai = container.modelGateway.healthSummary();
-    res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", provider: ai.provider, ...(ai.fallback ? { aiFallback: true } : {}), database });
+    res
+      .status(healthy ? 200 : 503)
+      .json({ status: healthy ? "ok" : "degraded", provider: ai.provider, ...(ai.fallback ? { aiFallback: true, aiFallbackTools: ai.fallbackTools === true } : {}), database });
   });
 
   // Coarse per-IP ceiling for every API route, generous enough for shared mobile-carrier IPs.

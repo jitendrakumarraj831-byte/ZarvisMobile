@@ -596,7 +596,19 @@ describe("ModelGateway: status", () => {
     });
     expect(JSON.stringify(status)).not.toContain(GEMINI_KEY);
     expect(JSON.stringify(status)).not.toContain(OPENROUTER_KEY);
-    expect(gateway.healthSummary()).toEqual({ provider: "google", fallback: true });
+    expect(gateway.healthSummary()).toEqual({ provider: "google", fallback: true, fallbackTools: true });
+  });
+
+  it("says whether the fallback can take the planner's tool-using requests, and says nothing about it without a fallback", () => {
+    // The default OpenRouter model declares no tool support (nothing is assumed): chat turns will not fall back.
+    expect(gatewayFor().healthSummary()).toEqual({ provider: "google", fallback: true, fallbackTools: false });
+    // Declaring the capability is what changes it.
+    expect(gatewayFor({ openRouterModelCapabilities: "tools" }).healthSummary()).toEqual({ provider: "google", fallback: true, fallbackTools: true });
+    // Vision alone does not help a chat turn.
+    expect(gatewayFor({ openRouterModelCapabilities: "vision" }).healthSummary().fallbackTools).toBe(false);
+    // With no fallback there is nothing to describe: the key is absent, not false.
+    expect(gatewayFor({ openRouterApiKey: undefined }).healthSummary()).toEqual({ provider: "google", fallback: false });
+    expect(gatewayFor({ aiFallbackProvider: "none" }).healthSummary()).toEqual({ provider: "google", fallback: false });
   });
 
   it("counts calls, fallbacks and failures by kind", async () => {

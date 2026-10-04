@@ -329,14 +329,26 @@ export class ModelGateway implements AIProvider {
   }
 
   /**
-   * What `/health` may say: the provider that answers by default, and whether a fallback is
-   * active. Names no model, URL or key.
+   * What `/health` may say: the provider that answers by default, whether a fallback is active,
+   * and (only then) whether the fallback's model declares tool support, which every chat turn's
+   * planner step needs. Names no model, URL or key.
    */
-  healthSummary(): { provider: string; fallback: boolean } {
+  healthSummary(): { provider: string; fallback: boolean; fallbackTools?: boolean } {
     const { primary, fallback } = this.effective();
-    if (primary) return { provider: primary.id, fallback: fallback !== undefined };
+    if (primary) {
+      return {
+        provider: primary.id,
+        fallback: fallback !== undefined,
+        ...(fallback ? { fallbackTools: this.declaresTools(fallback) } : {}),
+      };
+    }
     const offline = this.offlineProvider();
     return { provider: offline?.id ?? "none", fallback: false };
+  }
+
+  /** True when an enabled catalog model of this provider declares tool support. */
+  private declaresTools(reg: GatewayProvider): boolean {
+    return this.options.catalog.some((entry) => entry.provider === reg.id && entry.enabled && entry.capabilities.tools);
   }
 
   /** The default model for logging and the orchestrator's `modelConfig` (routing ignores it). */

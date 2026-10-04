@@ -46,8 +46,10 @@ environment that must work, including Preview:
 
 Set the AI variables in **Production and Preview**, then redeploy (a changed variable applies to new
 deployments only). `/health` shows `provider` and, while a fallback provider is active,
-`aiFallback: true`; a present-but-invalid AI setting makes it answer 500 `ai_provider_config_invalid`
-(the function log names the variable). Local `.env` files are git-ignored.
+`aiFallback: true` and `aiFallbackTools` (`false` means the fallback model declares no tool support,
+so chat turns will not fall back; set `OPENROUTER_MODEL_CAPABILITIES=tools`); a present-but-invalid
+AI setting makes it answer 500 `ai_provider_config_invalid` (the function log names the variable).
+Local `.env` files are git-ignored.
 
 Check a deployment with `GET /health`. It never returns secrets; `database` is one of `ok`,
 `not_configured`, `tls_certificate_untrusted`, `auth_failed`, `unreachable`,

@@ -137,8 +137,13 @@ async function main() {
     return;
   }
   const h = health.json ?? {};
-  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, aiFallback: h.aiFallback, database: h.database, reason: h.reason })}`);
+  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, aiFallback: h.aiFallback, aiFallbackTools: h.aiFallbackTools, database: h.database, reason: h.reason })}`);
   report(health.status === 200 && h.database !== undefined ? "PASS" : "FAIL", "GET /health", `HTTP ${health.status}`);
+  if (h.aiFallback && h.aiFallbackTools === false) {
+    // Not a failure: the deployment works as configured. But a fallback that cannot take a chat turn's
+    // planner step does nothing for chat when the primary provider is out of quota or down.
+    report("WARN", "the AI fallback cannot serve chat turns", "a fallback provider is configured but its model does not declare tool support, so chat turns will not fall back (set OPENROUTER_MODEL_CAPABILITIES=tools for a model that supports tool calling)");
+  }
   const provider = h.provider;
   // The providers that can answer a chat turn. Web search needs Gemini's Google Search grounding.
   const liveProvider = provider === "google" ? "Gemini" : provider === "openrouter" ? "OpenRouter" : undefined;
@@ -193,7 +198,16 @@ async function main() {
 
   const model = await turn(guestToken, "Reply with the single word OK.");
   if (model.done) {
-    report(liveProvider ? "PASS" : "FAIL", "a turn that needs the AI model", liveProvider ? `${liveProvider} answered${h.aiFallback ? " (a fallback provider is also configured)" : ""}` : `answered by provider ${provider}, not a live AI provider`);
+    // The response deliberately does not say which provider produced it, so this can only name the
+    // deployment's DEFAULT provider (from /health). With a fallback configured the answer may have
+    // come from either; the function log's `AI call` line records which.
+    report(
+      liveProvider ? "PASS" : "FAIL",
+      "a turn that needs the AI model",
+      liveProvider
+        ? `an AI answer was returned (default provider: ${liveProvider}${h.aiFallback ? "; a fallback provider is also configured, and the response does not say which one answered" : ""})`
+        : `answered by provider ${provider}, not a live AI provider`,
+    );
   } else if (quota(model.error?.code)) {
     report("WARN", "a turn that needs the AI model", `the AI provider is reachable but out of quota (${model.error.code}); no answer verified`);
   } else if (model.error?.code === "AI_UNAVAILABLE" && model.error.retryable) {

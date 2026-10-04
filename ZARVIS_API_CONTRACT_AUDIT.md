@@ -19,7 +19,7 @@ for other origins; a per-IP ceiling of 600/min on `/api/v1`; errors are
 
 | Method | Path | Auth | Route limit | Request | Response | Streaming | Web | Android |
 |---|---|---|---|---|---|---|---|---|
-| GET | `/health` | none | 600/min/IP | — | `{status, provider, database}` plus `aiFallback: true` only while a fallback AI provider is active; `provider` is `google`, `openrouter`, `mock` or `none`; 503 when the DB is unusable | no | yes | no |
+| GET | `/health` | none | 600/min/IP | — | `{status, provider, database}` plus `aiFallback: true` and `aiFallbackTools: true\|false` only while a fallback AI provider is active (`aiFallbackTools: false` = its model declares no tool support, so chat turns will not fall back); `provider` is `google`, `openrouter`, `mock` or `none`; 503 when the DB is unusable | no | yes | no |
 | POST | `/api/v1/auth/guest` | none | 60/h/IP | — | `{accessToken, refreshToken, isGuest}` | no | yes | yes |
 | POST | `/api/v1/auth/signup` | none | 60/h/IP | `{email, password}` | tokens | no | — | yes |
 | POST | `/api/v1/auth/login` | none | 20/15 min/IP | `{email, password}` | tokens; 401 `invalid_credentials` | no | yes | yes |
@@ -93,7 +93,8 @@ Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/gi
 
 - Every response carries `X-Request-Id` (a random id; the same id is on the server's AI log lines).
   The web client is same-origin and does not read it.
-- `/health` may add `aiFallback: true`. `provider` may now be `openrouter` when Gemini is not
+- `/health` may add `aiFallback: true` and `aiFallbackTools` (additive; every consumer reads only the
+  status code or `provider`). `provider` may now be `openrouter` when Gemini is not
   configured; the web client's Settings and Metrics pages show it truthfully.
 - AI failures keep their wire codes `AI_QUOTA_EXCEEDED` (429), `AI_RATE_LIMITED` (429) and
   `AI_UNAVAILABLE` (503) with the same body shape. New internal causes (a timeout, a network failure,

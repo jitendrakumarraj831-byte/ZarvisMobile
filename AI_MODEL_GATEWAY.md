@@ -419,7 +419,11 @@ leave a capability off). A provider listed in the JSON is described entirely by 
 ```
 
 `/health` reports `provider` (the one answering by default: `google`, `openrouter`, `mock` or `none`)
-and, only while a fallback is active, `aiFallback: true`. It names no model, address or key.
+and, only while a fallback is active, `aiFallback: true` and `aiFallbackTools`. `aiFallbackTools: false`
+means the fallback model declares no tool support, so **chat turns will not fall back** (every chat
+turn starts with a tool-using planner step); only text-only skills can. It is the one-tap way to see,
+from a phone, whether `OPENROUTER_MODEL_CAPABILITIES=tools` took effect. It names no model, address
+or key.
 
 ---
 
@@ -430,7 +434,7 @@ cd backend
 cp .env.example .env        # .env is git-ignored, as is any .env.* at the repo root
 # set GEMINI_API_KEY and/or OPENROUTER_API_KEY in .env
 npm ci && npm run dev
-curl localhost:3000/health   # {"status":"ok","provider":"google","aiFallback":true,...}
+curl localhost:3000/health   # {"status":"ok","provider":"google","aiFallback":true,"aiFallbackTools":false,...}
 ```
 
 With no key at all the server runs on the labelled development mock (`provider: mock`). Tests never
@@ -471,12 +475,16 @@ between serverless instances.
 
 **Check a deployment.**
 
-1. `GET /health` returns `provider` and, with a fallback, `"aiFallback": true`. Compare Production and
-   Preview: they must agree.
+1. `GET /health` returns `provider` and, with a fallback, `"aiFallback": true` and `"aiFallbackTools"`
+   (`false`: chat turns will not fall back). Compare Production and Preview: they must agree. Code
+   that is not merged is not on Production: it has no `aiFallback` at all.
 2. The function log's `AI gateway ready` line lists the models and declared capabilities and any
    `notes` (for example that tool-using turns will not fall back).
-3. Run the **Live preview API smoke test** workflow (`workflow_dispatch` with the URL); it reports
-   which provider answered, and says web search was not exercised on a deployment without Gemini.
+3. Run the **Live preview API smoke test** workflow (`workflow_dispatch` with the URL); it reports the
+   default provider and whether a fallback is configured, warns when the fallback cannot serve chat
+   turns, and says web search was not exercised on a deployment without Gemini. It cannot say which
+   provider answered a given turn (the response deliberately carries no provider); the function log's
+   `AI call` line (`provider`, `fallback`, `attempts`) does.
 4. A rejected setting shows as `/health` 500 `ai_provider_config_invalid` with the variable named in
    the function log.
 
@@ -486,7 +494,7 @@ between serverless instances.
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| Gemini hits its quota and users still see the quota error | the fallback is off, not configured, or cannot serve the request | `/health` shows `aiFallback`? In the `AI gateway ready` line, does the OpenRouter model declare `tools`? A tool-using chat turn needs it |
+| Gemini hits its quota and users still see the quota error | the fallback is off, not configured, or cannot serve the request | `/health`: `aiFallback` present? `aiFallbackTools` true? (false = the OpenRouter model declares no `tools`, which every chat turn needs). In the `AI call failed` log line, `attempts` listing only `google` means the fallback was never tried |
 | No fallback for chat turns only; content skills do fall back | the OpenRouter model does not declare `tools` (the safe default) | verify the model supports function calling, then `OPENROUTER_MODEL_CAPABILITIES=tools` |
 | Nothing falls back, and logs show `AI_PROVIDER_AUTH_ERROR` | a provider rejects its key (never a fallback reason) | fix the key; `AI call failed` names which provider |
 | `/health` 500 `ai_provider_config_invalid` | a present-but-wrong AI variable | read the function log's "Invalid AI configuration: ..." (it names the variable) |
@@ -522,7 +530,8 @@ between serverless instances.
 - **OpenRouter has not been exercised against the live API.** The build environment's network policy
   blocks `openrouter.ai`, so the adapter follows OpenRouter's documented OpenAI-compatible contract
   and is verified against stubbed HTTP responses only (as the Gemini tests have always been). First
-  real use: set `OPENROUTER_API_KEY` in Preview, confirm `/health` shows `aiFallback: true`, run the
+  real use: set `OPENROUTER_API_KEY` in Preview, confirm `/health` shows `aiFallback: true` (and
+  `aiFallbackTools: true`, or chat turns will not fall back), run the
   smoke test, and watch the function log for the first real Gemini quota or outage event (an
   `AI provider fallback` line). An invalid Gemini key is deliberately not a fallback reason, so it
   cannot be used to force one.
