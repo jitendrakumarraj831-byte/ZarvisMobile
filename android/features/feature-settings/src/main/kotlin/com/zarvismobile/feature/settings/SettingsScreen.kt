@@ -111,13 +111,13 @@ fun SettingsScreen(
             GlassSurface(Modifier.fillMaxWidth()) {
                 SettingSwitchRow(
                     "Speak replies aloud",
-                    if (uiState.autoSpeak) "Replies are spoken with Gemini voice" else "Off — replies are shown as text only",
+                    if (uiState.autoSpeak) "Replies are spoken with a neural voice" else "Off — replies are shown as text only",
                     uiState.autoSpeak,
                     viewModel::setAutoSpeak,
                 )
             }
-            ReadOnlyCard("Voice output", "Spoken replies use Gemini TTS. If voice fails, the reply stays on screen as text.", ZarvisAccentViolet)
-            Text("Gemini voice", style = MaterialTheme.typography.titleSmall)
+            ReadOnlyCard("Voice output", "Spoken replies are made on ZARVIS's server with a neural voice. If voice fails, the reply stays on screen as text.", ZarvisAccentViolet)
+            Text("Voice style", style = MaterialTheme.typography.titleSmall)
             listOf("Kore", "Puck", "Charon", "Aoede", "Fenrir").forEach { voice ->
                 SettingRow(voice, if (uiState.ttsVoice == voice) "Selected" else "Tap to use this voice", uiState.ttsVoice == voice) {
                     viewModel.setTtsVoice(voice)
