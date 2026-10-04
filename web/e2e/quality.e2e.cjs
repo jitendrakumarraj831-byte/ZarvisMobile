@@ -259,6 +259,110 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await ctx.close();
   });
 
+  await step("voice: a spoken reply asks for every sentence of it, and the orb is idle again once it has been spoken", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, permissions: ["microphone"] });
+    await ctx.addInitScript(() => {
+      localStorage.setItem("zarvis.speak", "on");
+      class FakeRecognition extends EventTarget {
+        start() { window.__recognitionStarts = (window.__recognitionStarts || 0) + 1; window.__recognition = this; }
+        stop() { this.dispatchEvent(new Event("end")); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = FakeRecognition;
+      window.webkitSpeechRecognition = FakeRecognition;
+      window.__say = (text) => {
+        const ev = new Event("result");
+        ev.results = [[{ transcript: text }]];
+        window.__recognition.dispatchEvent(ev);
+        window.__recognition.dispatchEvent(new Event("end"));
+      };
+    });
+    const page = await ctx.newPage();
+    // Three sentences, each long enough that the client sends it to the voice as a segment of its own.
+    const sentence = (n) => `Sentence number ${n} is here so that the reply is long enough to be spoken in several separate parts, and it keeps going on for a while to pass the minimum length that the web client waits for. `;
+    const sentences = [1, 2, 3].map(sentence);
+    const id = "00000000-0000-4000-8000-000000000001";
+    // The whole reply reaches the client at once, so the turn is over before any audio has arrived:
+    // the case in which a finished turn used to drop the sentences still waiting for their turn to be
+    // spoken, and to leave the orb on "speaking" for good.
+    await page.route("**/api/v1/orchestrator/turn-stream", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: sse([
+          ["meta", { conversationId: id, turnId: "t" }],
+          ...sentences.map((text) => ["delta", { text }]),
+          ["done", { message: sentences.join(""), toolCalls: [], conversationId: id, turnId: "t" }],
+        ]),
+      }),
+    );
+    let ttsRequests = 0;
+    const pcm = Buffer.alloc(24000); // 0.5 s of silence as 24 kHz 16-bit PCM
+    await page.route("**/api/v1/tts/**", (route) => { ttsRequests += 1; return route.fulfill({ status: 200, contentType: "audio/pcm", body: pcm }); });
+    await ready(page);
+    await openView(page, "chat");
+    await page.click("#mic-btn");
+    await page.waitForFunction(() => window.__recognitionStarts === 1);
+    await page.evaluate(() => window.__say("namaste zarvis"));
+    await page.waitForSelector(".bubble.assistant", { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelector("#orb").dataset.state === "IDLE", null, { timeout: 15000 }).catch(() => {});
+    const orb = await page.evaluate(() => document.querySelector("#orb").dataset.state);
+    assert.equal(ttsRequests, 3, "every sentence of the reply was sent to the voice");
+    assert.equal(orb, "IDLE", `the orb is idle again after the reply was spoken (it is ${orb})`);
+    await ctx.close();
+  });
+
+  await step("voice: Stop silences a spoken reply and the orb stays idle (it does not go back to speaking)", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, permissions: ["microphone"] });
+    await ctx.addInitScript(() => {
+      localStorage.setItem("zarvis.speak", "on");
+      class FakeRecognition extends EventTarget {
+        start() { window.__recognitionStarts = (window.__recognitionStarts || 0) + 1; window.__recognition = this; }
+        stop() { this.dispatchEvent(new Event("end")); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = FakeRecognition;
+      window.webkitSpeechRecognition = FakeRecognition;
+      window.__say = (text) => {
+        const ev = new Event("result");
+        ev.results = [[{ transcript: text }]];
+        window.__recognition.dispatchEvent(ev);
+        window.__recognition.dispatchEvent(new Event("end"));
+      };
+    });
+    const page = await ctx.newPage();
+    const sentence = (n) => `Sentence number ${n} is here so that the reply is long enough to be spoken in several separate parts, and it keeps going on for a while to pass the minimum length that the web client waits for. `;
+    const sentences = [1, 2, 3].map(sentence);
+    const id = "00000000-0000-4000-8000-000000000001";
+    await page.route("**/api/v1/orchestrator/turn-stream", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: sse([
+          ["meta", { conversationId: id, turnId: "t" }],
+          ...sentences.map((text) => ["delta", { text }]),
+          ["done", { message: sentences.join(""), toolCalls: [], conversationId: id, turnId: "t" }],
+        ]),
+      }),
+    );
+    // Each segment is 1.5 s of silence (24 kHz, 16-bit): the later segments are fully downloaded, and
+    // waiting for their turn to start, when Stop is pressed.
+    const pcm = Buffer.alloc(72000);
+    await page.route("**/api/v1/tts/**", (route) => route.fulfill({ status: 200, contentType: "audio/pcm", body: pcm }));
+    await ready(page);
+    await openView(page, "chat");
+    await page.click("#mic-btn");
+    await page.waitForFunction(() => window.__recognitionStarts === 1);
+    await page.evaluate(() => window.__say("namaste zarvis"));
+    await page.waitForFunction(() => document.querySelector("#orb").dataset.state === "SPEAKING", null, { timeout: 15000 });
+    await page.waitForTimeout(700); // past the 600 ms grace in which a click on Stop is ignored
+    await page.click("#send-btn");
+    await page.waitForTimeout(4500); // longer than the audio that was still to come
+    const states = await page.evaluate(() => document.querySelector("#orb").dataset.state);
+    assert.equal(states, "IDLE", `the orb is idle after Stop, and stays idle (it is ${states})`);
+    await ctx.close();
+  });
+
   // ---- Duplicate submissions ----------------------------------------------------------------
   await step("double-clicking Send submits one turn", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });

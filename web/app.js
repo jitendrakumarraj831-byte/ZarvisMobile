@@ -2855,7 +2855,10 @@
           renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
-          await drainTts();
+          // Wait until every sentence has been asked for and its audio is scheduled (not just until
+          // the audio that already exists has played): a turn that ends first drops the sentences still
+          // waiting for their turn, and returns the orb to idle before the speech has even begun.
+          await waitForTtsQueue();
           await waitForTtsPlayback(controller.signal);
           if (!controller.signal.aborted) setOrbState("IDLE");
         }
@@ -3756,6 +3759,9 @@
   let activeAudioContext = null;
   let ttsScheduledUntil = 0;
   const ttsSources = new Set();
+  // The timers that turn the orb to "speaking" when a segment's first audio starts: Stop must cancel them too,
+  // or a segment that was already scheduled would set the orb back to speaking after it was silenced.
+  const ttsOrbTimers = new Set();
 
   async function speakWithGemini(text) {
     const controller = new AbortController();
@@ -3857,9 +3863,11 @@
           // First audio of this segment: start after everything already scheduled.
           scheduledUntil = Math.max(earliest, ttsScheduledUntil);
           const startsInMs = Math.max(0, (scheduledUntil - audioContext.currentTime) * 1000);
-          setTimeout(() => {
+          const orbTimer = setTimeout(() => {
+            ttsOrbTimers.delete(orbTimer);
             if (!controller.signal.aborted) setOrbState("SPEAKING");
           }, startsInMs);
+          ttsOrbTimers.add(orbTimer);
         }
         scheduledUntil = Math.max(scheduledUntil, earliest);
         source.start(scheduledUntil);
@@ -3939,6 +3947,8 @@
       try { source.stop(); } catch {}
     }
     ttsSources.clear();
+    for (const timer of ttsOrbTimers) clearTimeout(timer);
+    ttsOrbTimers.clear();
     ttsScheduledUntil = 0;
     setOrbState("IDLE");
   }
