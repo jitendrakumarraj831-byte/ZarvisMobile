@@ -1,0 +1,56 @@
+name: Edge TTS live probe
+
+# Manual only. The environment this code is developed in cannot reach Microsoft's speech service,
+# so nothing else here has ever called it. This runs the opt-in live test
+# (backend/test/live/edgeTts.live.test.ts) against the real service, through this repository's own
+# voice code: do the configured voices exist, does the handshake work, do English, Hindi and
+# Hinglish come back as real audio in the format the clients play, does a long reply work.
+# No key or secret is involved (the service needs none), so nothing here can leak one.
+#
+# This proves the service accepts the connection from a GitHub runner's network. It does not prove
+# it accepts it from Vercel's: the live preview smoke test (preview-smoke.yml) checks that, from
+# the deployed API itself, on every deployment.
+#
+# Two ways to start it:
+#   - "Run workflow" in the Actions tab (workflow_dispatch). GitHub only offers that once this file
+#     is on the default branch.
+#   - From a pull request branch, before that: add the label `edge-tts-probe` to the pull request
+#     (remove and add it again to re-run).
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-tts-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    # Any other label on any pull request starts this workflow and is skipped here.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'edge-tts-probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Probe the Edge voice service
+        env:
+          ZARVIS_LIVE_TESTS: "1"
+        run: npx vitest run test/live/edgeTts.live.test.ts --reporter=verbose

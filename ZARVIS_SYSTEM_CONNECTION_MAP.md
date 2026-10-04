@@ -6,6 +6,11 @@
   the connection. Status values: CONNECTED, BROKEN, MISSING, MISCONFIGURED, PARTIAL, UNUSED,
   PLANNED.
 
+> **Update 2026-10-04.** Spoken replies no longer use Gemini. The `tts` line in the topology and rows
+> W9, W10 and E3 describe the earlier Gemini voice; the voice is now Edge's neural voices behind
+> `backend/src/tts/` (see [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14). The routes, their
+> contract and the clients are unchanged. The rest of this map is as it was.
+
 `main` (`e010c12`) is **not** described here. It is 86 commits behind PR #78 and is missing most
 of what is below: server-side confirmations, sessions, the capability registry, quota handling
 and turn cancellation. See [ZARVIS_PRODUCTION_READINESS.md](./ZARVIS_PRODUCTION_READINESS.md) §1.

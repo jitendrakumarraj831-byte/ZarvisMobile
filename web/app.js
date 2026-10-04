@@ -2692,7 +2692,7 @@
           activeAudioContext = activeAudioContext || new AudioContext({ sampleRate: 24000 });
           if (activeAudioContext.state === "suspended") await activeAudioContext.resume();
         } catch (audioError) {
-          console.warn("Gemini streaming audio context unavailable:", audioError);
+          console.warn("Streaming audio context unavailable:", audioError);
         }
       }
       const res = await apiFetch("/orchestrator/turn-stream", {
@@ -2738,7 +2738,7 @@
           const task = speakGeminiStream(next.text, controller.signal, next.ticket);
           ttsTasks.add(task);
           task.catch((err) => {
-            if (err?.name !== "AbortError") console.warn("Gemini TTS segment failed:", err);
+            if (err?.name !== "AbortError") console.warn("TTS segment failed:", err);
             // Out of voice quota: every further segment would fail the same way. Keep the
             // text reply, stop asking for speech in this turn.
             if (Logic.turnFailureKind({ code: err?.code }) !== "bootError") {
@@ -2764,7 +2764,7 @@
           return;
         }
         // Keep the initial ~2.3s text accumulation, then prefetch the next segment while
-        // the previous Gemini TTS segment is still playing. This removes the request gap
+        // the previous TTS segment is still playing. This removes the request gap
         // between sentences that caused audible pauses.
         if (!firstTextAt) firstTextAt = performance.now();
         if (!ttsStartTimer) {
@@ -2821,7 +2821,7 @@
           renderFormattedText(assistantNode, fullMessage);
           scrollConversationToBottom();
 
-          // Start Gemini TTS as soon as a sentence is available; don't wait for the full reply.
+          // Start the voice as soon as a sentence is available; don't wait for the full reply.
           // Keep chunks large enough for natural continuous speech. We still split
           // at punctuation/word boundaries, but avoid firing a network request for
           // every short sentence.
@@ -2855,7 +2855,10 @@
           renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
-          await drainTts();
+          // Wait until every sentence has been asked for and its audio is scheduled (not just until
+          // the audio that already exists has played): a turn that ends first drops the sentences still
+          // waiting for their turn, and returns the orb to idle before the speech has even begun.
+          await waitForTtsQueue();
           await waitForTtsPlayback(controller.signal);
           if (!controller.signal.aborted) setOrbState("IDLE");
         }
@@ -3686,11 +3689,10 @@
   // Real caveat, stated honestly rather than oversold: the Web Speech API only ever plays
   // back whichever text-to-speech voices the OS/browser ships — on Android that's Google's
   // on-device "Google Text-to-Speech" engine. Its network-served voices are noticeably
-  // better than its offline ones, but none of them are the dedicated neural voice model
-  // behind the ChatGPT/Gemini apps' voice mode — that is a different, separate product
-  // (e.g. Google Cloud Text-to-Speech's Neural2/Studio voices, or a Gemini "native audio"
-  // model) requiring its own API credential and a real backend call, not a browser API.
-  // See DEVELOPMENT.md "Voice quality" for that upgrade path.
+  // better than its offline ones, but none of them are a dedicated neural voice. ZARVIS gets
+  // that from its server instead (POST /tts/synthesize and /tts/synthesize-stream: Edge's
+  // neural voices, chosen by the server from the text), not from a browser API.
+  // See DEVELOPMENT.md "Voice quality".
 
   function setupSpeechSynthesis() {
     populateVoiceSelect();
@@ -3731,7 +3733,7 @@
     return candidates.find((v) => !v.localService) || candidates[0];
   }
 
-  // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
+  // The server's voice is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node, force = false) {
     if ((!state.speak && !force) || !text) return;
     if (node) attachWaveform(node);
@@ -3739,7 +3741,7 @@
       await speakWithGemini(text);
     } catch (err) {
       if (err?.name !== "AbortError") {
-        console.warn("Gemini TTS unavailable:", err);
+        console.warn("TTS unavailable:", err);
         // An explicit Listen tap gets visible feedback instead of silence.
         if (force) showToast(COPY[state.lang].ttsUnavailable);
       }
@@ -3756,6 +3758,9 @@
   let activeAudioContext = null;
   let ttsScheduledUntil = 0;
   const ttsSources = new Set();
+  // The timers that turn the orb to "speaking" when a segment's first audio starts: Stop must cancel them too,
+  // or a segment that was already scheduled would set the orb back to speaking after it was silenced.
+  const ttsOrbTimers = new Set();
 
   async function speakWithGemini(text) {
     const controller = new AbortController();
@@ -3766,9 +3771,9 @@
         body: JSON.stringify({ text, voice: selectedTtsVoice() }),
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error("Gemini TTS HTTP " + res.status);
+      if (!res.ok) throw new Error("TTS HTTP " + res.status);
       const blob = await res.blob();
-      if (!blob.size) throw new Error("Gemini TTS returned empty audio");
+      if (!blob.size) throw new Error("TTS returned empty audio");
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       activeAudio = audio;
@@ -3778,7 +3783,7 @@
           audio.addEventListener("playing", () => setOrbState("SPEAKING"), { once: true });
           audio.addEventListener("ended", resolve, { once: true });
           audio.addEventListener("pause", resolve, { once: true });
-          audio.addEventListener("error", () => reject(new Error("Gemini audio playback failed")), { once: true });
+          audio.addEventListener("error", () => reject(new Error("Audio playback failed")), { once: true });
           audio.play().catch(reject);
         });
       } finally {
@@ -3821,8 +3826,8 @@
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
-        const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
-        const error = new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
+        const detail = typeof body?.error === "string" ? body.error : "TTS request failed";
+        const error = new Error("Streaming TTS HTTP " + res.status + ": " + detail);
         error.code = body?.code;
         throw error;
       }
@@ -3857,9 +3862,11 @@
           // First audio of this segment: start after everything already scheduled.
           scheduledUntil = Math.max(earliest, ttsScheduledUntil);
           const startsInMs = Math.max(0, (scheduledUntil - audioContext.currentTime) * 1000);
-          setTimeout(() => {
+          const orbTimer = setTimeout(() => {
+            ttsOrbTimers.delete(orbTimer);
             if (!controller.signal.aborted) setOrbState("SPEAKING");
           }, startsInMs);
+          ttsOrbTimers.add(orbTimer);
         }
         scheduledUntil = Math.max(scheduledUntil, earliest);
         source.start(scheduledUntil);
@@ -3939,6 +3946,8 @@
       try { source.stop(); } catch {}
     }
     ttsSources.clear();
+    for (const timer of ttsOrbTimers) clearTimeout(timer);
+    ttsOrbTimers.clear();
     ttsScheduledUntil = 0;
     setOrbState("IDLE");
   }

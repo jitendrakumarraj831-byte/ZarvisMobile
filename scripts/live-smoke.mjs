@@ -10,8 +10,18 @@
  * it is never counted as a pass in the reports. Any FAIL exits 1.
  *
  * No token, password or secret is ever printed. The sign-up account this creates is deleted at
- * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), 1 TTS request.
+ * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests). The voice checks
+ * (about 25 requests, see voiceChecks) go to the Edge voice service, which needs no key and costs
+ * nothing; they print a VOICE SUMMARY at the end.
+ *
+ * `ONLY=tts` runs just the health check, a guest session and the voice checks: against any
+ * deployment, a preview or production, without spending any AI quota or creating any other account.
+ * `EXPECT_EN_VOICE`, `EXPECT_HI_VOICE`, `EXPECT_HINGLISH_VOICE` say which voices the deployment is
+ * configured with (defaults: the built-in ones). `VOICE_LENGTH_CHECK=off` skips the check that the
+ * audio is as long as the text says it should be (only for a stand-in that answers every text with
+ * the same clip).
  */
+import { appendFileSync } from "node:fs";
 
 let BASE = (process.env.BASE_URL || "").replace(/\/$/, "");
 if (!BASE) {
@@ -28,6 +38,16 @@ function report(status, name, detail = "") {
   if (status === "FAIL" && process.env.GITHUB_ACTIONS) console.log(`::error::${name}: ${detail}`);
 }
 
+/** The facts of a 16-bit PCM WAV file, or null when the bytes are not one. */
+function wavFacts(bytes) {
+  if (bytes.length < 44 || bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WAVE") return null;
+  const sampleRate = bytes.readUInt32LE(24);
+  const channels = bytes.readUInt16LE(22);
+  const bits = bytes.readUInt16LE(34);
+  const dataBytes = bytes.readUInt32LE(40);
+  return { sampleRate, channels, bits, seconds: dataBytes / (sampleRate * channels * (bits / 8)) };
+}
+
 async function call(method, path, { token, body, raw, headers = {}, timeoutMs = 60_000 } = {}) {
   const h = { ...headers };
   if (BYPASS) h["x-vercel-protection-bypass"] = BYPASS;
@@ -39,10 +59,11 @@ async function call(method, path, { token, body, raw, headers = {}, timeoutMs = 
     payload = JSON.stringify(body);
   }
   const res = await fetch(BASE + path, { method, headers: h, body: payload, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
-  const text = method === "HEAD" ? "" : await res.text();
+  const bytes = method === "HEAD" ? Buffer.alloc(0) : Buffer.from(await res.arrayBuffer());
+  const text = bytes.toString("utf8");
   let json;
   try { json = JSON.parse(text); } catch { json = undefined; }
-  return { status: res.status, headers: res.headers, text, json };
+  return { status: res.status, headers: res.headers, text, json, bytes };
 }
 
 /** POST /orchestrator/turn-stream; returns the parsed SSE events. */
@@ -110,6 +131,208 @@ function classifyRedirect(status, location) {
   return { kind: "elsewhere", target };
 }
 
+// ---- Voice (TTS) -------------------------------------------------------------------------------
+// Spoken replies use Edge's neural voices: an unofficial service, reached from the network this API
+// runs on. So this is the check that proves the voice works where it is deployed, and the one thing
+// that cannot be proved anywhere else: whether Microsoft's service accepts this deployment's address.
+// It needs no key. What it asks, in order: does English come back as real audio in the right voice
+// on both endpoints, then Hindi, then Hinglish; does a long reply stream progressively; does the WAV
+// endpoint cope with the longest text it accepts; does a client that walks away mid-stream leave the
+// service able to serve the next request; do bad requests get plain answers.
+
+const VOICE_TEXT = {
+  en: "Hello from ZARVIS. The weather is clear today, and the voice should sound natural and calm.",
+  hi: "नमस्ते, मैं ज़ारविस हूँ। आज मौसम साफ़ है, और मेरी आवाज़ स्वाभाविक और शांत सुनाई देनी चाहिए।",
+  hinglish: "Namaste, main ZARVIS hoon. Aaj mausam saaf hai, aur meri awaaz natural aur shaant sunaai deni chahiye.",
+};
+const EXPECT_VOICE = {
+  en: process.env.EXPECT_EN_VOICE || "en-US-JennyNeural",
+  hi: process.env.EXPECT_HI_VOICE || "hi-IN-SwaraNeural",
+  hinglish: process.env.EXPECT_HINGLISH_VOICE || process.env.EXPECT_HI_VOICE || "hi-IN-SwaraNeural",
+};
+const SENTENCE = "The assistant keeps talking in plain English so that the reply is long enough to be heard for a while, and each sentence is spoken in turn. ";
+const LONG_STREAM_TEXT = SENTENCE.repeat(8).slice(0, 1150); // the stream endpoint takes 1200 characters
+const LONG_UNARY_TEXT = SENTENCE.repeat(14).slice(0, 1950); // the WAV endpoint takes 2000
+const PCM_RATE = 24000;
+// A voice that answers 200 with a second of noise is not a pass: speech runs at roughly 15 characters
+// a second, so between 0.025 s and one second per character is generous on both sides.
+const lengthPlausible = (text, seconds) => process.env.VOICE_LENGTH_CHECK === "off" || (seconds >= text.length / 40 && seconds <= text.length);
+
+/** Why a response was not audio: the API's own code, or the platform's (Vercel's error header or page). */
+function whyNot(res) {
+  const platform = res.headers.get("x-vercel-error");
+  const body = res.json?.code ?? (res.text ? res.text.replace(/\s+/g, " ").slice(0, 100) : "");
+  return `HTTP ${res.status}${platform ? ` ${platform}` : ""}${body ? ` ${body}` : ""}`;
+}
+
+/** POST /tts/synthesize-stream, reading the body as it arrives; `abortAfterBytes` walks away mid-stream. */
+async function streamCall(token, body, { abortAfterBytes, timeoutMs = 90_000 } = {}) {
+  const headers = { "content-type": "application/json", authorization: `Bearer ${token}` };
+  if (BYPASS) headers["x-vercel-protection-bypass"] = BYPASS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const started = Date.now();
+  try {
+    const res = await fetch(`${BASE}/api/v1/tts/synthesize-stream`, { method: "POST", headers, body: JSON.stringify(body), signal: controller.signal, redirect: "manual" });
+    const firstByteMs = Date.now() - started; // the headers are sent when the first audio exists
+    const chunks = [];
+    let total = 0;
+    let aborted = false;
+    const reader = res.body.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.length;
+      if (abortAfterBytes && total >= abortAfterBytes) {
+        aborted = true;
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
+    }
+    const bytes = Buffer.concat(chunks);
+    const text = res.status === 200 ? "" : bytes.toString("utf8");
+    let json;
+    try { json = JSON.parse(text); } catch { json = undefined; }
+    return { status: res.status, headers: res.headers, bytes, text, json, firstByteMs, totalMs: Date.now() - started, aborted };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function voiceChecks(token) {
+  const groups = { reach: [], english: [], hindi: [], hinglish: [], streaming: [], unary: [], cancellation: [] };
+  const verdict = (statuses) => (statuses.length === 0 ? "NOT RUN" : statuses.includes("FAIL") ? "FAIL" : statuses.includes("WARN") ? "WARN" : "PASS");
+  const vreport = (names, status, name, detail) => {
+    report(status, name, detail);
+    for (const group of names) groups[group].push(status);
+  };
+
+  const unary = (body, timeoutMs = 90_000) => call("POST", "/api/v1/tts/synthesize", { token, body, timeoutMs });
+  const checkWav = (res, text, expected) => {
+    const wav = wavFacts(res.bytes);
+    const voice = res.headers.get("x-zarvis-tts-voice");
+    if (res.status !== 200 || !/audio\/wav/.test(res.headers.get("content-type") || "") || !wav) return { ok: false, why: `${whyNot(res)} ${wav ? "" : "(not a WAV file)"}` };
+    if (wav.sampleRate !== PCM_RATE || wav.channels !== 1 || wav.bits !== 16) return { ok: false, why: `WAV is ${JSON.stringify(wav)}, not 24 kHz mono 16-bit` };
+    if (!lengthPlausible(text, wav.seconds)) return { ok: false, why: `${text.length} characters came back as ${wav.seconds.toFixed(1)} s of audio` };
+    if (res.headers.get("x-zarvis-tts") !== "edge") return { ok: false, why: `X-Zarvis-TTS was ${res.headers.get("x-zarvis-tts")}, not edge` };
+    if (expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
+    return { ok: true, detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}` };
+  };
+  const checkStream = (res, text, expected) => {
+    const type = res.headers.get("content-type") || "";
+    const voice = res.headers.get("x-zarvis-tts-voice");
+    if (res.status !== 200 || !/audio\/l16/.test(type) || !/rate=24000/.test(type)) return { ok: false, why: `${whyNot(res)} ${type}` };
+    if (res.bytes.length === 0 || res.bytes.length % 2 !== 0 || res.bytes.subarray(0, 4).toString("ascii") === "RIFF") return { ok: false, why: `${res.bytes.length} bytes is not headerless 16-bit PCM` };
+    const seconds = res.bytes.length / 2 / PCM_RATE;
+    if (!lengthPlausible(text, seconds)) return { ok: false, why: `${text.length} characters came back as ${seconds.toFixed(1)} s of audio` };
+    if (res.headers.get("x-zarvis-tts") !== "edge-stream") return { ok: false, why: `X-Zarvis-TTS was ${res.headers.get("x-zarvis-tts")}, not edge-stream` };
+    if (expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
+    return { ok: true, seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}` };
+  };
+
+  // ---- Is the voice service reachable from here at all? English first; the rest is pointless if not.
+  const first = await unary({ text: VOICE_TEXT.en });
+  if (first.status === 503 && first.json?.code === "tts_disabled") {
+    report("WARN", "voice", "spoken replies are switched off on this server (TTS_PROVIDER=none); no audio verified");
+    printVoiceSummary(groups, verdict, "TTS_PROVIDER=none");
+    return;
+  }
+  const firstWav = checkWav(first, VOICE_TEXT.en, EXPECT_VOICE.en);
+  vreport(["reach", "english", "unary"], firstWav.ok ? "PASS" : "FAIL", "voice: English, WAV endpoint", firstWav.ok ? firstWav.detail : firstWav.why);
+  const firstStream = await streamCall(token, { text: VOICE_TEXT.en });
+  const firstStreamCheck = checkStream(firstStream, VOICE_TEXT.en, EXPECT_VOICE.en);
+  vreport(["reach", "english", "streaming"], firstStreamCheck.ok ? "PASS" : "FAIL", "voice: English, stream endpoint", firstStreamCheck.ok ? firstStreamCheck.detail : firstStreamCheck.why);
+  if (!firstWav.ok && !firstStreamCheck.ok) {
+    // Nothing else can be learned, and every further attempt could wait out the service's timeouts.
+    for (const [group, name] of [["hindi", "Hindi"], ["hinglish", "Hinglish"]]) vreport([group, "streaming", "unary"], "FAIL", `voice: ${name}`, "not run: English failed on both endpoints, so the voice is not usable here (see above)");
+    vreport(["streaming", "unary"], "FAIL", "voice: long text", "not run: English failed on both endpoints, so the voice is not usable here (see above)");
+    vreport(["cancellation"], "FAIL", "voice: cancelling mid-stream", "not run: English failed on both endpoints, so the voice is not usable here (see above)");
+    printVoiceSummary(groups, verdict);
+    return;
+  }
+
+  // ---- Hindi and Hinglish, on both endpoints.
+  for (const [group, key, label] of [["hindi", "hi", "Hindi"], ["hinglish", "hinglish", "Hinglish"]]) {
+    const wav = checkWav(await unary({ text: VOICE_TEXT[key] }), VOICE_TEXT[key], EXPECT_VOICE[key]);
+    vreport([group, "unary"], wav.ok ? "PASS" : "FAIL", `voice: ${label}, WAV endpoint`, wav.ok ? wav.detail : wav.why);
+    const stream = checkStream(await streamCall(token, { text: VOICE_TEXT[key] }), VOICE_TEXT[key], EXPECT_VOICE[key]);
+    vreport([group, "streaming"], stream.ok ? "PASS" : "FAIL", `voice: ${label}, stream endpoint`, stream.ok ? stream.detail : stream.why);
+  }
+
+  // ---- A long reply: does the stream arrive progressively, or in one piece at the end?
+  const long = await streamCall(token, { text: LONG_STREAM_TEXT });
+  const longCheck = checkStream(long, LONG_STREAM_TEXT, EXPECT_VOICE.en);
+  if (!longCheck.ok) vreport(["streaming"], "FAIL", "voice: long text, stream endpoint", longCheck.why);
+  else if (longCheck.seconds > 20 && long.firstByteMs > long.totalMs * 0.9) {
+    // The audio is right, but the platform held it back: the client's first sound would wait for all of it.
+    vreport(["streaming"], "WARN", "voice: long text, stream endpoint", `${longCheck.detail}; the first byte came at ${long.firstByteMs} of ${long.totalMs} ms, so the platform is probably delivering the stream in one piece`);
+  } else vreport(["streaming"], "PASS", "voice: long text, stream endpoint", `${longCheck.detail} (progressive: first audio at ${Math.round((100 * long.firstByteMs) / long.totalMs)}% of the time)`);
+
+  // ---- The longest text the WAV endpoint accepts: about two minutes of speech, 5 to 6 MB. Vercel documents about
+  // 4.5 MB as the most a function answers in one piece, and a function has a maximum duration, so this is where
+  // a limit of the platform would show. (On the first preview it did not: 5.1 MB came back in one response.)
+  // If it ever does, it is said plainly.
+  const longUnary = await unary({ text: LONG_UNARY_TEXT }, 120_000);
+  const longWav = checkWav(longUnary, LONG_UNARY_TEXT, EXPECT_VOICE.en);
+  if (longWav.ok) vreport(["unary"], "PASS", "voice: longest text, WAV endpoint", longWav.detail);
+  else if ([413, 502, 504].includes(longUnary.status) && (longUnary.headers.get("x-vercel-error") || !longUnary.json)) {
+    vreport(["unary"], "WARN", "voice: longest text, WAV endpoint", `the platform refused it (${whyNot(longUnary)}); about ${Math.round(LONG_UNARY_TEXT.length / 15)} s of speech does not fit in one response here, so a long Listen will fail`);
+  } else vreport(["unary"], "FAIL", "voice: longest text, WAV endpoint", longWav.why);
+
+  // ---- A client that walks away. Six streams abandoned after the first bytes, two WAV requests dropped
+  // while the voice is working, and then the service must still serve the next request.
+  let abandoned = 0;
+  const otherAnswers = [];
+  for (let i = 0; i < 6; i += 1) {
+    const dropped = await streamCall(token, { text: LONG_STREAM_TEXT }, { abortAfterBytes: 4000 }).catch((error) => ({ failure: error instanceof Error ? error.name : "error" }));
+    if (dropped?.aborted) abandoned += 1;
+    else otherAnswers.push(dropped?.status ?? dropped?.failure ?? "no answer");
+  }
+  const headers = { "content-type": "application/json", authorization: `Bearer ${token}`, ...(BYPASS ? { "x-vercel-protection-bypass": BYPASS } : {}) };
+  for (let i = 0; i < 2; i += 1) {
+    await fetch(`${BASE}/api/v1/tts/synthesize`, { method: "POST", headers, body: JSON.stringify({ text: LONG_UNARY_TEXT }), signal: AbortSignal.timeout(400) }).catch(() => undefined);
+  }
+  const after = await streamCall(token, { text: VOICE_TEXT.en });
+  const afterCheck = checkStream(after, VOICE_TEXT.en, EXPECT_VOICE.en);
+  if (abandoned === 6 && afterCheck.ok) vreport(["cancellation"], "PASS", "voice: cancelling mid-stream", `6 streams abandoned after their first bytes and 2 WAV requests dropped; the next request was served in ${after.totalMs} ms`);
+  else vreport(["cancellation"], "FAIL", "voice: cancelling mid-stream", abandoned === 6 ? `the next request after the cancellations failed: ${afterCheck.why}` : `only ${abandoned} of 6 streams could be abandoned mid-way (the others: ${otherAnswers.join(", ")})`);
+
+  // ---- Bad requests get plain answers, and a caller's voice is honoured only from the allow-list.
+  const noToken = await call("POST", "/api/v1/tts/synthesize", { body: { text: "Hello" } });
+  vreport(["unary"], noToken.status === 401 ? "PASS" : "FAIL", "voice: no token is refused (WAV endpoint)", `HTTP ${noToken.status}`);
+  const empty = await call("POST", "/api/v1/tts/synthesize-stream", { token, body: { text: "   " } });
+  vreport(["streaming"], empty.status === 400 ? "PASS" : "FAIL", "voice: empty text is 400 (stream endpoint)", `HTTP ${empty.status}`);
+  const silent = await unary({ text: "... !!!" });
+  vreport(["unary"], silent.status === 400 && silent.json?.code === "tts_invalid_request" ? "PASS" : "FAIL", "voice: text with nothing to say is 400 tts_invalid_request", `HTTP ${silent.status} ${silent.json?.code ?? ""}`);
+  const chosen = await unary({ text: VOICE_TEXT.en, voice: "en-US-GuyNeural" });
+  const chosenCheck = checkWav(chosen, VOICE_TEXT.en, "en-US-GuyNeural");
+  vreport(["english", "unary"], chosenCheck.ok ? "PASS" : "FAIL", "voice: a caller can choose an allowed voice", chosenCheck.ok ? chosenCheck.detail : chosenCheck.why);
+  const refused = await unary({ text: VOICE_TEXT.en, voice: "xx-XX-NotARealNeural" });
+  const refusedCheck = checkWav(refused, VOICE_TEXT.en, EXPECT_VOICE.en);
+  vreport(["english", "unary"], refusedCheck.ok ? "PASS" : "FAIL", "voice: an unknown voice is ignored, the usual one speaks", refusedCheck.ok ? refusedCheck.detail : refusedCheck.why);
+
+  printVoiceSummary(groups, verdict);
+}
+
+function printVoiceSummary(groups, verdict, note = "") {
+  const rows = [
+    ["Live voice service reached (this deployment to Microsoft)", "reach"],
+    ["English", "english"],
+    ["Hindi", "hindi"],
+    ["Hinglish", "hinglish"],
+    ["Streaming", "streaming"],
+    ["Unary", "unary"],
+    ["Cancellation", "cancellation"],
+  ];
+  console.log(`\nVOICE SUMMARY (${BASE})${note ? ` — ${note}` : ""}`);
+  for (const [label, key] of rows) console.log(`  ${label.padEnd(58)} ${verdict(groups[key])}`);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const table = rows.map(([label, key]) => `| ${label} | ${verdict(groups[key])} |`).join("\n");
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Voice (Edge neural voices) on ${BASE}\n\n| Check | Result |\n| --- | --- |\n${table}\n\n`);
+  }
+}
+
 async function main() {
   console.log(`Deployment: ${BASE}`);
   console.log(`Vercel protection bypass secret: ${BYPASS ? "configured" : "not configured"}`);
@@ -153,6 +376,10 @@ async function main() {
   report(guest.status === 201 ? "PASS" : "FAIL", "guest session", `HTTP ${guest.status}`);
   if (guest.status !== 201) return;
   const guestToken = guest.json.accessToken;
+  if (process.env.ONLY === "tts") {
+    await voiceChecks(guestToken);
+    return;
+  }
   const me = await call("GET", "/api/v1/auth/me", { token: guestToken });
   report(me.status === 200 ? "PASS" : "FAIL", "GET /auth/me with the guest token (session persists across instances)", `HTTP ${me.status}`);
 
@@ -260,12 +487,8 @@ async function main() {
   const unsupported = await call("POST", "/api/v1/documents/extract", { token: guestToken, raw: bad });
   report(unsupported.status === 415 ? "PASS" : "FAIL", "an unsupported file type is refused (415)", `HTTP ${unsupported.status}`);
 
-  // ---- TTS -----------------------------------------------------------------------------------
-  const tts = await call("POST", "/api/v1/tts/synthesize", { token: guestToken, body: { text: "Hello from ZARVIS." }, timeoutMs: 90_000 });
-  const type = tts.headers.get("content-type") || "";
-  if (tts.status === 200 && /audio/.test(type)) report("PASS", "TTS returns audio", type);
-  else if (tts.status === 429) report("WARN", "TTS", `quota (${tts.json?.code ?? "429"}); no audio verified`);
-  else report("FAIL", "TTS returns audio", `HTTP ${tts.status} ${type} ${tts.json?.code ?? ""}`);
+  // ---- Voice (TTS) ---------------------------------------------------------------------------
+  await voiceChecks(guestToken);
 
   // ---- Cleanup -------------------------------------------------------------------------------
   if (accountToken) {

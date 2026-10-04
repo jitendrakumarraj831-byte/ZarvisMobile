@@ -1,11 +1,11 @@
 import { Orchestrator } from "./agents/orchestrator.js";
 import { getModelGateway } from "./ai/providerFactory.js";
 import type { ModelGateway } from "./ai/modelGateway.js";
-import { GeminiTtsProvider } from "./ai/geminiTts.js";
 import { AuthService } from "./auth/authService.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
 import { FailClosedPlayBillingVerifier, GooglePlayBillingVerifier, MockPlayBillingVerifier } from "./billing/playBillingVerifier.js";
 import { env } from "./config/env.js";
+import { buildTtsProvider } from "./config/ttsConfig.js";
 import { GitHubAccessService, type GitHubClientFactory } from "./github/githubAccess.js";
 import { RealGitHubClient } from "./github/githubClient.js";
 import { ServerConfirmationService } from "./security/confirmationService.js";
@@ -62,7 +62,9 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     : env.isProduction
       ? new FailClosedPlayBillingVerifier()
       : new MockPlayBillingVerifier();
-  const ttsProvider = env.geminiApiKey ? new GeminiTtsProvider(env.geminiApiKey, env.geminiTtsModel, env.geminiTtsVoice) : null;
+  // Spoken replies: Edge's neural voices (tts/edgeTtsProvider.ts). It needs no key; nothing is
+  // contacted until a voice is asked for. `null` only when TTS_PROVIDER=none.
+  const ttsProvider = buildTtsProvider(env);
 
   return {
     store,

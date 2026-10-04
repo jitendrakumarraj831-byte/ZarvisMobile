@@ -1,0 +1,63 @@
+name: Edge TTS live audit (browser)
+
+# The spoken reply, the way a person gets it, against a deployed site. After a Vercel deployment is
+# Ready, the real web client runs in a real Chromium against that deployment and checks what only
+# a browser can show: an English, a Hindi and a Hinglish reply come back as audio in the right
+# voice and are played in order; a long reply streams two requests at a time without overlap; Stop
+# and a new message (typed or spoken) silence the reply and ask for nothing more; the Listen button
+# plays; and when the voice fails, the AI's reply is still on screen and the next message is
+# answered. Only the AI's answer is fixed (so a spent AI quota cannot hide a voice problem); one
+# extra scenario uses a real AI answer and only warns if the AI has no quota.
+#
+# What this proves that nothing else here can: Microsoft's voice service accepting this
+# deployment's network address. scripts/live-smoke.mjs (preview-smoke.yml) checks the same from the
+# API side and prints a VOICE SUMMARY; this adds the browser side. Both write their results to the
+# run's summary page. Previews only: the production site is checked by preview-smoke.yml.
+#
+# The deployment may sit behind Vercel Deployment Protection: set the repository secret
+# VERCEL_AUTOMATION_BYPASS_SECRET (see preview-smoke.yml). The bypass header is sent only to the
+# deployment's own origin. Each scenario uses a guest account that is deleted afterwards.
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Deployment URL to audit (https://…vercel.app)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' && github.event.deployment_status.environment != 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      # The script from the deployed commit, so the checks match the code under test.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm install -g playwright@1.56.1
+          npx -y playwright@1.56.1 install --with-deps chromium
+
+      - name: Audit spoken replies in a real browser
+        env:
+          ZARVIS_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          # Only if the deployment sets TTS_EN_VOICE / TTS_HI_VOICE / TTS_HINGLISH_VOICE (see preview-smoke.yml).
+          EXPECT_EN_VOICE: ${{ vars.EXPECT_EN_VOICE }}
+          EXPECT_HI_VOICE: ${{ vars.EXPECT_HI_VOICE }}
+          EXPECT_HINGLISH_VOICE: ${{ vars.EXPECT_HINGLISH_VOICE }}
+          AUDIT_REAL_AI: "1"
+          NODE_PATH: /usr/local/lib/node_modules
+        run: node web/e2e/tts-audit.cjs

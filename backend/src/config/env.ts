@@ -41,16 +41,17 @@ export const env = {
     process.env.GEMINI_MODEL?.trim() === "gemini-2.5-flash"
       ? "gemini-3.6-flash"
       : process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
-  /** Gemini's native-audio-output model — the same underlying voice technology behind the
-   * Gemini app's voice mode, called via a plain generateContent request (see
-   * ai/geminiTts.ts and AI_ARCHITECTURE.md "Native audio voice"), not the separate Google
-   * Cloud Text-to-Speech product. Uses the same GEMINI_API_KEY, no extra credential. */
-  geminiTtsModel:
-    process.env.GEMINI_TTS_MODEL?.trim() === "gemini-2.5-flash-preview-tts" || !process.env.GEMINI_TTS_MODEL?.trim()
-      ? "gemini-3.8-flash-lite-tts"
-      : process.env.GEMINI_TTS_MODEL.trim(),
-  /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
-  geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
+  /**
+   * Voice output (see ../tts/edgeTtsProvider.ts): Microsoft Edge's neural voices. It needs no key,
+   * so there is no secret here. Read raw; `config/ttsConfig.ts` validates and resolves them, and a
+   * bad value is reported and replaced by the default rather than stopping the server.
+   * `TTS_PROVIDER` is `edge` (default) or `none` (no spoken replies from this server).
+   */
+  ttsProvider: process.env.TTS_PROVIDER,
+  ttsHindiVoice: process.env.TTS_HI_VOICE,
+  ttsEnglishVoice: process.env.TTS_EN_VOICE,
+  /** The voice for Hindi written in Latin letters (Hinglish). Defaults to the Hindi voice. */
+  ttsHinglishVoice: process.env.TTS_HINGLISH_VOICE,
   /**
    * OpenRouter, the AI Model Gateway's second provider (see ../../AI_MODEL_GATEWAY.md). Server-side
    * only, like every provider key: never sent to a client, a log or an error response.

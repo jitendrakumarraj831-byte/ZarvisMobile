@@ -2,12 +2,12 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GeminiTtsProvider } from "../../src/ai/geminiTts.js";
 import { createModelGateway } from "../../src/ai/providerFactory.js";
 import { buildContainer } from "../../src/container.js";
 import { logger } from "../../src/security/redact.js";
 import { buildServer } from "../../src/server.js";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
+import type { TtsProvider } from "../../src/tts/provider.js";
 import { DAILY, quotaBody } from "../ai/geminiFixtures.js";
 import {
   GEMINI_KEY,
@@ -22,6 +22,7 @@ import {
   stubProviders,
   type Responder,
 } from "../ai/gatewayHarness.js";
+import { FakeTtsProvider, unavailable } from "../tts/helpers.js";
 
 vi.mock("../../src/ai/geminiErrors.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/ai/geminiErrors.js")>()),
@@ -33,7 +34,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function appWith(envOverrides: Parameters<typeof fakeEnv>[0] = {}, options: { tts?: GeminiTtsProvider | null; isProduction?: boolean } = {}) {
+function appWith(envOverrides: Parameters<typeof fakeEnv>[0] = {}, options: { tts?: TtsProvider | null; isProduction?: boolean } = {}) {
   const gateway = createModelGateway(fakeEnv(envOverrides), { isProduction: options.isProduction ?? true });
   const container = buildContainer(new InMemoryStore(), { modelGateway: gateway });
   return buildServer({ ...container, ttsProvider: options.tts ?? null });
@@ -269,42 +270,57 @@ describe("POST /api/v1/documents/extract through the gateway", () => {
 });
 
 describe("text to speech is independent of the chat gateway", () => {
-  const tts = () => new GeminiTtsProvider("tts-key-1234567890", "gemini-3.8-flash-lite-tts", "Kore");
-
-  it("a Gemini TTS failure is never answered through OpenRouter (and OpenRouter is never asked to speak)", async () => {
-    for (const [status, body, expected] of [[429, quotaBody(DAILY), 429], [503, "busy", 502]] as const) {
-      const stub = stubProviders({ gemini: geminiFail(status, body), openrouter: openRouterText("must not run") });
-      const app = appWith({ openRouterModelCapabilities: "tools,vision" }, { tts: tts() });
-      const token = await guestToken(app);
-
-      const res = await request(app).post("/api/v1/tts/synthesize").set("Authorization", `Bearer ${token}`).send({ text: "Namaste" });
-
-      expect(res.status).toBe(expected);
-      expect(stub.openrouter).toHaveLength(0);
-      expect(stub.gemini.every((call) => call.url.includes("tts"))).toBe(true);
-    }
-  });
-
-  it("with OpenRouter as the only AI provider, voice reports itself unavailable instead of being routed anywhere", async () => {
-    const stub = stubProviders({ openrouter: openRouterText("must not run") });
-    const app = appWith({ geminiApiKey: undefined }, { tts: null });
+  it("a voice failure is never answered by an AI provider, and no AI provider is asked to speak", async () => {
+    const stub = stubProviders({ gemini: geminiText("must not run"), openrouter: openRouterText("must not run") });
+    const app = appWith({ openRouterModelCapabilities: "tools,vision" }, { tts: new FakeTtsProvider({ error: unavailable() }) });
     const token = await guestToken(app);
 
     for (const path of ["/api/v1/tts/synthesize", "/api/v1/tts/synthesize-stream"]) {
       const res = await request(app).post(path).set("Authorization", `Bearer ${token}`).send({ text: "Namaste" });
       expect(res.status).toBe(503);
+      expect(res.body).toMatchObject({ code: "tts_unavailable", retryable: true });
+    }
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it("the voice does not depend on which AI provider answers chat: OpenRouter alone, and it still speaks", async () => {
+    const stub = stubProviders({ openrouter: openRouterText("must not run") });
+    const voice = new FakeTtsProvider();
+    const app = appWith({ geminiApiKey: undefined }, { tts: voice });
+    const token = await guestToken(app);
+
+    const res = await request(app).post("/api/v1/tts/synthesize").set("Authorization", `Bearer ${token}`).send({ text: "Namaste" });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("audio/wav");
+    expect(voice.calls).toHaveLength(1);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it("with spoken replies switched off (TTS_PROVIDER=none) both routes say so, and no AI provider is asked", async () => {
+    const stub = stubProviders({ gemini: geminiText("must not run"), openrouter: openRouterText("must not run") });
+    const app = appWith({}, { tts: null });
+    const token = await guestToken(app);
+
+    for (const path of ["/api/v1/tts/synthesize", "/api/v1/tts/synthesize-stream"]) {
+      const res = await request(app).post(path).set("Authorization", `Bearer ${token}`).send({ text: "Namaste" });
+      expect(res.status).toBe(503);
+      expect(res.body.code).toBe("tts_disabled");
     }
     expect(stub.calls).toHaveLength(0);
   });
 
   it("a chat turn never triggers speech: the turn and TTS are separate requests", async () => {
     const stub = stubProviders({ gemini: plannerOnly(geminiText("Hello there, a spoken-length reply that is long enough.")) });
-    const app = appWith({}, { tts: tts() });
+    const voice = new FakeTtsProvider();
+    const app = appWith({}, { tts: voice });
     const token = await guestToken(app);
 
-    await request(app).post("/api/v1/orchestrator/turn-stream").set("Authorization", `Bearer ${token}`).send({ utterance: "explain how rivers form" });
+    const res = await request(app).post("/api/v1/orchestrator/turn-stream").set("Authorization", `Bearer ${token}`).send({ utterance: "explain how rivers form" });
 
-    expect(stub.calls.filter((call) => /tts/.test(call.url))).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect(voice.calls).toHaveLength(0);
+    expect(stub.calls.length).toBeGreaterThan(0);
   });
 });
 

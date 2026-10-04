@@ -2,19 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { Orchestrator } from "../../src/agents/orchestrator.js";
 import { AIProviderError } from "../../src/ai/geminiErrors.js";
-import { GeminiTtsProvider } from "../../src/ai/geminiTts.js";
 import type { AIProvider, AIResponse } from "../../src/ai/provider.js";
 import { buildContainer } from "../../src/container.js";
 import { buildServer } from "../../src/server.js";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
-import { DAILY, quotaBody } from "../ai/geminiFixtures.js";
 
 const quotaError = () => new AIProviderError("Gemini generateContent failed: 429 Too Many Requests", "AI_QUOTA_EXCEEDED", 429, false, 21_000, "daily");
 
-function appWithProvider(provider: AIProvider, tts: GeminiTtsProvider | null = null) {
+function appWithProvider(provider: AIProvider) {
   const container = buildContainer(new InMemoryStore());
   const orchestrator = new Orchestrator(container.registry, container.entitlementPort, container.pipeline, provider, { provider: "test", model: "m" }, container.store);
-  return buildServer({ ...container, orchestrator, ttsProvider: tts });
+  return buildServer({ ...container, orchestrator, ttsProvider: null });
 }
 
 async function guestToken(app: ReturnType<typeof buildServer>): Promise<string> {
@@ -91,25 +89,5 @@ describe("AI quota errors reach the client as structured, honest errors", () => 
 
     expect(res.status).toBe(429);
     expect(res.body).toMatchObject({ code: "AI_QUOTA_EXCEEDED", retryable: false });
-  });
-
-  it("TTS reports an exhausted quota as 429 after ONE upstream request", async () => {
-    const fetchMock = vi.fn(async () => new Response(quotaBody(DAILY), { status: 429 }));
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      const app = appWithProvider(quotaProvider, new GeminiTtsProvider("k", "gemini-3.8-flash-lite-tts", "Kore"));
-      const token = await guestToken(app);
-
-      const res = await request(app)
-        .post("/api/v1/tts/synthesize-stream")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ text: "Hello there" });
-
-      expect(res.status).toBe(429);
-      expect(res.body).toMatchObject({ code: "AI_QUOTA_EXCEEDED", retryable: false });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 });

@@ -15,7 +15,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
- * Gemini voice via the backend (POST /api/v1/tts/synthesize, which returns a playable WAV).
+ * The ZARVIS voice via the backend (POST /api/v1/tts/synthesize, which returns a playable WAV).
  * If synthesis or playback fails the caller keeps the reply on screen as text — there is no
  * silent switch to a different voice engine.
  */
