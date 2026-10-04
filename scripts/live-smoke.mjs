@@ -269,8 +269,10 @@ async function voiceChecks(token) {
     vreport(["streaming"], "WARN", "voice: long text, stream endpoint", `${longCheck.detail}; the first byte came at ${long.firstByteMs} of ${long.totalMs} ms, so the platform is probably delivering the stream in one piece`);
   } else vreport(["streaming"], "PASS", "voice: long text, stream endpoint", `${longCheck.detail} (progressive: first audio at ${Math.round((100 * long.firstByteMs) / long.totalMs)}% of the time)`);
 
-  // ---- The longest text the WAV endpoint accepts. Vercel answers at most about 4.5 MB in one piece, and a
-  // function has a maximum duration, so this is where a limit of the platform would show: said plainly.
+  // ---- The longest text the WAV endpoint accepts: about two minutes of speech, 5 to 6 MB. Vercel documents about
+  // 4.5 MB as the most a function answers in one piece, and a function has a maximum duration, so this is where
+  // a limit of the platform would show. (On the first preview it did not: 5.1 MB came back in one response.)
+  // If it ever does, it is said plainly.
   const longUnary = await unary({ text: LONG_UNARY_TEXT }, 120_000);
   const longWav = checkWav(longUnary, LONG_UNARY_TEXT, EXPECT_VOICE.en);
   if (longWav.ok) vreport(["unary"], "PASS", "voice: longest text, WAV endpoint", longWav.detail);

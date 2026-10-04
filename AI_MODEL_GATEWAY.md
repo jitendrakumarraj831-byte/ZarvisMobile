@@ -636,16 +636,16 @@ Vercel build was not run from this environment):
   per spoken part. Vercel functions may open outbound connections; they cannot accept WebSockets,
   and none is needed. No key, no account and no extra service.
 - *Duration and size.* A spoken sentence from the web client is a request of about one to three
-  seconds; nothing here raises the function's maximum duration (`vercel.json` sets none, so the
-  platform's default for the plan applies). The **WAV endpoint is the exposed one**: it takes up to 2,000
-  characters, which is about two minutes of speech, and 24 kHz 16-bit mono is 48 KB a second, so that is
-  about 6 MB in one response, while Vercel answers at most about 4.5 MB in one piece (about 94 seconds of
-  speech, 1,300 to 1,500 characters at a normal pace; an estimate, not a measurement). Text longer than
-  that fails on Vercel with the platform's own error (Listen shows its toast; the reply stays as text).
-  The route before the Edge voice took the same 2,000 characters and returned the same 24 kHz 16-bit
-  mono WAV, so the size is not new, but the live smoke test now asks for the longest text on purpose and
-  says plainly (`WARN`) when the platform refuses it. The stream endpoint has no
-  such limit, because it is not sent in one piece.
+  seconds. `vercel.json` sets no function duration, so the platform's default for the plan applies, and the
+  measurements below were made under it. The WAV endpoint takes up to 2,000 characters, about two minutes
+  of speech, and 24 kHz 16-bit mono is 48 KB a second, so its largest answer is 5 to 6 MB. Vercel
+  documents about 4.5 MB as the most a function answers in one piece, and an earlier version of this note
+  predicted that a long Listen would therefore fail. **It does not, here (measured, 2026-10-04, on the
+  Preview deployment of commit `487dc10`):** a 1,950-character text came back as a 108.6 s, 5.1 MB WAV in
+  one response, in about 4.3 s, and a 1,150-character stream of 62 s of speech began after 0.56 s and was
+  complete after 2.0 s, so the stream arrives progressively and the service synthesizes about thirty times
+  faster than it is spoken. The live smoke test keeps asking for the longest text on purpose and reports
+  `WARN` if the platform ever refuses it.
 - *Runtime state.* The decoder is WebAssembly with its code inside the JavaScript, so there is no
   `.wasm` file to include. The circuit breaker and the cap on syntheses live in each instance.
   Memory: eight maximum-length WAV requests at once (the cap on syntheses) took a local server from
@@ -654,11 +654,14 @@ Vercel build was not run from this environment):
   to the service and frees the decoder (tested locally down to the socket). Whether the platform delivers
   a client's disconnect to a running function is the platform's behaviour and cannot be seen from outside,
   so the live smoke test shows only that the service stays able to serve after six abandoned streams.
-- *Whether the service accepts Vercel's addresses is not known from here*: it is an unofficial service
-  and it can refuse a cloud provider's network (a secondary source says Microsoft has tightened
-  filtering of cloud address ranges; the community client's issue tracker shows 403 and 503 refusals,
-  and none of them is a fact about Vercel). The check is the live smoke test, which runs after every
-  deployment and prints a **VOICE SUMMARY** (below).
+- *Whether the service accepts Vercel's addresses: measured, it did (2026-10-04).* The live smoke test
+  against the Preview deployment of commit `487dc10` got real audio from Microsoft's service through that
+  deployment, in the right voice, for English, Hindi and Hinglish, on both endpoints (the VOICE SUMMARY
+  below was all PASS; §8 has the numbers). It is an **unofficial service**, so that is a fact about that
+  day and that deployment and the check runs again after every deployment: the community client's issue
+  tracker shows 403 and 503 refusals from time to time, and a secondary source says Microsoft has tightened
+  filtering of cloud address ranges. If a later run prints FAIL for *voice service reached*, the log line
+  says by how much the clocks differed after the correction (see Troubleshooting).
 
 **Prove the voice works on the deployment (live audit).** Two checks run against the real deployment, after
 each Preview deployment is Ready, and both write their results to the run's summary page:
@@ -802,22 +805,27 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
   code is arranged so that updating the constants, replacing the transport (`EdgeTransport`) or the
   whole provider (`TtsProvider`) touches no route and no client. Azure AI Speech offers the same neural
   voice names as a supported, contracted service, for an Azure account.
-- **The voice on Vercel: the final audit (2026-10-04), what it showed and what it could not.**
-  *Not shown, and it blocks calling the voice production ready:* the real handshake from a Vercel
-  deployment to Microsoft's service. The environment this was built in cannot reach
-  `speech.platform.bing.com` (its network policy answers the connection with HTTP 403, which the code
-  reports as `REJECTED`, exactly what a real refusal would look like), cannot reach any Vercel host,
-  holds no Vercel credential, and a Preview deployment only exists after a push. So nothing here has
-  spoken to Microsoft and nothing here has run on Vercel. The live smoke test and the browser audit
-  (§5) are built to settle it from the first Preview of this code; until one of them prints PASS for
-  *voice service reached*, the voice is not shown to work in production, and if it prints FAIL,
-  Microsoft refuses Vercel's addresses (or the protocol changed) and `TTS_PROVIDER=none` is the honest
-  setting until another transport or provider is plugged in behind `TtsProvider`.
-  *Shown for real, locally* (real Chromium, real Express app, real `EdgeTtsProvider`, real WebSocket
-  and real MP3 decoding; only the far end was a local stand-in, so the audio is a tone, not speech):
-  the English, Hindi and Hinglish scenarios of the browser audit pass, each in its voice, on both
-  endpoints, 11 of 11 on three runs in a row and once more against a stand-in that speaks for as long as
-  the text would take (up to 130 s of audio in one reply); Stop, and a new message typed or spoken, leave nothing of
+- **The voice on Vercel: the final audit (2026-10-04), what it showed and what it did not.**
+  *Shown on a real Vercel deployment, against Microsoft's real service.* The environment this was built
+  in reaches neither Microsoft nor Vercel, so the first proof had to wait for a push: the Preview
+  deployment of commit `487dc10` was built by Vercel, and the live smoke test (§5) ran against it from
+  GitHub Actions. Everything in its voice section passed, the whole VOICE SUMMARY: *voice service
+  reached, English, Hindi, Hinglish, streaming, unary, cancellation*. English: a 6.7 s WAV and a 6.7 s
+  stream in `en-US-JennyNeural`, first audio after 194 ms. Hindi: 10.1 s in `hi-IN-SwaraNeural`, first
+  audio after 139 ms. Hinglish: 9.8 s in the Hindi voice, first audio after 189 ms. Every WAV was 24 kHz
+  mono 16-bit, every stream whole 16-bit samples, every length plausible for its text. A 62 s stream began
+  after 0.56 s and finished after 2.0 s (progressive, not held back); a 108.6 s, 5.1 MB WAV came back in
+  one response in about 4.3 s. Six streams abandoned after their first bytes and two WAV requests dropped
+  left the service serving (the next request took about 1 s), a caller's allowed voice was honoured
+  (`en-US-GuyNeural`), an unknown voice was ignored, and bad requests got plain answers. Not shown by
+  this run: how the voices sound (it checks format, length and voice name, not taste), playback on an
+  Android phone, the production site (it still runs the build before this change), and whether Microsoft
+  keeps accepting Vercel's addresses tomorrow.
+  *Shown for real, locally* (real Chromium, real Express app, real `EdgeTtsProvider`, real WebSocket and
+  real MP3 decoding; only the far end was a local stand-in, so the audio is a tone, not speech): the
+  English, Hindi and Hinglish scenarios of the browser audit pass, each in its voice, on both endpoints,
+  11 of 11 on three runs in a row and once more against a stand-in that speaks for as long as the text
+  would take (up to 130 s of audio in one reply); Stop, and a new message typed or spoken, leave nothing of
   the old reply asked for and the orb idle; and with the far end failing for real (nothing listening, HTTP
   403, silence until the timeout, a drop in the middle of a sentence, the real Microsoft address from an
   environment that blocks it, `TTS_PROVIDER=none`, and the decoder package missing from the install) the AI's
@@ -830,8 +838,9 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
   503 handshake errors and of intermittent "no audio was received" for some voices. A sentence that comes
   back with no audio is not retried here (`NO_AUDIO` is not retryable): the next sentence goes on and the
   reply has a gap. If the live service does that often, allow one retry for it in `tts/edgeTtsProvider.ts`.
-  *Known limit, not new:* the WAV endpoint cannot deliver more than about 94 seconds of speech from
-  Vercel (§5, Duration and size).
+  *A wrong prediction, corrected:* an earlier version of this document said a WAV longer than about 94
+  seconds could not be delivered from Vercel (a documented limit of about 4.5 MB in one response). The
+  deployment delivered 5.1 MB; the estimate was wrong and is removed.
 - **Two web client defects found while checking the voice, and fixed.** Running the real client in
   Chromium against the voice routes showed that a spoken turn could end before its speech had begun: it
   waited only for audio that already existed, and a finished turn drops the sentences still waiting for
