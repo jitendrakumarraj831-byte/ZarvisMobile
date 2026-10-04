@@ -20,7 +20,7 @@ changed; sections 2 to 8 describe what was built. Read §2 for how it works, §3
 | 1 | The user presses Send / Enter / the orb. One call, one `clientTurnId`. | `web/app.js` `submitUtterance` (2658) clears the input, adds the bubble, calls `runTurn` with `Logic.createClientTurnId()` (`web/logic.js` 236) |
 | 2 | A new turn aborts the one in flight; the stream is opened. | `web/app.js` `runTurn` (2671): `currentTurnController.abort()`, then `apiFetch("/orchestrator/turn-stream")` (2700) with `utterance, locale, conversationId, history ≤12, clientTurnId` |
 | 3 | Vercel routes `/api/*` and `/health` to the serverless function. | `vercel.json` (route `^/(api/.*|health)$`) → `api/index.ts` `handler` (115) → `getApp` (87), lazy `buildContainer()` + `buildServer()` |
-| 4 | Composition root. | `backend/src/container.ts` `buildContainer` (37): store, ports, `ToolPipeline`, **`getProvider(defaultModelConfig)`**, `Orchestrator`, `GeminiTtsProvider` |
+| 4 | Composition root. | `backend/src/container.ts` `buildContainer` (37): store, ports, `ToolPipeline`, **`getProvider(defaultModelConfig)`**, `Orchestrator`, `GeminiTtsProvider` (since replaced by Edge's voices, see §2.14) |
 | 5 | Express middleware, then the route. | `backend/src/server.ts` `buildServer` (59): security headers → CORS → JSON body (1 MB) → per-IP limiter → `orchestratorRouter` |
 | 6 | Auth, per-account limit, validation, disconnect handling. | `backend/src/api/routes/orchestrator.ts`: `POST /turn-stream` (30) → `requireAuth` → `turnLimit` (30/min/account) → `parseTurnRequest` (141, a malformed `clientTurnId` is refused) → `abortOnClientGone` (130) |
 | 7 | **Idempotency ledger.** | `backend/src/agents/orchestrator.ts` `runTurn` (141) → `store.claimTurn` (151): `completed` → replay the stored result (no model, tool or charge); `in_progress` → 409 `turn_in_progress`; different text → `client_turn_id_reused`; `failed`/stale `running` (5 min) → claimed again |
@@ -50,7 +50,7 @@ turns (`AiServiceErrors.kt`, keyed on `AI_QUOTA_EXCEEDED`, `AI_RATE_LIMITED`, `A
 |---|---|---|
 | Web search | `skills/webSearch.ts` `GeminiSearchProvider` | Gemini only: needs Google Search **grounding** to return real sources |
 | Image analysis | `api/routes/documents.ts` `analyzeImageWithGemini` (39) | A private Gemini loop inside the route; gated on `env.geminiApiKey` **per request** |
-| Text to speech | `api/routes/tts.ts` → `ai/geminiTts.ts` `GeminiTtsProvider` | Gemini only, independent of the chat path |
+| Text to speech | `api/routes/tts.ts` → `ai/geminiTts.ts` `GeminiTtsProvider` (since replaced by Edge's voices, see §2.14) | Gemini only, independent of the chat path |
 | Content generation skills | `skills/index.ts` `contentGenerator` (32) | pins `{provider: "google"}` and gates on `env.geminiApiKey` |
 | Health | `server.ts` `/health` (95), `api/index.ts` fallback app | reports `defaultModelConfig.provider`; the web UI and `scripts/live-smoke.mjs` read `provider === "google"` |
 
@@ -142,7 +142,7 @@ shipped client, and neither calls an AI provider.
    Gemini models      free / paid models         (a router such as openrouter/free picks its own)
 
    Not behind the gateway, by design:   web search (Gemini + Google Search grounding)
-                                        text to speech (Gemini native audio)
+                                        text to speech (Edge neural voices, tts/, see 2.14)
 ```
 
 The gateway **is** an `AIProvider` (`ai/provider.ts`), so everything that already accepted a
@@ -259,7 +259,7 @@ What each kind of request needs, and where it can go:
 | Streamed text | streaming | yes | yes | yes |
 | A prompt larger than the model's context | context fits | yes (1M) | no, unless a larger `OPENROUTER_MODEL_CONTEXT_TOKENS` is declared | same |
 | Web search | Google Search grounding | yes, **outside the gateway** | never | never |
-| Text to speech | Gemini native audio | yes, **outside the gateway** | never | never |
+| Text to speech | Edge's neural voices (§2.14) | **outside the gateway**: no AI provider speaks | never | never |
 | Greeting, creator-identity answer | nothing | no model call at all | | |
 
 The token estimate is deliberately pessimistic (3 characters per token, Hindi needs more than
@@ -372,7 +372,94 @@ they are never copied into a skill output (skill outputs are sent to clients).
   `image_analysis_unavailable`) or returns the real provider error.
 - **Web search** stays Gemini with Google Search grounding, because only that returns real sources.
   It is never answered by a model that did not search, and never claimed if it did not run.
-- **Text to speech** stays Gemini native audio on its own routes; OpenRouter is never involved.
+- **Text to speech** is not an AI provider call at all any more: it is Edge's neural voices on its own
+  routes, behind its own boundary (§2.14). Neither Gemini nor OpenRouter is involved.
+
+### 2.14 Spoken replies (text to speech)
+
+Voice is separate from the AI gateway. A reply is already on screen when its client asks for the
+voice: `POST /api/v1/tts/synthesize` returns a WAV file (Android, the web Listen button) and
+`POST /api/v1/tts/synthesize-stream` returns 24 kHz 16-bit mono PCM as it is produced (the web
+client's spoken replies). Both take `{ text, voice? }`, need a Bearer token, are limited to 40
+requests a minute per account, and cut the text to 2,000 and 1,200 characters. No AI provider is
+involved, so a spent Gemini or OpenRouter quota never silences the voice and a failing voice never
+touches a reply.
+
+**The voice** is Microsoft Edge's neural voices (the service behind Edge's Read Aloud), reached by
+`tts/edgeTtsProvider.ts` behind the `TtsProvider` interface (`tts/provider.ts`): the routes ask for
+audio and know nothing about the engine, so it can change, or its transport can move to a separate
+service, without touching a route, the web client or Android. It needs **no API key, no account and
+no billing**, so there is no secret to configure.
+
+| File | Does |
+|---|---|
+| `tts/voices.ts` | every voice name; local language detection; which voice speaks a text |
+| `tts/ssml.ts` | makes a reply speakable (Markdown, code blocks, URLs, emoji), escapes it, splits it, builds the SSML |
+| `tts/edgeTransport.ts` | the WebSocket conversation with the service: the only file that knows the wire (`ws`) |
+| `tts/mp3Decoder.ts` | MP3 to 24 kHz 16-bit mono PCM (mpg123 compiled to WebAssembly: no native module, no system binary) |
+| `tts/guard.ts` | a cap on syntheses in flight and a circuit breaker |
+| `tts/edgeTtsProvider.ts` | puts those together behind `TtsProvider` |
+| `config/ttsConfig.ts` | reads `TTS_PROVIDER` and the voice settings |
+
+**Which voice.** Chosen from the text, locally, with no API call. Devanagari anywhere: the Hindi voice
+(`hi-IN-SwaraNeural`). Latin letters only, with enough common Hindi words (`aaj kya karna hai`): the
+Hinglish voice (`TTS_HINGLISH_VOICE`, by default the Hindi voice). Anything else: the English voice
+(`en-US-JennyNeural`). Every neural voice reads Latin letters with English letter-to-sound rules, so
+Hinglish has no perfect answer; if it sounds wrong, try an Indian-English voice
+(`TTS_HINGLISH_VOICE=en-IN-NeerjaNeural`). A request's `voice` is honoured when it is on the
+allow-list (the configured voices and a short built-in list such as `hi-IN-MadhurNeural` and
+`en-US-GuyNeural`), because the name goes into the SSML. The five old Gemini voice names that the web
+picker and Android still send keep working as a choice of style: `Kore` and `Aoede` mean the usual
+voice, `Puck`, `Charon` and `Fenrir` a male voice, in the language of the text. Anything else is
+ignored and the voice is chosen from the text, as an unknown voice always was.
+
+**Audio.** The service answers only in MP3 (24 kHz, 48 kbit/s, mono); it has no PCM output. The server
+decodes it as it arrives into the format the web player already schedules, and the unary endpoint
+wraps the same PCM in a WAV header, so the two endpoints cannot disagree about how a text sounds. Audio
+at another sample rate, or that does not decode, is refused (`BAD_AUDIO`) and never played at the wrong
+speed. The MP3 has no gapless header, so each part starts with about 46 ms of encoder silence.
+
+**One request.** Text, made speakable, is split into parts of at most 3,000 escaped bytes (the service
+refuses about 4 KB; Hindi is three bytes a letter) at sentence ends; a spoken sentence from the web
+client is one part. Parts are spoken one after the other and their audio is delivered in order, as it
+is produced. The route reads the first chunk before it commits the response, so a failure before any
+sound is a real HTTP error, not a broken stream. Everything about playback (the ordered segments, two
+at once, the 2.3 s start timer, 1.2 s of preroll, Stop and a new turn aborting every request) is in
+the web client and is unchanged, apart from two fixes to how a spoken turn ends (§8).
+
+**Failure and cancelling.** A part is tried at most twice (one short pause), only after a failure that
+can be temporary, and only if it has produced no sound yet: audio is never repeated, and a failure
+after sound began ends the stream there. There is no other voice to fall back to and none is
+invented. A closed connection or a client's `Stop` aborts the request, which closes the upstream
+WebSocket and frees the decoder; that is never logged as a failure. A 403 on connect is read as a
+disagreement about the clock: the service's `Date` header is used to correct it and the connection
+is tried once more. Timeouts: 10 s to connect, 15 s of silence, 60 s for one synthesis.
+
+| What happened | Status and code | `retryable` |
+|---|---|---|
+| nothing speakable in the text (empty, only punctuation, emoji, a code block) | 400 `tts_invalid_request` | no |
+| the service is unreachable, closed early, rate limited, or this server is protecting it | 503 `tts_unavailable` (and `Retry-After` when known) | yes |
+| no answer in time | 504 `tts_timeout` | yes |
+| the service refused the connection, sent no audio, or sent audio that cannot be played | 502 `tts_failed` | no |
+| spoken replies switched off (`TTS_PROVIDER=none`) | 503 `tts_disabled` | no |
+| this account asked for more than 40 in a minute | 429 `rate_limited` | after the wait |
+
+The messages say that the reply is still shown as text and carry nothing the service said. The web
+client logs a failed sentence and goes on to the next one; only a `rate_limited` answer stops the
+speech for the rest of that turn, and Listen shows its "Spoken reply isn't available" toast.
+
+**Protecting the service.** It is not ours and promises nothing. At most 8 syntheses run in this
+process and 16 wait; beyond that the answer is `503` at once. After 3 failed requests in a row (not
+cancellations, not unspeakable text) further requests fail at once for 30 seconds, then one is let
+through to see whether the service is back; without this, a service that is down would cost every
+sentence of every reply a full timeout, because the client keeps asking for the next one. Both are
+per process, like the rate limiter.
+
+**Privacy.** The text a person asks to hear is sent to Microsoft's speech service: not to Gemini,
+not to OpenRouter. Nothing else goes with it (no account, no key); Microsoft sees the server's
+address. The logs record the engine, the voice, the language, sizes and timings, never the text or the
+audio. Caching is deliberately not done: replies are private and rarely repeat, and a shared cache of
+them would be a leak.
 
 ---
 
@@ -384,7 +471,7 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `GEMINI_API_KEY` | none | Gemini key (chat, search grounding, TTS, images). Secret |
+| `GEMINI_API_KEY` | none | Gemini key (chat, search grounding, images). Secret |
 | `GEMINI_MODEL` | `gemini-3.6-flash` | the Gemini chat model |
 | `OPENROUTER_API_KEY` | none | OpenRouter key. Secret. Absent = no OpenRouter |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | must be https (http only for localhost); no credentials or query string |
@@ -396,6 +483,10 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 | `AI_FALLBACK_PROVIDER` | the other provider | `openrouter`, `gemini` or `none`; must differ from the primary |
 | `AI_QUOTA_COOLDOWN_MS` | `300000` | how long an exhausted provider is skipped; `0` = never |
 | `AI_MODEL_CATALOG_JSON` | none | describes several models (below) |
+| `TTS_PROVIDER` | `edge` | spoken replies: `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_HI_VOICE` | `hi-IN-SwaraNeural` | the voice for Hindi (Devanagari) text |
+| `TTS_EN_VOICE` | `en-US-JennyNeural` | the voice for English text |
+| `TTS_HINGLISH_VOICE` | the Hindi voice | the voice for Hindi written in Latin letters |
 
 **Validation at startup.** A value that is present and wrong stops the server with a message that
 names the variable and never its value; on Vercel `/health` then answers 500
@@ -451,12 +542,13 @@ that must work, and **redeploy**: a changed variable applies to new deployments 
 
 | Variable | Production | Preview | Notes |
 |---|---|---|---|
-| `GEMINI_API_KEY` | required for Gemini, search, voice, images | same | mark as Sensitive |
+| `GEMINI_API_KEY` | required for Gemini, search, images | same | mark as Sensitive |
 | `OPENROUTER_API_KEY` | to enable the fallback | to test it on a PR | mark as Sensitive. Absent = Gemini only |
 | `OPENROUTER_MODEL` | optional (default `openrouter/free`) | optional | |
 | `OPENROUTER_MODEL_CAPABILITIES` | set `tools` once the model is verified to call tools; otherwise tool-using chat turns will not fall back | same | |
 | `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL_CONTEXT_TOKENS`, `OPENROUTER_TIMEOUT_MS` | optional | optional | |
 | `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER`, `AI_QUOTA_COOLDOWN_MS`, `AI_MODEL_CATALOG_JSON` | optional | optional | |
+| `TTS_PROVIDER`, `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | optional (the defaults speak) | optional | none is a secret; Edge's voices need no key. `TTS_PROVIDER=none` switches spoken replies off |
 
 Runtime facts, from the code and `vercel.json` (a real Vercel build was not run from this
 environment): `vercel.json` is unchanged and needs no change. The new files are imported, directly
@@ -521,6 +613,41 @@ Without the workflow, the same proof is to set `AI_PRIMARY_PROVIDER=openrouter` 
 `AI_FALLBACK_PROVIDER=none` on a Preview deployment (with `OPENROUTER_MODEL_CAPABILITIES=tools`),
 send a message, and remove both again.
 
+**The voice on Vercel (§2.14).** What it asks of the deployment, from the code and `vercel.json` (a real
+Vercel build was not run from this environment):
+
+- *Dependencies.* `ws` and `mpg123-decoder` (and `@types/ws`) are in **both** `backend/package.json` and the
+  root `package.json`: Vercel installs the root one, and CI typechecks the entrypoint against it.
+  Both are loaded on first use, so requests that never speak do not pay for them at start-up. Measured
+  on Node 22: about 50 ms to load `ws`, 10 ms the decoder and 12 ms its first start, once per instance.
+- *Node version.* The project's Node version in Vercel must be **22.x** (the backend's `engines`), or at
+  least 20.19: `mpg123-decoder` is an ES module in a package that does not say so, which Node reads
+  correctly only since 22.7 and 20.19. An older runtime fails the first spoken reply (`BAD_AUDIO`,
+  "The audio decoder could not start"; the `cause` in the function log's `TTS failed before audio`
+  line says `Cannot use import statement outside a module`), not start-up.
+- *Network.* The function makes one outbound WebSocket (TLS, port 443) to `speech.platform.bing.com`
+  per spoken part. Vercel functions may open outbound connections; they cannot accept WebSockets,
+  and none is needed. No key, no account and no extra service.
+- *Duration.* A spoken sentence is a request of about one to three seconds; nothing here raises the
+  function's maximum duration.
+- *Runtime state.* The decoder is WebAssembly with its code inside the JavaScript, so there is no
+  `.wasm` file to include. The circuit breaker and the cap on syntheses live in each instance.
+- *Whether the service accepts Vercel's addresses is not known from here*: it is an unofficial service
+  and it can refuse a cloud provider's network. The check is the live smoke test, which runs after
+  every deployment and fails if either TTS endpoint does not return real audio.
+
+**Prove the voice works (live probe).** Nothing in the build environment can reach Microsoft, so nothing
+here has ever called the real service except through this probe. The manual **Edge TTS live probe**
+workflow (`.github/workflows/edge-tts-probe.yml`) runs the opt-in live test
+(`backend/test/live/edgeTts.live.test.ts`) through this repository's own voice code, from GitHub
+Actions: do the configured voices exist on the service, does the handshake work, do English, Hindi and
+Hinglish come back as real 24 kHz audio of a plausible length, does the stream deliver its first sound
+before the end, and does a long reply (several requests) work. There is no secret to add. Start it from
+a pull request by adding the label `edge-tts-probe` (remove and add it again to re-run), or, once the
+file is on the default branch, Actions, **Edge TTS live probe**, Run workflow. It proves the service
+accepts a GitHub runner's network; the smoke test above proves it for Vercel's. Locally:
+`ZARVIS_LIVE_TESTS=1 npx vitest run test/live/edgeTts.live.test.ts`.
+
 ---
 
 ## 6. Troubleshooting
@@ -545,6 +672,13 @@ send a message, and remove both again.
 | Turns time out on Vercel | the function's maximum duration is shorter than Gemini plus OpenRouter | raise it, or lower `OPENROUTER_TIMEOUT_MS` |
 | Preview works, Production does not (or the reverse) | the variable exists in only one environment | set it for both, redeploy, compare `/health` |
 | An image is not read on fallback | the OpenRouter model has no `vision`, or the image is HEIC/HEIF | declare `vision`; HEIC/HEIF are only read by Gemini |
+| The web app's Listen says "Spoken reply isn't available right now", or sentences are not spoken | the voice failed and the toast does not say why | the function log's `TTS failed before audio` line names the kind (`UNAVAILABLE`, `TIMEOUT`, `REJECTED`, `NO_AUDIO`, `BAD_AUDIO`). The reply is unaffected: it is a separate request, made after the text is on screen |
+| Every spoken reply fails: `REJECTED` (HTTP 403, "refused the connection") | Microsoft's service refused this server's connection: it blocks the address, or it changed what it requires (the `Sec-MS-GEC` token, the browser version it expects). Retrying does not help; the connection is retried only once, for a clock disagreement | run the Edge TTS live probe (§5): if it passes, the service refuses Vercel's network and not the code; if it fails too, the protocol changed and the constants in `tts/edgeTransport.ts` need updating. Meanwhile `TTS_PROVIDER=none` makes the app say honestly that voice is off |
+| Spoken replies stop for half a minute after a few failures | the circuit breaker: three requests in a row failed, so requests fail at once (`503 tts_unavailable`, with `Retry-After`) until one is let through | it closes by itself when the service answers; the failures before it are in the log |
+| `503 tts_unavailable` straight away, with no failures in the log | this instance already has 8 syntheses running and 16 waiting (a burst), so it said busy at once | retry after the `Retry-After`; it is per instance |
+| `BAD_AUDIO` | the service sent audio ZARVIS will not play: not MP3, or not 24 kHz (it is never played at the wrong speed) | the service changed its output format; the log line gives the sample rate |
+| Hinglish (Hindi in Latin letters) is spoken with English pronunciation | every neural voice reads Latin letters with English rules | try `TTS_HINGLISH_VOICE=en-IN-NeerjaNeural` (an Indian-English voice), or have replies written in Devanagari |
+| The voice picker's names (Kore, Puck, ...) do not match the voice that speaks | the picker still lists the five Gemini voice names that older clients send; the server turns them into a style (the usual voice, or a male one) | expected. Replacing the picker's options with Edge voice names is a web change, deliberately not made with the move |
 
 ---
 
@@ -558,9 +692,18 @@ send a message, and remove both again.
 | `test/ai/geminiProviderHardening.test.ts` | network retries, structured timeouts, key supplier, stream cancel |
 | `test/ai/errorTaxonomy.test.ts`, `test/config/aiConfig.test.ts`, `test/config/startup.test.ts` | the error kinds and wire mapping, config and catalog validation, startup failure and success |
 | `test/agents/gatewayTurns.test.ts` | one turn through the real orchestrator, pipeline, skills and providers: request counts, billing, replay, concurrent duplicates, Retry, disconnect (also on real Postgres in CI) |
-| `test/api/gatewayApi.test.ts` | `/health`, request ids and log correlation, nothing provider-specific reaches a client, image route, TTS independence, a real HTTP disconnect |
+| `test/api/gatewayApi.test.ts` | `/health`, request ids and log correlation, nothing provider-specific reaches a client, image route, the voice independent of the AI providers, a real HTTP disconnect |
 | `test/security/redact.test.ts`, `test/ai/contentGenerator.test.ts`, `test/observability/requestContext.test.ts` | redaction, skill error mapping, correlation ids |
 | `test/scripts/openrouterProbe.test.ts` | the live-probe script against a stubbed OpenRouter: model-list parsing and candidate choice, pass / warn / fail for each check, the key only in the Authorization header and never printed, walking past models that refuse (403) within a bounded number of attempts, a rejected key ending the probe, the real turn as the verdict (a second model gets one when the first does not answer it), the serving model named, text from the network kept on one log line |
+| `test/tts/voices.test.ts` | Hindi, English and Hinglish detection (and what is not Hinglish), the default voices, a caller's voice allowed or ignored (hostile values included), the old Gemini voice names as styles, the configured Hinglish voice |
+| `test/tts/ssml.test.ts` | control characters and lone surrogates, XML escaping, Markdown/code/URL/emoji removal, sentence units (nothing lost), splitting by escaped bytes (Hindi included), SSML that hostile text cannot break out of |
+| `test/tts/mp3Decoder.test.ts` | the service's 24 kHz MP3 decoded to the right number of samples, with the right pitch, identical for any way the network splits it (down to one byte), other sample rates and garbage refused, damage in the middle survived, reset, close, independent decoders |
+| `test/tts/edgeTransport.test.ts` | the wire against a local fake of the service: the handshake (token checked against the reference algorithm, headers), the two messages, audio frames in order, streaming, simultaneous syntheses kept apart, the 403 clock correction (once), 429/5xx/4xx, no listener, connect/idle/total timeouts, early close, no audio, malformed frames, cancelling at every stage |
+| `test/tts/edgeTtsProvider.test.ts` | the provider with a scripted wire and the real decoder: which voice, what is sent, text that cannot be spoken, parts spoken in order, WAV equal to the stream, bounded retries and which failures get one, no repeated audio, cancelling, the cap and the breaker, simultaneous replies not mixed, nothing of the text logged |
+| `test/tts/ttsRoutes.test.ts` | the real routes with a scripted voice: WAV and PCM contracts, validation and auth, every failure kind's status and code, a failure before and after sound, a client that disconnects, a slow reader, simultaneous streams, the 40-a-minute limit, and a turn that finishes while the voice is broken |
+| `test/tts/ttsConfig.test.ts` | the settings, a wrong value reported and replaced, `none`, the WAV header |
+| `test/live/edgeTts.live.test.ts` | opt-in only (`ZARVIS_LIVE_TESTS=1`): the real service, from the Edge TTS live probe workflow |
+| `web/e2e/quality.e2e.cjs` (voice steps, CI `web-e2e`) | in real Chromium: one recognition result is one turn and its spoken reply starts none; a spoken reply of several sentences asks the voice for every one and ends with the orb idle; Stop silences it and the orb stays idle |
 
 ---
 
@@ -585,8 +728,35 @@ send a message, and remove both again.
   test, and watch the function log for the first real Gemini quota or outage event (an
   `AI provider fallback` line). An invalid Gemini key is deliberately not a fallback reason, so it
   cannot be used to force one.
-- **Android** was not changed and could not be built here (no Android SDK; `dl.google.com` is
-  blocked). It runs on GitHub Actions. The wire contract it depends on is unchanged.
+- **What the Edge voice has and has not shown (2026-10-04).** The build environment's network policy
+  blocks `speech.platform.bing.com`, so the voice is verified against stubs and against a local fake of
+  the service that follows the protocol as the community `edge-tts` project documents it. Checked: the
+  `Sec-MS-GEC` token against that project's reference algorithm (known answers); the audio path with
+  real MP3 made by ffmpeg (decoded to the right length and pitch, identical for any split of the
+  input, within one 16-bit step of ffmpeg's own decode); and the whole chain, route to WebSocket to
+  decoder to WAV and PCM, run end to end in a real process against the fake. **Not verified:** that
+  the live service accepts this handshake today; that it accepts Vercel's network; the exact frames it
+  sends (the parser follows the reference: an unknown text frame is ignored, an unknown binary frame
+  is refused); that the configured voices exist on it; how Hindi, Hinglish and English sound. The Edge
+  TTS live probe and the live smoke test (§5) answer those. It is an **unofficial service**: Microsoft
+  publishes no API, terms or guarantee for this use (it is the Read Aloud feature of its browser), it
+  has changed what it requires before, and it can throttle or refuse a cloud provider's addresses. The
+  code is arranged so that updating the constants, replacing the transport (`EdgeTransport`) or the
+  whole provider (`TtsProvider`) touches no route and no client. Azure AI Speech offers the same neural
+  voice names as a supported, contracted service, for an Azure account.
+- **Two web client defects found while checking the voice, and fixed.** Running the real client in
+  Chromium against the voice routes showed that a spoken turn could end before its speech had begun: it
+  waited only for audio that already existed, and a finished turn drops the sentences still waiting for
+  their turn (the client speaks two at a time), so when a reply reached the client faster than the first
+  audio came back, the sentences after the first two were never requested and the orb was left on
+  "speaking". And Stop did not cancel the timers that set the orb to "speaking" when a later segment's
+  audio was due, so the orb could return to "speaking" after Stop. Neither depends on the voice (they
+  existed with the Gemini voice); both have steps in `web/e2e/quality.e2e.cjs` that fail on the old client.
+- **Android** was not changed in its behaviour: only the settings text that named Gemini as the voice. It
+  could not be built here (no Android SDK; `dl.google.com` is blocked). It runs on GitHub Actions.
+  The wire contract it depends on is unchanged: `POST /api/v1/tts/synthesize` still returns a WAV that
+  `MediaPlayer` plays (24 kHz, 16-bit, mono, as before); a non-2xx answer is still handled as "keep the
+  reply as text".
 - **Privacy.** A fallback sends the conversation to OpenRouter and to whichever upstream provider it
   routes to. Free models may be operated by providers that log or train on prompts; OpenRouter's
   account privacy settings control which providers are allowed. Review `PRIVACY.md` and your

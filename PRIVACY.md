@@ -43,6 +43,13 @@ receive a request.
 - A fallback is never silent internally (the server log names the provider and the reason), but the
   user interface does not currently tell the user which model answered.
 - Text to speech and web search are never sent to OpenRouter.
+- Spoken replies: the text a person asks to hear is sent to Microsoft's speech service (the one behind
+  Edge's Read Aloud, reached without an account or a key), not to Gemini and not to OpenRouter.
+  Nothing else goes with it, but Microsoft sees the server's address. It is an unofficial service,
+  used here without a contract or a guarantee: review Microsoft's terms and decide whether this
+  fits your privacy notice before enabling it in production. `TTS_PROVIDER=none` switches spoken
+  replies off. The server log records the engine, the voice and sizes, never the text or the audio,
+  and no spoken audio is stored.
 - Provider keys never leave the server and never appear in a log (see SECURITY.md).
-- Operators must update the product's public privacy notice to name every AI provider in use before
-  enabling a fallback in production.
+- Operators must update the product's public privacy notice to name every AI provider in use, and the
+  voice service, before enabling a fallback or spoken replies in production.

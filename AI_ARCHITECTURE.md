@@ -57,8 +57,10 @@ ZARVIS Brain → ModelGateway → Gemini      (primary: chat, tools, vision, sea
   back.
 - A provider switch is never silent: the answer carries `AICallMeta` (provider, model, fallback,
   reason), the call log records both attempts, and one structured log line is written per call.
-- Web search (Google Search grounding) and text to speech (Gemini native audio) are not behind the
-  gateway. They are never answered by another provider.
+- Web search (Google Search grounding) is not behind the gateway and is never answered by another
+  provider. Text to speech is not an AI provider call at all: it is Edge's neural voices
+  (`backend/src/tts/`), behind its own `TtsProvider` boundary and independent of Gemini and
+  OpenRouter (AI_MODEL_GATEWAY.md §2.14).
 - One user turn is still one generation: no hedging, one fallback hop, bounded retries, and the
   `clientTurnId` ledger below is unchanged.
 
@@ -67,7 +69,7 @@ troubleshooting: **[AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md)**.
 
 ## Provider failures, quota and retries
 
-Every Gemini call (chat generation, web-search grounding, TTS, image analysis) uses one
+Every Gemini call (chat generation, web-search grounding, image analysis) uses one
 policy, `backend/src/ai/geminiErrors.ts`, and OpenRouter shares its retry rules (the gateway
 document lists them for both providers):
 
@@ -108,7 +110,7 @@ charged for a failed generation.
   `aiCallLog` (planner steps and the calls skills make, such as search grounding and
   generation), with `kind`, `configuredModel`, `servedModel`, `httpRequests`, `outcome` and
   `status`; `aiCalls` / `aiHttpRequests` give the totals.
-- **Fallback model.** On 404 or a 5xx that outlasts its bounded retries, chat and TTS move to
+- **Fallback model.** On 404 or a 5xx that outlasts its bounded retries, chat moves to
   the fallback model. This is never silent: a warning names the `modelCallId`, the configured
   and the serving model, and `servedModel` records it in `aiCallLog`
   (`geminiProvider.test.ts`). A daily quota never falls back to another *model*.

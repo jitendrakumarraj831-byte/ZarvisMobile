@@ -40,8 +40,9 @@ environment that must work, including Preview:
 | `JWT_SECRET` | yes | The API refuses to start. `/health` → 500 `jwt_secret_missing_or_invalid`; every API call → 500. |
 | `POSTGRES_URL` (or `DATABASE_URL`) | yes on Vercel | An in-memory store per serverless instance; sessions are lost between requests. `/health` → `database: not_configured`. |
 | `POSTGRES_CA_CERT` or `POSTGRES_SSL_MODE=no-verify` | when the database's TLS certificate is not publicly trusted (for example a provider's own CA) | Certificate verification is on by default, so every query fails. `/health` → 503 `database: tls_certificate_untrusted`; guest sign-in → 500. |
-| `GEMINI_API_KEY` | for real AI, TTS, image analysis and web search | Without it (and without OpenRouter) AI features fail closed with honest errors; image upload → 503 `image_analysis_unavailable`. |
+| `GEMINI_API_KEY` | for real AI, image analysis and web search | Without it (and without OpenRouter) AI features fail closed with honest errors; image upload → 503 `image_analysis_unavailable`. |
 | `OPENROUTER_API_KEY` | optional: the AI fallback (and the only AI if there is no Gemini key) | No fallback; ZARVIS runs on Gemini alone. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) for `OPENROUTER_MODEL`, `OPENROUTER_MODEL_CAPABILITIES`, `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER` and the rest. |
+| `TTS_PROVIDER`, `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | optional: spoken replies use Edge's neural voices and need **no key**; these only change the voices (`TTS_PROVIDER=none` switches voice off) | The defaults speak: `hi-IN-SwaraNeural` for Hindi, `en-US-JennyNeural` for English. A wrong value is logged and replaced by the default. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14. |
 | `INTEGRATION_ENCRYPTION_KEY` | for GitHub connections in production | GitHub connection is reported unavailable. |
 
 Set the AI variables in **Production and Preview**, then redeploy (a changed variable applies to new
@@ -57,5 +58,23 @@ Check a deployment with `GET /health`. It never returns secrets; `database` is o
 
 The **Live preview API smoke test** workflow (`.github/workflows/preview-smoke.yml`) runs
 after each successful Vercel deployment. It calls `/health`, then guest sign-in, then
-`/auth/me`, then a "Hi" chat turn against the live URL. For a deployment behind Vercel
-Deployment Protection, add the repository secret `VERCEL_AUTOMATION_BYPASS_SECRET`.
+`/auth/me`, then a "Hi" chat turn against the live URL, and both voice endpoints (they must return
+real 24 kHz audio: that is the check that the voice works from where the API is deployed). For a
+deployment behind Vercel Deployment Protection, add the repository secret
+`VERCEL_AUTOMATION_BYPASS_SECRET`.
+
+## Voice quality
+
+Spoken replies are made on the server, not by the browser or the phone: `POST /api/v1/tts/synthesize`
+(a WAV file) and `POST /api/v1/tts/synthesize-stream` (24 kHz PCM) use Microsoft Edge's neural
+voices, which need no key or account (`backend/src/tts/`; the whole story is in
+[AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14). The voice is chosen from the text: Hindi in
+Devanagari, Hinglish, or English. The browser's own `speechSynthesis` is deliberately not a fallback,
+and the phone's built-in speaker (`NotificationSpeaker`, for spoken notifications) is a separate,
+on-device thing that this does not touch.
+
+To try the real service from a machine that can reach it:
+`ZARVIS_LIVE_TESTS=1 npx vitest run test/live/edgeTts.live.test.ts` (in `backend/`), or run the
+**Edge TTS live probe** workflow. It is an unofficial service with no guarantee: if it stops working,
+`TTS_PROVIDER=none` makes the app say so honestly, and the provider boundary
+(`backend/src/tts/provider.ts`) is where another voice would plug in.
