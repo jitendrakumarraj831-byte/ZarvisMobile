@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseCatalogJson } from "../../src/ai/modelCatalog.js";
 import { resolveAIConfig } from "../../src/config/aiConfig.js";
+import { resolveTtsConfig } from "../../src/config/ttsConfig.js";
 
 /**
  * `backend/.env.example` is documentation operators copy from. It must (1) never hold a real
@@ -52,6 +53,25 @@ describe("backend/.env.example", () => {
       ].sort(),
     );
     for (const name of documented) expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
+  });
+
+  it("documents the voice variables, every one of them is read by config/env.ts, and the commented values are the ones the voice config accepts without a warning", () => {
+    const documented = [...new Set(assignments.map((entry) => entry.name).filter((name) => /^TTS_/.test(name)))].sort();
+    expect(documented).toEqual(["TTS_EN_VOICE", "TTS_HINGLISH_VOICE", "TTS_HI_VOICE", "TTS_PROVIDER"]);
+    for (const name of documented) expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
+
+    const uncomment = (name: string) => assignments.find((entry) => entry.name === name && entry.commented)?.value.replace(/\s+#.*$/, "");
+    const config = resolveTtsConfig({
+      ttsProvider: uncomment("TTS_PROVIDER"),
+      ttsHindiVoice: uncomment("TTS_HI_VOICE"),
+      ttsEnglishVoice: uncomment("TTS_EN_VOICE"),
+      ttsHinglishVoice: uncomment("TTS_HINGLISH_VOICE"),
+    });
+    expect(config).toEqual({ provider: "edge", voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" } });
+  });
+
+  it("no longer documents the Gemini voice, which is gone", () => {
+    expect(example).not.toMatch(/GEMINI_TTS|GOOGLE_TTS|TTS_PRIMARY_PROVIDER/);
   });
 
   it("the commented defaults and the catalog example are accepted by the startup validation", () => {
