@@ -1733,3 +1733,59 @@ body.page-hidden .mic-big, body.page-hidden .brand-orb, body.page-hidden .nav-fa
 .page-head-spark { position: absolute; top: 0; right: 0; }
 @media (min-width: 700px) { .page-head-spark { right: var(--s2); } }
 .page-head:has(.page-head-spark) .page-sub { padding-right: 48px; }
+
+/* =====================================================================
+   Home fits the screen: orb and spacing scale with the viewport height so
+   greeting → orb → card → tiles → mic all show without zooming or scrolling.
+   (Recent Activity continues below the fold.)
+   ===================================================================== */
+.view-home { --home-chrome: 560px; }
+.orb-lg { width: clamp(120px, min(62vw, calc(100dvh - var(--home-chrome))), 290px); height: clamp(120px, min(62vw, calc(100dvh - var(--home-chrome))), 290px); }
+.view-home .home-hero { padding: 0 0 var(--s2); gap: var(--s2); }
+.view-home .home-hero .orb-stage { padding: 10px; }
+.view-home .home-card { margin-bottom: var(--s3); padding: var(--s4); gap: var(--s2) var(--s3); }
+.view-home .home-card-input { padding: 4px 4px 4px var(--s4); }
+.view-home .home-card-input input { min-height: 40px; }
+.view-home .primary-actions { margin-bottom: var(--s3); gap: var(--s2); }
+.view-home .action-tile { min-height: 84px; padding: var(--s2); }
+.view-home .action-tile .tile-ico { width: 42px; height: 42px; border-radius: 13px; }
+.view-home .mic-big { width: 76px; height: 76px; }
+.view-home .mic-big .ico { width: 30px; height: 30px; }
+.view-home .mic-wave { height: 40px; }
+.view-home .mic-caption { margin: var(--s2) 0 var(--s2); font-size: 14px; }
+.view-home .home-quick-row { margin-bottom: var(--s5); }
+.view-home .home-greet { font-size: 15px; margin: 0; }
+.view-home .orb-label strong { font-size: clamp(17px, 0.11 * min(62vw, 100dvh - var(--home-chrome)) , 26px); }
+.view-home .orb-label small { font-size: clamp(11px, 0.05 * min(62vw, 100dvh - var(--home-chrome)), 15px); }
+.view-home .orb-star { width: clamp(22px, 0.13 * min(62vw, 100dvh - var(--home-chrome)), 40px); height: clamp(22px, 0.13 * min(62vw, 100dvh - var(--home-chrome)), 40px); margin-bottom: 0; }
+@media (max-width: 699px) {
+  /* phone chrome: top bar 56 + bottom nav 64 + paddings */
+  .view-home { --home-chrome: 640px; }
+  .view-home .mic-caption { margin-bottom: 0; }
+}
+@media (max-height: 760px) {
+  .view-home .home-card-copy p { display: none; }
+  .view-home .home-card { grid-template-columns: auto 1fr; }
+  .view-home .home-greet { display: none; }
+}
+@media (max-height: 700px) {
+  .view-home .home-card-copy span { display: none; }
+  .view-home .home-quick-row { display: none; }
+  .view-home .action-tile { min-height: 70px; }
+  .view-home .action-tile .tile-ico { width: 36px; height: 36px; }
+  .view-home .mic-big { width: 64px; height: 64px; }
+}
+@media (max-width: 699px) {
+  .view-home .home-greet { display: none; }
+  .view-home { --home-chrome: 620px; }
+}
+@media (max-width: 699px) and (max-height: 700px) {
+  .orb-lg { width: clamp(100px, min(62vw, calc(100dvh - var(--home-chrome))), 290px); height: clamp(100px, min(62vw, calc(100dvh - var(--home-chrome))), 290px); }
+  .view-home .action-tile { min-height: 62px; gap: 4px; }
+  .view-home .action-tile .tile-ico { width: 32px; height: 32px; border-radius: 10px; }
+  .view-home .mic-big { width: 56px; height: 56px; }
+  .view-home .mic-big .ico { width: 24px; height: 24px; }
+  .view-home .mic-wave { height: 30px; }
+  .view-home .home-card { padding: var(--s3); }
+}
+@media (max-width: 699px) { .view-home .home-quick-row { margin-top: 36px; } }
