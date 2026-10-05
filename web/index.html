@@ -57,6 +57,7 @@
       <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
       <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
       <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/></symbol>
+      <symbol id="i-plane" viewBox="0 0 24 24"><path d="M21 3.5 10.5 14M21 3.5l-6.8 17-3.7-6.5L4 10.3z"/></symbol>
       <symbol id="i-star4" viewBox="0 0 24 24"><path d="M12 2.5c.9 5.6 3.9 8.6 9.5 9.5-5.6.9-8.6 3.9-9.5 9.5-.9-5.6-3.9-8.6-9.5-9.5 5.6-.9 8.6-3.9 9.5-9.5z"/></symbol>
       <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="m8.2 10.8 7-3.6M8.2 13.2l7 3.6"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></symbol>
@@ -120,7 +121,7 @@
             <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span> <span aria-hidden="true">👋</span></p>
             <button type="button" class="orb-stage" id="home-orb" aria-label="Talk to ZARVIS by voice">
               <span class="orb orb-lg" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span></span>
-              <span class="orb-label" aria-hidden="true"><strong>Zarvis Mobile</strong><small>Your AI Assistant</small></span>
+              <span class="orb-label" aria-hidden="true"><svg class="ico orb-star"><use href="#i-star4"/></svg><strong>Zarvis Mobile</strong><small>Your AI Assistant</small></span>
             </button>
           </div>
 
@@ -134,7 +135,7 @@
             <div class="home-card-input">
               <label class="sr-only" for="home-prompt-input">Ask ZARVIS</label>
               <input id="home-prompt-input" type="text" placeholder="Type your request…" enterkeyhint="send" />
-              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-send"/></svg></button>
+              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
             </div>
           </form>
 
@@ -206,7 +207,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="activity-title">Activity</h1>
-              <p class="page-sub">Your conversations, AI actions and tracked tasks.</p>
+              <p class="page-sub">Your recent conversations &amp; tasks.</p>
             </div>
             <button type="button" class="btn btn-ghost" id="activity-refresh-btn"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Refresh</span></button>
           </header>
@@ -244,8 +245,9 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="capabilities-title">Capabilities</h1>
-              <p class="page-sub">What ZARVIS can do today, and where it runs.</p>
+              <p class="page-sub">Powerful AI tools in one place.</p>
             </div>
+            <span class="page-head-spark" aria-hidden="true"><svg class="ico"><use href="#i-sparkle"/></svg></span>
           </header>
           <div id="capability-hub"></div>
           <details class="disclosure">
@@ -349,7 +351,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="plans-title">Plans</h1>
-              <p class="page-sub">Your plan, credits and what each plan includes.</p>
+              <p class="page-sub">Choose the best plan for you.</p>
             </div>
           </header>
           <div id="plans-current" class="stat-grid"></div>
@@ -368,8 +370,8 @@
         <section class="view" id="view-metrics" hidden aria-labelledby="metrics-title">
           <header class="page-head">
             <div>
-              <h1 class="page-title" id="metrics-title">Metrics</h1>
-              <p class="page-sub">Measured on this device during this session, plus your account's credits.</p>
+              <h1 class="page-title" id="metrics-title">Usage &amp; Metrics</h1>
+              <p class="page-sub">Track your AI usage and performance on this device.</p>
             </div>
           </header>
           <div class="stat-grid" id="metrics-usage"></div>
@@ -399,7 +401,7 @@
             <header class="page-head">
               <div>
                 <h1 class="page-title" id="settings-title">Settings</h1>
-                <p class="page-sub">Profile, voice, privacy and more.</p>
+                <p class="page-sub">Customize your Zarvis experience.</p>
               </div>
             </header>
             <div class="settings-list">
@@ -611,14 +613,14 @@
             <textarea id="text-input" class="composer-input" rows="1" placeholder="Ask ZARVIS" autocomplete="off"></textarea>
             <div class="composer-row">
               <div class="composer-tools">
-                <label id="upload-btn" class="icon-btn" for="file-input" role="button" aria-label="Attach a document" tabindex="0"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></label>
+                <label id="upload-btn" class="icon-btn" for="file-input" role="button" aria-label="Attach a document" tabindex="0"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></label>
                 <input id="file-input" class="file-input-visually-hidden" type="file" aria-label="Attach a document" accept="image/*,.txt,.md,.csv,.json,.pdf,.docx" />
                 <button id="image-btn" class="icon-btn" type="button" aria-label="Attach an image"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></button>
                 <button id="mic-btn" class="icon-btn" type="button" aria-label="Speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
               </div>
               <button id="send-btn" class="send-btn" type="button" aria-label="Send">
                 <span class="send-label sr-only">Send</span>
-                <svg class="ico send-icon" aria-hidden="true"><use href="#i-send"/></svg>
+                <svg class="ico send-icon" aria-hidden="true"><use href="#i-plane"/></svg>
                 <svg class="ico stop-icon" aria-hidden="true"><use href="#i-stop"/></svg>
               </button>
             </div>

@@ -102,7 +102,7 @@
       attachmentReady: "Ready to analyze",
       attachmentRemove: "Remove attachment",
       stateLabels: {
-        IDLE: "Ready",
+        IDLE: "Online",
         LISTENING: "Listening",
         UNDERSTANDING: "Understanding",
         PLANNING: "Understanding",
@@ -162,7 +162,7 @@
       attachmentReady: "विश्लेषण के लिए तैयार",
       attachmentRemove: "अटैचमेंट हटाएं",
       stateLabels: {
-        IDLE: "तैयार",
+        IDLE: "ऑनलाइन",
         LISTENING: "सुन रहा हूँ",
         UNDERSTANDING: "समझ रहा हूँ",
         PLANNING: "समझ रहा हूँ",
@@ -2302,14 +2302,14 @@
     const count = (type) => activityLog.filter((entry) => entry.type === type).length;
     const conversations = state.history.filter((message) => message.role === "user").length;
     const tiles = [
-      { label: "Conversation turns", value: String(conversations) },
-      { label: "AI requests", value: String(latencyEntries.length) },
-      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length) },
-      { label: "Files read", value: String(count("file")) },
-      { label: "Developer runs", value: String(count("developer")) },
-      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—" },
-      { label: "Credits", value: "…", id: "metrics-credits" },
-      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan" },
+      { label: "Conversation turns", value: String(conversations), icon: "i-chat", tone: "tone-blue" },
+      { label: "AI requests", value: String(latencyEntries.length), icon: "i-sparkle", tone: "tone-violet" },
+      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length), icon: "i-mic", tone: "tone-pink" },
+      { label: "Files read", value: String(count("file")), icon: "i-file", tone: "tone-cyan" },
+      { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
+      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-blue" },
+      { label: "Credits", value: "…", id: "metrics-credits", icon: "i-bolt", tone: "tone-pink" },
+      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan", icon: "i-plan", tone: "tone-cyan" },
     ];
     el.metricsUsage.replaceChildren(...tiles.map((tile) => {
       const node = renderStatTile(tile);
@@ -2338,16 +2338,26 @@
     return name ? name.charAt(0).toUpperCase() + name.slice(1).toLowerCase() : name;
   }
 
-  function renderStatTile({ label, value }) {
+  function renderStatTile({ label, value, icon, tone }) {
     const tile = document.createElement("div");
     tile.className = "stat-tile";
+    if (icon) {
+      tile.classList.add("has-icon", tone || "tone-blue");
+      const ico = document.createElement("span");
+      ico.className = "stat-tile-ico";
+      ico.appendChild(svgIcon(icon));
+      tile.appendChild(ico);
+    }
+    const copyEl = document.createElement("span");
+    copyEl.className = "stat-tile-copy";
     const labelEl = document.createElement("span");
     labelEl.className = "stat-tile-label";
     labelEl.textContent = label;
     const valueEl = document.createElement("span");
     valueEl.className = "stat-tile-value";
     valueEl.textContent = value;
-    tile.append(labelEl, valueEl);
+    copyEl.append(labelEl, valueEl);
+    tile.appendChild(copyEl);
     return tile;
   }
 
