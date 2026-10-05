@@ -359,15 +359,24 @@
             </div>
           </header>
           <div id="plans-current" class="stat-grid"></div>
-          <p class="notice"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span>Checkout isn't connected yet, so upgrades can't be purchased here and no prices are shown.</span></p>
+          <p class="notice" id="plans-notice" hidden><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span id="plans-notice-text"></span></p>
           <div class="section-head">
-            <h2 class="section-title">Compare plans</h2>
+            <h2 class="section-title">Choose your plan</h2>
             <div class="segmented" id="billing-toggle" role="group" aria-label="Billing period">
               <button type="button" class="seg billing-option active" data-billing="monthly">Monthly</button>
-              <button type="button" class="seg billing-option" data-billing="yearly">Yearly</button>
+              <button type="button" class="seg billing-option" data-billing="yearly">Yearly <span class="seg-save" id="yearly-save" hidden></span></button>
             </div>
           </div>
           <div class="plan-grid" id="plan-cards"></div>
+          <div class="pay-box" id="pay-box" hidden>
+            <ul class="pay-methods" aria-label="Accepted payment methods">
+              <li><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg>UPI</li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg>Debit &amp; credit cards</li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Netbanking</li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg>Wallets</li>
+            </ul>
+            <p class="pay-note"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>Payments are processed securely by Razorpay in INR. ZARVIS never sees your card or UPI details.</span></p>
+          </div>
         </section>
 
         <!-- ============ METRICS ============ -->

@@ -53,7 +53,13 @@ function getDocumentsRouter(): Promise<Router | null> {
  * per character (~270 kB), well above express.json()'s 100 kB default. 1 MB fits it in any
  * script and stays far below the platform's own request limit.
  */
-const jsonBody = express.json({ limit: "1mb" });
+const jsonBody = express.json({
+  limit: "1mb",
+  // Keep the exact bytes: the Razorpay webhook signature is an HMAC over the raw body.
+  verify: (req, _res, buf) => {
+    (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+  },
+});
 
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
@@ -126,7 +132,7 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/integrations", integrationsRouter(container.githubAccess));
   app.use("/api/v1/capabilities", capabilitiesRouter());
   app.use("/api/v1/conversations", conversationsRouter(container.store));
-  app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store));
+  app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store, container.paymentService));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
   // Keep document parsing isolated from the startup-critical API. If its dependencies cannot
   // load in a particular deployment, document upload returns 503 instead of taking the entire

@@ -140,4 +140,55 @@ describe.skipIf(!TEST_DATABASE_URL)("PostgresStore", () => {
     expect(await store.getGitHubConnection(account.id)).toBeUndefined();
     expect(await store.findUserById(user.id)).toBeUndefined();
   });
+
+  describe("payment orders", () => {
+    async function accountWithOrder(orderId: string, periodDays = 30, credits = 1000) {
+      const user = await store.createUser(`pay-${orderId}-${Date.now()}@example.com`, "hashed");
+      const account = await store.createAccountForUser(user.id);
+      await store.createPaymentOrder({ orderId, accountId: account.id, planKey: "pro_monthly", amountPaise: 49900, currency: "INR", periodDays, credits, status: "created", createdAt: new Date() });
+      return account;
+    }
+
+    it("round-trips an order and grants Pro + credits atomically, exactly once", async () => {
+      const orderId = `order_${Date.now()}_a`;
+      const account = await accountWithOrder(orderId);
+      expect(await store.getPaymentOrder(orderId)).toMatchObject({ orderId, accountId: account.id, amountPaise: 49900, status: "created" });
+
+      const now = new Date("2026-10-05T10:00:00Z");
+      const first = await store.fulfillPaymentOrder(orderId, "pay_1", now);
+      expect(first).toMatchObject({ status: "fulfilled", creditBalance: 1050 });
+      const reread = await store.getAccount(account.id);
+      expect(reread).toMatchObject({ plan: "PRO" });
+      expect(reread!.planExpiresAt!.getTime()).toBe(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      expect(await store.getPaymentOrder(orderId)).toMatchObject({ status: "paid", paymentId: "pay_1" });
+      expect(await store.fulfillPaymentOrder(orderId, "pay_1", now)).toEqual({ status: "already_fulfilled" });
+      expect(await store.getCreditBalance(account.id)).toBe(1050);
+      expect(await store.fulfillPaymentOrder("order_unknown", "pay_x", now)).toEqual({ status: "not_found" });
+    });
+
+    it("concurrent fulfilments (client verify + webhook) grant the credits only once", async () => {
+      const orderId = `order_${Date.now()}_b`;
+      const account = await accountWithOrder(orderId);
+      const results = await Promise.all([1, 2, 3, 4].map(() => store.fulfillPaymentOrder(orderId, "pay_race", new Date())));
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(await store.getCreditBalance(account.id)).toBe(1050);
+    });
+
+    it("stacks a renewal onto a running period and removes orders with the account", async () => {
+      const first = `order_${Date.now()}_c`;
+      const account = await accountWithOrder(first);
+      const now = new Date();
+      await store.fulfillPaymentOrder(first, "pay_c1", now);
+      const second = `order_${Date.now()}_d`;
+      await store.createPaymentOrder({ orderId: second, accountId: account.id, planKey: "pro_yearly", amountPaise: 499900, currency: "INR", periodDays: 365, credits: 12000, status: "created", createdAt: now });
+      const result = await store.fulfillPaymentOrder(second, "pay_c2", now);
+      expect(result.status).toBe("fulfilled");
+      const expiry = (await store.getAccount(account.id))!.planExpiresAt!;
+      expect(Math.round((expiry.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))).toBe(395);
+
+      await store.deleteAccount(account.id);
+      expect(await store.getPaymentOrder(first)).toBeUndefined();
+      expect(await store.getPaymentOrder(second)).toBeUndefined();
+    });
+  });
 });

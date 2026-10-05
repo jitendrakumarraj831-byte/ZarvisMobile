@@ -1620,15 +1620,15 @@
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
-  // Free vs Pro comparison — MASTER_SPEC.md §19-21. Never a fabricated price: Web/Play
-  // billing isn't wired up yet (§32), so real pricing is marked "coming soon" instead of
-  // invented — same honesty as the Android Plans screen. The monthly/yearly toggle is a real,
-  // working control; it only ever changes the billing-period label, never a dollar amount
-  // that doesn't exist yet.
+  // Free vs Pro. Prices come from the server (GET /billing/plans, INR) — the client only ever
+  // sends a plan key when buying, never an amount. Payment runs through Razorpay Checkout
+  // (UPI, cards, netbanking, wallets); the server verifies it before granting anything. When
+  // the server has no Razorpay keys the page says so instead of showing a dead button.
 
   const PLAN_TIERS = [
     {
       name: "FREE",
+      title: "Free",
       tag: null,
       tagline: "Everything you need to get started.",
       features: ["Conversation and voice in English, Hindi and Hinglish", "Documents, research, writing and business drafts", "Tracked tasks and Developer Agent analysis"],
@@ -1636,7 +1636,8 @@
     },
     {
       name: "PRO",
-      tag: "Recommended",
+      title: "Pro",
+      tag: "Most popular",
       tagline: "Every skill ZARVIS ships.",
       features: [
         "Everything in Free",
@@ -1646,6 +1647,11 @@
       highlighted: true,
     },
   ];
+
+  let planCatalogue = null;
+  let checkoutBusy = false;
+  const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+  const formatDate = (value) => new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
   function setupPlans() {
     const options = el.billingToggle.querySelectorAll(".billing-option");
@@ -2131,68 +2137,224 @@
   }
 
   async function refreshPlans() {
-    el.plansCurrent.innerHTML = "";
+    el.plansCurrent.replaceChildren();
+    let snapshot = null;
     try {
       const res = await apiFetch("/entitlements/me");
-      if (res.ok) {
-        const snapshot = await res.json();
-        currentPlanName = snapshot.plan;
-        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan) }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Credits", value: String(snapshot.creditBalance) }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Trial", value: snapshot.trialExpiresAt ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "None" }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Billing", value: "Not connected" }));
-        updateSettingsValues();
-      }
-    } catch {
-      // The Free/Pro comparison below still renders regardless — this tile row is a
-      // nice-to-have, not a hard dependency.
+      if (res.ok) snapshot = await res.json();
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
     }
+    try {
+      const res = await apiFetch("/billing/plans");
+      planCatalogue = res.ok ? await res.json() : null;
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      planCatalogue = null;
+    }
+    if (snapshot) {
+      currentPlanName = snapshot.plan;
+      const paid = snapshot.plan === "PRO" && snapshot.planExpiresAt;
+      const trial = snapshot.trialExpiresAt && snapshot.plan === "TRIAL";
+      el.plansCurrent.append(
+        renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan), icon: "i-plan", tone: "tone-violet" }),
+        renderStatTile({ label: "Credits", value: Number(snapshot.creditBalance).toLocaleString("en-IN"), icon: "i-bolt", tone: "tone-pink" }),
+        renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
+        renderStatTile({ label: "Payments", value: planCatalogue?.paymentsEnabled ? "UPI & cards" : "Not enabled", icon: "i-card", tone: "tone-blue" }),
+      );
+      updateSettingsValues();
+    }
+    renderPlansNotice();
     renderPlanCards(currentPlanName);
   }
 
+  function renderPlansNotice() {
+    const notice = document.getElementById("plans-notice");
+    const text = document.getElementById("plans-notice-text");
+    const box = document.getElementById("pay-box");
+    const save = document.getElementById("yearly-save");
+    if (!notice || !text) return;
+    let message = "";
+    if (!planCatalogue) message = "Couldn't load plans and prices. Check your connection and open this page again.";
+    else if (!planCatalogue.paymentsEnabled) message = "Online payments aren't enabled on this server yet, so plans can't be bought here. Prices below are what Pro will cost.";
+    else if (planCatalogue.testMode) message = "Test mode: payments use Razorpay's test environment and no real money moves.";
+    notice.hidden = !message;
+    text.textContent = message;
+    if (box) box.hidden = !planCatalogue;
+    const yearly = planCatalogue?.plans?.find((p) => p.period === "yearly");
+    if (save) {
+      save.hidden = !yearly || !yearly.savingsPercent;
+      if (yearly?.savingsPercent) save.textContent = "Save " + yearly.savingsPercent + "%";
+    }
+  }
+
   function renderPlanCards(currentPlan) {
-    el.planCards.innerHTML = "";
+    el.planCards.replaceChildren();
     for (const plan of PLAN_TIERS) el.planCards.appendChild(renderPlanCard(plan, currentPlan));
   }
 
   function renderPlanCard(plan, currentPlan) {
     const card = document.createElement("div");
     card.className = plan.highlighted ? "plan-card highlighted" : "plan-card";
+    const priced = plan.name === "PRO" ? planCatalogue?.plans?.find((p) => p.period === state.billing) : null;
+    const isCurrent = currentPlan === plan.name || (plan.name === "FREE" && currentPlan === "TRIAL");
 
     const top = document.createElement("div");
     top.className = "plan-card-top";
     const name = document.createElement("h3");
     name.className = "plan-card-name";
-    name.textContent = plan.name;
-    top.appendChild(name);
+    name.textContent = plan.title;
     const tag = document.createElement("span");
     tag.className = "plan-card-tag";
-    tag.textContent = currentPlan === plan.name ? "Current plan" : plan.tag || "";
-    top.appendChild(tag);
+    tag.textContent = isCurrent ? "Current plan" : plan.tag || "";
+    top.append(name, tag);
     card.appendChild(top);
 
-    const tagline = document.createElement("p");
-    tagline.className = "plan-card-tagline";
-    tagline.textContent = plan.tagline;
-    card.appendChild(tagline);
-
-    if (plan.highlighted) {
-      const note = document.createElement("p");
-      note.className = "plan-card-note";
-      note.textContent = `Billed ${state.billing} · pricing not available yet`;
-      card.appendChild(note);
+    const price = document.createElement("p");
+    price.className = "plan-price";
+    if (plan.name === "FREE") {
+      price.append(textSpan("plan-price-amount", inr.format(0)), textSpan("plan-price-unit", " forever"));
+    } else if (priced) {
+      price.append(textSpan("plan-price-amount", inr.format(priced.amountInr)), textSpan("plan-price-unit", priced.period === "yearly" ? " / year" : " / month"));
+    } else {
+      price.append(textSpan("plan-price-unit", "Price unavailable"));
     }
+    card.appendChild(price);
+    if (priced && priced.period === "yearly") {
+      card.appendChild(textP("plan-card-note", `≈ ${inr.format(priced.perMonthInr)} / month${priced.savingsPercent ? " · save " + priced.savingsPercent + "%" : ""}`));
+    }
+
+    card.appendChild(textP("plan-card-tagline", plan.tagline));
 
     const list = document.createElement("ul");
     list.className = "plan-card-features";
-    for (const feature of plan.features) {
+    const features = priced ? [`${priced.credits.toLocaleString("en-IN")} credits per ${priced.period === "yearly" ? "year" : "month"}`, ...plan.features] : plan.features;
+    for (const feature of features) {
       const li = document.createElement("li");
       li.textContent = feature;
       list.appendChild(li);
     }
     card.appendChild(list);
 
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "btn plan-cta " + (plan.highlighted ? "btn-primary" : "btn-secondary");
+    if (plan.name === "FREE") {
+      action.textContent = isCurrent ? "Current plan" : "Included";
+      action.disabled = true;
+    } else if (!priced) {
+      action.textContent = "Unavailable";
+      action.disabled = true;
+    } else if (!planCatalogue.paymentsEnabled) {
+      action.textContent = "Payments not enabled yet";
+      action.disabled = true;
+    } else {
+      const active = currentPlan === "PRO" && planCatalogue.current?.planExpiresAt;
+      action.textContent = active ? `Renew · add ${priced.period === "yearly" ? "1 year" : "30 days"}` : "Upgrade Now";
+      action.addEventListener("click", () => startCheckout(priced.key, action));
+    }
+    card.appendChild(action);
     return card;
+  }
+
+  function textSpan(className, text) {
+    const node = document.createElement("span");
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  function textP(className, text) {
+    const node = document.createElement("p");
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  /** Razorpay Checkout is loaded only when the user taps Upgrade, never on page load. */
+  function loadRazorpayCheckout() {
+    if (window.Razorpay) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => (window.Razorpay ? resolve() : reject(new Error("checkout_unavailable")));
+      script.onerror = () => reject(new Error("checkout_blocked"));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function startCheckout(planKey, button) {
+    if (checkoutBusy) return;
+    checkoutBusy = true;
+    const label = button.textContent;
+    const reset = () => {
+      checkoutBusy = false;
+      button.disabled = false;
+      button.textContent = label;
+    };
+    button.disabled = true;
+    button.textContent = "Opening secure checkout…";
+    try {
+      const res = await apiFetch("/billing/orders", { method: "POST", body: JSON.stringify({ planKey }) });
+      const order = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(order.error || "Couldn't start the payment.");
+      await loadRazorpayCheckout();
+      const email = localStorage.getItem(SESSION_KEYS.isGuest) === "false" ? localStorage.getItem(SESSION_KEYS.email) || "" : "";
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        order_id: order.orderId,
+        amount: order.amountPaise,
+        currency: order.currency,
+        name: "ZARVIS MOBILE",
+        description: order.description,
+        prefill: email ? { email } : {},
+        theme: { color: "#6d4ee8" },
+        retry: { enabled: true },
+        handler: (response) => {
+          reset();
+          void confirmPayment(order.orderId, response);
+        },
+        modal: { ondismiss: reset },
+      });
+      checkout.on("payment.failed", (event) => {
+        showToast(event?.error?.description ? "Payment failed: " + event.error.description : "Payment failed. You were not charged.");
+      });
+      checkout.open();
+    } catch (err) {
+      reset();
+      if (err instanceof SessionEndedError) return;
+      showToast(err?.message === "checkout_blocked" || err?.message === "checkout_unavailable" ? "Couldn't load secure checkout. Check your connection and try again." : err?.message || "Couldn't start the payment.");
+    }
+  }
+
+  /** After Checkout succeeds: the server checks the signature and the payment before granting Pro. */
+  async function confirmPayment(orderId, response) {
+    showToast("Confirming your payment…");
+    try {
+      const res = await apiFetch("/billing/verify", {
+        method: "POST",
+        body: JSON.stringify({ orderId, paymentId: response.razorpay_payment_id, signature: response.razorpay_signature }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "verification_failed");
+      recordActivity("conversation", "Upgraded to Pro", body.planExpiresAt ? "Active until " + formatDate(body.planExpiresAt) : "", "ok");
+      showToast("Pro is active" + (body.planExpiresAt ? " until " + formatDate(body.planExpiresAt) : ""));
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      // The payment may still have gone through (the server also hears from Razorpay directly).
+      showToast("Payment received. Activating your plan — this can take a minute.");
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await delay(5000);
+        try {
+          const check = await apiFetch("/entitlements/me");
+          if (check.ok && (await check.json()).plan === "PRO") break;
+        } catch {
+          break;
+        }
+      }
+    }
+    await refreshPlans();
   }
 
   // ---- System Metrics -----------------------------------------------------------------------
@@ -2346,7 +2508,7 @@
       const credits = document.querySelector("#metrics-credits .stat-tile-value");
       const plan = document.querySelector("#metrics-plan .stat-tile-value");
       if (credits) credits.textContent = String(snapshot.creditBalance);
-      if (plan) plan.textContent = snapshot.plan;
+      if (plan) plan.textContent = formatPlanName(snapshot.plan);
     } catch (err) {
       if (err instanceof SessionEndedError) return;
       const credits = document.querySelector("#metrics-credits .stat-tile-value");

@@ -68,7 +68,39 @@ export interface Account {
   id: string;
   userId: string;
   plan: EntitlementLevel;
+  /** When a paid plan lapses (the account is then treated as FREE). Null/absent: no expiry. */
+  planExpiresAt?: Date | null;
   createdAt: Date;
+}
+
+/** A Razorpay order created for one plan purchase. Price and grants are snapshotted at creation. */
+export interface PaymentOrder {
+  orderId: string;
+  accountId: string;
+  planKey: string;
+  amountPaise: number;
+  currency: "INR";
+  periodDays: number;
+  credits: number;
+  status: "created" | "paid";
+  paymentId?: string;
+  createdAt: Date;
+  paidAt?: Date;
+}
+
+export type FulfillmentResult =
+  | { status: "fulfilled"; account: Account; creditBalance: number }
+  | { status: "already_fulfilled" }
+  | { status: "not_found" };
+
+/**
+ * New expiry when a paid period is bought: it stacks onto a still-running PRO period (renewing
+ * early never wastes paid time) and otherwise starts now.
+ */
+export function extendPlanExpiry(account: Pick<Account, "plan" | "planExpiresAt">, periodDays: number, now: Date): Date {
+  const running = account.plan === "PRO" && account.planExpiresAt && account.planExpiresAt.getTime() > now.getTime();
+  const base = running ? (account.planExpiresAt as Date).getTime() : now.getTime();
+  return new Date(base + periodDays * 24 * 60 * 60 * 1000);
 }
 
 export interface TrialRecord {
@@ -198,6 +230,16 @@ export interface Store {
    * Returns false when that token was already consumed, including by another account.
    */
   claimPurchaseToken(purchaseToken: string, accountId: string, productId: string): Promise<boolean>;
+
+  /** Records a Razorpay order the server just created for this account. */
+  createPaymentOrder(order: PaymentOrder): Promise<void>;
+  getPaymentOrder(orderId: string): Promise<PaymentOrder | undefined>;
+  /**
+   * Marks the order paid and grants its plan period and credits in ONE atomic step, exactly once:
+   * a second call (client verify racing the webhook, a replay) returns "already_fulfilled" and
+   * changes nothing.
+   */
+  fulfillPaymentOrder(orderId: string, paymentId: string, now: Date): Promise<FulfillmentResult>;
   listUsage(accountId: string): Promise<UsageEntry[]>;
 
   createConversation(accountId: string, title?: string): Promise<Conversation>;

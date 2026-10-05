@@ -3,6 +3,8 @@ import { getProvider, defaultModelConfig } from "./ai/providerFactory.js";
 import { GeminiTtsProvider } from "./ai/geminiTts.js";
 import { AuthService } from "./auth/authService.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
+import { PaymentService } from "./billing/paymentService.js";
+import { RazorpayClient } from "./billing/razorpay.js";
 import { FailClosedPlayBillingVerifier, GooglePlayBillingVerifier, MockPlayBillingVerifier } from "./billing/playBillingVerifier.js";
 import { env } from "./config/env.js";
 import { GitHubAccessService, type GitHubClientFactory } from "./github/githubAccess.js";
@@ -57,6 +59,10 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     : env.isProduction
       ? new FailClosedPlayBillingVerifier()
       : new MockPlayBillingVerifier();
+  const razorpay = env.razorpayKeyId && env.razorpayKeySecret
+    ? new RazorpayClient(env.razorpayKeyId, env.razorpayKeySecret, env.razorpayWebhookSecret, env.razorpayApiBaseUrl)
+    : null;
+  const paymentService = new PaymentService(store, razorpay);
   const ttsProvider = env.geminiApiKey ? new GeminiTtsProvider(env.geminiApiKey, env.geminiTtsModel, env.geminiTtsVoice) : null;
 
   return {
@@ -69,6 +75,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     usagePort,
     taskService,
     billingVerifier,
+    paymentService,
     ttsProvider,
     confirmationService,
     githubAccess,

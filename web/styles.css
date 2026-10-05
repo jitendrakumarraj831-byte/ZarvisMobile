@@ -1911,3 +1911,62 @@ body[data-orb-state="LISTENING"] .mic-wave i, body[data-orb-state="SPEAKING"] .m
   .view-home .home-greet { display: none; }
 }
 @media (max-width: 699px) and (max-height: 520px) { .view-home .home-quick-row { margin-top: 56px; } }
+
+/* =====================================================================
+   v3.3 — deep-scan fixes
+   ===================================================================== */
+/* One header in Chat on phones (the chat header already carries identity + New chat) */
+@media (max-width: 699px) {
+  body[data-active-view="chat"] .topbar { display: none; }
+  body[data-active-view="chat"] .chat-header { top: 0; padding-top: calc(var(--s2) + env(safe-area-inset-top, 0px)); background: color-mix(in srgb, var(--bg) 78%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); margin-top: calc(-1 * var(--s4)); }
+}
+
+/* 44px touch targets everywhere that is tapped */
+.topbar-avatar { width: 44px; height: 44px; margin-left: 2px; }
+.bubble-actions button, .cap-pill, .dev-tab, #activity-filters .seg, .timeline-more { min-height: 44px; }
+.timeline-more { min-width: 44px; }
+#capability-hub .cap-action { position: absolute; }
+#capability-hub .cap-action::before { content: ""; position: absolute; inset: -6px; } /* 34px look, 46px hit area */
+.link-btn, .chip, .btn-ghost { min-height: 44px; }
+
+/* Back buttons: one consistent circular glass control */
+.detail-head > .icon-btn, .chat-back, [data-settings-back], .feature-page > .icon-btn, .feature-back {
+  width: 44px; height: 44px; border-radius: 50%; background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text);
+}
+.detail-head { margin-left: 0; gap: var(--s3); align-items: center; }
+.detail-head-copy { padding-top: 0; }
+
+/* Settings panels / forms: tighter, even rhythm */
+.settings-panel .muted, .panel .muted { padding: 0; margin-top: var(--s1); }
+.panel-title { margin-bottom: var(--s2); }
+.form { gap: var(--s3); }
+.form label { margin-bottom: -6px; }
+.panel .form + .muted { margin-top: var(--s3); }
+.input::placeholder { opacity: 0.8; }
+
+/* ---------- Plans: INR pricing + payment ---------- */
+.plan-grid { grid-template-columns: 1fr; gap: var(--s4); max-width: 920px; }
+@media (min-width: 760px) { .plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.plan-card { position: relative; padding: var(--s6); }
+.plan-card.highlighted { background: linear-gradient(160deg, color-mix(in srgb, var(--primary) 18%, var(--surface)), var(--surface) 70%); }
+.plan-card-tag { padding: 4px 10px; border-radius: var(--r-pill); background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 700; }
+.plan-card-tag:empty { display: none; }
+.plan-price { display: flex; align-items: baseline; gap: 4px; margin: var(--s2) 0 0; }
+.plan-price-amount { font-size: clamp(32px, 4vw, 40px); font-weight: 800; letter-spacing: -0.03em; color: var(--text); font-variant-numeric: tabular-nums; }
+.plan-price-unit { font-size: 15px; font-weight: 600; color: var(--text-3); }
+.plan-card-note { color: var(--primary); font-weight: 600; }
+.plan-cta { width: 100%; min-height: 52px; margin-top: auto; border-radius: 16px; font-size: 16px; }
+.plan-cta:disabled { opacity: 1; background: var(--surface-2); color: var(--text-3); border: 1px solid var(--line); box-shadow: none; }
+.seg-save { margin-left: 6px; padding: 2px 8px; border-radius: var(--r-pill); background: var(--ok-soft); color: var(--ok); font-size: 11px; font-weight: 700; }
+.seg.active .seg-save { background: rgba(255, 255, 255, 0.2); color: inherit; }
+.pay-box { max-width: 920px; margin-top: var(--s5); padding: var(--s4) var(--s5); border-radius: 20px; background: var(--card-bg); border: 1px solid var(--card-border); }
+.pay-methods { list-style: none; margin: 0 0 var(--s3); padding: 0; display: flex; flex-wrap: wrap; gap: var(--s2); }
+.pay-methods li { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 var(--s3); border-radius: var(--r-pill); background: var(--surface-2); font-size: 13px; font-weight: 600; color: var(--text); }
+.pay-methods .ico { width: 16px; height: 16px; color: var(--primary); }
+.pay-note { display: flex; align-items: flex-start; gap: var(--s2); font-size: 13px; color: var(--text-3); }
+.pay-note .ico { width: 16px; height: 16px; margin-top: 2px; flex: none; color: var(--ok); }
+#plans-current { margin-bottom: var(--s3); }
+.plan-grid { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 760px) { .plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.plan-cta { white-space: normal; padding: 12px var(--s4); line-height: 1.25; }
+:root:not([data-appearance="dim"]) .seg-save { background: #09774f; color: #fff; }

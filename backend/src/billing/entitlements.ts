@@ -14,11 +14,14 @@ export class StoreEntitlementPort implements EntitlementPort {
     }
     const trial = await this.store.getTrial(accountId);
     const creditBalance = await this.store.getCreditBalance(accountId);
+    // A lapsed paid period reads as FREE everywhere (skill gating, UI) without rewriting the row.
+    const lapsed = !!account.planExpiresAt && account.planExpiresAt.getTime() <= Date.now() && account.plan === "PRO";
     return {
       accountId,
-      plan: account.plan,
+      plan: lapsed ? "FREE" : account.plan,
       trialExpiresAt: trial?.expiresAt ?? null,
       creditBalance,
+      planExpiresAt: account.planExpiresAt ?? null,
     };
   }
 }
