@@ -20,7 +20,7 @@ import { AIContentSummarizer, createDocsSummarizeSkill, DOCS_SUMMARIZE_SYSTEM_PR
 import { RESEARCH_COMPARE_SYSTEM_PROMPT, createResearchCompareSkill } from "./researchCompare.js";
 import { RESEARCH_OUTLINE_SYSTEM_PROMPT, createResearchOutlineSkill } from "./researchOutline.js";
 import { RESEARCH_REPORT_SYSTEM_PROMPT, createResearchReportSkill } from "./researchReport.js";
-import { createWebSearchSkill, GeminiSearchProvider, MockSearchProvider, UnavailableSearchProvider } from "./webSearch.js";
+import { createWebSearchSkill, FallbackSearchProvider, GeminiSearchProvider, MockSearchProvider, OpenRouterSearchProvider, UnavailableSearchProvider, type SearchProvider } from "./webSearch.js";
 
 /**
  * Real generation via the configured provider (Gemini once `GEMINI_API_KEY` is set) when
@@ -36,6 +36,17 @@ function contentGenerator(label: string, systemPrompt: string): ContentGenerator
   return new AIContentGenerator(getProvider(modelConfig), modelConfig, systemPrompt);
 }
 
+/** Gemini grounding first; OpenRouter's web search as fallback (or alone when Gemini isn't configured). */
+function searchProvider(): SearchProvider {
+  const openRouter = env.openRouterApiKey ? new OpenRouterSearchProvider(env.openRouterApiKey, env.openRouterModel) : undefined;
+  if (env.geminiApiKey) {
+    const gemini = new GeminiSearchProvider(env.geminiApiKey, env.geminiModel);
+    return openRouter ? new FallbackSearchProvider(gemini, openRouter) : gemini;
+  }
+  if (openRouter) return openRouter;
+  return env.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();
+}
+
 /**
  * Registers every backend-executed skill. See SKILLS.md "Current catalogue" for the full
  * status of each. Adding one is always this same pattern: write the SkillDefinition,
@@ -47,9 +58,7 @@ export function buildSkillRegistry(store: Store, githubAccess: GitHubAccessServi
 
   registry.register(
     createWebSearchSkill(
-      env.geminiApiKey
-        ? new GeminiSearchProvider(env.geminiApiKey, env.geminiModel)
-        : env.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider(),
+      searchProvider(),
     ),
   );
   registry.register(
