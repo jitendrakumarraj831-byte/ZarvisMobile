@@ -313,7 +313,7 @@
     // Server-side durable conversation id. The browser keeps only this pointer; the
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
-    appearance: localStorage.getItem("zarvis.appearance") || "aurora",
+    appearance: localStorage.getItem("zarvis.appearance") || "dim",
     settingsPage: null,
     featureId: null,
   };
@@ -1362,10 +1362,6 @@
     node.textContent = name ? name.slice(0, 2).toUpperCase() : "Z";
   }
 
-  function homeTitleParts(lang) {
-    return lang === "hi" ? ["आज आप क्या", "करना चाहेंगे?"] : ["What would you like to", "accomplish?"];
-  }
-
   function renderHomeGreeting() {
     if (!el.homeGreeting) return;
     const copy = COPY[state.lang];
@@ -1375,12 +1371,6 @@
     const name = accountDisplayName();
     const nameNode = document.getElementById("home-name");
     if (nameNode) nameNode.textContent = name ? ", " + name : "";
-    const [main, accent] = homeTitleParts(state.lang);
-    const mainNode = document.getElementById("home-title-main");
-    const accentNode = document.getElementById("home-title-accent");
-    if (mainNode) mainNode.textContent = main;
-    if (accentNode) accentNode.textContent = accent;
-    if (el.homeTitleSub) el.homeTitleSub.textContent = copy.homeSub;
     renderAvatar();
   }
 
@@ -1399,6 +1389,15 @@
       setActiveView("chat");
       submitComposerInput(text);
     });
+
+    for (const btn of document.querySelectorAll('[data-home-action="image"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        el.fileInput.setAttribute("accept", "image/*");
+        el.fileInput.click();
+      });
+    }
 
     const fullAccept = el.fileInput.getAttribute("accept");
     const restoreAccept = () => el.fileInput.setAttribute("accept", fullAccept || "");
@@ -1781,7 +1780,7 @@
     localStorage.setItem("zarvis.appearance", mode);
     applyAppearance();
     updateSettingsValues();
-    showToast(mode === "dim" ? "Dim appearance" : "Light appearance");
+    showToast(mode === "dim" ? "Dark appearance" : "Light appearance");
   }
 
   let toastTimer = null;
@@ -1811,7 +1810,7 @@
     set("subscription", currentPlanName ? formatPlanName(currentPlanName) : "");
     set("voice", state.speak ? "On" : "Off");
     set("language", state.lang === "hi" ? "हिंदी" : "English");
-    set("appearance", state.appearance === "dim" ? "Dim" : "Light");
+    set("appearance", state.appearance === "dim" ? "Dark" : "Light");
     set("memory", state.conversationId ? "Saved" : "New");
     if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
     set("security", isGuest ? "Guest session" : "Signed in");
@@ -1872,7 +1871,7 @@
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#070a14" : "#f6f7fb");
+    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#0a0d24" : "#f4f3ff");
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -3082,6 +3081,27 @@
         });
         actions.appendChild(again);
       }
+      if (typeof navigator.share === "function") {
+        const { button: share } = actionButton("i-share", "Share");
+        share.addEventListener("click", () => {
+          navigator.share({ title: "ZARVIS", text: bubblePlainText(body) || text }).catch(() => {});
+        });
+        actions.appendChild(share);
+      }
+      const { button: download, labelNode: downloadLabel } = actionButton("i-download", "Download");
+      download.addEventListener("click", () => {
+        const blob = new Blob([bubblePlainText(body) || text], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "zarvis-reply.txt";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        downloadLabel.textContent = "Saved";
+      });
+      actions.appendChild(download);
       const { button: listen } = actionButton("i-wave", "Listen");
       listen.addEventListener("click", () => {
         void speak(bubblePlainText(body) || text, null, true);
