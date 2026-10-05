@@ -2745,6 +2745,10 @@
             // text reply, stop asking for speech in this turn.
             if (Logic.turnFailureKind({ code: err?.code }) !== "bootError") {
               ttsUnavailable = true;
+              // Don't retry on the next turn either: back off (daily quota longer) so we stop
+              // sending a 429 per reply while the voice quota is exhausted.
+              const waitMs = err?.code === "AI_QUOTA_EXCEEDED" ? 10 * 60_000 : Math.max(30_000, Number(err?.retryAfterMs) || 0);
+              ttsBlockedUntil = Date.now() + waitMs;
               for (const item of ttsQueue.splice(0)) item.ticket.done();
             }
           }).finally(() => {
@@ -2756,7 +2760,7 @@
 
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
-        if (!clean || !isVoice || !state.speak || ttsUnavailable) return;
+        if (!clean || !isVoice || !state.speak || ttsUnavailable || Date.now() < ttsBlockedUntil) return;
         // The ticket is taken at enqueue time, so playback order == reply order even when a
         // later segment's audio downloads first.
         ttsQueue.push({ text: clean, ticket: ttsSegments.next() });
@@ -3752,6 +3756,8 @@
   }
 
   let activeAudio = null;
+  // While the server reports the voice quota/rate limit exhausted, skip TTS requests until then.
+  let ttsBlockedUntil = 0;
   // Every in-flight TTS request. Two reply segments stream at once, so Stop must abort all of
   // them, not only the most recently started one.
   const activeTtsControllers = new Set();
@@ -3826,6 +3832,7 @@
         const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
         const error = new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
         error.code = body?.code;
+        error.retryAfterMs = body?.retryAfterMs;
         throw error;
       }
 

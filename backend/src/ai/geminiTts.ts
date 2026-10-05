@@ -8,8 +8,8 @@
  * passes real WAV through unchanged.
  *
  * Retry policy (ai/geminiErrors.ts): transient 408/5xx are retried with a short backoff, a
- * per-minute 429 at most once, a daily-quota 429 never; 404 (model not available to this
- * project) moves to the next candidate model; any other 4xx is thrown immediately.
+ * per-minute 429 at most once, a daily-quota 429 never on the same model; a 404 or an exhausted
+ * quota moves to the next candidate model (quotas are per model); any other 4xx is thrown immediately.
  */
 import { abortError, classifyGeminiFailure, retryDelayMs, shouldTryNextModel, sleep, toProviderError } from "./geminiErrors.js";
 import { logger } from "../security/redact.js";
@@ -170,7 +170,9 @@ export class GeminiTtsProvider {
         if (failure.kind === "fatal") throw lastError;
         const wait = retryDelayMs(failure, attempt);
         if (wait === null) {
-          if (!shouldTryNextModel(failure)) throw lastError;
+          // Gemini quotas are per model, so unlike chat (one shared budget) an exhausted TTS
+          // model is worth moving past: the next candidate model has its own quota.
+          if (failure.kind !== "quota" && !shouldTryNextModel(failure)) throw lastError;
           break;
         }
         await sleep(wait, signal);

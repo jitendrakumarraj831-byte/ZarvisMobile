@@ -86,3 +86,25 @@ describe("GeminiTtsProvider.synthesize", () => {
     await expect(provider.synthesize("hi")).rejects.toThrow(/no audio data/);
   });
 });
+
+describe("GeminiTtsProvider quota handling", () => {
+  it("moves to the next TTS model when one model's daily quota is exhausted", async () => {
+    const wav = Buffer.from("RIFF-ok", "ascii");
+    const urls: string[] = [];
+    const dailyQuota = JSON.stringify({
+      error: { details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel" }] }] },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      urls.push(url);
+      if (urls.length === 1) return new Response(dailyQuota, { status: 429 });
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { data: wav.toString("base64"), mimeType: "audio/wav" } }] } }],
+      }), { status: 200 });
+    }));
+    const provider = new GeminiTtsProvider("test-key", "gemini-3.8-flash-lite-tts", "Kore");
+    await expect(provider.synthesize("hi")).resolves.toEqual(wav);
+    expect(urls).toHaveLength(2);
+    expect(urls[0]).toContain("gemini-3.8-flash-lite-tts");
+    expect(urls[1]).toContain("gemini-3.8-flash-tts");
+  });
+});
