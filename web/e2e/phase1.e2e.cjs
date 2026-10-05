@@ -64,7 +64,7 @@ async function send(page, text) {
   const password = "correct horse battery";
 
   const ctxA = await browser.newContext();
-  const pageA = await ctxA.newPage();
+  const pageA = await pageOf(ctxA);
   const errorsA = [];
   watchErrors(pageA, errorsA);
 
@@ -123,7 +123,7 @@ async function send(page, text) {
   });
 
   const ctxB = await browser.newContext();
-  const pageB = await ctxB.newPage();
+  const pageB = await pageOf(ctxB);
   const errorsB = [];
   watchErrors(pageB, errorsB);
 
@@ -236,7 +236,7 @@ async function send(page, text) {
   // Turn-failure and duplicate-submit behaviour. A separate context: these paths log the
   // failure with console.error on purpose, which must not trip the no-console-errors check.
   const ctxC = await browser.newContext();
-  const pageC = await ctxC.newPage();
+  const pageC = await pageOf(ctxC);
   await pageC.goto(BASE);
   await pageC.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
   const sse = (frames) => frames.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
@@ -383,3 +383,11 @@ async function send(page, text) {
   console.error(err);
   process.exit(1);
 });
+
+/** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
+async function pageOf(ctx) {
+  await ctx.addInitScript(() => {
+    try { sessionStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
+  });
+  return ctx.newPage();
+}
