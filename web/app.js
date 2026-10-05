@@ -708,6 +708,7 @@
       const me = await res.json();
       localStorage.setItem(SESSION_KEYS.isGuest, String(me.isGuest));
       if (me.email) localStorage.setItem(SESSION_KEYS.email, me.email);
+      renderHomeGreeting();
       status.textContent = me.isGuest
         ? "Guest account on this browser. It has no sign-in email yet, so it only exists here. Link an email to use the same account on your phone or another browser."
         : "Signed in as " + me.email + ". Use this email on your phone or another browser to continue the same conversations and tasks.";
@@ -1283,6 +1284,7 @@
     }
     setupKeyboardInset();
     setupHomeQuickActions();
+    setupDesignShortcuts();
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
@@ -1334,13 +1336,93 @@
     });
   }
 
+  /** The analyze button keeps its icon; only the label span changes. */
+  function setAnalyzeLabel(text) {
+    const label = el.developerAnalyzeBtn?.querySelector("span");
+    if (label) label.textContent = text;
+    else if (el.developerAnalyzeBtn) el.developerAnalyzeBtn.textContent = text;
+  }
+
+  /** Display name from a signed-in email ("jitendra.kumar@x" → "Jitendra"); guests have none. */
+  function accountDisplayName() {
+    try {
+      if (localStorage.getItem(SESSION_KEYS.isGuest) !== "false") return "";
+      const email = localStorage.getItem(SESSION_KEYS.email) || "";
+      const first = email.split("@")[0].split(/[._\-+\d]+/).filter(Boolean)[0] || "";
+      return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function renderAvatar() {
+    const node = document.getElementById("desk-avatar-text");
+    if (!node) return;
+    const name = accountDisplayName();
+    node.textContent = name ? name.slice(0, 2).toUpperCase() : "Z";
+  }
+
+  function homeTitleParts(lang) {
+    return lang === "hi" ? ["आज आप क्या", "करना चाहेंगे?"] : ["What would you like to", "accomplish?"];
+  }
+
   function renderHomeGreeting() {
     if (!el.homeGreeting) return;
     const copy = COPY[state.lang];
     const hour = new Date().getHours();
     const key = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
     el.homeGreeting.textContent = copy.homeGreetings[key];
+    const name = accountDisplayName();
+    const nameNode = document.getElementById("home-name");
+    if (nameNode) nameNode.textContent = name ? ", " + name : "";
+    const [main, accent] = homeTitleParts(state.lang);
+    const mainNode = document.getElementById("home-title-main");
+    const accentNode = document.getElementById("home-title-accent");
+    if (mainNode) mainNode.textContent = main;
+    if (accentNode) accentNode.textContent = accent;
     if (el.homeTitleSub) el.homeTitleSub.textContent = copy.homeSub;
+    renderAvatar();
+  }
+
+  /** Home prompt box, composer image button and Developer tabs (visual shortcuts onto existing flows). */
+  function setupDesignShortcuts() {
+    document.getElementById("home-prompt-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = document.getElementById("home-prompt-input");
+      const text = input?.value.trim();
+      if (!text) {
+        setActiveView("chat");
+        el.input.focus();
+        return;
+      }
+      input.value = "";
+      setActiveView("chat");
+      submitComposerInput(text);
+    });
+
+    const fullAccept = el.fileInput.getAttribute("accept");
+    const restoreAccept = () => el.fileInput.setAttribute("accept", fullAccept || "");
+    el.fileInput.addEventListener("change", restoreAccept);
+    document.getElementById("upload-btn")?.addEventListener("click", restoreAccept);
+    document.getElementById("image-btn")?.addEventListener("click", () => {
+      haptic();
+      el.fileInput.setAttribute("accept", "image/*");
+      el.fileInput.click();
+    });
+
+    const tabs = document.querySelectorAll("[data-dev-tab]");
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        tabs.forEach((other) => {
+          other.classList.toggle("active", other === tab);
+          other.setAttribute("aria-selected", String(other === tab));
+        });
+        const target = document.getElementById(tab.dataset.devTab);
+        const panel = target?.closest(".panel") || target;
+        panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (target && target.matches("textarea, input")) target.focus({ preventScroll: true });
+      });
+    });
   }
 
   /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
@@ -1919,7 +2001,7 @@
     }
 
     el.developerAnalyzeBtn.disabled = true;
-    el.developerAnalyzeBtn.textContent = "Analyzing…";
+    setAnalyzeLabel("Analyzing…");
     setDeveloperStage("analyze", "Running", "z-badge-info");
     try {
       const res = await apiFetch("/developer/analyze", { method: "POST", body: JSON.stringify({ repoUrl }) });
@@ -1937,7 +2019,7 @@
       renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerAnalyzeBtn.disabled = false;
-      el.developerAnalyzeBtn.textContent = "Analyze";
+      setAnalyzeLabel("Analyze Repository");
     }
   }
 

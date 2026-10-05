@@ -248,17 +248,49 @@
   }
 
   const TONES = ["tone-blue", "tone-violet", "tone-cyan", "tone-pink"];
+  /* Filter pills group the catalogue groups above. */
+  const FILTERS = [
+    { id: "all", label: "All" },
+    { id: "ai", label: "AI", groups: ["AI"] },
+    { id: "media", label: "Media", groups: ["Voice", "Vision", "Files"] },
+    { id: "productivity", label: "Productivity", groups: ["Productivity"] },
+    { id: "developer", label: "Developer", groups: ["Developer"] },
+    { id: "automation", label: "Automation", groups: ["Automation"] },
+  ];
+
+  function filterFor(groupTitle) {
+    const found = FILTERS.find((filter) => filter.groups && filter.groups.includes(groupTitle));
+    return found ? found.id : "all";
+  }
 
   function renderHub(container) {
     container.replaceChildren();
+    const pills = el("div", "cap-filters");
+    pills.setAttribute("role", "group");
+    pills.setAttribute("aria-label", "Filter capabilities");
+    const grid = el("div", "cap-grid");
+    for (const filter of FILTERS) {
+      const pill = el("button", "cap-pill" + (filter.id === "all" ? " active" : ""), filter.label);
+      pill.type = "button";
+      pill.dataset.capFilter = filter.id;
+      pill.setAttribute("aria-pressed", String(filter.id === "all"));
+      pill.addEventListener("click", () => {
+        for (const other of pills.children) {
+          other.classList.toggle("active", other === pill);
+          other.setAttribute("aria-pressed", String(other === pill));
+        }
+        for (const card of grid.children) {
+          card.hidden = filter.id !== "all" && card.dataset.capGroup !== filter.id;
+        }
+      });
+      pills.appendChild(pill);
+    }
+    container.append(pills, grid);
+
     GROUPS.forEach((group, groupIndex) => {
-      const section = el("section", "cap-group");
-      const head = el("div", "cap-group-head");
-      head.appendChild(el("h2", "section-title", group.title));
-      section.appendChild(head);
-      const grid = el("div", "cap-grid");
       group.items.forEach((item, index) => {
-        const row = el("article", "cap-item" + (item.status[1] === "off" ? " is-off" : ""));
+        const row = el("article", "cap-item " + TONES[groupIndex % TONES.length] + (item.status[1] === "off" ? " is-off" : ""));
+        row.dataset.capGroup = filterFor(group.title);
         row.style.animationDelay = Math.min(index * 40 + groupIndex * 20, 240) + "ms";
         const ico = el("span", "row-ico " + TONES[groupIndex % TONES.length]);
         ico.appendChild(icon(item.icon));
@@ -288,8 +320,6 @@
         }
         grid.appendChild(row);
       });
-      section.appendChild(grid);
-      container.appendChild(section);
     });
   }
 
