@@ -58,6 +58,7 @@
       <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
       <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/></symbol>
       <symbol id="i-plane" viewBox="0 0 24 24"><path d="M21 3.5 10.5 14M21 3.5l-6.8 17-3.7-6.5L4 10.3z"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5"/></symbol>
       <symbol id="i-star4" viewBox="0 0 24 24"><path d="M12 2.5c.9 5.6 3.9 8.6 9.5 9.5-5.6.9-8.6 3.9-9.5 9.5-.9-5.6-3.9-8.6-9.5-9.5 5.6-.9 8.6-3.9 9.5-9.5z"/></symbol>
       <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="m8.2 10.8 7-3.6M8.2 13.2l7 3.6"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></symbol>
@@ -101,16 +102,18 @@
           <span class="brand-text"><strong>ZARVIS</strong><small>MOBILE</small></span>
         </button>
         <div class="topbar-actions">
-          <button type="button" class="icon-btn topbar-activity" data-nav="activity" aria-label="Activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
-          <button type="button" class="icon-btn" data-nav="developer" aria-label="Developer Agent"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></button>
+          <button type="button" class="icon-btn" data-shell="search" aria-label="Search" title="Search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></button>
+          <button type="button" class="icon-btn topbar-activity" data-shell="notifications" aria-label="Notifications" title="Notifications"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
+          <button type="button" class="icon-btn" data-nav="developer" aria-label="Developer Agent" title="Developer Agent"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></button>
+          <button type="button" class="topbar-avatar" data-shell="profile" aria-label="Account menu" title="Account"><span class="avatar-text">Z</span></button>
         </div>
       </header>
 
       <!-- Desktop top bar: search, notifications, account -->
       <div class="desk-top" id="desk-top">
-        <button type="button" class="desk-top-btn" id="desk-search-btn" aria-label="Search activity" data-nav="activity"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></button>
-        <button type="button" class="desk-top-btn" aria-label="Activity and notifications" data-nav="activity"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg></button>
-        <button type="button" class="desk-avatar" id="desk-avatar" aria-label="Profile and settings" data-nav="settings"><span id="desk-avatar-text">Z</span></button>
+        <button type="button" class="desk-top-btn" id="desk-search-btn" data-shell="search" aria-label="Search (Ctrl K)" title="Search (Ctrl K)"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></button>
+        <button type="button" class="desk-top-btn desk-bell" data-shell="notifications" aria-label="Notifications" title="Notifications"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="nav-badge" id="activity-badge-desk" hidden></span></button>
+        <button type="button" class="desk-avatar" id="desk-avatar" data-shell="profile" aria-label="Account menu" title="Account"><span id="desk-avatar-text" class="avatar-text">Z</span></button>
       </div>
 
       <main class="views" id="main-views">
@@ -222,6 +225,7 @@
               <button type="button" class="seg" data-filter="conversation" aria-pressed="false">Chats</button>
               <button type="button" class="seg" data-filter="task" aria-pressed="false">Tasks</button>
               <button type="button" class="seg" data-filter="file" aria-pressed="false">Files</button>
+              <button type="button" class="seg" data-filter="image" aria-pressed="false">Images</button>
               <button type="button" class="seg" data-filter="voice" aria-pressed="false">Voice</button>
               <button type="button" class="seg" data-filter="developer" aria-pressed="false">Developer</button>
             </div>
@@ -597,6 +601,8 @@
         </section>
       </main>
 
+      <button type="button" class="scroll-latest" id="scroll-latest" hidden aria-label="Scroll to the latest message"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg></button>
+
       <!-- Chat composer -->
       <footer class="composer" id="composer" hidden>
         <div class="composer-inner">
@@ -668,6 +674,7 @@
   </div>
   <script src="./logic.js"></script>
   <script src="./feature-pages.js"></script>
+  <script src="./shell.js"></script>
   <script src="./app.js"></script>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>

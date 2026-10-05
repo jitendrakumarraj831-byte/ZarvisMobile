@@ -1285,6 +1285,20 @@
     setupKeyboardInset();
     setupHomeQuickActions();
     setupDesignShortcuts();
+    window.ZarvisShell?.init({
+      setActiveView,
+      getActivity: () => activityLog,
+      openSettingsPage,
+      getAppearance: () => state.appearance,
+      setAppearance,
+      newConversation: startNewConversation,
+      startListening,
+      pickFile: () => el.fileInput.click(),
+      account: () => {
+        const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+        return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
+      },
+    });
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
@@ -1356,10 +1370,8 @@
   }
 
   function renderAvatar() {
-    const node = document.getElementById("desk-avatar-text");
-    if (!node) return;
     const name = accountDisplayName();
-    node.textContent = name ? name.slice(0, 2).toUpperCase() : "Z";
+    for (const node of document.querySelectorAll(".avatar-text")) node.textContent = name ? name.slice(0, 2).toUpperCase() : "Z";
   }
 
   function renderHomeGreeting() {
@@ -1397,6 +1409,16 @@
         el.fileInput.setAttribute("accept", "image/*");
         el.fileInput.click();
       });
+    }
+
+    const latestBtn = document.getElementById("scroll-latest");
+    if (latestBtn) {
+      const update = () => {
+        const away = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+        latestBtn.hidden = state.activeView !== "chat" || away < 360;
+      };
+      window.addEventListener("scroll", update, { passive: true });
+      latestBtn.addEventListener("click", () => { scrollConversationToBottom(); latestBtn.hidden = true; });
     }
 
     const fullAccept = el.fileInput.getAttribute("accept");
@@ -2305,7 +2327,7 @@
       { label: "Conversation turns", value: String(conversations), icon: "i-chat", tone: "tone-blue" },
       { label: "AI requests", value: String(latencyEntries.length), icon: "i-sparkle", tone: "tone-violet" },
       { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length), icon: "i-mic", tone: "tone-pink" },
-      { label: "Files read", value: String(count("file")), icon: "i-file", tone: "tone-cyan" },
+      { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-cyan" },
       { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
       { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-blue" },
       { label: "Credits", value: "…", id: "metrics-credits", icon: "i-bolt", tone: "tone-pink" },
@@ -2380,6 +2402,7 @@
     voice: "i-mic",
     ai: "i-sparkle",
     file: "i-file",
+    image: "i-image",
     developer: "i-code",
     task: "i-task",
   };
@@ -2388,6 +2411,7 @@
     voice: "Voice",
     ai: "AI action",
     file: "File",
+    image: "Image",
     developer: "Developer",
     task: "Task",
   };
@@ -2404,8 +2428,8 @@
   }
 
   /** Adds one entry to this session's activity (newest first) and refreshes what shows it. */
-  function recordActivity(type, title, meta, tone) {
-    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date() });
+  function recordActivity(type, title, meta, tone, thumb) {
+    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date(), thumb: thumb || "" });
     if (activityLog.length > 200) activityLog.length = 200;
     if (state.activeView === "activity") renderActivityTimeline();
     if (state.activeView === "home") renderHomeActivity();
@@ -2449,7 +2473,7 @@
     for (const entry of activityLog.slice(0, 3)) {
       rows.push(listRow({
         icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
-        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" ? "tone-cyan" : "tone-blue",
+        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" || entry.type === "image" ? "tone-cyan" : "tone-blue",
         title: entry.title,
         meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
         onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
@@ -2523,7 +2547,7 @@
     root.replaceChildren();
     const type = activityFilter.type;
     const entries = activityLog.filter((entry) => {
-      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai");
+      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai") || (type === "file" && entry.type === "image");
       return typeOk && matchesQuery(entry.title + " " + entry.meta);
     });
     if (!entries.length) {
@@ -2559,6 +2583,32 @@
       }
       body.append(title, meta);
       item.append(dot, body);
+      if (entry.thumb) {
+        const thumb = document.createElement("img");
+        thumb.className = "timeline-thumb";
+        thumb.alt = "";
+        thumb.src = entry.thumb;
+        item.appendChild(thumb);
+      }
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "timeline-more";
+      more.setAttribute("aria-label", "Actions for " + (entry.title || "activity"));
+      more.appendChild(svgIcon("i-more"));
+      more.addEventListener("click", () => {
+        window.ZarvisShell?.menu(more, entry.title || "Activity", [
+          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat") },
+          { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
+          { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
+            const at = activityLog.indexOf(entry);
+            if (at >= 0) activityLog.splice(at, 1);
+            if (entry.thumb) URL.revokeObjectURL(entry.thumb);
+            renderActivityTimeline();
+            renderHomeActivity();
+          } },
+        ]);
+      });
+      item.appendChild(more);
       root.appendChild(item);
     });
   }
@@ -3438,6 +3488,7 @@
   }
 
   let attachmentPreviewUrl = null;
+  let lastPreviewFile = null;
 
   /** Shows a local thumbnail for an image attachment (a blob: URL; nothing is uploaded for
    * the preview), or the file icon for documents. */
@@ -3446,6 +3497,7 @@
     if (!holder) return;
     if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
     attachmentPreviewUrl = null;
+    lastPreviewFile = file && classifyLocalFile(file) === "image" ? file : null;
     holder.replaceChildren();
     if (file && classifyLocalFile(file) === "image") {
       attachmentPreviewUrl = URL.createObjectURL(file);
@@ -3491,7 +3543,9 @@
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
     setFilesState(`${filename} is ready. Ask about it in Chat.`, "ready");
-    recordActivity("file", filename, "Ready to ask about", "ok");
+    // An image attachment keeps its own small preview in Activity (a local blob: URL, never uploaded).
+    const thumb = lastPreviewFile ? URL.createObjectURL(lastPreviewFile) : "";
+    recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
     renderHomeActivity();
     el.input.focus();
   }
