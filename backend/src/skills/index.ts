@@ -1,4 +1,4 @@
-import { getProvider } from "../ai/providerFactory.js";
+import { defaultModelConfig, getProvider } from "../ai/providerFactory.js";
 import { env } from "../config/env.js";
 import type { Store } from "../store/store.js";
 import { TaskService } from "../tasks/taskService.js";
@@ -31,8 +31,8 @@ import { createWebSearchSkill, GeminiSearchProvider, MockSearchProvider, Unavail
  */
 function contentGenerator(label: string, systemPrompt: string): ContentGenerator {
   // Placeholders are for local development and tests only; production fails closed.
-  if (!env.geminiApiKey) return env.isProduction ? new UnavailableContentGenerator(label) : new MockContentGenerator(label);
-  const modelConfig = { provider: "google", model: env.geminiModel };
+  if (!env.geminiApiKey && !env.openRouterApiKey) return env.isProduction ? new UnavailableContentGenerator(label) : new MockContentGenerator(label);
+  const modelConfig = { ...defaultModelConfig };
   return new AIContentGenerator(getProvider(modelConfig), modelConfig, systemPrompt);
 }
 

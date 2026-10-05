@@ -41,6 +41,10 @@ export const env = {
     process.env.GEMINI_MODEL?.trim() === "gemini-2.5-flash"
       ? "gemini-3.6-flash"
       : process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
+  /** OpenRouter: fallback behind Gemini when set (quota / outage / bad key), or the sole
+   * provider when GEMINI_API_KEY is absent. Never expose to clients. */
+  openRouterApiKey: process.env.OPENROUTER_API_KEY?.trim() || undefined,
+  openRouterModel: process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.0-flash-001",
   /** Gemini's native-audio-output model — the same underlying voice technology behind the
    * Gemini app's voice mode, called via a plain generateContent request (see
    * ai/geminiTts.ts and AI_ARCHITECTURE.md "Native audio voice"), not the separate Google

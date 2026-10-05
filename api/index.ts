@@ -78,7 +78,7 @@ function buildFallbackApp(err: unknown, stage = "startup"): Express {
   // Duplicated one-liner (not imported from ai/providerFactory.ts) rather than a shared
   // helper: that module also imports config/env.ts, the very thing that may have just thrown,
   // and Node caches a module's evaluation failure — a second import of it fails the same way.
-  const provider = process.env.GEMINI_API_KEY ? "google" : "mock";
+  const provider = process.env.GEMINI_API_KEY ? "google" : process.env.OPENROUTER_API_KEY ? "openrouter" : "mock";
   app.get("/health", (_req, res) => res.status(500).json({ status: "error", provider, reason, stage }));
   app.use((_req, res) => res.status(500).json({ error: "Server is misconfigured; check environment variables." }));
   return app;

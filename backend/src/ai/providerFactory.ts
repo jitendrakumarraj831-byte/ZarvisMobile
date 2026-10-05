@@ -2,6 +2,8 @@ import type { AIProvider, AIRequest, AIResponse, AIResponseChunk, ModelConfigura
 import { AIProviderError } from "./geminiErrors.js";
 import { MockAIProvider } from "./mockProvider.js";
 import { GeminiProvider } from "./geminiProvider.js";
+import { OpenRouterProvider } from "./openRouterProvider.js";
+import { FallbackProvider } from "./fallbackProvider.js";
 import { env } from "../config/env.js";
 
 /**
@@ -28,12 +30,19 @@ export class UnavailableAIProvider implements AIProvider {
 }
 
 function unavailable(): AIProviderError {
-  return new AIProviderError("No AI provider is configured (GEMINI_API_KEY is not set)", "AI_UNAVAILABLE", 503, false);
+  return new AIProviderError("No AI provider is configured (neither GEMINI_API_KEY nor OPENROUTER_API_KEY is set)", "AI_UNAVAILABLE", 503, false);
 }
 
 /** Which provider answers by default. Exported for tests. */
-export function selectDefaultModel(options: { hasGeminiKey: boolean; isProduction: boolean; geminiModel: string }): ModelConfiguration {
+export function selectDefaultModel(options: {
+  hasGeminiKey: boolean;
+  isProduction: boolean;
+  geminiModel: string;
+  hasOpenRouterKey?: boolean;
+  openRouterModel?: string;
+}): ModelConfiguration {
   if (options.hasGeminiKey) return { provider: "google", model: options.geminiModel };
+  if (options.hasOpenRouterKey) return { provider: "openrouter", model: options.openRouterModel ?? "openrouter/auto" };
   return options.isProduction ? { provider: "none", model: "none" } : { provider: "mock", model: "mock-v1" };
 }
 
@@ -44,8 +53,15 @@ const providers: Record<string, AIProvider> = {
 
 const gemini = env.geminiApiKey ? new GeminiProvider(env.geminiApiKey) : undefined;
 
+const openRouter = env.openRouterApiKey ? new OpenRouterProvider(env.openRouterApiKey) : undefined;
+
+if (openRouter) {
+  providers.openrouter = openRouter;
+}
+
 if (gemini) {
-  providers.google = gemini;
+  // With an OpenRouter key too, any Gemini failure (quota, outage, bad key) is answered by OpenRouter.
+  providers.google = openRouter ? new FallbackProvider(gemini, openRouter, env.openRouterModel) : gemini;
 }
 
 /**
@@ -57,6 +73,8 @@ export const defaultModelConfig: ModelConfiguration = selectDefaultModel({
   hasGeminiKey: !!gemini,
   isProduction: env.isProduction,
   geminiModel: env.geminiModel,
+  hasOpenRouterKey: !!openRouter,
+  openRouterModel: env.openRouterModel,
 });
 
 export function getProvider(modelConfig: ModelConfiguration): AIProvider {
