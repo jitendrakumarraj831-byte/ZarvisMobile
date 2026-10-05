@@ -7,6 +7,13 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
+export class GoogleIdentityTakenError extends Error {
+  constructor() {
+    super("This Google account is already linked to another ZARVIS account");
+    this.name = "GoogleIdentityTakenError";
+  }
+}
+
 export class EmailTakenError extends Error {
   constructor() {
     super("An account with this email already exists");
@@ -20,7 +27,18 @@ export interface User {
   passwordHash: string;
   /** A device-bootstrapped guest with a generated email; can be linked to a real email. */
   isGuest: boolean;
+  /** Google's stable account id when the user signed in with Google. */
+  googleSub?: string;
+  displayName?: string;
+  avatarUrl?: string;
   createdAt: Date;
+}
+
+export interface GoogleIdentityInput {
+  sub: string;
+  email: string;
+  name?: string;
+  picture?: string;
 }
 
 /** One signed-in device/browser. Refresh tokens rotate; only the latest one is valid. */
@@ -202,6 +220,13 @@ export interface Store {
   updateUserCredentials(userId: string, email: string, passwordHash: string): Promise<User>;
   findUserByEmail(email: string): Promise<User | undefined>;
   findUserById(id: string): Promise<User | undefined>;
+  findUserByGoogleSub(sub: string): Promise<User | undefined>;
+  /**
+   * Attaches a Google identity to an existing user and refreshes name/photo. With
+   * `convertGuest`, a guest becomes a real account on the Google email (same user, same account,
+   * nothing lost). Throws EmailTakenError / GoogleIdentityTakenError on a conflict.
+   */
+  linkGoogleIdentity(userId: string, identity: GoogleIdentityInput, options?: { convertGuest?: boolean }): Promise<User>;
 
   /** Creates an account for the user and starts its one lifetime trial. See SUBSCRIPTIONS.md. */
   createAccountForUser(userId: string): Promise<Account>;

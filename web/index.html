@@ -681,6 +681,31 @@
       <button type="button" class="btn btn-ghost" id="session-gate-guest">Start a new guest account</button>
     </div>
   </div>
+  <div class="modal-overlay" id="welcome-gate" hidden>
+    <div class="modal-card session-gate-card welcome-card" role="dialog" aria-modal="true" aria-labelledby="welcome-title" aria-describedby="welcome-body">
+      <button type="button" class="icon-btn welcome-close" id="welcome-close" aria-label="Close">&times;</button>
+      <span class="brand-orb brand-orb-lg" aria-hidden="true"></span>
+      <h3 id="welcome-title">Sign in to ZARVIS</h3>
+      <p id="welcome-body">Your chats, credits and plan are saved to your own ZARVIS account on our server, so they follow you to any phone or browser.</p>
+      <p class="alert alert-error" id="welcome-error" role="alert" hidden></p>
+      <div id="welcome-google" class="welcome-google" hidden>
+        <div id="welcome-google-btn" class="welcome-google-btn"></div>
+        <p class="welcome-or" aria-hidden="true"><span>or use email</span></p>
+      </div>
+      <form id="welcome-form" class="form" autocomplete="on">
+        <label for="welcome-email">Email</label>
+        <input id="welcome-email" class="input" type="email" autocomplete="username" required />
+        <label for="welcome-password">Password</label>
+        <input id="welcome-password" class="input" type="password" autocomplete="current-password" minlength="8" required />
+        <div class="welcome-actions">
+          <button type="submit" class="btn btn-primary" id="welcome-signin">Sign in</button>
+          <button type="button" class="btn btn-ghost" id="welcome-create">Create account</button>
+        </div>
+      </form>
+      <button type="button" class="btn btn-ghost welcome-guest" id="welcome-guest">Continue as guest</button>
+      <p class="muted welcome-legal">ZARVIS only receives your name, email and photo from Google &mdash; never your Gmail, Drive or contacts. Guest chats live only in this browser.</p>
+    </div>
+  </div>
   <script src="./logic.js"></script>
   <script src="./feature-pages.js"></script>
   <script src="./shell.js"></script>

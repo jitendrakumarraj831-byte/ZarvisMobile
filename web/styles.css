@@ -1970,3 +1970,17 @@ body[data-orb-state="LISTENING"] .mic-wave i, body[data-orb-state="SPEAKING"] .m
 @media (min-width: 760px) { .plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .plan-cta { white-space: normal; padding: 12px var(--s4); line-height: 1.25; }
 :root:not([data-appearance="dim"]) .seg-save { background: #09774f; color: #fff; }
+
+/* ---- Welcome / Google sign-in card ---- */
+.welcome-card { position: relative; max-height: 92dvh; overflow-y: auto; }
+.welcome-close { position: absolute; top: var(--s3); right: var(--s3); min-width: 44px; min-height: 44px; font-size: 1.5rem; line-height: 1; }
+.welcome-google { margin-top: var(--s4); }
+.welcome-google-btn { display: flex; justify-content: center; min-height: 44px; }
+.welcome-or { display: flex; align-items: center; gap: var(--s3); margin: var(--s4) 0 0; color: var(--text-muted, #94a3b8); font-size: 0.85rem; }
+.welcome-or::before, .welcome-or::after { content: ""; flex: 1; height: 1px; background: currentColor; opacity: 0.25; }
+.welcome-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.welcome-actions .btn { flex: 1 1 140px; }
+.welcome-card .welcome-guest { width: 100%; margin-top: var(--s2); }
+.welcome-card .welcome-legal { font-size: 0.8rem; }
+@media (prefers-reduced-motion: no-preference) { #welcome-gate:not([hidden]) .welcome-card { animation: welcome-in 0.28s ease-out; } }
+@keyframes welcome-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }

@@ -2,6 +2,7 @@ import { Orchestrator } from "./agents/orchestrator.js";
 import { getProvider, defaultModelConfig } from "./ai/providerFactory.js";
 import { GeminiTtsProvider } from "./ai/geminiTts.js";
 import { AuthService } from "./auth/authService.js";
+import { GoogleIdTokenVerifier } from "./auth/googleIdToken.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
 import { PaymentService } from "./billing/paymentService.js";
 import { RazorpayClient } from "./billing/razorpay.js";
@@ -30,6 +31,8 @@ function defaultStore(): Store {
 export interface ContainerOptions {
   /** Test seam: build GitHub clients without network access. Production uses RealGitHubClient. */
   githubClientFactory?: GitHubClientFactory;
+  /** Test seam: a Google ID-token verifier with a fake key set. Production builds one from GOOGLE_CLIENT_ID. */
+  googleVerifier?: GoogleIdTokenVerifier | null;
 }
 
 /**
@@ -53,6 +56,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
   const provider = getProvider(defaultModelConfig);
   const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider, defaultModelConfig, store);
   const authService = new AuthService(store);
+  const googleVerifier = options.googleVerifier ?? (env.googleClientId ? new GoogleIdTokenVerifier(env.googleClientId, env.googleJwksUrl) : null);
   const taskService = new TaskService(store);
   const billingVerifier = env.playBillingServiceAccountJson
     ? new GooglePlayBillingVerifier(env.playBillingServiceAccountJson, env.playBillingPackageName)
@@ -71,6 +75,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     pipeline,
     orchestrator,
     authService,
+    googleVerifier,
     entitlementPort,
     usagePort,
     taskService,

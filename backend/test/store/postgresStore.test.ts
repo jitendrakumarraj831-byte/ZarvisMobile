@@ -126,6 +126,19 @@ describe.skipIf(!TEST_DATABASE_URL)("PostgresStore", () => {
     expect(await store.resolveConfirmation(account.id, expired.id, "APPROVED", now)).toBeUndefined();
   });
 
+  it("links a Google identity, converts a guest, and enforces uniqueness", async () => {
+    const sub = `g-${crypto.randomUUID()}`;
+    const email = `google-${Date.now()}@example.com`;
+    const guest = await store.createUser(`guest-${crypto.randomUUID()}@device.zarvismobile.local`, "hashed", true);
+    const linked = await store.linkGoogleIdentity(guest.id, { sub, email, name: "Asha", picture: "https://x/p.png" }, { convertGuest: true });
+    expect(linked).toMatchObject({ isGuest: false, email, googleSub: sub, displayName: "Asha" });
+    expect((await store.findUserByGoogleSub(sub))?.id).toBe(guest.id);
+    const second = await store.createUser(`other-${Date.now()}@example.com`, "hashed");
+    await expect(store.linkGoogleIdentity(second.id, { sub, email: "z@example.com" })).rejects.toThrow(/already linked/);
+    const third = await store.createUser(`third-${Date.now()}@example.com`, "hashed");
+    await expect(store.linkGoogleIdentity(third.id, { sub: `g-${crypto.randomUUID()}`, email }, { convertGuest: true })).rejects.toThrow(/already exists/);
+  });
+
   it("links a guest user's credentials and cascades new tables on account deletion", async () => {
     const user = await store.createUser(`guest-${crypto.randomUUID()}@device.zarvismobile.local`, "hashed", true);
     const account = await store.createAccountForUser(user.id);

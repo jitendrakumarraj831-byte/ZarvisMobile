@@ -1,17 +1,61 @@
 import { Router, type Response } from "express";
 import { AuthError, type AuthService } from "../../auth/authService.js";
+import { GoogleIdTokenVerifier, GoogleTokenError } from "../../auth/googleIdToken.js";
+import { verifyToken } from "../../auth/jwt.js";
+import { env } from "../../config/env.js";
 import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 
-export function authRouter(authService: AuthService): Router {
+export function authRouter(authService: AuthService, google: GoogleIdTokenVerifier | null = null): Router {
   const router = Router();
   // Limiters are created per router so each app instance (and each test) has its own counters.
   const signupLimit = rateLimit({ name: "auth-signup", windowMs: 60 * 60 * 1000, max: 60, keyBy: "ip" });
   const loginLimit = rateLimit({ name: "auth-login", windowMs: 15 * 60 * 1000, max: 20, keyBy: "ip" });
   const refreshLimit = rateLimit({ name: "auth-refresh", windowMs: 60 * 1000, max: 30, keyBy: "ip" });
   const linkLimit = rateLimit({ name: "auth-link", windowMs: 15 * 60 * 1000, max: 10, keyBy: "account" });
+
+  const googleLimit = rateLimit({ name: "auth-google", windowMs: 15 * 60 * 1000, max: 40, keyBy: "ip" });
+
+  /** Public: tells the web client whether to show the Google button, and its (public) client id. */
+  router.get("/config", (_req, res) => {
+    res.json({ googleClientId: google ? env.googleClientId ?? null : null, requireSignIn: env.requireSignIn });
+  });
+
+  /**
+   * Sign in / sign up with a Google ID token. If the request carries the current guest's bearer
+   * token, that guest is upgraded in place so chats and credits are kept.
+   */
+  router.post("/google", googleLimit, async (req, res) => {
+    if (!google) {
+      res.status(503).json({ error: "Google sign-in is not configured on this server", code: "google_unavailable" });
+      return;
+    }
+    try {
+      const profile = await google.verify(req.body?.idToken);
+      let guest: { userId: string; accountId: string } | undefined;
+      const header = req.headers.authorization;
+      if (header?.startsWith("Bearer ")) {
+        try {
+          const payload = verifyToken(header.slice(7));
+          if (payload.type === "access") {
+            const live = await authService.validateAccess(payload);
+            guest = { userId: live.userId, accountId: live.accountId };
+          }
+        } catch {
+          // An expired/invalid bearer just means "not upgrading a guest"; sign in normally.
+        }
+      }
+      res.status(200).json(await authService.googleSignIn(profile, guest));
+    } catch (err) {
+      if (err instanceof GoogleTokenError) {
+        res.status(401).json({ error: err.message, code: "google_token_invalid" });
+        return;
+      }
+      handleAuthError(err, res);
+    }
+  });
 
   router.post("/signup", signupLimit, async (req, res) => {
     try {
@@ -107,7 +151,7 @@ export function authRouter(authService: AuthService): Router {
 function handleAuthError(err: unknown, res: Response): void {
   if (err instanceof AuthError) {
     const status =
-      err.code === "invalid_request" ? 400 : err.code === "email_taken" || err.code === "not_guest" ? 409 : 401;
+      err.code === "invalid_request" ? 400 : err.code === "email_taken" || err.code === "not_guest" || err.code === "google_conflict" ? 409 : 401;
     res.status(status).json({ error: err.message, code: err.code });
     return;
   }

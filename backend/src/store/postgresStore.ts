@@ -3,6 +3,8 @@ import { Pool, type QueryResultRow } from "pg";
 import type { PermissionType, Task } from "../domain/types.js";
 import {
   EmailTakenError,
+  GoogleIdentityTakenError,
+  type GoogleIdentityInput,
   InsufficientCreditsError,
   extendPlanExpiry, type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
   type ConversationMessage, type FulfillmentResult, type GitHubConnection, type PaymentOrder, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
@@ -115,6 +117,10 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS payment_orders_account_idx ON payment_orders (account_id, created_at DESC);
   ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users (google_sub) WHERE google_sub IS NOT NULL;
   UPDATE users SET is_guest = TRUE
     WHERE is_guest = FALSE
       AND (email LIKE 'guest-%@device.zarvismobile.local' OR email LIKE 'guest-%@device.zarvismobile.com');
@@ -272,6 +278,33 @@ export class PostgresStore implements Store {
       return toUser(rows[0]);
     } catch (err) {
       if (isUniqueViolation(err)) throw new EmailTakenError();
+      throw err;
+    }
+  }
+
+  async findUserByGoogleSub(sub: string): Promise<User | undefined> {
+    const { rows } = await this.query<UserRow>("SELECT * FROM users WHERE google_sub = $1", [sub]);
+    return rows[0] ? toUser(rows[0]) : undefined;
+  }
+
+  async linkGoogleIdentity(userId: string, identity: GoogleIdentityInput, options: { convertGuest?: boolean } = {}): Promise<User> {
+    try {
+      const { rows } = await this.query<UserRow>(
+        `UPDATE users SET google_sub = $2,
+           display_name = COALESCE($3, display_name),
+           avatar_url = COALESCE($4, avatar_url),
+           email = CASE WHEN $5 THEN $6 ELSE email END,
+           is_guest = CASE WHEN $5 THEN FALSE ELSE is_guest END
+         WHERE id = $1 RETURNING *`,
+        [userId, identity.sub, identity.name ?? null, identity.picture ?? null, options.convertGuest === true, identity.email],
+      );
+      if (!rows[0]) throw new Error(`Cannot link unknown user '${userId}'`);
+      return toUser(rows[0]);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const message = String((err as { constraint?: string }).constraint ?? "");
+        throw message.includes("google_sub") ? new GoogleIdentityTakenError() : new EmailTakenError();
+      }
       throw err;
     }
   }
@@ -761,6 +794,9 @@ interface UserRow {
   email: string;
   password_hash: string;
   is_guest: boolean;
+  google_sub?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
   created_at: Date;
 }
 
@@ -911,7 +947,9 @@ interface ConversationMessageRow {
 }
 
 function toUser(row: UserRow): User {
-  return { id: row.id, email: row.email, passwordHash: row.password_hash, isGuest: row.is_guest, createdAt: row.created_at };
+  return { id: row.id, email: row.email, passwordHash: row.password_hash, isGuest: row.is_guest,
+    googleSub: row.google_sub ?? undefined, displayName: row.display_name ?? undefined, avatarUrl: row.avatar_url ?? undefined,
+    createdAt: row.created_at };
 }
 
 function toAccount(row: AccountRow): Account {

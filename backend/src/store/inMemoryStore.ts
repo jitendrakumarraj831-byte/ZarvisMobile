@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { PermissionType, Task } from "../domain/types.js";
 import {
   EmailTakenError,
+  GoogleIdentityTakenError,
+  type GoogleIdentityInput,
   InsufficientCreditsError,
   extendPlanExpiry, type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
   type ConversationMessage, type FulfillmentResult, type GitHubConnection, type PaymentOrder, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
@@ -59,6 +61,36 @@ export class InMemoryStore implements Store {
     const updated: User = { ...user, email, passwordHash, isGuest: false };
     this.usersById.set(userId, updated);
     this.usersByEmail.set(email, userId);
+    return updated;
+  }
+
+  async findUserByGoogleSub(sub: string): Promise<User | undefined> {
+    for (const user of this.usersById.values()) if (user.googleSub === sub) return user;
+    return undefined;
+  }
+
+  async linkGoogleIdentity(userId: string, identity: GoogleIdentityInput, options: { convertGuest?: boolean } = {}): Promise<User> {
+    const user = this.usersById.get(userId);
+    if (!user) throw new Error(`Cannot link unknown user '${userId}'`);
+    const subOwner = await this.findUserByGoogleSub(identity.sub);
+    if (subOwner && subOwner.id !== userId) throw new GoogleIdentityTakenError();
+    let email = user.email;
+    if (options.convertGuest) {
+      const owner = this.usersByEmail.get(identity.email);
+      if (owner && owner !== userId) throw new EmailTakenError();
+      this.usersByEmail.delete(user.email);
+      this.usersByEmail.set(identity.email, userId);
+      email = identity.email;
+    }
+    const updated: User = {
+      ...user,
+      email,
+      isGuest: options.convertGuest ? false : user.isGuest,
+      googleSub: identity.sub,
+      displayName: identity.name ?? user.displayName,
+      avatarUrl: identity.picture ?? user.avatarUrl,
+    };
+    this.usersById.set(userId, updated);
     return updated;
   }
 

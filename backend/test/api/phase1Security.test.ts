@@ -50,7 +50,7 @@ describe.each(STORES)("Phase 1 security (API, %s)", (_label, makeStore) => {
       const tokens = await guest();
       expect(tokens.isGuest).toBe(true);
       const me = await request(app).get("/api/v1/auth/me").set(auth(tokens.accessToken));
-      expect(me.body).toEqual({ accountId: tokens.accountId, isGuest: true, email: null });
+      expect(me.body).toEqual({ accountId: tokens.accountId, isGuest: true, email: null, name: null, picture: null });
     });
 
     it("rotates refresh tokens and revokes the whole session when an old one is replayed", async () => {

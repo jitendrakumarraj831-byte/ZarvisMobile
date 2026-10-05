@@ -117,7 +117,7 @@ export function buildServer(container: Container): Express {
     }),
   );
 
-  app.use("/api/v1/auth", authRouter(container.authService));
+  app.use("/api/v1/auth", authRouter(container.authService, container.googleVerifier));
   app.use("/api/v1/account", accountRouter(container.store));
   app.use("/api/v1/skills", skillsRouter(container.registry, container.entitlementPort));
   app.use("/api/v1/orchestrator", orchestratorRouter(container.orchestrator));

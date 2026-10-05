@@ -393,6 +393,7 @@
       ["plans", setupPlans],
       ["settings", setupSettings],
       ["session gate", setupSessionGate],
+      ["welcome gate", setupWelcomeGate],
       ["account", setupAccountPanel],
       ["developer", setupDeveloper],
       ["github", setupGithubConnect],
@@ -624,6 +625,152 @@
     document.getElementById("session-gate-error").hidden = true;
     gate.hidden = false;
     document.getElementById("session-gate-email").focus();
+  }
+
+  // ---- Welcome gate: Google / email sign-in card shown when a guest opens Chat ------------
+
+  const WELCOME_DISMISSED_KEY = "zarvis.welcomeDismissed";
+  let authConfig = null;
+  let gsiPromise = null;
+
+  async function loadAuthConfig() {
+    if (authConfig) return authConfig;
+    try {
+      const res = await fetch(`${API_BASE}/auth/config`);
+      authConfig = res.ok ? await res.json() : { googleClientId: null, requireSignIn: false };
+    } catch {
+      authConfig = { googleClientId: null, requireSignIn: false };
+    }
+    return authConfig;
+  }
+
+  function loadGoogleIdentity() {
+    if (window.google?.accounts?.id) return Promise.resolve();
+    if (!gsiPromise) {
+      gsiPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => {
+          gsiPromise = null;
+          reject(new Error("Google sign-in could not load"));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return gsiPromise;
+  }
+
+  function isGuestSession() {
+    return localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+  }
+
+  async function maybeShowWelcomeGate() {
+    const gate = document.getElementById("welcome-gate");
+    if (!gate || !gate.hidden || !isGuestSession()) return;
+    const config = await loadAuthConfig();
+    if (!config.requireSignIn && sessionStorage.getItem(WELCOME_DISMISSED_KEY)) return;
+    if (!isGuestSession() || !gate.hidden) return;
+    document.getElementById("welcome-guest").hidden = config.requireSignIn;
+    document.getElementById("welcome-close").hidden = config.requireSignIn;
+    document.getElementById("welcome-error").hidden = true;
+    gate.hidden = false;
+    document.getElementById("welcome-email").focus();
+    if (config.googleClientId) {
+      try {
+        await loadGoogleIdentity();
+        window.google.accounts.id.initialize({
+          client_id: config.googleClientId,
+          callback: (response) => completeGoogleSignIn(response.credential),
+          ux_mode: "popup",
+        });
+        const holder = document.getElementById("welcome-google-btn");
+        holder.textContent = "";
+        window.google.accounts.id.renderButton(holder, {
+          theme: "filled_black", size: "large", shape: "pill", text: "continue_with", width: 280,
+        });
+        document.getElementById("welcome-google").hidden = false;
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+  }
+
+  function closeWelcomeGate(remember) {
+    document.getElementById("welcome-gate").hidden = true;
+    if (remember) sessionStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+  }
+
+  async function completeGoogleSignIn(idToken) {
+    const errorNode = document.getElementById("welcome-error");
+    try {
+      const previousAccount = localStorage.getItem(STORAGE_KEYS.accessToken) ? await currentAccountId() : null;
+      const res = await apiFetch("/auth/google", { method: "POST", body: JSON.stringify({ idToken }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.code === "google_unavailable" ? "Google sign-in is not set up on this server yet." : body.error || "Google sign-in failed. Try again.");
+      }
+      if (body.accountId !== previousAccount) clearSessionTokens();
+      storeTokens(body);
+      location.reload();
+    } catch (err) {
+      errorNode.textContent = err.message || "Google sign-in failed. Try again.";
+      errorNode.hidden = false;
+    }
+  }
+
+  async function currentAccountId() {
+    try {
+      const res = await apiFetch("/auth/me");
+      return res.ok ? (await res.json()).accountId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function setupWelcomeGate() {
+    const errorNode = document.getElementById("welcome-error");
+    if (!errorNode) return;
+    const fail = (message) => {
+      errorNode.textContent = message;
+      errorNode.hidden = false;
+    };
+    const credentials = () => ({
+      email: document.getElementById("welcome-email").value.trim(),
+      password: document.getElementById("welcome-password").value,
+    });
+    document.getElementById("welcome-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const { email, password } = credentials();
+      try {
+        await signInWithEmail(email, password);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
+    });
+    // Creating an account upgrades this browser's guest in place, so its chats are kept.
+    document.getElementById("welcome-create").addEventListener("click", async () => {
+      const { email, password } = credentials();
+      if (!email || password.length < 8) return fail("Enter your email and a password of at least 8 characters.");
+      try {
+        const res = await apiFetch("/auth/link", { method: "POST", body: JSON.stringify({ email, password }) });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(authErrorMessage(res.status, body.code));
+        localStorage.setItem(SESSION_KEYS.isGuest, "false");
+        localStorage.setItem(SESSION_KEYS.email, body.email || email);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
+    });
+    document.getElementById("welcome-guest").addEventListener("click", () => closeWelcomeGate(true));
+    document.getElementById("welcome-close").addEventListener("click", () => closeWelcomeGate(true));
+    document.addEventListener("keydown", (event) => {
+      const gate = document.getElementById("welcome-gate");
+      if (event.key === "Escape" && !gate.hidden && !document.getElementById("welcome-close").hidden) closeWelcomeGate(true);
+    });
   }
 
   function setupSessionGate() {
@@ -1596,6 +1743,7 @@
     document.body.classList.remove("keyboard-open");
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
 
+    if (view === "chat") maybeShowWelcomeGate();
     if (view === "capabilities") renderCapabilities();
     if (view === "plans") refreshPlans();
     if (view === "metrics") {

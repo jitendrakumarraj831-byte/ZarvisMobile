@@ -9,13 +9,13 @@ import type { NextFunction, Request, Response } from "express";
  */
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' https://checkout.razorpay.com",
-  "style-src 'self' https://fonts.googleapis.com",
+  "script-src 'self' https://checkout.razorpay.com https://accounts.google.com/gsi/client",
+  "style-src 'self' https://fonts.googleapis.com https://accounts.google.com/gsi/style",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://*.razorpay.com",
+  "img-src 'self' data: blob: https://*.razorpay.com https://*.googleusercontent.com",
   "media-src 'self' blob:",
-  "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.razorpay.com",
-  "frame-src https://api.razorpay.com https://checkout.razorpay.com",
+  "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.razorpay.com https://accounts.google.com/gsi/",
+  "frame-src https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com/gsi/",
   "worker-src 'self'",
   "manifest-src 'self'",
   "object-src 'none'",

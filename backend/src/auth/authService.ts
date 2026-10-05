@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { EmailTakenError, type Account, type Store, type User } from "../store/store.js";
+import { EmailTakenError, GoogleIdentityTakenError, type Account, type Store, type User } from "../store/store.js";
 import type { ClockPort } from "../tooling/ports.js";
 import { systemClockPort } from "../tooling/ports.js";
+import type { GoogleProfile } from "./googleIdToken.js";
 import { hashPassword, verifyPassword } from "./passwordHash.js";
 import {
   REFRESH_TOKEN_TTL_SECONDS,
@@ -24,6 +25,8 @@ export interface AccountIdentity {
   accountId: string;
   isGuest: boolean;
   email: string | null;
+  name?: string | null;
+  picture?: string | null;
 }
 
 /**
@@ -36,6 +39,7 @@ export type AuthErrorCode =
   | "invalid_credentials"
   | "email_taken"
   | "not_guest"
+  | "google_conflict"
   | "session_invalid"
   | "session_revoked"
   | "refresh_token_reused";
@@ -117,6 +121,44 @@ export class AuthService {
     return this.startSession(user, account);
   }
 
+  /**
+   * Sign in / sign up with a verified Google identity. Order matters:
+   *  1. Known Google id → that account.
+   *  2. Existing email account with the same (Google-verified) email → link Google to it.
+   *  3. Caller is a guest → upgrade the guest in place (chats, credits and plan are kept).
+   *  4. Otherwise create a fresh account.
+   */
+  async googleSignIn(profile: GoogleProfile, currentGuest?: { userId: string; accountId: string }): Promise<AuthTokens> {
+    try {
+      let user = await this.store.findUserByGoogleSub(profile.sub);
+      if (!user) {
+        const byEmail = await this.store.findUserByEmail(profile.email);
+        if (byEmail && !byEmail.isGuest) {
+          user = await this.store.linkGoogleIdentity(byEmail.id, profile);
+        } else if (currentGuest) {
+          const owned = await this.requireOwnedAccount(currentGuest.userId, currentGuest.accountId);
+          if (owned.user.isGuest) user = await this.store.linkGoogleIdentity(owned.user.id, profile, { convertGuest: true });
+        }
+      }
+      if (!user) {
+        // Unusable password: Google-only accounts cannot be entered through the password form.
+        user = await this.store.createUser(profile.email, hashPassword(randomBytes(32).toString("hex")), false);
+        user = await this.store.linkGoogleIdentity(user.id, profile);
+        await this.store.createAccountForUser(user.id);
+      } else {
+        user = await this.store.linkGoogleIdentity(user.id, profile);
+      }
+      const account = await this.store.getAccountByUserId(user.id);
+      if (!account) throw new AuthError("session_invalid", "Unknown account");
+      return this.startSession(user, account);
+    } catch (err) {
+      if (err instanceof EmailTakenError || err instanceof GoogleIdentityTakenError) {
+        throw new AuthError("google_conflict", err.message);
+      }
+      throw err;
+    }
+  }
+
   async refresh(refreshToken: string): Promise<AuthTokens> {
     let payload: AccessTokenPayload;
     try {
@@ -191,7 +233,7 @@ export class AuthService {
 
   async identity(userId: string, accountId: string): Promise<AccountIdentity> {
     const { user } = await this.requireOwnedAccount(userId, accountId);
-    return { accountId, isGuest: user.isGuest, email: user.isGuest ? null : user.email };
+    return { accountId, isGuest: user.isGuest, email: user.isGuest ? null : user.email, name: user.displayName ?? null, picture: user.avatarUrl ?? null };
   }
 
   /**
