@@ -1215,10 +1215,11 @@ pre.reply-code code { display: block; padding: 0; border: 0; background: none; c
    ===================================================================== */
 :root {
   --bg: #f4f3ff;
-  --primary: #5b5df0;
-  --primary-2: #8b5cf6;
+  --primary: #4a4de0; /* ≥4.8:1 on lavender and on --primary-soft */
+  --primary-2: #7c4fe0;
   --primary-soft: rgba(99, 102, 241, 0.12);
-  --grad: linear-gradient(135deg, #4f7cff 0%, #7a5af8 55%, #9b5cf6 100%);
+  /* White text on every stop ≥4.8:1 */
+  --grad: linear-gradient(135deg, #3d63f5 0%, #6d4ee8 55%, #8a4fe6 100%);
   --grad-text: linear-gradient(90deg, #3d63f5 0%, #7a5af8 60%, #a855f7 100%);
   --aurora-1: rgba(120, 190, 255, 0.28);
   --aurora-2: rgba(150, 120, 255, 0.24);
@@ -1234,6 +1235,10 @@ pre.reply-code code { display: block; padding: 0; border: 0; background: none; c
 }
 [data-appearance="dim"] {
   --bg: #0a0d1c;
+  --primary: #8da2ff;
+  --primary-2: #a58bff;
+  --primary-soft: rgba(138, 162, 255, 0.14);
+  --grad: linear-gradient(135deg, #5a78ff 0%, #8f6cff 100%);
   --grad-text: linear-gradient(90deg, #7c97ff 0%, #a58bff 60%, #c58bff 100%);
   --user-bubble: #1b2447;
   --card-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.6);
