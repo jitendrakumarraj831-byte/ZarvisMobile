@@ -2048,6 +2048,14 @@
     set("appearance", state.appearance === "dim" ? "Dark" : "Light");
     set("memory", state.conversationId ? "Saved" : "New");
     if (!state.devAccess) set("developer", "Off");
+    const heroName = document.getElementById("profile-hero-name");
+    if (heroName) {
+      heroName.textContent = accountDisplayName() || (isGuest ? "Guest" : "Signed in");
+      document.getElementById("profile-hero-sub").textContent = isGuest ? "Guest account. Link an email to keep it." : email || "";
+      const heroPlan = document.getElementById("profile-hero-plan");
+      heroPlan.hidden = !currentPlanName;
+      heroPlan.textContent = currentPlanName ? formatPlanName(currentPlanName) : "";
+    }
     if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
     set("security", isGuest ? "Guest session" : "Signed in");
     renderSettingsSubpageValue();
@@ -2140,7 +2148,10 @@
       return;
     }
     if (!tasks.length) {
-      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here."));
+      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here.", {
+        icon: "i-task",
+        action: { label: "Plan a task", onClick: () => document.querySelector('[data-workspace-prompt^="Create a workflow"]')?.click() },
+      }));
       return;
     }
     for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
@@ -2750,14 +2761,30 @@
 
   let latestTasks;
 
-  function emptyState(title, body) {
+  /** opts.icon: a sprite id shown in a soft halo; opts.action: { label, onClick } for a primary next step. */
+  function emptyState(title, body, opts) {
     const box = document.createElement("div");
     box.className = "empty-state";
+    if (opts && opts.icon) {
+      const halo = document.createElement("span");
+      halo.className = "empty-ico";
+      halo.setAttribute("aria-hidden", "true");
+      halo.appendChild(svgIcon(opts.icon));
+      box.appendChild(halo);
+    }
     const strong = document.createElement("strong");
     strong.textContent = title;
     const span = document.createElement("span");
     span.textContent = body;
     box.append(strong, span);
+    if (opts && opts.action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-secondary";
+      button.textContent = opts.action.label;
+      button.addEventListener("click", () => { haptic(); opts.action.onClick(); });
+      box.appendChild(button);
+    }
     return box;
   }
 
@@ -2916,8 +2943,10 @@
     });
     if (!entries.length) {
       const empty = document.createElement("li");
-      empty.className = "timeline-empty";
-      empty.textContent = activityLog.length ? "No activity matches this filter." : "Nothing yet this session. Ask ZARVIS something to get started.";
+      empty.className = "timeline-empty timeline-empty-rich";
+      empty.appendChild(activityLog.length
+        ? emptyState("No activity matches", "Try a different filter or clear the search.", { icon: "i-search" })
+        : emptyState("Nothing yet this session", "Ask ZARVIS something and it shows up here.", { icon: "i-chat", action: { label: "Start a chat", onClick: () => setActiveView("chat") } }));
       root.appendChild(empty);
       return;
     }

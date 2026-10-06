@@ -74,7 +74,7 @@
       }
     }
     for (const row of document.querySelectorAll("[data-settings-page]")) {
-      const label = row.querySelector("strong")?.textContent || row.dataset.settingsPage;
+      const label = row.dataset.settingsLabel || row.querySelector("strong")?.textContent || row.dataset.settingsPage;
       items.push({
         group: "Settings", label, hint: row.querySelector("small")?.textContent || "", icon: "i-settings",
         run: () => { api.setActiveView("settings"); api.openSettingsPage(row.dataset.settingsPage); },

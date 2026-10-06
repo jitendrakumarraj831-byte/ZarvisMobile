@@ -460,6 +460,25 @@ async function send(page, text) {
     }
   });
 
+  await step("Pages: the profile card opens Account, Capabilities tallies what it lists, Activity's empty state offers a next step", async () => {
+    const ctxP = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageP = await pageOf(ctxP);
+    await pageP.goto(BASE);
+    await pageP.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageP, "settings");
+    assert.match(await pageP.innerText("#profile-hero-name"), /Guest/);
+    await pageP.click("#settings-profile-hero");
+    await pageP.waitForSelector('[data-settings-panel="account"]:not([hidden])');
+    await nav(pageP, "capabilities");
+    await pageP.waitForSelector(".cap-summary .cap-sum");
+    const tally = await pageP.$$eval(".cap-summary .cap-sum strong", (nodes) => nodes.reduce((sum, node) => sum + Number(node.textContent), 0));
+    assert.equal(tally, await pageP.locator(".cap-grid .cap-item").count(), "the tally adds up to the cards shown");
+    await nav(pageP, "activity");
+    await pageP.click(".timeline-empty-rich .empty-state .btn");
+    await pageP.waitForSelector("#view-chat:not([hidden])");
+    await ctxP.close();
+  });
+
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
     for (const path of ["/logic.js", "/feature-pages.js", "/app.js", "/sw.js"]) {
       const res = await fetch(BASE + path);

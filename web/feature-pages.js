@@ -288,7 +288,24 @@
       });
       pills.appendChild(pill);
     }
-    container.append(pills, grid);
+    // A truthful tally of what the catalogue below says, by status.
+    const counts = { ok: 0, warn: 0, info: 0, off: 0 };
+    for (const group of GROUPS) {
+      if (group.title === "Developer" && !withDeveloper) continue;
+      for (const item of group.items) counts[item.status[1]] = (counts[item.status[1]] || 0) + 1;
+    }
+    const summary = el("div", "cap-summary");
+    summary.setAttribute("role", "list");
+    summary.setAttribute("aria-label", "Capabilities by status");
+    for (const [kind, label] of [["ok", "ready now"], ["warn", "need your approval"], ["info", "limited or Android-only"], ["off", "not available"]]) {
+      if (!counts[kind]) continue;
+      const chip = el("span", "cap-sum");
+      chip.dataset.kind = kind;
+      chip.setAttribute("role", "listitem");
+      chip.append(el("i", "cap-sum-dot"), el("strong", null, String(counts[kind])), document.createTextNode(" " + label));
+      summary.appendChild(chip);
+    }
+    container.append(summary, pills, grid);
 
     GROUPS.forEach((group, groupIndex) => {
       if (group.title === "Developer" && !withDeveloper) return;
