@@ -21,6 +21,7 @@
     ttsVoice: "zarvis.ttsVoice",
     userName: "zarvis.userName",
     conversationId: "zarvis.conversationId",
+    devAccess: "zarvis.devAccess",
   };
 
   const API_BASE = resolveApiBase();
@@ -245,6 +246,8 @@
     appearanceAuroraBtn: document.getElementById("appearance-aurora-btn"),
     appearanceDimBtn: document.getElementById("appearance-dim-btn"),
     settingsOpenDeveloper: document.getElementById("settings-open-developer"),
+    settingsOpenMetrics: document.getElementById("settings-open-metrics"),
+    settingsDevToggle: document.getElementById("settings-dev-toggle"),
     activityTaskList: document.getElementById("activity-task-list"),
     activityRefreshBtn: document.getElementById("activity-refresh-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
@@ -300,6 +303,9 @@
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
     appearance: localStorage.getItem("zarvis.appearance") || "dim",
+    // "Developer access" is off by default: Developer Agent and Metrics stay out of the way until
+    // the user switches them on in Settings → Developer. It only changes what is shown.
+    devAccess: readDevAccess(),
     settingsPage: null,
     featureId: null,
   };
@@ -466,6 +472,47 @@
     state.speak = !state.speak;
     localStorage.setItem(STORAGE_KEYS.speak, state.speak ? "on" : "off");
     applyVoiceToggleState();
+  }
+
+  function readDevAccess() {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.devAccess) === "on";
+    } catch {
+      return false;
+    }
+  }
+
+  /** Shows or hides every Developer-access entry point (nav, Home chip, Activity filter, hub, skills). */
+  function applyDevAccess() {
+    const on = state.devAccess;
+    document.body.dataset.devAccess = on ? "on" : "off";
+    for (const node of document.querySelectorAll("[data-dev-only]")) node.hidden = !on;
+    el.settingsDevToggle?.setAttribute("aria-pressed", String(on));
+    const text = el.settingsDevToggle?.querySelector(".switch-text");
+    if (text) text.textContent = on ? "On" : "Off";
+    // Leaving Developer access while its Activity filter is selected falls back to "All"
+    // (through the filter's own handler, so the list and the pressed state stay in step).
+    if (!on) el.activityFilters?.querySelector('[data-filter="developer"].active') && el.activityFilters.querySelector('[data-filter="all"]')?.click();
+    if (el.capabilityHub && window.ZarvisFeatures) window.ZarvisFeatures.renderHub(el.capabilityHub, { developer: on });
+    if (state.skills.length) renderCapabilities();
+    updateSettingsValues();
+  }
+
+  function setDevAccess(on) {
+    state.devAccess = on;
+    try {
+      localStorage.setItem(STORAGE_KEYS.devAccess, on ? "on" : "off");
+    } catch {}
+    applyDevAccess();
+  }
+
+  /** Developer-only pages send everyone else to the switch that turns them on. */
+  function requireDevAccess(label) {
+    if (state.devAccess) return true;
+    showToast(label + " is part of Developer access. Turn it on in Settings.");
+    setActiveView("settings");
+    openSettingsPage("developer");
+    return false;
   }
 
   function applyVoiceToggleState() {
@@ -1111,7 +1158,7 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const status = await res.json();
       const rowValue = document.querySelector('[data-setting-value="developer"]');
-      if (rowValue) rowValue.textContent = !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
+      if (rowValue) rowValue.textContent = !state.devAccess ? "Off" : !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
       renderSettingsSubpageValue();
       if (!status.available) {
         statusNode.textContent = "GitHub connection isn't configured on this server. Public repositories can still be analyzed.";
@@ -1279,14 +1326,15 @@
 
   function renderCapabilities() {
     el.capabilitiesList.innerHTML = "";
-    if (state.skills.length === 0) {
+    const skills = state.devAccess ? state.skills : state.skills.filter((skill) => skill.category !== "DEVELOPER");
+    if (skills.length === 0) {
       const empty = document.createElement("p");
       empty.className = "task-empty";
       empty.textContent = "Couldn't load capabilities right now.";
       el.capabilitiesList.appendChild(empty);
       return;
     }
-    const byCategory = groupByCategory(state.skills);
+    const byCategory = groupByCategory(skills);
     for (const [category, categorySkills] of byCategory) {
       const label = document.createElement("p");
       label.className = "group-label";
@@ -1431,6 +1479,7 @@
     setupKeyboardInset();
     setupHomeQuickActions();
     setupDesignShortcuts();
+    applyDevAccess();
     window.ZarvisShell?.init({
       setActiveView,
       getActivity: () => activityLog,
@@ -1440,6 +1489,7 @@
       newConversation: startNewConversation,
       startListening,
       pickFile: () => openFilePicker(),
+      devAccess: () => state.devAccess,
       account: () => {
         const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
         return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
@@ -1611,7 +1661,7 @@
 
   function setupCapabilityPages() {
     if (el.capabilityHub && window.ZarvisFeatures) {
-      window.ZarvisFeatures.renderHub(el.capabilityHub);
+      window.ZarvisFeatures.renderHub(el.capabilityHub, { developer: state.devAccess });
       el.capabilityHub.addEventListener("click", (event) => {
         const button = event.target.closest("[data-cap-action]");
         if (!button) return;
@@ -1641,6 +1691,7 @@
   }
 
   function openFeature(id) {
+    if (id === "developer" && !requireDevAccess("Developer Agent")) return;
     state.featureId = id;
     if (!el.featureRoot || !window.ZarvisFeatures) return;
     window.ZarvisFeatures.renderDetail(el.featureRoot, id, {
@@ -1724,6 +1775,8 @@
   function setActiveView(view) {
     if (view === "tasks") view = "activity";
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
+    if (view === "developer" && !requireDevAccess("Developer Agent")) return;
+    if (view === "metrics" && !requireDevAccess("Usage & Metrics")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
     if (state.activeView === "settings" && view !== "settings") closeSettingsPage();
 
@@ -1880,6 +1933,12 @@
     el.appearanceAuroraBtn?.addEventListener("click", () => setAppearance("aurora"));
     el.appearanceDimBtn?.addEventListener("click", () => setAppearance("dim"));
     el.settingsOpenDeveloper?.addEventListener("click", () => setActiveView("developer"));
+    el.settingsOpenMetrics?.addEventListener("click", () => setActiveView("metrics"));
+    el.settingsDevToggle?.addEventListener("click", () => {
+      haptic();
+      setDevAccess(!state.devAccess);
+      showToast(state.devAccess ? "Developer access on" : "Developer access off");
+    });
     el.settingsNewConversation?.addEventListener("click", () => {
       haptic();
       startNewConversation();
@@ -1988,6 +2047,7 @@
     set("language", state.lang === "hi" ? "हिंदी" : "English");
     set("appearance", state.appearance === "dim" ? "Dark" : "Light");
     set("memory", state.conversationId ? "Saved" : "New");
+    if (!state.devAccess) set("developer", "Off");
     if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
     set("security", isGuest ? "Guest session" : "Signed in");
     renderSettingsSubpageValue();
@@ -2780,7 +2840,7 @@
         tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" || entry.type === "image" ? "tone-cyan" : "tone-blue",
         title: entry.title,
         meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
-        onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
+        onClick: () => setActiveView(entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat"),
       }));
     }
     if (Array.isArray(latestTasks)) {
@@ -2901,7 +2961,7 @@
       more.appendChild(svgIcon("i-more"));
       more.addEventListener("click", () => {
         window.ZarvisShell?.menu(more, entry.title || "Activity", [
-          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat") },
+          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat") },
           { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
           { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
             const at = activityLog.indexOf(entry);

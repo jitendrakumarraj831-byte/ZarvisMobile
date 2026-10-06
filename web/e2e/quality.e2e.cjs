@@ -323,8 +323,9 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
 /** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
 async function pageOf(ctx) {
+  // Developer access on, so the responsive and axe sweeps still cover the Developer and Metrics pages.
   await ctx.addInitScript(() => {
-    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
+    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); localStorage.setItem("zarvis.devAccess", "on"); } catch {}
   });
   return ctx.newPage();
 }

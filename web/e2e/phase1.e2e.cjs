@@ -64,7 +64,7 @@ async function send(page, text) {
   const password = "correct horse battery";
 
   const ctxA = await browser.newContext();
-  const pageA = await pageOf(ctxA);
+  const pageA = await pageOf(ctxA, { devAccess: true }); // these flows use the Developer Agent
   const errorsA = [];
   watchErrors(pageA, errorsA);
 
@@ -414,13 +414,50 @@ async function send(page, text) {
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
-    for (const view of ["activity", "capabilities", "metrics", "plans", "settings"]) {
+    for (const view of ["activity", "capabilities", "plans", "settings"]) {
       await nav(pageH, view);
       await pageH.waitForTimeout(450); // the page's entrance animation
       const edge = await pageH.evaluate((v) => Math.round(document.querySelector(`#view-${v} .page-head`).getBoundingClientRect().right), view);
       assert.ok(Math.abs(edge - (await avatarRight())) <= 1, `${view}: page edge ${edge} vs app bar ${await avatarRight()}`);
     }
     await ctxH.close();
+  });
+
+  await step("Developer access: off by default hides the Developer Agent and Metrics everywhere; the switch brings them back and is remembered", async () => {
+    for (const [label, viewport] of [["desktop", { width: 1280, height: 800 }], ["phone", { width: 390, height: 844 }]]) {
+      const ctxD = await browser.newContext({ viewport });
+      const pageD = await pageOf(ctxD);
+      await pageD.goto(BASE);
+      await pageD.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      const visible = (sel) => pageD.locator(`${sel}:visible`).count();
+      assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "off", label + ": off by default");
+      assert.equal(await visible('[data-view="developer"]') + (await visible('[data-view="metrics"]')), 0, label + ": no Developer/Metrics nav");
+      assert.equal(await visible('#home-quick [data-nav="developer"]'), 0, label + ": no Analyze-a-repo chip");
+      assert.ok((await visible('[data-view="activity"]')) >= 1, label + ": Activity is a primary page");
+      // Any route to a hidden page lands on the switch instead of the page.
+      await pageD.evaluate(() => document.querySelector('[data-nav="developer"]').click());
+      await pageD.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
+      assert.equal(await pageD.getAttribute("#settings-dev-toggle", "aria-pressed"), "false");
+      await pageD.click("#settings-dev-toggle");
+      assert.equal(await pageD.getAttribute("#settings-dev-toggle", "aria-pressed"), "true");
+      if (label === "desktop") assert.equal(await visible('.sidebar [data-view="developer"]') + (await visible('.sidebar [data-view="metrics"]')), 2);
+      await pageD.click("#settings-open-metrics");
+      await pageD.waitForSelector("#view-metrics:not([hidden])");
+      await pageD.reload();
+      await pageD.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "on", label + ": remembered after reload");
+      assert.equal(await pageD.locator('#home-quick [data-nav="developer"]').count(), 1);
+      // Switching it off again removes the entry points and the hub group.
+      await pageD.evaluate(() => document.querySelector('[data-view="settings"]').click());
+      const back = pageD.locator("[data-settings-back]:visible");
+      if (await back.count()) await back.first().click();
+      await pageD.click('[data-settings-page="developer"]');
+      await pageD.click("#settings-dev-toggle");
+      assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "off");
+      await pageD.evaluate(() => document.querySelector('[data-view="capabilities"]').click());
+      assert.equal(await pageD.locator('.cap-pill[data-cap-filter="developer"]').count(), 0, label + ": hub drops the Developer group");
+      await ctxD.close();
+    }
   });
 
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
@@ -449,9 +486,12 @@ async function send(page, text) {
 });
 
 /** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
-async function pageOf(ctx) {
-  await ctx.addInitScript(() => {
-    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
-  });
+async function pageOf(ctx, { devAccess = false } = {}) {
+  await ctx.addInitScript((dev) => {
+    try {
+      localStorage.setItem("zarvis.welcomeDismissed", "1");
+      if (dev) localStorage.setItem("zarvis.devAccess", "on");
+    } catch {}
+  }, devAccess);
   return ctx.newPage();
 }

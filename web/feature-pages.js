@@ -263,13 +263,16 @@
     return found ? found.id : "all";
   }
 
-  function renderHub(container) {
+  /** options.developer: include the Developer group and filter (only while Developer access is on). */
+  function renderHub(container, options) {
+    const withDeveloper = !!(options && options.developer);
+    const filters = FILTERS.filter((filter) => withDeveloper || filter.id !== "developer");
     container.replaceChildren();
     const pills = el("div", "cap-filters");
     pills.setAttribute("role", "group");
     pills.setAttribute("aria-label", "Filter capabilities");
     const grid = el("div", "cap-grid");
-    for (const filter of FILTERS) {
+    for (const filter of filters) {
       const pill = el("button", "cap-pill" + (filter.id === "all" ? " active" : ""), filter.label);
       pill.type = "button";
       pill.dataset.capFilter = filter.id;
@@ -288,6 +291,7 @@
     container.append(pills, grid);
 
     GROUPS.forEach((group, groupIndex) => {
+      if (group.title === "Developer" && !withDeveloper) return;
       group.items.forEach((item, index) => {
         const row = el("article", "cap-item " + TONES[groupIndex % TONES.length] + (item.status[1] === "off" ? " is-off" : ""));
         row.dataset.capGroup = filterFor(group.title);

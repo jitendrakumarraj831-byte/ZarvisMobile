@@ -2000,3 +2000,100 @@ body[data-orb-state="LISTENING"] .mic-wave i, body[data-orb-state="SPEAKING"] .m
   }
   .kbd-hint { padding: 4px 7px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-3); font: 600 11px/1 var(--font-body); }
 }
+
+/* =====================================================================
+   Premium layer — calmer, deeper, more precise.
+   Colour is spent on three things only: the orb, primary actions and the
+   active place you are in. Everything else is hairlines, depth and type.
+   No structure changes: this block only restyles what is above.
+   ===================================================================== */
+:root {
+  --p-hi: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --p-ring: 0 0 0 1px var(--card-border);
+  --card-bg: linear-gradient(180deg, #ffffff 0%, rgba(252, 252, 255, 0.92) 100%);
+  --card-border: rgba(40, 48, 110, 0.1);
+  --card-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(30, 38, 90, 0.06), 0 16px 32px -22px rgba(40, 50, 120, 0.32);
+  --aurora-1: rgba(120, 190, 255, 0.2);
+  --aurora-2: rgba(150, 120, 255, 0.16);
+  --aurora-3: rgba(255, 150, 210, 0.12);
+  --p-tint: linear-gradient(135deg, rgba(74, 77, 224, 0.12), rgba(124, 79, 224, 0.07));
+  --p-tint-line: rgba(74, 77, 224, 0.26);
+}
+[data-appearance="dim"] {
+  --bg: #070a1d;
+  --surface: #0f1436;
+  --surface-2: #151b45;
+  --surface-3: #1e2656;
+  --line: rgba(170, 182, 255, 0.1);
+  --line-2: rgba(170, 182, 255, 0.18);
+  --aurora-1: rgba(40, 120, 255, 0.2);
+  --aurora-2: rgba(130, 70, 255, 0.17);
+  --aurora-3: rgba(236, 72, 190, 0.1);
+  --card-bg: linear-gradient(180deg, rgba(160, 175, 255, 0.085) 0%, rgba(160, 175, 255, 0.035) 100%);
+  --card-border: rgba(170, 182, 255, 0.15);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 1px 2px rgba(0, 0, 0, 0.32), 0 18px 38px -24px rgba(0, 0, 0, 0.8);
+  --nav-bg: rgba(9, 12, 38, 0.8);
+  --input-bg: rgba(8, 11, 36, 0.7);
+  --p-tint: linear-gradient(135deg, rgba(120, 140, 255, 0.24), rgba(150, 110, 255, 0.12));
+  --p-tint-line: rgba(150, 165, 255, 0.36);
+}
+
+/* Type: tighter display, calmer labels, numerals that line up. */
+body { text-rendering: optimizeLegibility; font-variant-numeric: tabular-nums; }
+h1, h2, h3, h4 { text-wrap: balance; }
+.page-title { font-weight: 700; letter-spacing: -0.03em; }
+.page-sub { font-size: 15px; }
+.section-title, .group-label, .nav-label { font-size: 11.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+::selection { background: color-mix(in srgb, var(--primary) 30%, transparent); }
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+
+/* Surfaces: one hairline, one highlight, one soft shadow. */
+.panel, .list-row, .settings-row, .stat-tile, .plan-card, .task-card, .cap-item, .disclosure,
+.tool-row, .result-widget, .confirm-card, .capability-item, .action-tile, .dev-quick-card, .home-card, .modal-card {
+  border-color: var(--card-border);
+}
+.modal-card { background: var(--surface); box-shadow: var(--shadow-3), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+.home-card { background: linear-gradient(135deg, rgba(110, 130, 255, 0.28), rgba(150, 100, 255, 0.12)), var(--card-bg); }
+[data-appearance="dim"] .home-card { background: linear-gradient(135deg, rgba(100, 120, 255, 0.3), rgba(140, 90, 255, 0.12)), #10163f; }
+
+/* Places you can go: a hover that lifts a hair, a press that settles. */
+.list-row, .settings-row, .cap-item, .action-tile, .chip, .cap-pill, .plan-card, .dev-quick-card, .desk-top-btn, .btn {
+  transition: transform var(--t-fast) var(--ease), border-color var(--t-fast), box-shadow var(--t-med) var(--ease), background-color var(--t-fast), color var(--t-fast), filter var(--t-fast);
+}
+@media (hover: hover) {
+  .settings-row:hover, .cap-item:hover, .action-tile:hover, .dev-quick-card:hover, .plan-card:hover, .list-row:hover { transform: translateY(-2px); border-color: var(--line-2); }
+  .cap-item:hover, .action-tile:hover, .settings-row:hover { box-shadow: var(--card-shadow), 0 20px 40px -26px var(--glow); }
+}
+.settings-row:active, .cap-item:active, .action-tile:active, .dev-quick-card:active, .chip:active, .btn:active:not(:disabled) { transform: scale(0.985); }
+
+/* Icon tiles: glass-lit instead of flat colour. */
+.tile-ico, .row-ico { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), inset 0 -8px 14px -10px rgba(0, 0, 0, 0.35), 0 10px 20px -12px var(--tone-b, #4f6bff); }
+
+/* Buttons and pills: the one place gradient stays loud. */
+.btn-primary, .zarvis-btn-primary { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 26px -14px var(--glow); }
+.btn-primary:hover:not(:disabled), .zarvis-btn-primary:hover { filter: brightness(1.07); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 16px 32px -14px var(--glow); }
+.btn-secondary, .zarvis-btn-secondary { background: var(--card-bg); border-color: var(--card-border); box-shadow: var(--p-hi); }
+.btn-secondary:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line-2); }
+.cap-pill.active { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 22px -14px var(--glow); }
+.input, .select, .search-field { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12); }
+.input:focus, .select:focus, .search-field:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
+
+/* Navigation: you are here = tinted glass, not a solid block of colour. */
+.sidebar, .bottom-nav { -webkit-backdrop-filter: saturate(170%) blur(22px); backdrop-filter: saturate(170%) blur(22px); }
+@media (min-width: 700px) {
+  .sidebar .nav-item { transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast); border: 1px solid transparent; }
+  .sidebar .nav-item.active { background: var(--p-tint); border-color: var(--p-tint-line); color: var(--text); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 24px -16px var(--glow); }
+  .sidebar .nav-item.active .ico { color: var(--primary); }
+  .desk-avatar, .topbar-avatar { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 8px 18px -10px var(--glow); }
+}
+.bottom-nav { border-top: 1px solid var(--card-border); background: var(--nav-bg); }
+.bottom-nav .nav-item.active { color: var(--primary); }
+
+/* Chat: the command bar shares the depth language. */
+.command-bar { box-shadow: var(--card-shadow); }
+
+@media (prefers-reduced-motion: reduce) {
+  .list-row, .settings-row, .cap-item, .action-tile, .chip, .cap-pill, .plan-card, .dev-quick-card, .desk-top-btn, .btn { transition: none; }
+  .settings-row:hover, .cap-item:hover, .action-tile:hover, .dev-quick-card:hover, .plan-card:hover, .list-row:hover,
+  .settings-row:active, .cap-item:active, .action-tile:active, .dev-quick-card:active, .chip:active, .btn:active:not(:disabled) { transform: none; }
+}

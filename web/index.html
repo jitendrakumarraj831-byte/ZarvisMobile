@@ -81,14 +81,14 @@
         <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
         <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
       </div>
-      <p class="nav-label">Workspace</p>
-      <div class="nav-group">
+      <p class="nav-label" data-dev-only hidden>Developer access</p>
+      <div class="nav-group" data-dev-only hidden>
         <button type="button" class="nav-item" data-view="developer"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg><span>Developer Agent</span></button>
         <button type="button" class="nav-item" data-view="metrics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Metrics</span></button>
-        <button type="button" class="nav-item" data-view="plans"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg><span>Plans</span></button>
       </div>
       <div class="nav-spacer"></div>
       <div class="nav-group">
+        <button type="button" class="nav-item" data-view="plans"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg><span>Plans</span></button>
         <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
         <button type="button" class="nav-item nav-profile" data-nav="settings"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>Profile</span></button>
       </div>
@@ -167,7 +167,7 @@
               <button type="button" class="chip" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
               <button type="button" class="chip" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
               <button type="button" class="chip" data-workspace-prompt="Draft a polite customer reply to: "><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
-              <button type="button" class="chip" data-nav="developer"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
+              <button type="button" class="chip" data-nav="developer" data-dev-only hidden><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
               <button type="button" class="chip" data-nav="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>All capabilities</button>
             </div>
           </section>
@@ -228,7 +228,7 @@
               <button type="button" class="seg" data-filter="file" aria-pressed="false">Files</button>
               <button type="button" class="seg" data-filter="image" aria-pressed="false">Images</button>
               <button type="button" class="seg" data-filter="voice" aria-pressed="false">Voice</button>
-              <button type="button" class="seg" data-filter="developer" aria-pressed="false">Developer</button>
+              <button type="button" class="seg" data-filter="developer" aria-pressed="false" data-dev-only hidden>Developer</button>
             </div>
           </div>
           <section class="activity-block" data-activity-block="timeline">
@@ -441,7 +441,7 @@
               </div>
               <p class="group-label">Advanced</p>
               <div class="settings-group">
-                <button type="button" class="settings-row" data-settings-page="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Developer</strong><small>GitHub and the Developer Agent</small></span><span class="row-value" data-setting-value="developer"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Developer access</strong><small>Developer Agent, GitHub and Metrics</small></span><span class="row-value" data-setting-value="developer"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
             </div>
           </div>
@@ -592,8 +592,16 @@
             <section class="settings-panel" data-settings-panel="developer" hidden>
               <div class="panel">
                 <div class="control-row">
+                  <div class="row-copy"><strong>Developer access</strong><small>Shows the Developer Agent and Metrics in the app. Off by default. This only changes what is shown: GitHub still needs your own connection, and every change still needs your confirmation.</small></div>
+                  <button type="button" class="switch" id="settings-dev-toggle" role="switch" aria-pressed="false" aria-label="Developer access"><span class="switch-thumb" aria-hidden="true"></span><span class="sr-only switch-text">Off</span></button>
+                </div>
+                <div class="control-row" data-dev-only hidden>
                   <div class="row-copy"><strong>Developer Agent</strong><small>Analyze a repository or request a confirmed implementation with your own GitHub account.</small></div>
                   <button type="button" class="btn btn-secondary" id="settings-open-developer">Open</button>
+                </div>
+                <div class="control-row" data-dev-only hidden>
+                  <div class="row-copy"><strong>Usage &amp; Metrics</strong><small>Latency, health and task counts for this session.</small></div>
+                  <button type="button" class="btn btn-secondary" id="settings-open-metrics">Open</button>
                 </div>
               </div>
             </section>
@@ -649,7 +657,7 @@
       <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
       <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
       <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-star4"/></svg></span><span class="fab-label">Chat</span></button>
-      <button type="button" class="nav-item" data-view="metrics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Metrics</span></button>
+      <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></button>
       <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
     </nav>
   </div>
