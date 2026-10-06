@@ -63,7 +63,8 @@
       quickActionsLead: "Suggestions",
       placeholder: "Message ZARVIS…",
       homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
-      homeSub: "Your AI assistant for chat, voice, files and code.",
+      homeTitle: "How can I help you today?",
+      homePlaceholder: "Ask anything…",
       send: "Send",
       stop: "Stop",
       mic: "Speak",
@@ -126,7 +127,8 @@
       quickActionsLead: "सुझाव",
       placeholder: "ZARVIS को संदेश भेजें…",
       homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
-      homeSub: "चैट, आवाज़, फ़ाइलों और कोड के लिए आपका AI असिस्टेंट।",
+      homeTitle: "आज मैं आपकी कैसे मदद करूँ?",
+      homePlaceholder: "कुछ भी पूछें…",
       send: "भेजें",
       stop: "रोकें",
       mic: "बोलें",
@@ -261,6 +263,8 @@
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
+    homeTitle: document.getElementById("home-title"),
+    homePromptInput: document.getElementById("home-prompt-input"),
     homeOrb: document.getElementById("home-orb"),
     chatNewBtn: document.getElementById("chat-new-btn"),
     activityTimeline: document.getElementById("activity-timeline"),
@@ -433,6 +437,8 @@
     el.heroSubtitle.textContent = copy.subtitle;
     el.quickActionsLead.textContent = copy.quickActionsLead;
     renderHomeGreeting();
+    el.homeTitle.textContent = copy.homeTitle;
+    el.homePromptInput.placeholder = copy.homePlaceholder;
     el.input.placeholder = copy.placeholder;
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
@@ -1424,7 +1430,6 @@
       });
     }
     setupKeyboardInset();
-    setupHomeQuickActions();
     setupDesignShortcuts();
     window.ZarvisShell?.init({
       setActiveView,
@@ -1478,19 +1483,6 @@
     });
   }
 
-  function setupHomeQuickActions() {
-    const toggle = document.getElementById("home-quick-toggle");
-    const panel = document.getElementById("home-quick");
-    if (!toggle || !panel) return;
-    toggle.addEventListener("click", () => {
-      haptic();
-      const open = panel.hidden;
-      panel.hidden = !open;
-      toggle.setAttribute("aria-expanded", String(open));
-      toggle.classList.toggle("active", open);
-    });
-  }
-
   /** The analyze button keeps its icon; only the label span changes. */
   function setAnalyzeLabel(text) {
     const label = el.developerAnalyzeBtn?.querySelector("span");
@@ -1527,7 +1519,7 @@
     renderAvatar();
   }
 
-  /** Home prompt box, composer image button and Developer tabs (visual shortcuts onto existing flows). */
+  /** Home prompt box, scroll-to-latest and Developer tabs (visual shortcuts onto existing flows). */
   function setupDesignShortcuts() {
     document.getElementById("home-prompt-form")?.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1542,14 +1534,6 @@
       setActiveView("chat");
       submitComposerInput(text);
     });
-
-    for (const btn of document.querySelectorAll('[data-home-action="image"]')) {
-      btn.addEventListener("click", () => {
-        haptic();
-        setActiveView("chat");
-        openFilePicker(true);
-      });
-    }
 
     const latestBtn = document.getElementById("scroll-latest");
     if (latestBtn) {

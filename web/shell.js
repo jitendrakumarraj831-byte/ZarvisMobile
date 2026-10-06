@@ -305,6 +305,10 @@
 
   function init(hooks) {
     api = hooks;
+    // The shortcut hint matches the platform (⌘ K on Apple devices, Ctrl K elsewhere).
+    if (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "")) {
+      for (const hint of document.querySelectorAll(".kbd-hint")) hint.textContent = "⌘ K";
+    }
     for (const btn of document.querySelectorAll("[data-shell=search]")) btn.addEventListener("click", openPalette);
     for (const btn of document.querySelectorAll("[data-shell=notifications]")) {
       btn.setAttribute("aria-haspopup", "dialog");
