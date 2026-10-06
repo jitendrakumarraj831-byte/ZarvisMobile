@@ -385,37 +385,33 @@ async function send(page, text) {
     await ctxW.close();
   });
 
-  await step("Home dashboard: composer, suggestions, real plan/credits, voice orb, and the app bar lines up with every page", async () => {
+  await step("Home: the prompt card starts a chat, Quick actions fill the Chat box, tiles open the right picker, and the app bar lines up with every page", async () => {
     const ctxH = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageH = await pageOf(ctxH);
     await pageH.goto(BASE);
     await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-    // One composer: typing here opens Chat and sends exactly that message.
+    // The prompt card sends exactly what was typed.
     await pageH.fill("#home-prompt-input", "hello from home");
     await pageH.press("#home-prompt-input", "Enter");
     await pageH.waitForSelector("#view-chat:not([hidden])");
     await pageH.waitForSelector(".bubble.user >> text=hello from home");
     await pageH.waitForSelector(".bubble.assistant .bubble-body", { timeout: 15000 });
-    // A suggestion card opens Chat with its starter text, ready to edit (nothing is sent).
+    // "Quick actions" expands the chips; a chip opens Chat with its starter text, ready to edit (nothing is sent).
     await nav(pageH, "home");
-    await pageH.click('.suggest-card[data-workspace-prompt^="Write a warm"]');
+    assert.equal(await pageH.locator("#home-quick").isHidden(), true, "chips start collapsed");
+    await pageH.click("#home-quick-toggle");
+    assert.equal(await pageH.getAttribute("#home-quick-toggle", "aria-expanded"), "true");
+    await pageH.click('#home-quick .chip[data-workspace-prompt^="Write a warm"]');
     await pageH.waitForSelector("#view-chat:not([hidden])");
     assert.match(await pageH.inputValue("#text-input"), /^Write a warm, concise message about:/);
-    assert.equal(await pageH.locator(".bubble.user").count(), 1, "the suggestion did not send anything");
-    // "Summarize a file" opens the picker with every supported type (not only images).
+    assert.equal(await pageH.locator(".bubble.user").count(), 1, "the chip did not send anything");
+    // Files lists every supported type; Image narrows the picker to pictures and the next Files pick is full again.
     await nav(pageH, "home");
-    await pageH.click('.suggest-card[data-home-action="upload"]');
+    await pageH.click('.action-tile[data-home-action="image"]');
+    assert.equal(await pageH.getAttribute("#file-input", "accept"), "image/*");
+    await nav(pageH, "home");
+    await pageH.click('.action-tile[data-home-action="upload"]');
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
-    // The dashboard shows the account's real plan and credits (the same numbers the API reports)...
-    await nav(pageH, "home");
-    const token = await ls(pageH, "zarvis.accessToken");
-    const me = await (await fetch(BASE + "/api/v1/entitlements/me", { headers: { authorization: "Bearer " + token } })).json();
-    await pageH.waitForFunction((credits) => document.querySelector("#status-credits .status-card-value").textContent === credits, Number(me.creditBalance).toLocaleString("en-IN"));
-    assert.match(await pageH.textContent("#status-plan .status-card-value"), new RegExp(me.plan, "i"));
-    // ...and the orb is the voice entry point: it says so, and tapping it opens Chat.
-    assert.equal((await pageH.textContent("#home-orb-label")).trim(), "Tap to speak");
-    await pageH.click("#home-orb");
-    await pageH.waitForSelector("#view-chat:not([hidden])");
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
     for (const view of ["activity", "capabilities", "metrics", "plans", "settings"]) {
