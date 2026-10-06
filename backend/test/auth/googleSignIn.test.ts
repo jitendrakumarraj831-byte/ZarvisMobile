@@ -66,6 +66,8 @@ describe("POST /api/v1/auth/google", () => {
   it("reports availability via /auth/config", async () => {
     const on = await request(app()).get("/api/v1/auth/config");
     expect(on.body.googleClientId).toBeDefined();
+    // Signing in is always optional: the server never tells the client to hide "Continue as guest".
+    expect(on.body).not.toHaveProperty("requireSignIn");
     const off = await request(app(false)).get("/api/v1/auth/config");
     expect(off.body.googleClientId).toBeNull();
   });

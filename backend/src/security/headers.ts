@@ -24,11 +24,13 @@ export const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
+export function securityHeaders(req: Request, res: Response, next: NextFunction): void {
   res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)");
+  // Only over HTTPS (req.secure honours the proxy's X-Forwarded-Proto): sent on plain HTTP it is ignored by browsers.
+  if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000");
   next();
 }

@@ -61,6 +61,17 @@ const jsonBody = express.json({
   },
 });
 
+const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|feature-pages\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
+
+/** `req.path` is still percent-encoded, while express.static decodes it: compare the decoded form. */
+function isWebAsset(path: string): boolean {
+  try {
+    return WEB_ASSET.test(decodeURIComponent(path));
+  } catch {
+    return false;
+  }
+}
+
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
   const app = express();
@@ -72,6 +83,11 @@ export function buildServer(container: Container): Express {
   app.locals.authService = container.authService;
   app.use(securityHeaders);
   app.use(corsMiddleware);
+  // Tokens, accounts and conversations travel in these responses: no browser, proxy or CDN may keep a copy.
+  app.use(["/api/v1", "/health"], (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
   // Vercel's Node.js runtime (api/index.ts) can pre-parse a JSON request body onto `req.body`
   // and drain the underlying stream before Express ever sees the request — a well-known
   // Express-on-Vercel gotcha. If that already happened, `express.json()` would try to read
@@ -151,7 +167,10 @@ export function buildServer(container: Container): Express {
   // the same origin/domain as the API — no separate static host needed for
   // https://zarvismobile.com to run the full product in a browser.
   if (webRoot) {
-    app.use(publicLimit, express.static(webRoot));
+    // Only the files of the shipped client (the same list as vercel.json's routes). The folder also holds
+    // browser tests and package metadata that are not part of the product and must not be downloadable.
+    const staticFiles = express.static(webRoot);
+    app.use(publicLimit, (req, res, next) => (isWebAsset(req.path) ? staticFiles(req, res, next) : next()));
     app.get(/^(?!\/api\/).*/, publicLimit, (_req, res) => res.sendFile(join(webRoot, "index.html")));
   }
 

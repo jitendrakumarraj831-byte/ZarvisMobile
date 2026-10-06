@@ -44,8 +44,6 @@ export interface UsageCost {
   unit: string;
 }
 
-export const FREE_USAGE: UsageCost = { value: 0, unit: "credits" };
-
 /** Deliberately minimal — see android/domain's JsonSchema.kt for the same design note. */
 export interface JsonSchema {
   requiredFields: string[];

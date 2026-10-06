@@ -20,7 +20,7 @@ export function authRouter(authService: AuthService, google: GoogleIdTokenVerifi
 
   /** Public: tells the web client whether to show the Google button, and its (public) client id. */
   router.get("/config", (_req, res) => {
-    res.json({ googleClientId: google ? env.googleClientId ?? null : null, requireSignIn: env.requireSignIn });
+    res.json({ googleClientId: google ? env.googleClientId ?? null : null });
   });
 
   /**

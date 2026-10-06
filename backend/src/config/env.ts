@@ -54,8 +54,6 @@ export const env = {
   googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || undefined,
   /** Override only for a local test stub; defaults to Google's published signing keys. */
   googleJwksUrl: process.env.GOOGLE_JWKS_URL?.trim() || undefined,
-  /** When "true", the web app asks every visitor to sign in before chatting (no guest chatting). */
-  requireSignIn: process.env.REQUIRE_SIGN_IN === "true",
   /** Razorpay (UPI / cards / netbanking / wallets, INR). Unset = payments honestly reported as unavailable. */
   razorpayKeyId: process.env.RAZORPAY_KEY_ID?.trim() || undefined,
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET?.trim() || undefined,

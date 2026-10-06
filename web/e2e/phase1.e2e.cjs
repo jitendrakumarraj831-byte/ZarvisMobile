@@ -359,6 +359,64 @@ async function send(page, text) {
 
   await ctxC.close();
 
+  await step("welcome card: Continue as guest is always offered (even if the server says sign-in is required) and is remembered", async () => {
+    const ctxW = await browser.newContext();
+    const pageW = await ctxW.newPage();
+    // An older or misconfigured server may still answer requireSignIn: true; the card must stay skippable.
+    await pageW.route("**/api/v1/auth/config", (route) => route.fulfill({ json: { googleClientId: null, requireSignIn: true } }));
+    await pageW.goto(BASE);
+    await pageW.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageW, "chat");
+    await pageW.waitForSelector("#welcome-gate:not([hidden])");
+    assert.equal(await pageW.locator("#welcome-guest").isVisible(), true, "Continue as guest is visible");
+    assert.equal(await pageW.locator("#welcome-close").isVisible(), true, "the close button is visible");
+    assert.equal(await pageW.locator("#welcome-error").isVisible(), false, "no error is shown before the user does anything");
+    await pageW.click("#welcome-guest");
+    assert.equal(await pageW.locator("#welcome-gate").isHidden(), true);
+    await send(pageW, "hello");
+    await pageW.waitForSelector(".bubble.assistant .bubble-body", { timeout: 15000 });
+    // Remembered: reopening Chat after a reload does not ask again.
+    await pageW.reload();
+    await pageW.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageW, "chat");
+    await pageW.waitForTimeout(500);
+    assert.equal(await pageW.locator("#welcome-gate").isHidden(), true, "the card does not come back");
+    assert.equal(await ls(pageW, "zarvis.isGuest"), "true");
+    await ctxW.close();
+  });
+
+  await step("Home: one composer starts a chat, suggestions fill the Chat box, and the app bar lines up with every page", async () => {
+    const ctxH = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageH = await pageOf(ctxH);
+    await pageH.goto(BASE);
+    await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    // One composer: typing here opens Chat and sends exactly that message.
+    await pageH.fill("#home-prompt-input", "hello from home");
+    await pageH.press("#home-prompt-input", "Enter");
+    await pageH.waitForSelector("#view-chat:not([hidden])");
+    await pageH.waitForSelector(".bubble.user >> text=hello from home");
+    await pageH.waitForSelector(".bubble.assistant .bubble-body", { timeout: 15000 });
+    // A suggestion card opens Chat with its starter text, ready to edit (nothing is sent).
+    await nav(pageH, "home");
+    await pageH.click('.suggest-card[data-workspace-prompt^="Write a warm"]');
+    await pageH.waitForSelector("#view-chat:not([hidden])");
+    assert.match(await pageH.inputValue("#text-input"), /^Write a warm, concise message about:/);
+    assert.equal(await pageH.locator(".bubble.user").count(), 1, "the suggestion did not send anything");
+    // "Summarize a file" opens the picker with every supported type (not only images).
+    await nav(pageH, "home");
+    await pageH.click('.suggest-card[data-home-action="upload"]');
+    assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
+    // The app bar's right edge is the page content's right edge on every list page.
+    const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
+    for (const view of ["activity", "capabilities", "metrics", "plans", "settings"]) {
+      await nav(pageH, view);
+      await pageH.waitForTimeout(450); // the page's entrance animation
+      const edge = await pageH.evaluate((v) => Math.round(document.querySelector(`#view-${v} .page-head`).getBoundingClientRect().right), view);
+      assert.ok(Math.abs(edge - (await avatarRight())) <= 1, `${view}: page edge ${edge} vs app bar ${await avatarRight()}`);
+    }
+    await ctxH.close();
+  });
+
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
     for (const path of ["/logic.js", "/feature-pages.js", "/app.js", "/sw.js"]) {
       const res = await fetch(BASE + path);
@@ -387,7 +445,7 @@ async function send(page, text) {
 /** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
 async function pageOf(ctx) {
   await ctx.addInitScript(() => {
-    try { sessionStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
+    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
   });
   return ctx.newPage();
 }
