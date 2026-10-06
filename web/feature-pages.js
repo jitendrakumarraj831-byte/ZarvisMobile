@@ -193,32 +193,32 @@
        data-feature-page = detail page id */
   const GROUPS = [
     { title: "AI", items: [
-      { icon: "i-chat", name: "Conversation", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["Available", "ok"], action: ["chat", "Open"], feature: "workspace" },
-      { icon: "i-globe", name: "Web search", desc: "Live, sourced results when the provider can ground them.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
-      { icon: "i-search", name: "Research writing", desc: "Compare, report and outline — labelled when not from a live source.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
+      { icon: "i-chat", name: "Conversation", short: "Ask anything, get answers", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["Available", "ok"], action: ["chat", "Open"], feature: "workspace" },
+      { icon: "i-globe", name: "Web search", short: "Live, sourced results", desc: "Live, sourced results when the provider can ground them.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
+      { icon: "i-search", name: "Research writing", short: "Compare, report, outline", desc: "Compare, report and outline — labelled when not from a live source.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
     ] },
     { title: "Voice", items: [
-      { icon: "i-mic", name: "Voice input", desc: "Tap the orb or microphone to speak. No wake word.", status: ["Available", "ok"], action: ["voice", "Talk"], feature: "voice" },
-      { icon: "i-wave", name: "Spoken replies", desc: "ZARVIS reads replies aloud with a natural voice.", status: ["Available", "ok"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
+      { icon: "i-mic", name: "Voice input", short: "Talk naturally", desc: "Tap the orb or microphone to speak. No wake word.", status: ["Available", "ok"], action: ["voice", "Talk"], feature: "voice" },
+      { icon: "i-wave", name: "Spoken replies", short: "Hear replies aloud", desc: "ZARVIS reads replies aloud with a natural voice.", status: ["Available", "ok"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
     ] },
     { title: "Vision", items: [
-      { icon: "i-image", name: "Image understanding", desc: "Attach a photo or screenshot and ask about it.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
-      { icon: "i-sparkle", name: "Image generation", desc: "Creating images isn't part of this version.", status: ["Not available", "off"] },
+      { icon: "i-image", name: "Image understanding", short: "Ask about photos", desc: "Attach a photo or screenshot and ask about it.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-sparkle", name: "Image generation", short: "Not part of this version", desc: "Creating images isn't part of this version.", status: ["Not available", "off"] },
     ] },
     { title: "Files", items: [
-      { icon: "i-file", name: "Document summaries", desc: "PDF, DOCX and text files — summarize or ask questions.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-file", name: "Document summaries", short: "PDF, Docs, text files", desc: "PDF, DOCX and text files — summarize or ask questions.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
     ] },
     { title: "Automation", items: [
-      { icon: "i-task", name: "Tracked tasks", desc: "Break a goal into steps and track its status in Activity.", status: ["Status only", "info"], action: ["chat", "Create"], prompt: "Create a workflow for this goal and break it into clear steps: ", feature: "tasks" },
-      { icon: "i-phone", name: "Phone Agent", desc: "Open apps, find contacts and place confirmed calls.", status: ["Android app", "info"], action: ["feature", "Details"], feature: "phone" },
+      { icon: "i-task", name: "Tracked tasks", short: "Plan goals in steps", desc: "Break a goal into steps and track its status in Activity.", status: ["Status only", "info"], action: ["chat", "Create"], prompt: "Create a workflow for this goal and break it into clear steps: ", feature: "tasks" },
+      { icon: "i-phone", name: "Phone Agent", short: "Android app actions", desc: "Open apps, find contacts and place confirmed calls.", status: ["Android app", "info"], action: ["feature", "Details"], feature: "phone" },
     ] },
     { title: "Developer", items: [
-      { icon: "i-code", name: "Repository analysis", desc: "A read-only report on a GitHub repository.", status: ["Available", "ok"], action: ["developer", "Open"], feature: "developer" },
-      { icon: "i-github", name: "Pull requests", desc: "Implement a change after you approve the exact action.", status: ["PRO · approval", "warn"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-code", name: "Repository analysis", short: "Read-only repo report", desc: "A read-only report on a GitHub repository.", status: ["Available", "ok"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-github", name: "Pull requests", short: "Implement after approval", desc: "Implement a change after you approve the exact action.", status: ["PRO · approval", "warn"], action: ["developer", "Open"], feature: "developer" },
     ] },
     { title: "Productivity", items: [
-      { icon: "i-pen", name: "Writing", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["Available", "ok"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
-      { icon: "i-briefcase", name: "Business drafts", desc: "Customer replies, social posts and invoice drafts. Never sent.", status: ["Draft only", "ok"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
+      { icon: "i-pen", name: "Writing", short: "Messages, poems, ideas", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["Available", "ok"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
+      { icon: "i-briefcase", name: "Business drafts", short: "Replies, posts, invoices", desc: "Customer replies, social posts and invoice drafts. Never sent.", status: ["Draft only", "ok"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
     ] },
   ];
 
@@ -248,17 +248,49 @@
   }
 
   const TONES = ["tone-blue", "tone-violet", "tone-cyan", "tone-pink"];
+  /* Filter pills group the catalogue groups above. */
+  const FILTERS = [
+    { id: "all", label: "All" },
+    { id: "ai", label: "AI", groups: ["AI"] },
+    { id: "media", label: "Media", groups: ["Voice", "Vision", "Files"] },
+    { id: "productivity", label: "Productivity", groups: ["Productivity"] },
+    { id: "developer", label: "Developer", groups: ["Developer"] },
+    { id: "automation", label: "Automation", groups: ["Automation"] },
+  ];
+
+  function filterFor(groupTitle) {
+    const found = FILTERS.find((filter) => filter.groups && filter.groups.includes(groupTitle));
+    return found ? found.id : "all";
+  }
 
   function renderHub(container) {
     container.replaceChildren();
+    const pills = el("div", "cap-filters");
+    pills.setAttribute("role", "group");
+    pills.setAttribute("aria-label", "Filter capabilities");
+    const grid = el("div", "cap-grid");
+    for (const filter of FILTERS) {
+      const pill = el("button", "cap-pill" + (filter.id === "all" ? " active" : ""), filter.label);
+      pill.type = "button";
+      pill.dataset.capFilter = filter.id;
+      pill.setAttribute("aria-pressed", String(filter.id === "all"));
+      pill.addEventListener("click", () => {
+        for (const other of pills.children) {
+          other.classList.toggle("active", other === pill);
+          other.setAttribute("aria-pressed", String(other === pill));
+        }
+        for (const card of grid.children) {
+          card.hidden = filter.id !== "all" && card.dataset.capGroup !== filter.id;
+        }
+      });
+      pills.appendChild(pill);
+    }
+    container.append(pills, grid);
+
     GROUPS.forEach((group, groupIndex) => {
-      const section = el("section", "cap-group");
-      const head = el("div", "cap-group-head");
-      head.appendChild(el("h2", "section-title", group.title));
-      section.appendChild(head);
-      const grid = el("div", "cap-grid");
       group.items.forEach((item, index) => {
-        const row = el("article", "cap-item" + (item.status[1] === "off" ? " is-off" : ""));
+        const row = el("article", "cap-item " + TONES[groupIndex % TONES.length] + (item.status[1] === "off" ? " is-off" : ""));
+        row.dataset.capGroup = filterFor(group.title);
         row.style.animationDelay = Math.min(index * 40 + groupIndex * 20, 240) + "ms";
         const ico = el("span", "row-ico " + TONES[groupIndex % TONES.length]);
         ico.appendChild(icon(item.icon));
@@ -274,7 +306,8 @@
         name.appendChild(el("span", null, item.name));
         // "Available" is the default; only notable states get a badge.
         if (item.status[0] !== "Available") name.appendChild(el("span", "z-badge z-badge-" + item.status[1], item.status[0]));
-        copy.append(name, el("span", "cap-desc", item.desc));
+        copy.append(name, el("span", "cap-desc", item.short || item.desc));
+        row.title = item.desc;
         row.append(ico, copy);
         if (item.action) {
           const btn = el("button", "cap-action", item.action[1]);
@@ -288,8 +321,6 @@
         }
         grid.appendChild(row);
       });
-      section.appendChild(grid);
-      container.appendChild(section);
     });
   }
 

@@ -93,7 +93,7 @@ describe("AI quota errors reach the client as structured, honest errors", () => 
     expect(res.body).toMatchObject({ code: "AI_QUOTA_EXCEEDED", retryable: false });
   });
 
-  it("TTS reports an exhausted quota as 429 after ONE upstream request", async () => {
+  it("TTS reports an exhausted quota as 429 after trying each TTS model once (no same-model retry)", async () => {
     const fetchMock = vi.fn(async () => new Response(quotaBody(DAILY), { status: 429 }));
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -107,7 +107,7 @@ describe("AI quota errors reach the client as structured, honest errors", () => 
 
       expect(res.status).toBe(429);
       expect(res.body).toMatchObject({ code: "AI_QUOTA_EXCEEDED", retryable: false });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -7,6 +7,13 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
+export class GoogleIdentityTakenError extends Error {
+  constructor() {
+    super("This Google account is already linked to another ZARVIS account");
+    this.name = "GoogleIdentityTakenError";
+  }
+}
+
 export class EmailTakenError extends Error {
   constructor() {
     super("An account with this email already exists");
@@ -20,7 +27,18 @@ export interface User {
   passwordHash: string;
   /** A device-bootstrapped guest with a generated email; can be linked to a real email. */
   isGuest: boolean;
+  /** Google's stable account id when the user signed in with Google. */
+  googleSub?: string;
+  displayName?: string;
+  avatarUrl?: string;
   createdAt: Date;
+}
+
+export interface GoogleIdentityInput {
+  sub: string;
+  email: string;
+  name?: string;
+  picture?: string;
 }
 
 /** One signed-in device/browser. Refresh tokens rotate; only the latest one is valid. */
@@ -68,7 +86,39 @@ export interface Account {
   id: string;
   userId: string;
   plan: EntitlementLevel;
+  /** When a paid plan lapses (the account is then treated as FREE). Null/absent: no expiry. */
+  planExpiresAt?: Date | null;
   createdAt: Date;
+}
+
+/** A Razorpay order created for one plan purchase. Price and grants are snapshotted at creation. */
+export interface PaymentOrder {
+  orderId: string;
+  accountId: string;
+  planKey: string;
+  amountPaise: number;
+  currency: "INR";
+  periodDays: number;
+  credits: number;
+  status: "created" | "paid";
+  paymentId?: string;
+  createdAt: Date;
+  paidAt?: Date;
+}
+
+export type FulfillmentResult =
+  | { status: "fulfilled"; account: Account; creditBalance: number }
+  | { status: "already_fulfilled" }
+  | { status: "not_found" };
+
+/**
+ * New expiry when a paid period is bought: it stacks onto a still-running PRO period (renewing
+ * early never wastes paid time) and otherwise starts now.
+ */
+export function extendPlanExpiry(account: Pick<Account, "plan" | "planExpiresAt">, periodDays: number, now: Date): Date {
+  const running = account.plan === "PRO" && account.planExpiresAt && account.planExpiresAt.getTime() > now.getTime();
+  const base = running ? (account.planExpiresAt as Date).getTime() : now.getTime();
+  return new Date(base + periodDays * 24 * 60 * 60 * 1000);
 }
 
 export interface TrialRecord {
@@ -170,6 +220,13 @@ export interface Store {
   updateUserCredentials(userId: string, email: string, passwordHash: string): Promise<User>;
   findUserByEmail(email: string): Promise<User | undefined>;
   findUserById(id: string): Promise<User | undefined>;
+  findUserByGoogleSub(sub: string): Promise<User | undefined>;
+  /**
+   * Attaches a Google identity to an existing user and refreshes name/photo. With
+   * `convertGuest`, a guest becomes a real account on the Google email (same user, same account,
+   * nothing lost). Throws EmailTakenError / GoogleIdentityTakenError on a conflict.
+   */
+  linkGoogleIdentity(userId: string, identity: GoogleIdentityInput, options?: { convertGuest?: boolean }): Promise<User>;
 
   /** Creates an account for the user and starts its one lifetime trial. See SUBSCRIPTIONS.md. */
   createAccountForUser(userId: string): Promise<Account>;
@@ -198,6 +255,16 @@ export interface Store {
    * Returns false when that token was already consumed, including by another account.
    */
   claimPurchaseToken(purchaseToken: string, accountId: string, productId: string): Promise<boolean>;
+
+  /** Records a Razorpay order the server just created for this account. */
+  createPaymentOrder(order: PaymentOrder): Promise<void>;
+  getPaymentOrder(orderId: string): Promise<PaymentOrder | undefined>;
+  /**
+   * Marks the order paid and grants its plan period and credits in ONE atomic step, exactly once:
+   * a second call (client verify racing the webhook, a replay) returns "already_fulfilled" and
+   * changes nothing.
+   */
+  fulfillPaymentOrder(orderId: string, paymentId: string, now: Date): Promise<FulfillmentResult>;
   listUsage(accountId: string): Promise<UsageEntry[]>;
 
   createConversation(accountId: string, title?: string): Promise<Conversation>;

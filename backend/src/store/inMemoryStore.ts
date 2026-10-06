@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { PermissionType, Task } from "../domain/types.js";
 import {
   EmailTakenError,
+  GoogleIdentityTakenError,
+  type GoogleIdentityInput,
   InsufficientCreditsError,
-  type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
-  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
+  extendPlanExpiry, type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
+  type ConversationMessage, type FulfillmentResult, type GitHubConnection, type PaymentOrder, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
   type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS
 } from "./store.js";
 
@@ -59,6 +61,36 @@ export class InMemoryStore implements Store {
     const updated: User = { ...user, email, passwordHash, isGuest: false };
     this.usersById.set(userId, updated);
     this.usersByEmail.set(email, userId);
+    return updated;
+  }
+
+  async findUserByGoogleSub(sub: string): Promise<User | undefined> {
+    for (const user of this.usersById.values()) if (user.googleSub === sub) return user;
+    return undefined;
+  }
+
+  async linkGoogleIdentity(userId: string, identity: GoogleIdentityInput, options: { convertGuest?: boolean } = {}): Promise<User> {
+    const user = this.usersById.get(userId);
+    if (!user) throw new Error(`Cannot link unknown user '${userId}'`);
+    const subOwner = await this.findUserByGoogleSub(identity.sub);
+    if (subOwner && subOwner.id !== userId) throw new GoogleIdentityTakenError();
+    let email = user.email;
+    if (options.convertGuest) {
+      const owner = this.usersByEmail.get(identity.email);
+      if (owner && owner !== userId) throw new EmailTakenError();
+      this.usersByEmail.delete(user.email);
+      this.usersByEmail.set(identity.email, userId);
+      email = identity.email;
+    }
+    const updated: User = {
+      ...user,
+      email,
+      isGuest: options.convertGuest ? false : user.isGuest,
+      googleSub: identity.sub,
+      displayName: identity.name ?? user.displayName,
+      avatarUrl: identity.picture ?? user.avatarUrl,
+    };
+    this.usersById.set(userId, updated);
     return updated;
   }
 
@@ -177,6 +209,9 @@ export class InMemoryStore implements Store {
     this.trials.delete(accountId);
     this.creditBalances.delete(accountId);
     this.githubConnections.delete(accountId);
+    for (const [orderId, order] of this.paymentOrders) {
+      if (order.accountId === accountId) this.paymentOrders.delete(orderId);
+    }
     for (const [sessionId, session] of this.sessions) {
       if (session.accountId === accountId) this.sessions.delete(sessionId);
     }
@@ -223,6 +258,31 @@ export class InMemoryStore implements Store {
     const newBalance = current - entry.cost;
     this.creditBalances.set(entry.accountId, newBalance);
     return newBalance;
+  }
+
+  private readonly paymentOrders = new Map<string, PaymentOrder>();
+
+  async createPaymentOrder(order: PaymentOrder): Promise<void> {
+    this.paymentOrders.set(order.orderId, { ...order });
+  }
+
+  async getPaymentOrder(orderId: string): Promise<PaymentOrder | undefined> {
+    const order = this.paymentOrders.get(orderId);
+    return order ? { ...order } : undefined;
+  }
+
+  async fulfillPaymentOrder(orderId: string, paymentId: string, now: Date): Promise<FulfillmentResult> {
+    const order = this.paymentOrders.get(orderId);
+    if (!order) return { status: "not_found" };
+    if (order.status === "paid") return { status: "already_fulfilled" };
+    const account = this.accountsById.get(order.accountId);
+    if (!account) return { status: "not_found" };
+    const updated = { ...account, plan: "PRO" as const, planExpiresAt: extendPlanExpiry(account, order.periodDays, now) };
+    this.accountsById.set(account.id, updated);
+    const balance = (this.creditBalances.get(account.id) ?? 0) + order.credits;
+    this.creditBalances.set(account.id, balance);
+    this.paymentOrders.set(orderId, { ...order, status: "paid", paymentId, paidAt: now });
+    return { status: "fulfilled", account: updated, creditBalance: balance };
   }
 
   async claimPurchaseToken(purchaseToken: string, _accountId: string, _productId: string): Promise<boolean> {

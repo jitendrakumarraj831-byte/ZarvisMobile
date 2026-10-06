@@ -22,6 +22,11 @@ function resolveJwtSecret(): string {
   return DEV_ONLY_JWT_SECRET;
 }
 
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /** Central place environment variables are read — see ../../.env.example. */
 export const env = {
   port: Number(process.env.PORT ?? 3000),
@@ -45,6 +50,23 @@ export const env = {
    * provider when GEMINI_API_KEY is absent. Never expose to clients. */
   openRouterApiKey: process.env.OPENROUTER_API_KEY?.trim() || undefined,
   openRouterModel: process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.0-flash-001",
+  /** Google OAuth Web client id for "Sign in with Google". Unset = the sign-in card honestly offers email only. */
+  googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || undefined,
+  /** Override only for a local test stub; defaults to Google's published signing keys. */
+  googleJwksUrl: process.env.GOOGLE_JWKS_URL?.trim() || undefined,
+  /** When "true", the web app asks every visitor to sign in before chatting (no guest chatting). */
+  requireSignIn: process.env.REQUIRE_SIGN_IN === "true",
+  /** Razorpay (UPI / cards / netbanking / wallets, INR). Unset = payments honestly reported as unavailable. */
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID?.trim() || undefined,
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET?.trim() || undefined,
+  razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET?.trim() || undefined,
+  /** Override only for a local test stub; defaults to Razorpay's API. */
+  razorpayApiBaseUrl: process.env.RAZORPAY_API_BASE_URL?.trim() || "https://api.razorpay.com/v1",
+  /** Whole-rupee prices and the credits each paid period grants. Tune per market; amounts are server-side only. */
+  proMonthlyInr: positiveInt(process.env.PRICE_PRO_MONTHLY_INR, 499),
+  proYearlyInr: positiveInt(process.env.PRICE_PRO_YEARLY_INR, 4999),
+  proMonthlyCredits: positiveInt(process.env.PRO_CREDITS_MONTHLY, 1000),
+  proYearlyCredits: positiveInt(process.env.PRO_CREDITS_YEARLY, 12000),
   /** Gemini's native-audio-output model — the same underlying voice technology behind the
    * Gemini app's voice mode, called via a plain generateContent request (see
    * ai/geminiTts.ts and AI_ARCHITECTURE.md "Native audio voice"), not the separate Google

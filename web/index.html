@@ -55,6 +55,15 @@
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
       <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z"/></symbol>
       <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/></symbol>
+      <symbol id="i-plane" viewBox="0 0 24 24"><path d="M21 3.5 10.5 14M21 3.5l-6.8 17-3.7-6.5L4 10.3z"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5"/></symbol>
+      <symbol id="i-star4" viewBox="0 0 24 24"><path d="M12 2.5c.9 5.6 3.9 8.6 9.5 9.5-5.6.9-8.6 3.9-9.5 9.5-.9-5.6-3.9-8.6-9.5-9.5 5.6-.9 8.6-3.9 9.5-9.5z"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="m8.2 10.8 7-3.6M8.2 13.2l7 3.6"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></symbol>
+      <symbol id="i-bug" viewBox="0 0 24 24"><rect x="8" y="8" width="8" height="11" rx="4"/><path d="M9 8a3 3 0 0 1 6 0M4 12h4M16 12h4M5 18l3-2M19 18l-3-2M5 6l3 2M19 6l-3 2"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
       <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h4"/></symbol>
     </defs>
   </svg>
@@ -81,6 +90,7 @@
       <div class="nav-spacer"></div>
       <div class="nav-group">
         <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
+        <button type="button" class="nav-item nav-profile" data-nav="settings"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>Profile</span></button>
       </div>
     </nav>
 
@@ -92,28 +102,61 @@
           <span class="brand-text"><strong>ZARVIS</strong><small>MOBILE</small></span>
         </button>
         <div class="topbar-actions">
-          <button type="button" class="icon-btn" data-nav="developer" aria-label="Developer Agent"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></button>
-          <button type="button" class="icon-btn" data-nav="settings" aria-label="Settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg></button>
+          <button type="button" class="icon-btn" data-shell="search" aria-label="Search" title="Search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></button>
+          <button type="button" class="icon-btn topbar-activity" data-shell="notifications" aria-label="Notifications" title="Notifications"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
+          <button type="button" class="icon-btn" data-nav="developer" aria-label="Developer Agent" title="Developer Agent"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></button>
+          <button type="button" class="topbar-avatar" data-shell="profile" aria-label="Account menu" title="Account"><span class="avatar-text">Z</span></button>
         </div>
       </header>
+
+      <!-- Desktop top bar: search, notifications, account -->
+      <div class="desk-top" id="desk-top">
+        <button type="button" class="desk-top-btn" id="desk-search-btn" data-shell="search" aria-label="Search (Ctrl K)" title="Search (Ctrl K)"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></button>
+        <button type="button" class="desk-top-btn desk-bell" data-shell="notifications" aria-label="Notifications" title="Notifications"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="nav-badge" id="activity-badge-desk" hidden></span></button>
+        <button type="button" class="desk-avatar" id="desk-avatar" data-shell="profile" aria-label="Account menu" title="Account"><span id="desk-avatar-text" class="avatar-text">Z</span></button>
+      </div>
 
       <main class="views" id="main-views">
         <!-- ============ HOME ============ -->
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
+          <h1 class="sr-only" id="home-title">ZARVIS MOBILE</h1>
           <div class="home-hero">
+            <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span> <span aria-hidden="true">👋</span></p>
             <button type="button" class="orb-stage" id="home-orb" aria-label="Talk to ZARVIS by voice">
               <span class="orb orb-lg" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span></span>
+              <span class="orb-label" aria-hidden="true"><svg class="ico orb-star"><use href="#i-star4"/></svg><strong>Zarvis Mobile</strong><small>Your AI Assistant</small></span>
             </button>
-            <p class="home-wordmark" role="img" aria-label="ZARVIS MOBILE"><span class="wm-main" aria-hidden="true">ZARVIS</span><span class="wm-sub" aria-hidden="true">MOBILE</span></p>
-            <h1 class="home-title" id="home-title"><span id="home-greeting">Hello</span></h1>
-            <p class="home-title-sub">Your AI assistant for chat, voice, files and code.</p>
           </div>
 
+          <form class="home-card" id="home-prompt-form" autocomplete="off">
+            <span class="home-card-star" aria-hidden="true"><svg class="ico"><use href="#i-star4"/></svg></span>
+            <div class="home-card-copy">
+              <strong>Hi! I'm Zarvis</strong>
+              <span>Your AI Assistant</span>
+              <p>Ask anything, create, analyse, or get things done.</p>
+            </div>
+            <div class="home-card-input">
+              <label class="sr-only" for="home-prompt-input">Ask ZARVIS</label>
+              <input id="home-prompt-input" type="text" placeholder="Type your request…" enterkeyhint="send" />
+              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
+            </div>
+          </form>
+
           <div class="primary-actions" role="group" aria-label="Start">
-            <button type="button" class="action-tile" data-nav="chat"><span class="tile-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span>Chat</span></button>
-            <button type="button" class="action-tile" data-home-action="voice"><span class="tile-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span>Voice</span></button>
-            <button type="button" class="action-tile" data-home-action="upload"><span class="tile-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></span><span>Upload</span></button>
-            <button type="button" class="action-tile" id="home-quick-toggle" aria-expanded="false" aria-controls="home-quick"><span class="tile-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span>Quick actions</span></button>
+            <button type="button" class="action-tile" data-nav="chat"><span class="tile-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span class="tile-copy"><strong>Chat</strong></span></button>
+            <button type="button" class="action-tile" data-home-action="voice"><span class="tile-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="tile-copy"><strong>Voice</strong></span></button>
+            <button type="button" class="action-tile" data-home-action="image"><span class="tile-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></span><span class="tile-copy"><strong>Image</strong></span></button>
+            <button type="button" class="action-tile" data-home-action="upload"><span class="tile-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></span><span class="tile-copy"><strong>Files</strong></span></button>
+          </div>
+
+          <div class="home-mic">
+            <span class="mic-wave mic-wave-l" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            <button type="button" class="mic-big" data-home-action="voice" aria-label="Tap to speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
+            <span class="mic-wave mic-wave-r" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          </div>
+          <p class="mic-caption">Tap to Speak</p>
+          <div class="home-quick-row">
+            <button type="button" class="chip" id="home-quick-toggle" aria-expanded="false" aria-controls="home-quick"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>Quick actions</button>
           </div>
 
           <section class="home-section home-quick" id="home-quick" aria-label="Quick actions" hidden>
@@ -130,7 +173,7 @@
 
           <section class="home-section" id="home-recent" aria-labelledby="recent-title">
             <div class="section-head">
-              <h2 class="section-title" id="recent-title">Recent</h2>
+              <h2 class="section-title" id="recent-title">Recent Activity</h2>
               <button type="button" class="link-btn" data-nav="activity">View all</button>
             </div>
             <div id="home-activity" class="list" aria-live="polite"></div>
@@ -141,9 +184,12 @@
         <section class="view view-chat" id="view-chat" hidden aria-label="Chat">
           <div class="chat-header">
             <button type="button" class="icon-btn chat-back" id="chat-back-btn" aria-label="Back to Home"><svg class="ico" aria-hidden="true"><use href="#i-left"/></svg></button>
-            <div class="chat-title"><strong>Chat</strong></div>
-            <p class="status-pill" id="hero-status" data-state="IDLE"><span class="status-dot" aria-hidden="true"></span><span id="hero-status-label">Ready</span></p>
-            <button type="button" class="icon-btn" id="chat-new-btn" aria-label="Start a new conversation" title="New conversation"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></button>
+            <span class="chat-avatar" aria-hidden="true"><svg class="ico"><use href="#i-star4"/></svg></span>
+            <div class="chat-title">
+              <strong>Zarvis Mobile</strong>
+              <p class="status-pill" id="hero-status" data-state="IDLE"><span class="status-dot" aria-hidden="true"></span><span id="hero-status-label">Ready</span></p>
+            </div>
+            <button type="button" class="icon-btn chat-new-btn" id="chat-new-btn" aria-label="Start a new conversation" title="New conversation"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span class="chat-new-label">New Chat</span></button>
           </div>
           <section class="chat-empty" id="hero">
             <div class="orb-stage orb-stage-sm" id="orb" data-state="IDLE" role="button" tabindex="0" aria-pressed="false" aria-label="Speak to ZARVIS">
@@ -164,7 +210,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="activity-title">Activity</h1>
-              <p class="page-sub">Your conversations, AI actions and tracked tasks.</p>
+              <p class="page-sub">Your recent conversations &amp; tasks.</p>
             </div>
             <button type="button" class="btn btn-ghost" id="activity-refresh-btn"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Refresh</span></button>
           </header>
@@ -179,6 +225,7 @@
               <button type="button" class="seg" data-filter="conversation" aria-pressed="false">Chats</button>
               <button type="button" class="seg" data-filter="task" aria-pressed="false">Tasks</button>
               <button type="button" class="seg" data-filter="file" aria-pressed="false">Files</button>
+              <button type="button" class="seg" data-filter="image" aria-pressed="false">Images</button>
               <button type="button" class="seg" data-filter="voice" aria-pressed="false">Voice</button>
               <button type="button" class="seg" data-filter="developer" aria-pressed="false">Developer</button>
             </div>
@@ -202,8 +249,9 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="capabilities-title">Capabilities</h1>
-              <p class="page-sub">What ZARVIS can do today, and where it runs.</p>
+              <p class="page-sub">Powerful AI tools in one place.</p>
             </div>
+            <span class="page-head-spark" aria-hidden="true"><svg class="ico"><use href="#i-sparkle"/></svg></span>
           </header>
           <div id="capability-hub"></div>
           <details class="disclosure">
@@ -225,6 +273,20 @@
             <p class="run-status" id="developer-run-status" data-tone="idle"><span class="status-dot" aria-hidden="true"></span><span>Idle</span></p>
           </header>
 
+          <div class="dev-quick" role="group" aria-label="Start a developer task in chat">
+            <button type="button" class="dev-quick-card tone-blue" data-workspace-prompt="Generate code for: "><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Generate Code</strong><small>Apps, websites, scripts</small></span></button>
+            <button type="button" class="dev-quick-card tone-violet" data-workspace-prompt="Find and fix the bug in this code or error: "><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-bug"/></svg></span><span class="row-copy"><strong>Debug &amp; Fix</strong><small>Find and fix issues</small></span></button>
+            <button type="button" class="dev-quick-card tone-cyan" data-workspace-prompt="Explain this code step by step: "><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg></span><span class="row-copy"><strong>Explain Code</strong><small>Understand any code</small></span></button>
+            <button type="button" class="dev-quick-card tone-pink" data-workspace-prompt="Plan and scaffold a new project: "><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></span><span class="row-copy"><strong>Create Project</strong><small>Full project setup</small></span></button>
+          </div>
+
+          <div class="dev-tabs" role="tablist" aria-label="Developer sections">
+            <button type="button" class="dev-tab active" data-dev-tab="dev-task-title" role="tab" aria-selected="true">Repository</button>
+            <button type="button" class="dev-tab" data-dev-tab="dev-result-title" role="tab" aria-selected="false">Analysis</button>
+            <button type="button" class="dev-tab" data-dev-tab="developer-requirement-input" role="tab" aria-selected="false">Implement</button>
+            <button type="button" class="dev-tab" data-dev-tab="dev-log-title" role="tab" aria-selected="false">History</button>
+          </div>
+
           <div class="dev-layout">
             <div class="dev-main">
               <section class="panel" aria-labelledby="dev-task-title">
@@ -237,7 +299,7 @@
                   </div>
                 </div>
                 <div class="dev-actions">
-                  <button type="button" class="btn btn-secondary" id="developer-analyze-btn">Analyze</button>
+                  <button type="button" class="btn btn-primary btn-analyze" id="developer-analyze-btn"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg><span>Analyze Repository</span></button>
                   <span class="hint">Read-only report. Nothing is changed.</span>
                 </div>
                 <div class="field">
@@ -281,7 +343,7 @@
                 <button type="button" class="btn btn-ghost" id="github-disconnect-btn" hidden>Disconnect</button>
               </section>
               <section class="panel" aria-labelledby="dev-log-title">
-                <h2 class="panel-title" id="dev-log-title">Run history</h2>
+                <h2 class="panel-title" id="dev-log-title">Recent Analysis</h2>
                 <ol class="timeline timeline-compact" id="developer-log"><li class="timeline-empty">No runs yet.</li></ol>
               </section>
             </aside>
@@ -293,27 +355,36 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="plans-title">Plans</h1>
-              <p class="page-sub">Your plan, credits and what each plan includes.</p>
+              <p class="page-sub">Choose the best plan for you.</p>
             </div>
           </header>
           <div id="plans-current" class="stat-grid"></div>
-          <p class="notice"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span>Checkout isn't connected yet, so upgrades can't be purchased here and no prices are shown.</span></p>
+          <p class="notice" id="plans-notice" hidden><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span id="plans-notice-text"></span></p>
           <div class="section-head">
-            <h2 class="section-title">Compare plans</h2>
+            <h2 class="section-title">Choose your plan</h2>
             <div class="segmented" id="billing-toggle" role="group" aria-label="Billing period">
               <button type="button" class="seg billing-option active" data-billing="monthly">Monthly</button>
-              <button type="button" class="seg billing-option" data-billing="yearly">Yearly</button>
+              <button type="button" class="seg billing-option" data-billing="yearly">Yearly <span class="seg-save" id="yearly-save" hidden></span></button>
             </div>
           </div>
           <div class="plan-grid" id="plan-cards"></div>
+          <div class="pay-box" id="pay-box" hidden>
+            <ul class="pay-methods" aria-label="Accepted payment methods">
+              <li><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg>UPI</li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg>Debit &amp; credit cards</li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Netbanking</li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg>Wallets</li>
+            </ul>
+            <p class="pay-note"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span>Payments are processed securely by Razorpay in INR. ZARVIS never sees your card or UPI details.</span></p>
+          </div>
         </section>
 
         <!-- ============ METRICS ============ -->
         <section class="view" id="view-metrics" hidden aria-labelledby="metrics-title">
           <header class="page-head">
             <div>
-              <h1 class="page-title" id="metrics-title">Metrics</h1>
-              <p class="page-sub">Measured on this device during this session, plus your account's credits.</p>
+              <h1 class="page-title" id="metrics-title">Usage &amp; Metrics</h1>
+              <p class="page-sub">Track your AI usage and performance on this device.</p>
             </div>
           </header>
           <div class="stat-grid" id="metrics-usage"></div>
@@ -343,7 +414,7 @@
             <header class="page-head">
               <div>
                 <h1 class="page-title" id="settings-title">Settings</h1>
-                <p class="page-sub">Profile, voice, privacy and more.</p>
+                <p class="page-sub">Customize your Zarvis experience.</p>
               </div>
             </header>
             <div class="settings-list">
@@ -356,7 +427,7 @@
               <div class="settings-group">
                 <button type="button" class="settings-row" data-settings-page="voice"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg></span><span class="row-copy"><strong>Voice</strong><small>Spoken replies and voice</small></span><span class="row-value" data-setting-value="voice"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="language"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-lang"/></svg></span><span class="row-copy"><strong>Language</strong><small>Interface and request language</small></span><span class="row-value" data-setting-value="language"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="appearance"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-palette"/></svg></span><span class="row-copy"><strong>Appearance</strong><small>Light or dim</small></span><span class="row-value" data-setting-value="appearance"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="appearance"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-palette"/></svg></span><span class="row-copy"><strong>Appearance</strong><small>Dark or light</small></span><span class="row-value" data-setting-value="appearance"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="ai"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span class="row-copy"><strong>AI</strong><small>Model provider and behaviour</small></span><span class="row-value" data-setting-value="ai"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="memory"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></span><span class="row-copy"><strong>Memory</strong><small>Saved conversation</small></span><span class="row-value" data-setting-value="memory"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="notifications"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg></span><span class="row-copy"><strong>Notifications</strong><small>Alerts and reminders</small></span><span class="row-value" data-setting-value="notifications">Android app</span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
@@ -441,7 +512,7 @@
               <div class="panel">
                 <div class="theme-picker">
                   <button type="button" class="theme-option" id="appearance-aurora-btn" data-appearance="aurora"><span class="theme-swatch swatch-light" aria-hidden="true"></span><span>Light</span></button>
-                  <button type="button" class="theme-option" id="appearance-dim-btn" data-appearance="dim"><span class="theme-swatch swatch-dim" aria-hidden="true"></span><span>Dim</span></button>
+                  <button type="button" class="theme-option" id="appearance-dim-btn" data-appearance="dim"><span class="theme-swatch swatch-dim" aria-hidden="true"></span><span>Dark</span></button>
                 </div>
               </div>
             </section>
@@ -539,6 +610,8 @@
         </section>
       </main>
 
+      <button type="button" class="scroll-latest" id="scroll-latest" hidden aria-label="Scroll to the latest message"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg></button>
+
       <!-- Chat composer -->
       <footer class="composer" id="composer" hidden>
         <div class="composer-inner">
@@ -555,13 +628,14 @@
             <textarea id="text-input" class="composer-input" rows="1" placeholder="Ask ZARVIS" autocomplete="off"></textarea>
             <div class="composer-row">
               <div class="composer-tools">
-                <label id="upload-btn" class="icon-btn" for="file-input" role="button" aria-label="Attach a document" tabindex="0"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></label>
+                <label id="upload-btn" class="icon-btn" for="file-input" role="button" aria-label="Attach a document" tabindex="0"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></label>
                 <input id="file-input" class="file-input-visually-hidden" type="file" aria-label="Attach a document" accept="image/*,.txt,.md,.csv,.json,.pdf,.docx" />
+                <button id="image-btn" class="icon-btn" type="button" aria-label="Attach an image"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></button>
                 <button id="mic-btn" class="icon-btn" type="button" aria-label="Speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
               </div>
               <button id="send-btn" class="send-btn" type="button" aria-label="Send">
                 <span class="send-label sr-only">Send</span>
-                <svg class="ico send-icon" aria-hidden="true"><use href="#i-send"/></svg>
+                <svg class="ico send-icon" aria-hidden="true"><use href="#i-plane"/></svg>
                 <svg class="ico stop-icon" aria-hidden="true"><use href="#i-stop"/></svg>
               </button>
             </div>
@@ -573,9 +647,10 @@
     <!-- Mobile bottom navigation -->
     <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
       <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
-      <button type="button" class="nav-item" data-view="chat"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><span>Chat</span></button>
-      <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
       <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
+      <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-star4"/></svg></span><span class="fab-label">Chat</span></button>
+      <button type="button" class="nav-item" data-view="metrics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Metrics</span></button>
+      <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
     </nav>
   </div>
 
@@ -606,8 +681,34 @@
       <button type="button" class="btn btn-ghost" id="session-gate-guest">Start a new guest account</button>
     </div>
   </div>
+  <div class="modal-overlay" id="welcome-gate" hidden>
+    <div class="modal-card session-gate-card welcome-card" role="dialog" aria-modal="true" aria-labelledby="welcome-title" aria-describedby="welcome-body">
+      <button type="button" class="icon-btn welcome-close" id="welcome-close" aria-label="Close">&times;</button>
+      <span class="brand-orb brand-orb-lg" aria-hidden="true"></span>
+      <h3 id="welcome-title">Sign in to ZARVIS</h3>
+      <p id="welcome-body">Your chats, credits and plan are saved to your own ZARVIS account on our server, so they follow you to any phone or browser.</p>
+      <p class="alert alert-error" id="welcome-error" role="alert" hidden></p>
+      <div id="welcome-google" class="welcome-google" hidden>
+        <div id="welcome-google-btn" class="welcome-google-btn"></div>
+        <p class="welcome-or" aria-hidden="true"><span>or use email</span></p>
+      </div>
+      <form id="welcome-form" class="form" autocomplete="on">
+        <label for="welcome-email">Email</label>
+        <input id="welcome-email" class="input" type="email" autocomplete="username" required />
+        <label for="welcome-password">Password</label>
+        <input id="welcome-password" class="input" type="password" autocomplete="current-password" minlength="8" required />
+        <div class="welcome-actions">
+          <button type="submit" class="btn btn-primary" id="welcome-signin">Sign in</button>
+          <button type="button" class="btn btn-ghost" id="welcome-create">Create account</button>
+        </div>
+      </form>
+      <button type="button" class="btn btn-ghost welcome-guest" id="welcome-guest">Continue as guest</button>
+      <p class="muted welcome-legal">ZARVIS only receives your name, email and photo from Google &mdash; never your Gmail, Drive or contacts. Guest chats live only in this browser.</p>
+    </div>
+  </div>
   <script src="./logic.js"></script>
   <script src="./feature-pages.js"></script>
+  <script src="./shell.js"></script>
   <script src="./app.js"></script>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>

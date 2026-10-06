@@ -3,9 +3,11 @@ import { Pool, type QueryResultRow } from "pg";
 import type { PermissionType, Task } from "../domain/types.js";
 import {
   EmailTakenError,
+  GoogleIdentityTakenError,
+  type GoogleIdentityInput,
   InsufficientCreditsError,
-  type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
-  type ConversationMessage, type GitHubConnection, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
+  extendPlanExpiry, type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
+  type ConversationMessage, type FulfillmentResult, type GitHubConnection, type PaymentOrder, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
   type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS
 } from "./store.js";
 
@@ -99,7 +101,26 @@ const SCHEMA = `
     product_id TEXT NOT NULL,
     consumed_at TIMESTAMPTZ NOT NULL
   );
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ;
+  CREATE TABLE IF NOT EXISTS payment_orders (
+    order_id TEXT PRIMARY KEY,
+    account_id UUID NOT NULL,
+    plan_key TEXT NOT NULL,
+    amount_paise BIGINT NOT NULL,
+    currency TEXT NOT NULL,
+    period_days INTEGER NOT NULL,
+    credits INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    payment_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    paid_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS payment_orders_account_idx ON payment_orders (account_id, created_at DESC);
   ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users (google_sub) WHERE google_sub IS NOT NULL;
   UPDATE users SET is_guest = TRUE
     WHERE is_guest = FALSE
       AND (email LIKE 'guest-%@device.zarvismobile.local' OR email LIKE 'guest-%@device.zarvismobile.com');
@@ -257,6 +278,33 @@ export class PostgresStore implements Store {
       return toUser(rows[0]);
     } catch (err) {
       if (isUniqueViolation(err)) throw new EmailTakenError();
+      throw err;
+    }
+  }
+
+  async findUserByGoogleSub(sub: string): Promise<User | undefined> {
+    const { rows } = await this.query<UserRow>("SELECT * FROM users WHERE google_sub = $1", [sub]);
+    return rows[0] ? toUser(rows[0]) : undefined;
+  }
+
+  async linkGoogleIdentity(userId: string, identity: GoogleIdentityInput, options: { convertGuest?: boolean } = {}): Promise<User> {
+    try {
+      const { rows } = await this.query<UserRow>(
+        `UPDATE users SET google_sub = $2,
+           display_name = COALESCE($3, display_name),
+           avatar_url = COALESCE($4, avatar_url),
+           email = CASE WHEN $5 THEN $6 ELSE email END,
+           is_guest = CASE WHEN $5 THEN FALSE ELSE is_guest END
+         WHERE id = $1 RETURNING *`,
+        [userId, identity.sub, identity.name ?? null, identity.picture ?? null, options.convertGuest === true, identity.email],
+      );
+      if (!rows[0]) throw new Error(`Cannot link unknown user '${userId}'`);
+      return toUser(rows[0]);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const message = String((err as { constraint?: string }).constraint ?? "");
+        throw message.includes("google_sub") ? new GoogleIdentityTakenError() : new EmailTakenError();
+      }
       throw err;
     }
   }
@@ -424,6 +472,7 @@ export class PostgresStore implements Store {
         throw new Error(`Cannot delete unknown account '${accountId}'`);
       }
       await client.query("DELETE FROM usage_ledger WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM payment_orders WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM auth_sessions WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM confirmations WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM github_connections WHERE account_id = $1", [accountId]);
@@ -481,6 +530,69 @@ export class PostgresStore implements Store {
     );
     if (!rows[0]) throw new InsufficientCreditsError(entry.accountId);
     return Number(rows[0].balance);
+  }
+
+  async createPaymentOrder(order: PaymentOrder): Promise<void> {
+    await this.query(
+      `INSERT INTO payment_orders
+         (order_id, account_id, plan_key, amount_paise, currency, period_days, credits, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'created', $8)`,
+      [order.orderId, order.accountId, order.planKey, order.amountPaise, order.currency, order.periodDays, order.credits, order.createdAt],
+    );
+  }
+
+  async getPaymentOrder(orderId: string): Promise<PaymentOrder | undefined> {
+    const { rows } = await this.query<PaymentOrderRow>("SELECT * FROM payment_orders WHERE order_id = $1", [orderId]);
+    return rows[0] ? toPaymentOrder(rows[0]) : undefined;
+  }
+
+  async fulfillPaymentOrder(orderId: string, paymentId: string, now: Date): Promise<FulfillmentResult> {
+    const client = await this.pool.connect();
+    try {
+      await this.ensureSchema();
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock_shared($1)", [SCHEMA_LOCK_KEY]);
+      // The row lock serialises the client verify and the webhook: whoever locks first fulfils,
+      // the other sees status = 'paid' and changes nothing.
+      const orderRes = await client.query<PaymentOrderRow>("SELECT * FROM payment_orders WHERE order_id = $1 FOR UPDATE", [orderId]);
+      const order = orderRes.rows[0];
+      if (!order) {
+        await client.query("ROLLBACK");
+        return { status: "not_found" };
+      }
+      if (order.status === "paid") {
+        await client.query("ROLLBACK");
+        return { status: "already_fulfilled" };
+      }
+      const accountRes = await client.query<AccountRow>("SELECT * FROM accounts WHERE id = $1 FOR UPDATE", [order.account_id]);
+      const account = accountRes.rows[0];
+      if (!account) {
+        await client.query("ROLLBACK");
+        return { status: "not_found" };
+      }
+      const expiresAt = extendPlanExpiry(toAccount(account), order.period_days, now);
+      const updated = await client.query<AccountRow>(
+        "UPDATE accounts SET plan = 'PRO', plan_expires_at = $2 WHERE id = $1 RETURNING *",
+        [account.id, expiresAt],
+      );
+      const balance = await client.query<{ balance: string }>(
+        `INSERT INTO credit_balances (account_id, balance) VALUES ($1, $2)
+         ON CONFLICT (account_id) DO UPDATE SET balance = credit_balances.balance + EXCLUDED.balance
+         RETURNING balance`,
+        [account.id, order.credits],
+      );
+      await client.query(
+        "UPDATE payment_orders SET status = 'paid', payment_id = $2, paid_at = $3 WHERE order_id = $1",
+        [orderId, paymentId, now],
+      );
+      await client.query("COMMIT");
+      return { status: "fulfilled", account: toAccount(updated.rows[0]!), creditBalance: Number(balance.rows[0]!.balance) };
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async claimPurchaseToken(purchaseToken: string, accountId: string, productId: string): Promise<boolean> {
@@ -682,6 +794,9 @@ interface UserRow {
   email: string;
   password_hash: string;
   is_guest: boolean;
+  google_sub?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
   created_at: Date;
 }
 
@@ -751,10 +866,41 @@ function toConfirmation(row: ConfirmationRow): ConfirmationRecord {
   };
 }
 
+interface PaymentOrderRow {
+  order_id: string;
+  account_id: string;
+  plan_key: string;
+  amount_paise: string | number;
+  currency: string;
+  period_days: number;
+  credits: number;
+  status: "created" | "paid";
+  payment_id: string | null;
+  created_at: Date;
+  paid_at: Date | null;
+}
+
+function toPaymentOrder(row: PaymentOrderRow): PaymentOrder {
+  return {
+    orderId: row.order_id,
+    accountId: row.account_id,
+    planKey: row.plan_key,
+    amountPaise: Number(row.amount_paise),
+    currency: "INR",
+    periodDays: row.period_days,
+    credits: row.credits,
+    status: row.status,
+    paymentId: row.payment_id ?? undefined,
+    createdAt: row.created_at,
+    paidAt: row.paid_at ?? undefined,
+  };
+}
+
 interface AccountRow {
   id: string;
   user_id: string;
   plan: Account["plan"];
+  plan_expires_at?: Date | null;
   created_at: Date;
 }
 
@@ -801,11 +947,13 @@ interface ConversationMessageRow {
 }
 
 function toUser(row: UserRow): User {
-  return { id: row.id, email: row.email, passwordHash: row.password_hash, isGuest: row.is_guest, createdAt: row.created_at };
+  return { id: row.id, email: row.email, passwordHash: row.password_hash, isGuest: row.is_guest,
+    googleSub: row.google_sub ?? undefined, displayName: row.display_name ?? undefined, avatarUrl: row.avatar_url ?? undefined,
+    createdAt: row.created_at };
 }
 
 function toAccount(row: AccountRow): Account {
-  return { id: row.id, userId: row.user_id, plan: row.plan, createdAt: row.created_at };
+  return { id: row.id, userId: row.user_id, plan: row.plan, planExpiresAt: row.plan_expires_at ?? null, createdAt: row.created_at };
 }
 
 function toConversation(row: ConversationRow): Conversation {

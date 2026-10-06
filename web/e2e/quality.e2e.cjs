@@ -72,7 +72,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     const problems = [];
     for (const width of WIDTHS) {
       const ctx = await browser.newContext({ viewport: { width, height: 860 } });
-      const page = await ctx.newPage();
+      const page = await pageOf(ctx);
       page.on("pageerror", (e) => errors.push(`pageerror@${width}: ${e.message}`));
       await ready(page);
       for (const view of VIEWS) {
@@ -93,7 +93,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
       // Reduced motion, and a settle wait: entrance fades would otherwise be measured mid-way.
       const ctx = await browser.newContext({ viewport: { width, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
       await ctx.addInitScript((a) => localStorage.setItem("zarvis.appearance", a), appearance);
-      const page = await ctx.newPage();
+      const page = await pageOf(ctx);
       await ready(page);
       await page.addScriptTag({ content: AXE_SOURCE });
       const found = [];
@@ -117,7 +117,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   // ---- Keyboard ---------------------------------------------------------------------------
   await step("keyboard: Tab reaches the composer, focus is visible, Enter sends exactly once", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", (route) => { turns += 1; return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("ok") }); });
@@ -156,7 +156,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         return original.call(this);
       };
     });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     page.on("filechooser", () => {}); // let Playwright absorb the dialog
     await ready(page);
     await openView(page, "chat");
@@ -170,7 +170,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
   await step("keyboard: every focusable control has an accessible name", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     const unnamed = [];
     for (const view of VIEWS) {
@@ -194,7 +194,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   // ---- Service worker ---------------------------------------------------------------------
   await step("service worker: installs, and the app shell opens offline", async () => {
     const ctx = await browser.newContext({ viewport: { width: 412, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     await page.waitForFunction(async () => !!(await navigator.serviceWorker?.getRegistration())?.active, null, { timeout: 15000 });
     // A load can occasionally start uncontrolled right after activation (measured 1 in 20 in
@@ -234,7 +234,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         window.__recognition.dispatchEvent(new Event("end"));
       };
     });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     let turns = 0;
     let ttsRequests = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", (route) => { turns += 1; return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("Namaste. Main ZARVIS hoon. Aapki kya madad karun?") }); });
@@ -262,7 +262,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   // ---- Duplicate submissions ----------------------------------------------------------------
   await step("double-clicking Send submits one turn", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => { turns += 1; await new Promise((r) => setTimeout(r, 500)); return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("one") }); });
@@ -277,7 +277,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
   await step("a slow reply: pressing Send again with an empty box sends nothing more", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => { turns += 1; await new Promise((r) => setTimeout(r, 3000)); return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("slow") }); });
@@ -293,7 +293,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
   await step("reloading the page mid-turn does not re-send the turn", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => { turns += 1; await new Promise((r) => setTimeout(r, 2000)); return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("late") }).catch(() => {}); });
@@ -320,3 +320,11 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   console.error(err);
   process.exit(1);
 });
+
+/** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
+async function pageOf(ctx) {
+  await ctx.addInitScript(() => {
+    try { sessionStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
+  });
+  return ctx.newPage();
+}

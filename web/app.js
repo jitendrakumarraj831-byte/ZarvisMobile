@@ -102,7 +102,7 @@
       attachmentReady: "Ready to analyze",
       attachmentRemove: "Remove attachment",
       stateLabels: {
-        IDLE: "Ready",
+        IDLE: "Online",
         LISTENING: "Listening",
         UNDERSTANDING: "Understanding",
         PLANNING: "Understanding",
@@ -162,7 +162,7 @@
       attachmentReady: "विश्लेषण के लिए तैयार",
       attachmentRemove: "अटैचमेंट हटाएं",
       stateLabels: {
-        IDLE: "तैयार",
+        IDLE: "ऑनलाइन",
         LISTENING: "सुन रहा हूँ",
         UNDERSTANDING: "समझ रहा हूँ",
         PLANNING: "समझ रहा हूँ",
@@ -313,7 +313,7 @@
     // Server-side durable conversation id. The browser keeps only this pointer; the
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
-    appearance: localStorage.getItem("zarvis.appearance") || "aurora",
+    appearance: localStorage.getItem("zarvis.appearance") || "dim",
     settingsPage: null,
     featureId: null,
   };
@@ -393,6 +393,7 @@
       ["plans", setupPlans],
       ["settings", setupSettings],
       ["session gate", setupSessionGate],
+      ["welcome gate", setupWelcomeGate],
       ["account", setupAccountPanel],
       ["developer", setupDeveloper],
       ["github", setupGithubConnect],
@@ -626,6 +627,152 @@
     document.getElementById("session-gate-email").focus();
   }
 
+  // ---- Welcome gate: Google / email sign-in card shown when a guest opens Chat ------------
+
+  const WELCOME_DISMISSED_KEY = "zarvis.welcomeDismissed";
+  let authConfig = null;
+  let gsiPromise = null;
+
+  async function loadAuthConfig() {
+    if (authConfig) return authConfig;
+    try {
+      const res = await fetch(`${API_BASE}/auth/config`);
+      authConfig = res.ok ? await res.json() : { googleClientId: null, requireSignIn: false };
+    } catch {
+      authConfig = { googleClientId: null, requireSignIn: false };
+    }
+    return authConfig;
+  }
+
+  function loadGoogleIdentity() {
+    if (window.google?.accounts?.id) return Promise.resolve();
+    if (!gsiPromise) {
+      gsiPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => {
+          gsiPromise = null;
+          reject(new Error("Google sign-in could not load"));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return gsiPromise;
+  }
+
+  function isGuestSession() {
+    return localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+  }
+
+  async function maybeShowWelcomeGate() {
+    const gate = document.getElementById("welcome-gate");
+    if (!gate || !gate.hidden || !isGuestSession()) return;
+    const config = await loadAuthConfig();
+    if (!config.requireSignIn && sessionStorage.getItem(WELCOME_DISMISSED_KEY)) return;
+    if (!isGuestSession() || !gate.hidden) return;
+    document.getElementById("welcome-guest").hidden = config.requireSignIn;
+    document.getElementById("welcome-close").hidden = config.requireSignIn;
+    document.getElementById("welcome-error").hidden = true;
+    gate.hidden = false;
+    document.getElementById("welcome-email").focus();
+    if (config.googleClientId) {
+      try {
+        await loadGoogleIdentity();
+        window.google.accounts.id.initialize({
+          client_id: config.googleClientId,
+          callback: (response) => completeGoogleSignIn(response.credential),
+          ux_mode: "popup",
+        });
+        const holder = document.getElementById("welcome-google-btn");
+        holder.textContent = "";
+        window.google.accounts.id.renderButton(holder, {
+          theme: "filled_black", size: "large", shape: "pill", text: "continue_with", width: 280,
+        });
+        document.getElementById("welcome-google").hidden = false;
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+  }
+
+  function closeWelcomeGate(remember) {
+    document.getElementById("welcome-gate").hidden = true;
+    if (remember) sessionStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+  }
+
+  async function completeGoogleSignIn(idToken) {
+    const errorNode = document.getElementById("welcome-error");
+    try {
+      const previousAccount = localStorage.getItem(STORAGE_KEYS.accessToken) ? await currentAccountId() : null;
+      const res = await apiFetch("/auth/google", { method: "POST", body: JSON.stringify({ idToken }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.code === "google_unavailable" ? "Google sign-in is not set up on this server yet." : body.error || "Google sign-in failed. Try again.");
+      }
+      if (body.accountId !== previousAccount) clearSessionTokens();
+      storeTokens(body);
+      location.reload();
+    } catch (err) {
+      errorNode.textContent = err.message || "Google sign-in failed. Try again.";
+      errorNode.hidden = false;
+    }
+  }
+
+  async function currentAccountId() {
+    try {
+      const res = await apiFetch("/auth/me");
+      return res.ok ? (await res.json()).accountId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function setupWelcomeGate() {
+    const errorNode = document.getElementById("welcome-error");
+    if (!errorNode) return;
+    const fail = (message) => {
+      errorNode.textContent = message;
+      errorNode.hidden = false;
+    };
+    const credentials = () => ({
+      email: document.getElementById("welcome-email").value.trim(),
+      password: document.getElementById("welcome-password").value,
+    });
+    document.getElementById("welcome-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const { email, password } = credentials();
+      try {
+        await signInWithEmail(email, password);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
+    });
+    // Creating an account upgrades this browser's guest in place, so its chats are kept.
+    document.getElementById("welcome-create").addEventListener("click", async () => {
+      const { email, password } = credentials();
+      if (!email || password.length < 8) return fail("Enter your email and a password of at least 8 characters.");
+      try {
+        const res = await apiFetch("/auth/link", { method: "POST", body: JSON.stringify({ email, password }) });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(authErrorMessage(res.status, body.code));
+        localStorage.setItem(SESSION_KEYS.isGuest, "false");
+        localStorage.setItem(SESSION_KEYS.email, body.email || email);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
+    });
+    document.getElementById("welcome-guest").addEventListener("click", () => closeWelcomeGate(true));
+    document.getElementById("welcome-close").addEventListener("click", () => closeWelcomeGate(true));
+    document.addEventListener("keydown", (event) => {
+      const gate = document.getElementById("welcome-gate");
+      if (event.key === "Escape" && !gate.hidden && !document.getElementById("welcome-close").hidden) closeWelcomeGate(true);
+    });
+  }
+
   function setupSessionGate() {
     const gate = document.getElementById("session-gate");
     const errorNode = document.getElementById("session-gate-error");
@@ -708,6 +855,7 @@
       const me = await res.json();
       localStorage.setItem(SESSION_KEYS.isGuest, String(me.isGuest));
       if (me.email) localStorage.setItem(SESSION_KEYS.email, me.email);
+      renderHomeGreeting();
       status.textContent = me.isGuest
         ? "Guest account on this browser. It has no sign-in email yet, so it only exists here. Link an email to use the same account on your phone or another browser."
         : "Signed in as " + me.email + ". Use this email on your phone or another browser to continue the same conversations and tasks.";
@@ -1283,6 +1431,21 @@
     }
     setupKeyboardInset();
     setupHomeQuickActions();
+    setupDesignShortcuts();
+    window.ZarvisShell?.init({
+      setActiveView,
+      getActivity: () => activityLog,
+      openSettingsPage,
+      getAppearance: () => state.appearance,
+      setAppearance,
+      newConversation: startNewConversation,
+      startListening,
+      pickFile: () => el.fileInput.click(),
+      account: () => {
+        const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+        return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
+      },
+    });
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
@@ -1334,13 +1497,100 @@
     });
   }
 
+  /** The analyze button keeps its icon; only the label span changes. */
+  function setAnalyzeLabel(text) {
+    const label = el.developerAnalyzeBtn?.querySelector("span");
+    if (label) label.textContent = text;
+    else if (el.developerAnalyzeBtn) el.developerAnalyzeBtn.textContent = text;
+  }
+
+  /** Display name from a signed-in email ("jitendra.kumar@x" → "Jitendra"); guests have none. */
+  function accountDisplayName() {
+    try {
+      if (localStorage.getItem(SESSION_KEYS.isGuest) !== "false") return "";
+      const email = localStorage.getItem(SESSION_KEYS.email) || "";
+      const first = email.split("@")[0].split(/[._\-+\d]+/).filter(Boolean)[0] || "";
+      return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function renderAvatar() {
+    const name = accountDisplayName();
+    for (const node of document.querySelectorAll(".avatar-text")) node.textContent = name ? name.slice(0, 2).toUpperCase() : "Z";
+  }
+
   function renderHomeGreeting() {
     if (!el.homeGreeting) return;
     const copy = COPY[state.lang];
     const hour = new Date().getHours();
     const key = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
     el.homeGreeting.textContent = copy.homeGreetings[key];
-    if (el.homeTitleSub) el.homeTitleSub.textContent = copy.homeSub;
+    const name = accountDisplayName();
+    const nameNode = document.getElementById("home-name");
+    if (nameNode) nameNode.textContent = name ? ", " + name : "";
+    renderAvatar();
+  }
+
+  /** Home prompt box, composer image button and Developer tabs (visual shortcuts onto existing flows). */
+  function setupDesignShortcuts() {
+    document.getElementById("home-prompt-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = document.getElementById("home-prompt-input");
+      const text = input?.value.trim();
+      if (!text) {
+        setActiveView("chat");
+        el.input.focus();
+        return;
+      }
+      input.value = "";
+      setActiveView("chat");
+      submitComposerInput(text);
+    });
+
+    for (const btn of document.querySelectorAll('[data-home-action="image"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        el.fileInput.setAttribute("accept", "image/*");
+        el.fileInput.click();
+      });
+    }
+
+    const latestBtn = document.getElementById("scroll-latest");
+    if (latestBtn) {
+      const update = () => {
+        const away = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+        latestBtn.hidden = state.activeView !== "chat" || away < 360;
+      };
+      window.addEventListener("scroll", update, { passive: true });
+      latestBtn.addEventListener("click", () => { scrollConversationToBottom(); latestBtn.hidden = true; });
+    }
+
+    const fullAccept = el.fileInput.getAttribute("accept");
+    const restoreAccept = () => el.fileInput.setAttribute("accept", fullAccept || "");
+    el.fileInput.addEventListener("change", restoreAccept);
+    document.getElementById("upload-btn")?.addEventListener("click", restoreAccept);
+    document.getElementById("image-btn")?.addEventListener("click", () => {
+      haptic();
+      el.fileInput.setAttribute("accept", "image/*");
+      el.fileInput.click();
+    });
+
+    const tabs = document.querySelectorAll("[data-dev-tab]");
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        tabs.forEach((other) => {
+          other.classList.toggle("active", other === tab);
+          other.setAttribute("aria-selected", String(other === tab));
+        });
+        const target = document.getElementById(tab.dataset.devTab);
+        const panel = target?.closest(".panel") || target;
+        panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (target && target.matches("textarea, input")) target.focus({ preventScroll: true });
+      });
+    });
   }
 
   /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
@@ -1493,6 +1743,7 @@
     document.body.classList.remove("keyboard-open");
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
 
+    if (view === "chat") maybeShowWelcomeGate();
     if (view === "capabilities") renderCapabilities();
     if (view === "plans") refreshPlans();
     if (view === "metrics") {
@@ -1517,15 +1768,15 @@
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
-  // Free vs Pro comparison — MASTER_SPEC.md §19-21. Never a fabricated price: Web/Play
-  // billing isn't wired up yet (§32), so real pricing is marked "coming soon" instead of
-  // invented — same honesty as the Android Plans screen. The monthly/yearly toggle is a real,
-  // working control; it only ever changes the billing-period label, never a dollar amount
-  // that doesn't exist yet.
+  // Free vs Pro. Prices come from the server (GET /billing/plans, INR) — the client only ever
+  // sends a plan key when buying, never an amount. Payment runs through Razorpay Checkout
+  // (UPI, cards, netbanking, wallets); the server verifies it before granting anything. When
+  // the server has no Razorpay keys the page says so instead of showing a dead button.
 
   const PLAN_TIERS = [
     {
       name: "FREE",
+      title: "Free",
       tag: null,
       tagline: "Everything you need to get started.",
       features: ["Conversation and voice in English, Hindi and Hinglish", "Documents, research, writing and business drafts", "Tracked tasks and Developer Agent analysis"],
@@ -1533,7 +1784,8 @@
     },
     {
       name: "PRO",
-      tag: "Recommended",
+      title: "Pro",
+      tag: "Most popular",
       tagline: "Every skill ZARVIS ships.",
       features: [
         "Everything in Free",
@@ -1543,6 +1795,11 @@
       highlighted: true,
     },
   ];
+
+  let planCatalogue = null;
+  let checkoutBusy = false;
+  const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+  const formatDate = (value) => new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
   function setupPlans() {
     const options = el.billingToggle.querySelectorAll(".billing-option");
@@ -1699,7 +1956,7 @@
     localStorage.setItem("zarvis.appearance", mode);
     applyAppearance();
     updateSettingsValues();
-    showToast(mode === "dim" ? "Dim appearance" : "Light appearance");
+    showToast(mode === "dim" ? "Dark appearance" : "Light appearance");
   }
 
   let toastTimer = null;
@@ -1729,7 +1986,7 @@
     set("subscription", currentPlanName ? formatPlanName(currentPlanName) : "");
     set("voice", state.speak ? "On" : "Off");
     set("language", state.lang === "hi" ? "हिंदी" : "English");
-    set("appearance", state.appearance === "dim" ? "Dim" : "Light");
+    set("appearance", state.appearance === "dim" ? "Dark" : "Light");
     set("memory", state.conversationId ? "Saved" : "New");
     if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
     set("security", isGuest ? "Guest session" : "Signed in");
@@ -1790,7 +2047,7 @@
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
     const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#070a14" : "#f6f7fb");
+    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#0a0d24" : "#f4f3ff");
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -1919,7 +2176,7 @@
     }
 
     el.developerAnalyzeBtn.disabled = true;
-    el.developerAnalyzeBtn.textContent = "Analyzing…";
+    setAnalyzeLabel("Analyzing…");
     setDeveloperStage("analyze", "Running", "z-badge-info");
     try {
       const res = await apiFetch("/developer/analyze", { method: "POST", body: JSON.stringify({ repoUrl }) });
@@ -1937,7 +2194,7 @@
       renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerAnalyzeBtn.disabled = false;
-      el.developerAnalyzeBtn.textContent = "Analyze";
+      setAnalyzeLabel("Analyze Repository");
     }
   }
 
@@ -2028,68 +2285,224 @@
   }
 
   async function refreshPlans() {
-    el.plansCurrent.innerHTML = "";
+    el.plansCurrent.replaceChildren();
+    let snapshot = null;
     try {
       const res = await apiFetch("/entitlements/me");
-      if (res.ok) {
-        const snapshot = await res.json();
-        currentPlanName = snapshot.plan;
-        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan) }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Credits", value: String(snapshot.creditBalance) }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Trial", value: snapshot.trialExpiresAt ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "None" }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Billing", value: "Not connected" }));
-        updateSettingsValues();
-      }
-    } catch {
-      // The Free/Pro comparison below still renders regardless — this tile row is a
-      // nice-to-have, not a hard dependency.
+      if (res.ok) snapshot = await res.json();
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
     }
+    try {
+      const res = await apiFetch("/billing/plans");
+      planCatalogue = res.ok ? await res.json() : null;
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      planCatalogue = null;
+    }
+    if (snapshot) {
+      currentPlanName = snapshot.plan;
+      const paid = snapshot.plan === "PRO" && snapshot.planExpiresAt;
+      const trial = snapshot.trialExpiresAt && snapshot.plan === "TRIAL";
+      el.plansCurrent.append(
+        renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan), icon: "i-plan", tone: "tone-violet" }),
+        renderStatTile({ label: "Credits", value: Number(snapshot.creditBalance).toLocaleString("en-IN"), icon: "i-bolt", tone: "tone-pink" }),
+        renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
+        renderStatTile({ label: "Payments", value: planCatalogue?.paymentsEnabled ? "UPI & cards" : "Not enabled", icon: "i-card", tone: "tone-blue" }),
+      );
+      updateSettingsValues();
+    }
+    renderPlansNotice();
     renderPlanCards(currentPlanName);
   }
 
+  function renderPlansNotice() {
+    const notice = document.getElementById("plans-notice");
+    const text = document.getElementById("plans-notice-text");
+    const box = document.getElementById("pay-box");
+    const save = document.getElementById("yearly-save");
+    if (!notice || !text) return;
+    let message = "";
+    if (!planCatalogue) message = "Couldn't load plans and prices. Check your connection and open this page again.";
+    else if (!planCatalogue.paymentsEnabled) message = "Online payments aren't enabled on this server yet, so plans can't be bought here. Prices below are what Pro will cost.";
+    else if (planCatalogue.testMode) message = "Test mode: payments use Razorpay's test environment and no real money moves.";
+    notice.hidden = !message;
+    text.textContent = message;
+    if (box) box.hidden = !planCatalogue;
+    const yearly = planCatalogue?.plans?.find((p) => p.period === "yearly");
+    if (save) {
+      save.hidden = !yearly || !yearly.savingsPercent;
+      if (yearly?.savingsPercent) save.textContent = "Save " + yearly.savingsPercent + "%";
+    }
+  }
+
   function renderPlanCards(currentPlan) {
-    el.planCards.innerHTML = "";
+    el.planCards.replaceChildren();
     for (const plan of PLAN_TIERS) el.planCards.appendChild(renderPlanCard(plan, currentPlan));
   }
 
   function renderPlanCard(plan, currentPlan) {
     const card = document.createElement("div");
     card.className = plan.highlighted ? "plan-card highlighted" : "plan-card";
+    const priced = plan.name === "PRO" ? planCatalogue?.plans?.find((p) => p.period === state.billing) : null;
+    const isCurrent = currentPlan === plan.name || (plan.name === "FREE" && currentPlan === "TRIAL");
 
     const top = document.createElement("div");
     top.className = "plan-card-top";
     const name = document.createElement("h3");
     name.className = "plan-card-name";
-    name.textContent = plan.name;
-    top.appendChild(name);
+    name.textContent = plan.title;
     const tag = document.createElement("span");
     tag.className = "plan-card-tag";
-    tag.textContent = currentPlan === plan.name ? "Current plan" : plan.tag || "";
-    top.appendChild(tag);
+    tag.textContent = isCurrent ? "Current plan" : plan.tag || "";
+    top.append(name, tag);
     card.appendChild(top);
 
-    const tagline = document.createElement("p");
-    tagline.className = "plan-card-tagline";
-    tagline.textContent = plan.tagline;
-    card.appendChild(tagline);
-
-    if (plan.highlighted) {
-      const note = document.createElement("p");
-      note.className = "plan-card-note";
-      note.textContent = `Billed ${state.billing} · pricing not available yet`;
-      card.appendChild(note);
+    const price = document.createElement("p");
+    price.className = "plan-price";
+    if (plan.name === "FREE") {
+      price.append(textSpan("plan-price-amount", inr.format(0)), textSpan("plan-price-unit", " forever"));
+    } else if (priced) {
+      price.append(textSpan("plan-price-amount", inr.format(priced.amountInr)), textSpan("plan-price-unit", priced.period === "yearly" ? " / year" : " / month"));
+    } else {
+      price.append(textSpan("plan-price-unit", "Price unavailable"));
     }
+    card.appendChild(price);
+    if (priced && priced.period === "yearly") {
+      card.appendChild(textP("plan-card-note", `≈ ${inr.format(priced.perMonthInr)} / month${priced.savingsPercent ? " · save " + priced.savingsPercent + "%" : ""}`));
+    }
+
+    card.appendChild(textP("plan-card-tagline", plan.tagline));
 
     const list = document.createElement("ul");
     list.className = "plan-card-features";
-    for (const feature of plan.features) {
+    const features = priced ? [`${priced.credits.toLocaleString("en-IN")} credits per ${priced.period === "yearly" ? "year" : "month"}`, ...plan.features] : plan.features;
+    for (const feature of features) {
       const li = document.createElement("li");
       li.textContent = feature;
       list.appendChild(li);
     }
     card.appendChild(list);
 
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "btn plan-cta " + (plan.highlighted ? "btn-primary" : "btn-secondary");
+    if (plan.name === "FREE") {
+      action.textContent = isCurrent ? "Current plan" : "Included";
+      action.disabled = true;
+    } else if (!priced) {
+      action.textContent = "Unavailable";
+      action.disabled = true;
+    } else if (!planCatalogue.paymentsEnabled) {
+      action.textContent = "Payments not enabled yet";
+      action.disabled = true;
+    } else {
+      const active = currentPlan === "PRO" && planCatalogue.current?.planExpiresAt;
+      action.textContent = active ? `Renew · add ${priced.period === "yearly" ? "1 year" : "30 days"}` : "Upgrade Now";
+      action.addEventListener("click", () => startCheckout(priced.key, action));
+    }
+    card.appendChild(action);
     return card;
+  }
+
+  function textSpan(className, text) {
+    const node = document.createElement("span");
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  function textP(className, text) {
+    const node = document.createElement("p");
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  /** Razorpay Checkout is loaded only when the user taps Upgrade, never on page load. */
+  function loadRazorpayCheckout() {
+    if (window.Razorpay) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => (window.Razorpay ? resolve() : reject(new Error("checkout_unavailable")));
+      script.onerror = () => reject(new Error("checkout_blocked"));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function startCheckout(planKey, button) {
+    if (checkoutBusy) return;
+    checkoutBusy = true;
+    const label = button.textContent;
+    const reset = () => {
+      checkoutBusy = false;
+      button.disabled = false;
+      button.textContent = label;
+    };
+    button.disabled = true;
+    button.textContent = "Opening secure checkout…";
+    try {
+      const res = await apiFetch("/billing/orders", { method: "POST", body: JSON.stringify({ planKey }) });
+      const order = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(order.error || "Couldn't start the payment.");
+      await loadRazorpayCheckout();
+      const email = localStorage.getItem(SESSION_KEYS.isGuest) === "false" ? localStorage.getItem(SESSION_KEYS.email) || "" : "";
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        order_id: order.orderId,
+        amount: order.amountPaise,
+        currency: order.currency,
+        name: "ZARVIS MOBILE",
+        description: order.description,
+        prefill: email ? { email } : {},
+        theme: { color: "#6d4ee8" },
+        retry: { enabled: true },
+        handler: (response) => {
+          reset();
+          void confirmPayment(order.orderId, response);
+        },
+        modal: { ondismiss: reset },
+      });
+      checkout.on("payment.failed", (event) => {
+        showToast(event?.error?.description ? "Payment failed: " + event.error.description : "Payment failed. You were not charged.");
+      });
+      checkout.open();
+    } catch (err) {
+      reset();
+      if (err instanceof SessionEndedError) return;
+      showToast(err?.message === "checkout_blocked" || err?.message === "checkout_unavailable" ? "Couldn't load secure checkout. Check your connection and try again." : err?.message || "Couldn't start the payment.");
+    }
+  }
+
+  /** After Checkout succeeds: the server checks the signature and the payment before granting Pro. */
+  async function confirmPayment(orderId, response) {
+    showToast("Confirming your payment…");
+    try {
+      const res = await apiFetch("/billing/verify", {
+        method: "POST",
+        body: JSON.stringify({ orderId, paymentId: response.razorpay_payment_id, signature: response.razorpay_signature }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "verification_failed");
+      recordActivity("conversation", "Upgraded to Pro", body.planExpiresAt ? "Active until " + formatDate(body.planExpiresAt) : "", "ok");
+      showToast("Pro is active" + (body.planExpiresAt ? " until " + formatDate(body.planExpiresAt) : ""));
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      // The payment may still have gone through (the server also hears from Razorpay directly).
+      showToast("Payment received. Activating your plan — this can take a minute.");
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await delay(5000);
+        try {
+          const check = await apiFetch("/entitlements/me");
+          if (check.ok && (await check.json()).plan === "PRO") break;
+        } catch {
+          break;
+        }
+      }
+    }
+    await refreshPlans();
   }
 
   // ---- System Metrics -----------------------------------------------------------------------
@@ -2221,14 +2634,14 @@
     const count = (type) => activityLog.filter((entry) => entry.type === type).length;
     const conversations = state.history.filter((message) => message.role === "user").length;
     const tiles = [
-      { label: "Conversation turns", value: String(conversations) },
-      { label: "AI requests", value: String(latencyEntries.length) },
-      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length) },
-      { label: "Files read", value: String(count("file")) },
-      { label: "Developer runs", value: String(count("developer")) },
-      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—" },
-      { label: "Credits", value: "…", id: "metrics-credits" },
-      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan" },
+      { label: "Conversation turns", value: String(conversations), icon: "i-chat", tone: "tone-blue" },
+      { label: "AI requests", value: String(latencyEntries.length), icon: "i-sparkle", tone: "tone-violet" },
+      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length), icon: "i-mic", tone: "tone-pink" },
+      { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-cyan" },
+      { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
+      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-blue" },
+      { label: "Credits", value: "…", id: "metrics-credits", icon: "i-bolt", tone: "tone-pink" },
+      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan", icon: "i-plan", tone: "tone-cyan" },
     ];
     el.metricsUsage.replaceChildren(...tiles.map((tile) => {
       const node = renderStatTile(tile);
@@ -2243,7 +2656,7 @@
       const credits = document.querySelector("#metrics-credits .stat-tile-value");
       const plan = document.querySelector("#metrics-plan .stat-tile-value");
       if (credits) credits.textContent = String(snapshot.creditBalance);
-      if (plan) plan.textContent = snapshot.plan;
+      if (plan) plan.textContent = formatPlanName(snapshot.plan);
     } catch (err) {
       if (err instanceof SessionEndedError) return;
       const credits = document.querySelector("#metrics-credits .stat-tile-value");
@@ -2257,16 +2670,26 @@
     return name ? name.charAt(0).toUpperCase() + name.slice(1).toLowerCase() : name;
   }
 
-  function renderStatTile({ label, value }) {
+  function renderStatTile({ label, value, icon, tone }) {
     const tile = document.createElement("div");
     tile.className = "stat-tile";
+    if (icon) {
+      tile.classList.add("has-icon", tone || "tone-blue");
+      const ico = document.createElement("span");
+      ico.className = "stat-tile-ico";
+      ico.appendChild(svgIcon(icon));
+      tile.appendChild(ico);
+    }
+    const copyEl = document.createElement("span");
+    copyEl.className = "stat-tile-copy";
     const labelEl = document.createElement("span");
     labelEl.className = "stat-tile-label";
     labelEl.textContent = label;
     const valueEl = document.createElement("span");
     valueEl.className = "stat-tile-value";
     valueEl.textContent = value;
-    tile.append(labelEl, valueEl);
+    copyEl.append(labelEl, valueEl);
+    tile.appendChild(copyEl);
     return tile;
   }
 
@@ -2289,6 +2712,7 @@
     voice: "i-mic",
     ai: "i-sparkle",
     file: "i-file",
+    image: "i-image",
     developer: "i-code",
     task: "i-task",
   };
@@ -2297,6 +2721,7 @@
     voice: "Voice",
     ai: "AI action",
     file: "File",
+    image: "Image",
     developer: "Developer",
     task: "Task",
   };
@@ -2313,8 +2738,8 @@
   }
 
   /** Adds one entry to this session's activity (newest first) and refreshes what shows it. */
-  function recordActivity(type, title, meta, tone) {
-    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date() });
+  function recordActivity(type, title, meta, tone, thumb) {
+    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date(), thumb: thumb || "" });
     if (activityLog.length > 200) activityLog.length = 200;
     if (state.activeView === "activity") renderActivityTimeline();
     if (state.activeView === "home") renderHomeActivity();
@@ -2358,7 +2783,7 @@
     for (const entry of activityLog.slice(0, 3)) {
       rows.push(listRow({
         icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
-        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" ? "tone-cyan" : "tone-blue",
+        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" || entry.type === "image" ? "tone-cyan" : "tone-blue",
         title: entry.title,
         meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
         onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
@@ -2432,7 +2857,7 @@
     root.replaceChildren();
     const type = activityFilter.type;
     const entries = activityLog.filter((entry) => {
-      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai");
+      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai") || (type === "file" && entry.type === "image");
       return typeOk && matchesQuery(entry.title + " " + entry.meta);
     });
     if (!entries.length) {
@@ -2468,6 +2893,32 @@
       }
       body.append(title, meta);
       item.append(dot, body);
+      if (entry.thumb) {
+        const thumb = document.createElement("img");
+        thumb.className = "timeline-thumb";
+        thumb.alt = "";
+        thumb.src = entry.thumb;
+        item.appendChild(thumb);
+      }
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "timeline-more";
+      more.setAttribute("aria-label", "Actions for " + (entry.title || "activity"));
+      more.appendChild(svgIcon("i-more"));
+      more.addEventListener("click", () => {
+        window.ZarvisShell?.menu(more, entry.title || "Activity", [
+          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat") },
+          { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
+          { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
+            const at = activityLog.indexOf(entry);
+            if (at >= 0) activityLog.splice(at, 1);
+            if (entry.thumb) URL.revokeObjectURL(entry.thumb);
+            renderActivityTimeline();
+            renderHomeActivity();
+          } },
+        ]);
+      });
+      item.appendChild(more);
       root.appendChild(item);
     });
   }
@@ -2745,6 +3196,10 @@
             // text reply, stop asking for speech in this turn.
             if (Logic.turnFailureKind({ code: err?.code }) !== "bootError") {
               ttsUnavailable = true;
+              // Don't retry on the next turn either: back off (daily quota longer) so we stop
+              // sending a 429 per reply while the voice quota is exhausted.
+              const waitMs = err?.code === "AI_QUOTA_EXCEEDED" ? 10 * 60_000 : Math.max(30_000, Number(err?.retryAfterMs) || 0);
+              ttsBlockedUntil = Date.now() + waitMs;
               for (const item of ttsQueue.splice(0)) item.ticket.done();
             }
           }).finally(() => {
@@ -2756,7 +3211,7 @@
 
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
-        if (!clean || !isVoice || !state.speak || ttsUnavailable) return;
+        if (!clean || !isVoice || !state.speak || ttsUnavailable || Date.now() < ttsBlockedUntil) return;
         // The ticket is taken at enqueue time, so playback order == reply order even when a
         // later segment's audio downloads first.
         ttsQueue.push({ text: clean, ticket: ttsSegments.next() });
@@ -2996,6 +3451,27 @@
         });
         actions.appendChild(again);
       }
+      if (typeof navigator.share === "function") {
+        const { button: share } = actionButton("i-share", "Share");
+        share.addEventListener("click", () => {
+          navigator.share({ title: "ZARVIS", text: bubblePlainText(body) || text }).catch(() => {});
+        });
+        actions.appendChild(share);
+      }
+      const { button: download, labelNode: downloadLabel } = actionButton("i-download", "Download");
+      download.addEventListener("click", () => {
+        const blob = new Blob([bubblePlainText(body) || text], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "zarvis-reply.txt";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        downloadLabel.textContent = "Saved";
+      });
+      actions.appendChild(download);
       const { button: listen } = actionButton("i-wave", "Listen");
       listen.addEventListener("click", () => {
         void speak(bubblePlainText(body) || text, null, true);
@@ -3322,6 +3798,7 @@
   }
 
   let attachmentPreviewUrl = null;
+  let lastPreviewFile = null;
 
   /** Shows a local thumbnail for an image attachment (a blob: URL; nothing is uploaded for
    * the preview), or the file icon for documents. */
@@ -3330,6 +3807,7 @@
     if (!holder) return;
     if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
     attachmentPreviewUrl = null;
+    lastPreviewFile = file && classifyLocalFile(file) === "image" ? file : null;
     holder.replaceChildren();
     if (file && classifyLocalFile(file) === "image") {
       attachmentPreviewUrl = URL.createObjectURL(file);
@@ -3375,7 +3853,9 @@
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
     setFilesState(`${filename} is ready. Ask about it in Chat.`, "ready");
-    recordActivity("file", filename, "Ready to ask about", "ok");
+    // An image attachment keeps its own small preview in Activity (a local blob: URL, never uploaded).
+    const thumb = lastPreviewFile ? URL.createObjectURL(lastPreviewFile) : "";
+    recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
     renderHomeActivity();
     el.input.focus();
   }
@@ -3752,6 +4232,8 @@
   }
 
   let activeAudio = null;
+  // While the server reports the voice quota/rate limit exhausted, skip TTS requests until then.
+  let ttsBlockedUntil = 0;
   // Every in-flight TTS request. Two reply segments stream at once, so Stop must abort all of
   // them, not only the most recently started one.
   const activeTtsControllers = new Set();
@@ -3826,6 +4308,7 @@
         const detail = typeof body?.error === "string" ? body.error : "Gemini TTS request failed";
         const error = new Error("Gemini streaming TTS HTTP " + res.status + ": " + detail);
         error.code = body?.code;
+        error.retryAfterMs = body?.retryAfterMs;
         throw error;
       }
 

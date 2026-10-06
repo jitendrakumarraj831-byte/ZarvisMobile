@@ -139,6 +139,8 @@ export interface AccountEntitlementSnapshot {
   plan: EntitlementLevel;
   trialExpiresAt: Date | null;
   creditBalance: number;
+  /** When the paid plan ends; null when the plan has no expiry. `plan` is already the effective plan. */
+  planExpiresAt?: Date | null;
 }
 
 export type ToolExecutionOutcome =
