@@ -359,6 +359,32 @@ async function send(page, text) {
 
   await ctxC.close();
 
+  await step("welcome card: Continue as guest is always offered (even if the server says sign-in is required) and is remembered", async () => {
+    const ctxW = await browser.newContext();
+    const pageW = await ctxW.newPage();
+    // An older or misconfigured server may still answer requireSignIn: true; the card must stay skippable.
+    await pageW.route("**/api/v1/auth/config", (route) => route.fulfill({ json: { googleClientId: null, requireSignIn: true } }));
+    await pageW.goto(BASE);
+    await pageW.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageW, "chat");
+    await pageW.waitForSelector("#welcome-gate:not([hidden])");
+    assert.equal(await pageW.locator("#welcome-guest").isVisible(), true, "Continue as guest is visible");
+    assert.equal(await pageW.locator("#welcome-close").isVisible(), true, "the close button is visible");
+    assert.equal(await pageW.locator("#welcome-error").isVisible(), false, "no error is shown before the user does anything");
+    await pageW.click("#welcome-guest");
+    assert.equal(await pageW.locator("#welcome-gate").isHidden(), true);
+    await send(pageW, "hello");
+    await pageW.waitForSelector(".bubble.assistant .bubble-body", { timeout: 15000 });
+    // Remembered: reopening Chat after a reload does not ask again.
+    await pageW.reload();
+    await pageW.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageW, "chat");
+    await pageW.waitForTimeout(500);
+    assert.equal(await pageW.locator("#welcome-gate").isHidden(), true, "the card does not come back");
+    assert.equal(await ls(pageW, "zarvis.isGuest"), "true");
+    await ctxW.close();
+  });
+
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
     for (const path of ["/logic.js", "/feature-pages.js", "/app.js", "/sw.js"]) {
       const res = await fetch(BASE + path);
@@ -387,7 +413,7 @@ async function send(page, text) {
 /** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
 async function pageOf(ctx) {
   await ctx.addInitScript(() => {
-    try { sessionStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
+    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
   });
   return ctx.newPage();
 }

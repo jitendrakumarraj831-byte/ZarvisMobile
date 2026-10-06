@@ -300,7 +300,7 @@
           copy.type = "button";
           copy.dataset.capAction = "feature";
           copy.dataset.featurePage = item.feature;
-          copy.setAttribute("aria-label", item.name + " — details");
+          copy.title = "Open details";
         }
         const name = el("span", "cap-name");
         name.appendChild(el("span", null, item.name));

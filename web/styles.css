@@ -357,7 +357,6 @@ textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
 }
 .z-badge-ok { background: var(--ok-soft); color: var(--ok); }
 .z-badge-info { background: var(--info-soft); color: var(--info); }
-.z-badge-warn { background: var(--warn-soft); color: var(--warn); }
 .z-badge-off { background: var(--surface-2); color: var(--text-3); }
 .z-badge-err { background: var(--err-soft); color: var(--err); }
 
@@ -514,13 +513,6 @@ body.page-hidden .orb, body.page-hidden .orb::before, body.page-hidden .orb-ring
   padding: var(--s6) 0 var(--s4);
 }
 .home-hero .orb-stage { padding: 22px; margin-bottom: var(--s5); }
-/* Wordmark: letter-spacing adds space after the last glyph, so each word is padded on the
-   left by the same amount to keep it optically centred. */
-.home-wordmark { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: var(--s5); line-height: 1; }
-.wm-main { font-weight: 800; font-size: clamp(22px, 1.2vw + 18px, 28px); letter-spacing: 0.3em; padding-left: 0.3em; color: var(--text); }
-.wm-sub { font-weight: 600; font-size: 11px; letter-spacing: 0.62em; padding-left: 0.62em; color: var(--text-3); }
-.home-title { font-size: clamp(20px, 0.6vw + 17px, 24px); font-weight: 600; letter-spacing: -0.015em; color: var(--text); }
-.home-title-sub { margin-top: 4px; font-size: var(--fs-md); color: var(--text-2); }
 .home-quick { margin-top: calc(-1 * var(--s4)); animation: rise-in var(--t-med) var(--ease) both; }
 #home-recent.is-empty { display: none; }
 .action-tile.active .tile-ico { border-color: color-mix(in srgb, var(--pink) 45%, var(--line)); background: color-mix(in srgb, var(--pink) 8%, var(--surface)); }
@@ -697,8 +689,6 @@ body.chat-has-messages .chat-empty { display: none; }
 .widget-title { display: inline-flex; align-items: center; gap: var(--s2); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
 .widget-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .result-widget[data-status="error"] .widget-status-dot { background: var(--err); }
-.widget-copy-btn { min-height: 30px; padding: 0 10px; border-radius: var(--r-sm); font-size: 12px; font-weight: 600; color: var(--text-2); }
-.widget-copy-btn:hover, .widget-copy-btn.copied { background: var(--surface); color: var(--text); }
 .widget-body { padding: var(--s4); white-space: pre-wrap; word-break: break-word; line-height: 1.6; font-size: 14.5px; }
 .result-widget[data-kind="code"] .widget-body { font-size: 14px; }
 .widget-body p { margin: 0 0 0.7em; }
@@ -797,12 +787,9 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 .task-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
 .task-action-btn { min-height: 36px; padding: 0 var(--s4); border-radius: var(--r-sm); font-size: 13px; font-weight: 600; background: var(--surface-2); color: var(--text); }
 .task-action-btn:hover { background: var(--surface-3); }
-.task-action-btn.primary { background: var(--primary); color: #fff; }
 .task-action-btn.danger { color: var(--err); background: var(--err-soft); }
 
 /* ---------- Capabilities ---------- */
-.cap-group { margin-bottom: var(--s6); }
-.cap-group-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
 .cap-grid { display: grid; grid-template-columns: 1fr; gap: var(--s2); }
 .cap-item {
   display: flex; align-items: center; gap: var(--s3);
@@ -1227,7 +1214,6 @@ pre.reply-code code { display: block; padding: 0; border: 0; background: none; c
   --primary-2: #7c4fe0;
   --primary-soft: rgba(99, 102, 241, 0.12);
   --grad: linear-gradient(135deg, #3d63f5 0%, #6d4ee8 55%, #8f4fe3 100%);
-  --grad-text: linear-gradient(90deg, #3d63f5 0%, #7a5af8 60%, #a855f7 100%);
   --aurora-1: rgba(120, 190, 255, 0.28);
   --aurora-2: rgba(150, 120, 255, 0.24);
   --aurora-3: rgba(255, 150, 210, 0.22);
@@ -1263,7 +1249,6 @@ pre.reply-code code { display: block; padding: 0; border: 0; background: none; c
   --primary-2: #b49bff;
   --primary-soft: rgba(141, 162, 255, 0.16);
   --grad: linear-gradient(135deg, #3d63f5 0%, #6d4ee8 55%, #8f4fe3 100%);
-  --grad-text: linear-gradient(90deg, #7fd8ff 0%, #8da2ff 45%, #c58bff 100%);
   --aurora-1: rgba(40, 120, 255, 0.34);
   --aurora-2: rgba(130, 70, 255, 0.3);
   --aurora-3: rgba(236, 72, 190, 0.28);
@@ -1311,7 +1296,6 @@ body::before {
     radial-gradient(52vmax 42vmax at 100% 18%, var(--aurora-2), transparent 62%),
     radial-gradient(64vmax 44vmax at 40% 112%, var(--aurora-3), transparent 62%);
 }
-.grad-text { background: var(--grad-text); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
 .panel, .list-row, .settings-row, .stat-tile, .plan-card, .task-card, .timeline-body, .timeline-dot, .cap-item, .disclosure,
 .tool-row, .result-widget, .confirm-card, .capability-item, .action-tile, .dev-quick-card, .home-card, .modal-card {
   background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--card-shadow);
@@ -1930,7 +1914,7 @@ body[data-orb-state="LISTENING"] .mic-wave i, body[data-orb-state="SPEAKING"] .m
 .link-btn, .chip, .btn-ghost { min-height: 44px; }
 
 /* Back buttons: one consistent circular glass control */
-.detail-head > .icon-btn, .chat-back, [data-settings-back], .feature-page > .icon-btn, .feature-back {
+.detail-head > .icon-btn, .chat-back, [data-settings-back], .feature-page > .icon-btn {
   width: 44px; height: 44px; border-radius: 50%; background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text);
 }
 .detail-head { margin-left: 0; gap: var(--s3); align-items: center; }

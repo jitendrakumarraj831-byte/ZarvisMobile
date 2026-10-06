@@ -5,10 +5,10 @@
  * mirroring the zero-credential/zero-setup spirit of the backend's MockAIProvider default
  * (AI_ARCHITECTURE.md). See MASTER_SPEC.md §12a "Web Client Architecture".
  *
- * Session model mirrors the Android app's guest bootstrap (MASTER_SPEC.md §32, "No login
- * screen yet"): on first load this creates a device-scoped backend account automatically
- * (POST /api/v1/auth/signup with a generated, unguessable email) rather than showing a
- * signup form, so a first-time visitor can start talking to ZARVIS immediately.
+ * Session model mirrors the Android app's guest bootstrap: on first load this creates a
+ * device-scoped guest account (POST /api/v1/auth/guest) rather than showing a signup form, so
+ * a first-time visitor can start talking to ZARVIS immediately. Signing in (email or Google)
+ * is always optional and never blocks chatting.
  */
 (() => {
   "use strict";
@@ -18,7 +18,6 @@
     refreshToken: "zarvis.refreshToken",
     lang: "zarvis.lang",
     speak: "zarvis.speak",
-    voiceURI: "zarvis.voiceURI",
     ttsVoice: "zarvis.ttsVoice",
     userName: "zarvis.userName",
     conversationId: "zarvis.conversationId",
@@ -118,7 +117,6 @@
         code: "Code",
         analyze: "Analyze",
         plan: "Plan",
-        create: "Create",
       },
     },
     hi: {
@@ -178,7 +176,6 @@
         code: "कोड",
         analyze: "एनालाइज़",
         plan: "प्लान",
-        create: "बनाएं",
       },
     },
   };
@@ -239,9 +236,6 @@
     metricsHealthGrid: document.getElementById("metrics-health-grid"),
     latencyStats: document.getElementById("latency-stats"),
     latencyLog: document.getElementById("latency-log"),
-    taskList: document.getElementById("task-list"),
-    settingsBtn: document.getElementById("settings-btn"),
-    settingsBackBtn: document.getElementById("settings-back-btn"),
     settingsLangOptions: document.getElementById("settings-lang-options"),
     settingsVoiceToggle: document.getElementById("settings-voice-toggle"),
     settingsDeleteBtn: document.getElementById("settings-delete-btn"),
@@ -255,12 +249,7 @@
     settingsOpenDeveloper: document.getElementById("settings-open-developer"),
     activityTaskList: document.getElementById("activity-task-list"),
     activityRefreshBtn: document.getElementById("activity-refresh-btn"),
-    activityMetricsBtn: document.getElementById("activity-metrics-btn"),
-    developerEntryLink: document.getElementById("developer-entry-link"),
-    developerBackBtn: document.getElementById("developer-back-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
-    openChatBtn: document.getElementById("open-chat-btn"),
-    homeDeveloperCard: document.getElementById("home-developer-card"),
     developerRepoInput: document.getElementById("developer-repo-input"),
     developerAnalyzeBtn: document.getElementById("developer-analyze-btn"),
     developerRequirementInput: document.getElementById("developer-requirement-input"),
@@ -272,7 +261,6 @@
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
-    homeTitleSub: document.querySelector(".home-title-sub"),
     homeOrb: document.getElementById("home-orb"),
     chatNewBtn: document.getElementById("chat-new-btn"),
     activityTimeline: document.getElementById("activity-timeline"),
@@ -323,7 +311,6 @@
   // later in this same scope would still be in its temporal dead zone at that point,
   // throwing "Cannot access '...' before initialization".
   let recognition = null;
-  let cachedVoices = [];
   // Presentation state read by Settings, Metrics and Activity (declared early for init()).
   let currentPlanName = null;
   let healthCache = null;
@@ -372,7 +359,7 @@
     el.uploadBtn.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      if (el.uploadBtn.getAttribute("aria-disabled") !== "true") el.fileInput.click();
+      if (el.uploadBtn.getAttribute("aria-disabled") !== "true") openFilePicker();
     });
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
@@ -628,6 +615,8 @@
   }
 
   // ---- Welcome gate: Google / email sign-in card shown when a guest opens Chat ------------
+  // Always skippable: "Continue as guest" and the close button are never hidden, so a Google
+  // or network failure can never leave the user stuck on this card.
 
   const WELCOME_DISMISSED_KEY = "zarvis.welcomeDismissed";
   let authConfig = null;
@@ -637,11 +626,11 @@
     if (authConfig) return authConfig;
     try {
       const res = await fetch(`${API_BASE}/auth/config`);
-      authConfig = res.ok ? await res.json() : { googleClientId: null, requireSignIn: false };
+      if (res.ok) authConfig = await res.json();
     } catch {
-      authConfig = { googleClientId: null, requireSignIn: false };
+      // Offline or a cold start: email sign-in and guest still work, and the next open retries.
     }
-    return authConfig;
+    return authConfig || { googleClientId: null };
   }
 
   function loadGoogleIdentity() {
@@ -654,6 +643,7 @@
         script.onload = resolve;
         script.onerror = () => {
           gsiPromise = null;
+          script.remove();
           reject(new Error("Google sign-in could not load"));
         };
         document.head.appendChild(script);
@@ -666,40 +656,55 @@
     return localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
   }
 
+  // Also kept in memory so the card stays closed for this visit even when browser storage is blocked.
+  let welcomeSkipped = false;
+
+  function welcomeDismissed() {
+    if (welcomeSkipped) return true;
+    try {
+      return localStorage.getItem(WELCOME_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
   async function maybeShowWelcomeGate() {
     const gate = document.getElementById("welcome-gate");
-    if (!gate || !gate.hidden || !isGuestSession()) return;
+    if (!gate || !gate.hidden || !isGuestSession() || welcomeDismissed()) return;
     const config = await loadAuthConfig();
-    if (!config.requireSignIn && sessionStorage.getItem(WELCOME_DISMISSED_KEY)) return;
-    if (!isGuestSession() || !gate.hidden) return;
-    document.getElementById("welcome-guest").hidden = config.requireSignIn;
-    document.getElementById("welcome-close").hidden = config.requireSignIn;
+    // The config request is async: the user may have left Chat, dismissed the card or signed in meanwhile.
+    if (state.activeView !== "chat" || !gate.hidden || !isGuestSession() || welcomeDismissed()) return;
     document.getElementById("welcome-error").hidden = true;
     gate.hidden = false;
-    document.getElementById("welcome-email").focus();
-    if (config.googleClientId) {
-      try {
-        await loadGoogleIdentity();
-        window.google.accounts.id.initialize({
-          client_id: config.googleClientId,
-          callback: (response) => completeGoogleSignIn(response.credential),
-          ux_mode: "popup",
-        });
-        const holder = document.getElementById("welcome-google-btn");
-        holder.textContent = "";
-        window.google.accounts.id.renderButton(holder, {
-          theme: "filled_black", size: "large", shape: "pill", text: "continue_with", width: 280,
-        });
-        document.getElementById("welcome-google").hidden = false;
-      } catch (err) {
-        console.warn(err);
-      }
+    // On touch screens, focusing the field would pop the keyboard over the card before the user has read it.
+    if (window.matchMedia?.("(pointer: fine)").matches) document.getElementById("welcome-email").focus();
+    if (!config.googleClientId) return;
+    try {
+      await loadGoogleIdentity();
+      window.google.accounts.id.initialize({
+        client_id: config.googleClientId,
+        callback: (response) => completeGoogleSignIn(response.credential),
+        ux_mode: "popup",
+      });
+      const holder = document.getElementById("welcome-google-btn");
+      holder.textContent = "";
+      window.google.accounts.id.renderButton(holder, {
+        theme: "filled_black", size: "large", shape: "pill", text: "continue_with",
+        width: Math.min(280, Math.max(200, holder.clientWidth || 280)),
+      });
+      document.getElementById("welcome-google").hidden = false;
+    } catch (err) {
+      console.warn(err); // email sign-in and "Continue as guest" stay available
     }
   }
 
   function closeWelcomeGate(remember) {
     document.getElementById("welcome-gate").hidden = true;
-    if (remember) sessionStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+    if (!remember) return;
+    welcomeSkipped = true;
+    try {
+      localStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+    } catch {}
   }
 
   async function completeGoogleSignIn(idToken) {
@@ -769,7 +774,7 @@
     document.getElementById("welcome-close").addEventListener("click", () => closeWelcomeGate(true));
     document.addEventListener("keydown", (event) => {
       const gate = document.getElementById("welcome-gate");
-      if (event.key === "Escape" && !gate.hidden && !document.getElementById("welcome-close").hidden) closeWelcomeGate(true);
+      if (event.key === "Escape" && !gate.hidden) closeWelcomeGate(true);
     });
   }
 
@@ -1225,7 +1230,6 @@
     { key: "code", categories: ["DEVELOPER"] },
     { key: "analyze", categories: ["DOCUMENTS", "DEVELOPER"] },
     { key: "plan", categories: ["AUTOMATION"] },
-    { key: "create", categories: ["CREATIVE", "BUSINESS"] },
   ];
   const QUICK_ACTION_ICON_PATHS = {
     ask: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
@@ -1234,7 +1238,6 @@
     code: CATEGORY_ICON_PATHS.DEVELOPER,
     analyze: CATEGORY_ICON_PATHS.DOCUMENTS,
     plan: CATEGORY_ICON_PATHS.AUTOMATION,
-    create: CATEGORY_ICON_PATHS.CREATIVE,
   };
 
   function quickActionIconSvg(key) {
@@ -1310,7 +1313,7 @@
     const risk = document.createElement("span");
     risk.className = "risk-badge";
     risk.dataset.level = skill.riskLevel;
-    risk.textContent = Logic.riskLabel ? Logic.riskLabel(skill.riskLevel) : skill.riskLevel;
+    risk.textContent = Logic.riskLabel(skill.riskLevel);
     name.append(title, risk);
     const desc = document.createElement("p");
     desc.className = "cap-desc";
@@ -1368,16 +1371,7 @@
         setActiveView(item.dataset.view);
       });
     }
-    el.settingsBtn?.addEventListener("click", () => {
-      haptic();
-      setActiveView("settings");
-    });
-    el.settingsBackBtn?.addEventListener("click", () => setActiveView("home"));
-    el.developerBackBtn?.addEventListener("click", () => setActiveView("capabilities"));
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
-    for (const btn of document.querySelectorAll("[data-home-view]")) {
-      btn.addEventListener("click", () => setActiveView(btn.dataset.homeView));
-    }
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
     for (const btn of document.querySelectorAll("[data-nav]")) {
       btn.addEventListener("click", () => {
@@ -1396,7 +1390,7 @@
       btn.addEventListener("click", () => {
         haptic();
         setActiveView("chat");
-        el.fileInput.click();
+        openFilePicker();
       });
     }
     el.homeOrb?.addEventListener("click", () => {
@@ -1440,7 +1434,7 @@
       setAppearance,
       newConversation: startNewConversation,
       startListening,
-      pickFile: () => el.fileInput.click(),
+      pickFile: () => openFilePicker(),
       account: () => {
         const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
         return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
@@ -1553,8 +1547,7 @@
       btn.addEventListener("click", () => {
         haptic();
         setActiveView("chat");
-        el.fileInput.setAttribute("accept", "image/*");
-        el.fileInput.click();
+        openFilePicker(true);
       });
     }
 
@@ -1568,14 +1561,11 @@
       latestBtn.addEventListener("click", () => { scrollConversationToBottom(); latestBtn.hidden = true; });
     }
 
-    const fullAccept = el.fileInput.getAttribute("accept");
-    const restoreAccept = () => el.fileInput.setAttribute("accept", fullAccept || "");
-    el.fileInput.addEventListener("change", restoreAccept);
-    document.getElementById("upload-btn")?.addEventListener("click", restoreAccept);
+    // The attach label opens the picker natively on click; make sure it lists every supported type.
+    el.uploadBtn.addEventListener("click", () => setFilePickerAccept(false));
     document.getElementById("image-btn")?.addEventListener("click", () => {
       haptic();
-      el.fileInput.setAttribute("accept", "image/*");
-      el.fileInput.click();
+      openFilePicker(true);
     });
 
     const tabs = document.querySelectorAll("[data-dev-tab]");
@@ -1634,7 +1624,7 @@
           startListening();
         } else if (action === "attach") {
           setActiveView("chat");
-          el.fileInput.click();
+          openFilePicker();
         } else if (action === "developer") {
           setActiveView("developer");
         } else if (action === "settings") {
@@ -1674,7 +1664,7 @@
       setActiveView("chat");
       el.input.value = prompt || feature.prompt || "";
       resizeComposer();
-      el.fileInput.click();
+      openFilePicker();
       return;
     }
     if (feature.action === "phone" || feature.id === "phone") {
@@ -1692,6 +1682,18 @@
     el.input.focus();
     const length = el.input.value.length;
     requestAnimationFrame(() => el.input.setSelectionRange(length, length));
+  }
+
+  /** The Image shortcuts narrow the picker to pictures; every other entry point lists all supported files.
+   * Setting `accept` on every open means cancelling an Image pick can't leave the next "Files" pick image-only. */
+  function setFilePickerAccept(imagesOnly) {
+    if (!el.fileInput.dataset.allAccept) el.fileInput.dataset.allAccept = el.fileInput.getAttribute("accept") || "";
+    el.fileInput.setAttribute("accept", imagesOnly ? "image/*" : el.fileInput.dataset.allAccept);
+  }
+
+  function openFilePicker(imagesOnly = false) {
+    setFilePickerAccept(imagesOnly);
+    el.fileInput.click();
   }
 
   function resizeComposer() {
@@ -2110,10 +2112,6 @@
 
   function setupDeveloper() {
     if (!el.developerAnalyzeBtn || !el.developerImplementBtn || !el.developerRepoInput) return;
-    el.developerEntryLink?.addEventListener("click", () => {
-      haptic();
-      setActiveView("developer");
-    });
     el.developerAnalyzeBtn.addEventListener("click", () => {
       haptic();
       analyzeRepo();
@@ -2230,7 +2228,6 @@
     revealDeveloperResult();
     // A validation hint (retryable === false) is not a run: no status change, no history entry.
     if (!retryable && status === "error") return;
-    lastDeveloperNote = { status, message };
     setRunStatus(status === "success" ? "completed" : "failed");
     const line = String(message || "").split("\n").find((text) => text.trim()) || "";
     const title = line.replace(/[#*`_>]/g, "").trim().slice(0, 90) || (status === "success" ? "Completed" : "Failed");
@@ -2694,7 +2691,6 @@
   }
 
   let latestTasks;
-  let lastDeveloperNote = null;
 
   function emptyState(title, body) {
     const box = document.createElement("div");
@@ -2965,29 +2961,13 @@
     return tasks;
   }
 
-  async function refreshTasks() {
-    if (el.taskList) el.taskList.innerHTML = "";
-    const tasks = await fetchTasks();
-    if (!tasks || !el.taskList) {
-      if (el.activityTaskList && tasks) {
-        el.activityTaskList.innerHTML = "";
-        for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
-      }
-      return;
-    }
-    if (tasks.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "task-empty";
-      empty.textContent = "No active workflows yet — multi-step tasks Zarvis runs will appear here.";
-      el.taskList.appendChild(empty);
-      if (el.activityTaskList) el.activityTaskList.replaceChildren(empty.cloneNode(true));
-      return;
-    }
-    for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
-    if (el.activityTaskList) {
-      el.activityTaskList.innerHTML = "";
-      for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
-    }
+  /** Background refresh (Metrics page and its polling): keeps the Activity badge and Home list
+   * current. A failure is already reflected in `latestTasks`, so it must not surface as an
+   * unhandled rejection every few seconds while offline. */
+  function refreshTasks() {
+    return fetchTasks().catch((err) => {
+      if (!(err instanceof SessionEndedError)) console.warn("Task refresh failed:", err);
+    });
   }
 
   // User-triggerable transitions per status. No task executor exists yet (the backend refuses
@@ -3073,13 +3053,21 @@
   }
 
   async function performTaskAction(taskId, action) {
-    const res = await apiFetch(`/tasks/${taskId}/${action}`, { method: "POST" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      console.error(`Task ${action} failed:`, body.error || res.status);
+    try {
+      const res = await apiFetch(`/tasks/${taskId}/${action}`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.error(`Task ${action} failed:`, body.error || res.status);
+        showToast("Couldn't update the task. Try again.");
+        return;
+      }
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      console.error(err);
+      showToast("Couldn't reach ZARVIS. Check your connection.");
       return;
     }
-    refreshActivity();
+    void refreshActivity();
   }
 
   function formatRelativeTime(dateInput) {
@@ -3233,17 +3221,6 @@
         }
       };
 
-      const waitForTtsQueue = async () => {
-        while (
-          !controller.signal.aborted &&
-          (ttsQueue.length || ttsTasks.size)
-        ) {
-          drainTts();
-          if (!ttsQueue.length && !ttsTasks.size) break;
-          await delay(50);
-        }
-      };
-
       const consumeEvent = async (event, data) => {
         if (event === "meta" && data?.conversationId) {
           state.conversationId = String(data.conversationId);
@@ -3312,7 +3289,7 @@
           renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
-          await drainTts();
+          drainTts();
           await waitForTtsPlayback(controller.signal);
           if (!controller.signal.aborted) setOrbState("IDLE");
         }
@@ -3356,11 +3333,7 @@
       // Segments that will never be played must release their turn, or later speech would wait forever.
       for (const item of ttsQueue.splice(0)) item.ticket.done();
       for (const streaming of el.conversation.querySelectorAll(".bubble.is-streaming")) streaming.classList.remove("is-streaming");
-      if (!thinkingNode.isConnected) {
-        // no-op; the real assistant bubble is already rendered
-      } else {
-        thinkingNode.remove();
-      }
+      thinkingNode.remove();
       if (currentTurnController === controller) currentTurnController = null;
       updateComposerMode(); // Send/Stop must reflect that no turn is in flight any more
     }
@@ -3784,19 +3757,6 @@
     return COPY[state.lang].unreadableFile;
   }
 
-  function setFilesState(text, mode) {
-    const node = document.getElementById("files-state");
-    if (!node) return;
-    node.className = mode === "ready" ? "z-card z-card-status" : "empty-state";
-    const title = mode === "ready" ? "Ready" : mode === "loading" ? "Reading" : "Nothing here yet";
-    node.replaceChildren();
-    const strong = document.createElement("strong");
-    strong.textContent = title;
-    const span = document.createElement("span");
-    span.textContent = text;
-    node.append(strong, span);
-  }
-
   let attachmentPreviewUrl = null;
   let lastPreviewFile = null;
 
@@ -3841,7 +3801,6 @@
     el.uploadBtn.classList.toggle("is-disabled", isExtracting);
     el.fileInput.disabled = isExtracting;
     el.uploadBtn.title = isExtracting ? COPY[state.lang].extracting : COPY[state.lang].uploadTitle;
-    if (isExtracting) setFilesState("Reading the file…", "loading");
   }
 
   /** Shows the "📄 filename / Ready to analyze" chip above the composer — the attachment
@@ -3852,7 +3811,6 @@
     el.attachmentName.textContent = filename;
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
-    setFilesState(`${filename} is ready. Ask about it in Chat.`, "ready");
     // An image attachment keeps its own small preview in Activity (a local blob: URL, never uploaded).
     const thumb = lastPreviewFile ? URL.createObjectURL(lastPreviewFile) : "";
     recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
@@ -3864,7 +3822,6 @@
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
     setAttachmentPreview(null);
-    setFilesState("Attach a file, then ask about it in Chat.");
     renderHomeActivity();
   }
 
@@ -3891,85 +3848,6 @@
     const displayText = instruction ? `📎 ${attachment.filename}\n${instruction}` : `📎 ${attachment.filename}`;
     clearPendingAttachment();
     return submitUtterance(utterance, isVoice, displayText);
-  }
-
-  // ---- Dynamic result widgets ------------------------------------------------------------
-  // A skill's category (the `category` prefix of its dotted id, e.g. "research.report" ->
-  // "research") decides the shape of the card its result renders as, instead of every skill
-  // producing an identical text bubble. Categories not listed here (web, personal, ...) fall
-  // through to the plain bubble — deliberately conservative, since a made-up shape for a
-  // category no one asked to distinguish would just be decoration.
-  const CATEGORY_WIDGET_KIND = {
-    developer: "code",
-    automation: "pill",
-    research: "panel",
-    business: "panel",
-    creative: "panel",
-    docs: "panel",
-  };
-
-  function widgetKindFor(skillId) {
-    return CATEGORY_WIDGET_KIND[skillId.split(".")[0]] || null;
-  }
-
-  // Renders one turn's reply: a shaped widget when a backend skill actually ran and its
-  // category has a distinct shape, a plain bubble otherwise (direct AI chat, or a category
-  // with no special-cased widget). Returns the created DOM node so the caller can attach a
-  // live waveform to it while the reply is being spoken.
-  function renderAssistantResult(result) {
-    const call = result.toolCalls && result.toolCalls[0];
-    const kind = call && widgetKindFor(call.skillId);
-    if (!call || !kind) return addBubble("assistant", result.message || "…");
-    return addResultWidget(kind, call.skillId, call.outcome, result.message || "…");
-  }
-
-  function addResultWidget(kind, skillId, outcome, message) {
-    const status = outcome.kind === "success" ? "success" : "error";
-
-    const widget = document.createElement("div");
-    widget.className = "result-widget";
-    widget.dataset.kind = kind;
-    widget.dataset.status = status;
-
-    const header = document.createElement("div");
-    header.className = "widget-header";
-    const title = document.createElement("span");
-    title.className = "widget-title";
-    title.innerHTML = `<span class="widget-status-dot"></span>${categoryLabel(skillId.split(".")[0])}`;
-    header.appendChild(title);
-
-    if (kind === "code") {
-      const copyBtn = document.createElement("button");
-      copyBtn.type = "button";
-      copyBtn.className = "widget-copy-btn";
-      copyBtn.textContent = "Copy";
-      copyBtn.addEventListener("click", async () => {
-        haptic();
-        try {
-          await navigator.clipboard.writeText(message);
-          copyBtn.textContent = "Copied";
-          copyBtn.classList.add("copied");
-          setTimeout(() => {
-            copyBtn.textContent = "Copy";
-            copyBtn.classList.remove("copied");
-          }, 1500);
-        } catch {
-          /* Clipboard API unavailable (permissions/http) — the text is still fully visible
-             and selectable in the card, so there's nothing to fall back to here. */
-        }
-      });
-      header.appendChild(copyBtn);
-    }
-    widget.appendChild(header);
-
-    const body = document.createElement("div");
-    body.className = "widget-body";
-    body.textContent = message;
-    widget.appendChild(body);
-
-    el.conversation.appendChild(widget);
-    scrollConversationToBottom();
-    return widget;
   }
 
   // A waveform + stop control attached to whichever message node is actively being spoken
@@ -4097,7 +3975,9 @@
     recognition.addEventListener("error", (event) => {
       el.micBtn.setAttribute("aria-pressed", "false");
       el.orb.setAttribute("aria-pressed", "false");
-      if (!currentTurnController) setOrbState("ERROR");
+      // Silence or a deliberate stop is not a failure; only a real error shows the error state.
+      const benign = event?.error === "no-speech" || event?.error === "aborted";
+      if (!currentTurnController) setOrbState(benign ? "IDLE" : "ERROR");
       // Say why, in plain words; a deliberate stop ("aborted") needs no message.
       const copy = COPY[state.lang];
       const notice = {
@@ -4159,32 +4039,14 @@
     el.orb.setAttribute("aria-pressed", "false");
   }
 
-  // The browser's voice list loads asynchronously (often empty until `voiceschanged`
-  // fires, especially on Android Chrome) — cache it once available rather than calling
-  // getVoices() fresh inside speak(), which can return [] on the very first reply and
-  // silently fall back to whatever default voice the engine picks (usually English,
-  // reading Hindi text with English phonetics — the "not real Hindi" sound).
-  //
-  // Real caveat, stated honestly rather than oversold: the Web Speech API only ever plays
-  // back whichever text-to-speech voices the OS/browser ships — on Android that's Google's
-  // on-device "Google Text-to-Speech" engine. Its network-served voices are noticeably
-  // better than its offline ones, but none of them are the dedicated neural voice model
-  // behind the ChatGPT/Gemini apps' voice mode — that is a different, separate product
-  // (e.g. Google Cloud Text-to-Speech's Neural2/Studio voices, or a Gemini "native audio"
-  // model) requiring its own API credential and a real backend call, not a browser API.
-  // See DEVELOPMENT.md "Voice quality" for that upgrade path.
-
+  // Spoken replies come from Gemini (see speakWithGemini / speakGeminiStream); the browser's
+  // own speechSynthesis voices are not used, so the picker only lists Gemini's voices.
   function setupSpeechSynthesis() {
     populateVoiceSelect();
     el.voiceSelect?.addEventListener("change", () => {
       localStorage.setItem(STORAGE_KEYS.ttsVoice, el.voiceSelect.value);
       showToast("Voice: " + el.voiceSelect.value);
     });
-  }
-
-  function voicesForCurrentLang() {
-    const langPrefix = state.lang === "hi" ? "hi" : "en";
-    return cachedVoices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
   }
 
   function populateVoiceSelect() {
@@ -4199,18 +4061,6 @@
     const saved = localStorage.getItem(STORAGE_KEYS.ttsVoice);
     el.voiceSelect.value = GEMINI_VOICES.includes(saved) ? saved : "Kore";
     el.voiceSelect.hidden = false;
-  }
-
-  function pickVoice(langPrefix) {
-    const saved = localStorage.getItem(STORAGE_KEYS.voiceURI);
-    if (saved) {
-      const found = cachedVoices.find((v) => v.voiceURI === saved && v.lang.toLowerCase().startsWith(langPrefix));
-      if (found) return found;
-    }
-    const candidates = cachedVoices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
-    // Prefer a network voice: on Android's Google TTS engine these are the higher-quality
-    // ones, while the offline/local voice is usually the more robotic-sounding fallback.
-    return candidates.find((v) => !v.localService) || candidates[0];
   }
 
   // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
@@ -4426,12 +4276,5 @@
     ttsSources.clear();
     ttsScheduledUntil = 0;
     setOrbState("IDLE");
-  }
-  function detectSpeechLanguage(text) {
-    if (/[\u0900-\u097f]/.test(text)) return "hi";
-    const normalized = text.toLocaleLowerCase();
-    const hi =
-      /\b(?:aap|aapko|aapke|aapki|tum|tumhe|mujhe|mera|meri|kya|kaise|kaisa|kaisi|hai|hain|ho|tha|thi|the|raha|rahi|rahe|batao|kisne|kaun|kal|aaj|abhi|bahut|accha|achha|acha|haal|chal|karna|karo|kar)\b/.test(normalized);
-    return hi ? "hi" : "en";
   }
 })();
