@@ -63,7 +63,8 @@
       quickActionsLead: "Suggestions",
       placeholder: "Message ZARVIS…",
       homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
-      homeTitle: "How can I help you today?",
+      homeSub: "Tap the orb to speak, or type below.",
+      tapToSpeak: "Tap to speak",
       homePlaceholder: "Ask anything…",
       send: "Send",
       stop: "Stop",
@@ -127,7 +128,8 @@
       quickActionsLead: "सुझाव",
       placeholder: "ZARVIS को संदेश भेजें…",
       homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
-      homeTitle: "आज मैं आपकी कैसे मदद करूँ?",
+      homeSub: "बोलने के लिए orb दबाएँ, या नीचे लिखें।",
+      tapToSpeak: "बोलने के लिए दबाएँ",
       homePlaceholder: "कुछ भी पूछें…",
       send: "भेजें",
       stop: "रोकें",
@@ -263,7 +265,8 @@
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
-    homeTitle: document.getElementById("home-title"),
+    homeSub: document.getElementById("home-sub"),
+    homeOrbLabel: document.getElementById("home-orb-label"),
     homePromptInput: document.getElementById("home-prompt-input"),
     homeOrb: document.getElementById("home-orb"),
     chatNewBtn: document.getElementById("chat-new-btn"),
@@ -400,6 +403,7 @@
     try {
       await ensureSession();
       void restoreConversation();
+      void refreshHomeStatus();
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
       if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
@@ -437,7 +441,8 @@
     el.heroSubtitle.textContent = copy.subtitle;
     el.quickActionsLead.textContent = copy.quickActionsLead;
     renderHomeGreeting();
-    el.homeTitle.textContent = copy.homeTitle;
+    el.homeSub.textContent = copy.homeSub;
+    el.homeOrbLabel.textContent = copy.tapToSpeak;
     el.homePromptInput.placeholder = copy.homePlaceholder;
     el.input.placeholder = copy.placeholder;
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
@@ -1448,6 +1453,7 @@
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
+    renderHomeActivity();
   }
 
   /**
@@ -1743,6 +1749,9 @@
     if (view === "home") {
       renderHomeGreeting();
       renderHomeActivity();
+      renderHomeTasks();
+      void refreshHomeStatus();
+      void refreshTasks();
     }
     if (view === "developer") void refreshGithubStatus();
     if (view === "settings") {
@@ -2769,34 +2778,11 @@
         onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
       }));
     }
-    if (Array.isArray(latestTasks)) {
-      for (const task of latestTasks.slice(0, Math.max(0, 4 - rows.length))) {
-        rows.push(listRow({ icon: "i-task", tone: "tone-pink", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
-      }
-    }
     if (!rows.length && state.history.length) {
       const last = [...state.history].reverse().find((message) => message.role === "user");
       if (last) rows.push(listRow({ icon: "i-chat", tone: "tone-blue", title: summarizeUtterance(String(last.content || "").replace(/^📎\s*/, "")), meta: "Conversation", onClick: () => setActiveView("chat") }));
     }
     if (!rows.length) {
-      if (latestTasks === undefined) {
-        const skeleton = document.createElement("div");
-        skeleton.className = "skeleton skeleton-row";
-        skeleton.setAttribute("aria-hidden", "true");
-        root.appendChild(skeleton);
-        return;
-      }
-      if (latestTasks === null) {
-        const failed = emptyState("Couldn't load your activity", "Check your connection and try again.");
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "btn btn-secondary";
-        retry.textContent = "Try again";
-        retry.addEventListener("click", () => { void fetchTasks().catch(() => {}); });
-        failed.appendChild(retry);
-        root.appendChild(failed);
-        return;
-      }
       root.appendChild(emptyState("Nothing yet", "Your conversations and actions will appear here."));
       document.getElementById("home-recent")?.classList.add("is-empty");
       return;
@@ -2806,6 +2792,93 @@
       row.style.animationDelay = index * 40 + "ms";
       root.appendChild(row);
     });
+  }
+
+  // ---- Home dashboard: plan / credits / AI at a glance, and the tasks that are running -----
+  // Real values only: while loading a card shows "…", and when the API cannot be reached it
+  // says so ("—" / "Offline") instead of a made-up number.
+
+  const homeStatus = { entitlements: undefined, health: undefined }; // undefined = loading, null = failed
+
+  async function refreshHomeStatus() {
+    const [entitlements, health] = await Promise.allSettled([
+      apiFetch("/entitlements/me").then((res) => (res.ok ? res.json() : Promise.reject(new Error("HTTP " + res.status)))),
+      fetchHealth(),
+    ]);
+    if (entitlements.status === "fulfilled") {
+      homeStatus.entitlements = entitlements.value;
+      currentPlanName = entitlements.value.plan;
+      updateSettingsValues();
+    } else if (homeStatus.entitlements === undefined) {
+      homeStatus.entitlements = null; // keep the last good values on a later failure
+    }
+    if (health.status === "fulfilled") homeStatus.health = health.value;
+    else if (homeStatus.health === undefined) homeStatus.health = null;
+    renderHomeStatus();
+  }
+
+  function renderHomeStatus() {
+    const root = document.getElementById("home-status");
+    if (!root) return;
+    const { entitlements, health } = homeStatus;
+    const shortDate = (value) => new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    const set = (id, value, hint = "", warn = false) => {
+      const card = document.getElementById(id);
+      card.querySelector(".status-card-value").textContent = value;
+      card.querySelector(".status-card-hint").textContent = hint;
+      card.classList.toggle("is-warn", warn);
+    };
+    root.setAttribute("aria-busy", String(entitlements === undefined || health === undefined));
+    if (entitlements === undefined) {
+      set("status-plan", "…");
+      set("status-credits", "…");
+    } else if (entitlements === null) {
+      set("status-plan", "—", "Couldn't load");
+      set("status-credits", "—");
+    } else {
+      const plan = entitlements.plan;
+      const hint = plan === "PRO" && entitlements.planExpiresAt ? "Until " + shortDate(entitlements.planExpiresAt)
+        : plan === "TRIAL" && entitlements.trialExpiresAt ? "Ends " + shortDate(entitlements.trialExpiresAt) : "";
+      set("status-plan", formatPlanName(plan), hint);
+      set("status-credits", Number(entitlements.creditBalance).toLocaleString("en-IN"), "Available");
+    }
+    if (health === undefined) set("status-ai", "…");
+    else if (health === null) set("status-ai", "Offline", "Can't reach the server", true);
+    else {
+      const database = health.status === "ok" ? "" : health.status === "degraded" ? " · database issue" : " · not started";
+      set("status-ai", health.provider === "google" ? "Gemini" : "Not set up", (health.status === "ok" ? "Online" : "Server") + database, health.status !== "ok");
+    }
+  }
+
+  /** The tasks that are actually in progress, with their real step progress; hidden when there are none. */
+  function renderHomeTasks() {
+    const section = document.getElementById("home-tasks");
+    const list = document.getElementById("home-task-list");
+    if (!section || !list) return;
+    const active = Array.isArray(latestTasks) ? latestTasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED") : [];
+    section.hidden = active.length === 0;
+    list.replaceChildren(...active.slice(0, 3).map((task) => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "task-mini";
+      const title = document.createElement("strong");
+      title.textContent = task.goal;
+      const steps = Array.isArray(task.steps) ? task.steps : [];
+      const done = steps.filter((step) => step.status === "DONE").length;
+      const meta = document.createElement("small");
+      meta.textContent = task.status.toLowerCase() + (steps.length ? ` · ${done}/${steps.length} steps` : "") + " · " + formatRelativeTime(task.createdAt);
+      card.append(title, meta);
+      if (steps.length) {
+        const bar = document.createElement("div");
+        bar.className = "task-mini-bar";
+        const fill = document.createElement("i");
+        fill.style.width = Math.round((done / steps.length) * 100) + "%";
+        bar.appendChild(fill);
+        card.appendChild(bar);
+      }
+      card.addEventListener("click", () => setActiveView("activity"));
+      return card;
+    }));
   }
 
   function setupActivityControls() {
@@ -2924,12 +2997,12 @@
       res = await apiFetch("/tasks");
     } catch (err) {
       latestTasks = null;
-      renderHomeActivity();
+      renderHomeTasks();
       throw err;
     }
     if (!res.ok) {
       latestTasks = null;
-      renderHomeActivity();
+      renderHomeTasks();
       return null;
     }
     const { tasks } = await res.json();
@@ -2941,7 +3014,7 @@
       else item.removeAttribute("aria-label");
     }
     latestTasks = tasks;
-    renderHomeActivity();
+    renderHomeTasks();
     return tasks;
   }
 
@@ -3873,6 +3946,7 @@
     // `dataset.state` above (unchanged) is what CSS/animations key off of.
     const labels = COPY[state.lang].stateLabels;
     el.heroStatusLabel.textContent = labels[newState] || labels.IDLE;
+    el.homeOrbLabel.textContent = newState === "IDLE" ? COPY[state.lang].tapToSpeak : labels[newState] || COPY[state.lang].tapToSpeak;
     updateComposerMode();
   }
 

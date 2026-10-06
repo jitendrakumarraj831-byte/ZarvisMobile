@@ -385,7 +385,7 @@ async function send(page, text) {
     await ctxW.close();
   });
 
-  await step("Home: one composer starts a chat, suggestions fill the Chat box, and the app bar lines up with every page", async () => {
+  await step("Home dashboard: composer, suggestions, real plan/credits, voice orb, and the app bar lines up with every page", async () => {
     const ctxH = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageH = await pageOf(ctxH);
     await pageH.goto(BASE);
@@ -406,6 +406,16 @@ async function send(page, text) {
     await nav(pageH, "home");
     await pageH.click('.suggest-card[data-home-action="upload"]');
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
+    // The dashboard shows the account's real plan and credits (the same numbers the API reports)...
+    await nav(pageH, "home");
+    const token = await ls(pageH, "zarvis.accessToken");
+    const me = await (await fetch(BASE + "/api/v1/entitlements/me", { headers: { authorization: "Bearer " + token } })).json();
+    await pageH.waitForFunction((credits) => document.querySelector("#status-credits .status-card-value").textContent === credits, Number(me.creditBalance).toLocaleString("en-IN"));
+    assert.match(await pageH.textContent("#status-plan .status-card-value"), new RegExp(me.plan, "i"));
+    // ...and the orb is the voice entry point: it says so, and tapping it opens Chat.
+    assert.equal((await pageH.textContent("#home-orb-label")).trim(), "Tap to speak");
+    await pageH.click("#home-orb");
+    await pageH.waitForSelector("#view-chat:not([hidden])");
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
     for (const view of ["activity", "capabilities", "metrics", "plans", "settings"]) {

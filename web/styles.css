@@ -1356,19 +1356,9 @@ body[data-active-view="home"] .topbar-brand { visibility: visible; }
 .orb-core { box-shadow: inset 0 0 38px rgba(120, 100, 255, 0.45); background: none; }
 
 /* ---------- Home ---------- */
-.home-section { max-width: 760px; }
-.home-section .section-title, #recent-title { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; text-transform: none; color: var(--text); font-family: var(--font-display); }
-#home-activity { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s3); }
-#home-activity .list-row { flex-direction: column; align-items: flex-start; gap: var(--s2); padding: var(--s4); min-height: 108px; border-radius: 20px; }
-#home-activity .list-row .row-ico { width: 40px; height: 40px; border-radius: 12px; }
-#home-activity .list-row .row-chev { display: none; }
-#home-activity .empty-state, #home-activity .skeleton { grid-column: 1 / -1; }
 .list-row .row-ico { background: linear-gradient(145deg, var(--tone-a, #38bdf8), var(--tone-b, #4f6bff)); }
 .list-row-copy strong { font-size: 14.5px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .list-row-copy small { color: var(--text-3); }
-@media (max-width: 560px) { #home-activity { grid-template-columns: 1fr; } #home-activity .list-row { flex-direction: row; align-items: center; min-height: 64px; }
-}
-
 /* ---------- Chat ---------- */
 .chat-header { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; align-items: center; gap: var(--s3); }
 .chat-avatar { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 50%; color: #fff; background: radial-gradient(circle at 50% 38%, #3b46e0, #1a1c78 75%); box-shadow: 0 0 0 2px #5b6bff, 0 0 18px -2px var(--glow); }
@@ -1812,11 +1802,11 @@ body.palette-open { overflow: hidden; }
 
 /* =====================================================================
    App shell v4 — one page grid, a real desktop app bar, a focused Home.
-   Two page archetypes share the same gutters: "list" pages (Activity,
+   Two page archetypes share the same gutters: "list" pages (Home, Activity,
    Capabilities, Metrics, Plans, Settings, Developer) fill the content column;
-   "focus" pages (Home, Chat, detail pages) sit centred in a reading column.
+   "focus" pages (Chat, detail pages) sit centred in a reading column.
    ===================================================================== */
-:root { --focus-w: 760px; --appbar-h: 64px; }
+:root { --appbar-h: 64px; }
 
 /* Desktop app bar: global search on the left, notifications + account on the right.
    Its inner box has the same max-width and gutters as `.views`, so the icons line up
@@ -1846,16 +1836,35 @@ body.palette-open { overflow: hidden; }
   .kbd-hint { padding: 4px 7px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-3); font: 600 11px/1 var(--font-body); }
 }
 
-/* ---------- Home ---------- */
-.view-home { max-width: var(--focus-w); margin-inline: auto; }
-.home-welcome { display: flex; flex-direction: column; align-items: center; text-align: center; padding: var(--s3) 0 var(--s6); }
-.home-orb { display: grid; place-items: center; width: 96px; height: 96px; margin-bottom: var(--s4); border-radius: 50%; }
-.view-home .orb-md { width: 88px; height: 88px; }
-.home-eyebrow { margin: 0; color: var(--text-2); font-size: 15px; font-weight: 500; }
-.home-title { margin-top: var(--s2); max-width: 18ch; font-size: clamp(30px, 2.6vw + 18px, 44px); font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; text-wrap: balance; }
+/* ---------- Home: voice orb + dashboard ----------
+   Phone: one column — greeting, orb, composer, status, quick actions, tasks, recent.
+   Wide: the orb, composer and quick actions on the left; status, tasks and recent on the right. */
+.home-grid {
+  display: grid; gap: var(--s5); max-width: 680px; margin-inline: auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "welcome" "composer" "status" "actions" "tasks" "recent";
+}
+.home-side { display: contents; }
+.home-welcome { grid-area: welcome; }
+.home-composer { grid-area: composer; }
+.home-status { grid-area: status; }
+.home-actions { grid-area: actions; }
+#home-tasks { grid-area: tasks; }
+#home-recent { grid-area: recent; }
+.home-section { margin: 0; }
+.home-section .section-title { margin: 0; color: var(--text); font-size: 17px; font-weight: 800; letter-spacing: -0.01em; text-transform: none; }
+.home-section .section-head { margin-bottom: var(--s3); }
+#home-recent.is-empty { display: none; }
+
+.home-welcome { --home-orb: clamp(120px, 24dvh, 188px); display: flex; flex-direction: column; align-items: center; gap: var(--s1); padding-top: var(--s1); text-align: center; }
+.home-title { margin: 0; font-size: clamp(24px, 1.6vw + 18px, 32px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; }
+.home-sub { margin: 0; color: var(--text-2); font-size: 14.5px; }
+.home-orb { display: flex; flex-direction: column; align-items: center; gap: var(--s3); width: auto; height: auto; margin-top: var(--s3); padding: var(--s3) var(--s6) var(--s2); border-radius: 32px; }
+.home-orb .orb { width: var(--home-orb); height: var(--home-orb); }
+.home-orb-label { color: var(--text); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 
 .home-composer {
-  display: flex; align-items: center; gap: var(--s1); margin-bottom: var(--s7); padding: 8px 8px 8px var(--s5);
+  display: flex; align-items: center; gap: var(--s1); padding: 8px 8px 8px var(--s5);
   border-radius: 22px; background: var(--input-bg); border: 1px solid var(--line-2); box-shadow: var(--shadow-2);
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
@@ -1873,7 +1882,24 @@ body.palette-open { overflow: hidden; }
 .home-prompt-go:active { transform: scale(0.94); }
 .home-prompt-go .ico { width: 18px; height: 18px; stroke-width: 2.2; }
 
+/* Status: plan, credits and AI/server at a glance (real values from the API). */
+.home-status { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr); gap: var(--s2); }
+.status-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: var(--s3) var(--s3);
+  border-radius: 16px; text-align: left; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-1);
+  transition: transform var(--t-fast) var(--ease), border-color var(--t-fast);
+}
+.status-card:hover { transform: translateY(-1px); border-color: var(--line-2); }
+.status-card:active { transform: scale(0.98); }
+.status-card-label { color: var(--text-3); font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.status-card-value { max-width: 100%; color: var(--text); font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.status-card-hint { color: var(--text-3); font-size: 12px; line-height: 1.3; }
+.status-card-hint:empty { display: none; }
+.status-card.is-warn .status-card-value { color: var(--warn); }
+
+/* Quick actions: compact tiles. */
 .suggest-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
+@media (min-width: 700px) { .suggest-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .suggest-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); min-height: 112px; padding: var(--s4);
   border-radius: 18px; text-align: left; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-1);
@@ -1886,14 +1912,29 @@ body.palette-open { overflow: hidden; }
 .suggest-copy { min-width: 0; }
 .suggest-copy strong { display: block; color: var(--text); font-size: 14.5px; font-weight: 700; }
 .suggest-copy small { display: block; margin-top: 2px; color: var(--text-3); font-size: 12.5px; line-height: 1.35; }
-@media (min-width: 560px) {
-  .suggest-card { flex-direction: row; align-items: center; min-height: 76px; }
-}
-@media (min-width: 700px) {
-  .suggest-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Active tasks and recent activity: compact rows. */
+#home-task-list, #home-activity { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
+#home-activity .list-row { min-height: 56px; padding: var(--s2) var(--s3); border-radius: 16px; }
+#home-activity .list-row .row-ico { width: 36px; height: 36px; border-radius: 11px; }
+#home-activity .empty-state { padding: var(--s4); }
+.task-mini { display: block; width: 100%; padding: var(--s3) var(--s4); border-radius: 16px; text-align: left; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-1); transition: border-color var(--t-fast); }
+.task-mini:hover { border-color: var(--line-2); }
+.task-mini strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); font-size: 14px; font-weight: 700; }
+.task-mini small { display: block; margin-top: 2px; color: var(--text-3); font-size: 12.5px; }
+.task-mini-bar { height: 4px; margin-top: var(--s2); border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+.task-mini-bar i { display: block; height: 100%; border-radius: 4px; background: var(--grad); }
+
+/* Wide screens: voice + composer + actions on the left, status + tasks + recent on the right. */
+@media (min-width: 1000px) {
+  .home-grid { max-width: none; grid-template-columns: minmax(0, 1fr) 320px; grid-template-areas: "welcome side" "composer side" "actions side"; align-items: start; column-gap: var(--s7); }
+  .home-side { display: flex; flex-direction: column; gap: var(--s5); grid-area: side; }
+  .home-status { grid-template-columns: minmax(0, 1fr); }
+  .status-card { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px var(--s3); padding: var(--s3) var(--s4); }
+  .status-card-hint { flex-basis: 100%; }
 }
 @media (max-width: 380px) {
   .home-composer { padding-left: var(--s4); }
   .home-composer-tools .icon-btn { width: 38px; min-width: 38px; }
+  .status-card-value { font-size: 17px; }
 }
-
