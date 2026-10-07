@@ -106,40 +106,84 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     assert.deepEqual(problems, []);
   });
 
-  // ---- Home: the cards and the message box work at every size ----------------------------------------
-  await step("Home: at every screen size nothing is cut off or widens the page, every card can be reached past the message box, and the headline stays within three lines", async () => {
+  // ---- Home orb: ripples and sparks are decoration; they must never widen the page or crowd the name ----------
+  await step("Home orb: the ripples and sparks stay inside the screen while they move, ZARVIS AI fits inside the orb, and reduced motion keeps still rings", async () => {
     const problems = [];
+    // One guest account for all five sizes (the server allows 60 sign-ups an hour per address and both suites share them).
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 640 } });
+    const page = await pageOf(ctx);
+    await ready(page);
+    for (const [width, height] of [[320, 640], [360, 740], [390, 844], [412, 915], [1280, 800]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(400);
+      let widest = 0;
+      for (let i = 0; i < 20; i += 1) {
+        widest = Math.max(widest, await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth));
+        await page.waitForTimeout(300);
+      }
+      if (widest > 0) problems.push(`${width}px: the page grew ${widest}px wider than the screen`);
+      const m = await page.evaluate(() => {
+        const orb = document.querySelector("#home-orb .orb");
+        const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, overflow: getComputedStyle(document.querySelector(selector)).overflow }; };
+        const halo = parseFloat(getComputedStyle(orb, "::before").width);
+        return { orb: orb.getBoundingClientRect().width, label: document.querySelector("#home-orb .orb-label strong").getBoundingClientRect().width, halo, waves: box("#home-orb .orb-waves"), sparks: box("#home-orb .orb-sparks"), screen: window.innerWidth };
+      });
+      if (m.label > m.orb * 0.8) problems.push(`${width}px: "ZARVIS AI" is ${Math.round(m.label)}px wide in a ${Math.round(m.orb)}px orb`);
+      for (const [name, b] of [["waves", m.waves], ["sparks", m.sparks]]) {
+        if (!["hidden", "clip"].includes(b.overflow)) problems.push(`${width}px: the ${name} layer is not clipped (${b.overflow})`);
+        if (b.left < -1 || b.right > m.screen + 1) problems.push(`${width}px: the ${name} layer is outside the screen`);
+      }
+      if (m.halo * 1.09 > m.screen) problems.push(`${width}px: the glow (${Math.round(m.halo)}px, breathing) is wider than the screen`);
+    }
+    await ctx.close();
+    const still = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+    const stillPage = await pageOf(still);
+    await ready(stillPage);
+    const rings = await stillPage.evaluate(() => Array.from(document.querySelectorAll("#home-orb .orb-waves i")).map((n) => [getComputedStyle(n).animationName, getComputedStyle(n).opacity]));
+    if (rings.length !== 4 || rings.some(([name, opacity]) => name !== "none" || Number(opacity) < 0.1)) problems.push("reduced motion: the rings are not still and visible: " + JSON.stringify(rings));
+    await still.close();
+    assert.deepEqual(problems, []);
+  });
+
+  // ---- Home: the orb, the message card, the prompts and the mic work at every size ------------------------
+  await step("Home: at every screen size nothing is cut off or widens the page, the orb and the card fit, every quick prompt can be reached, and the mic sits in the middle of the tab bar", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 568 } }); // one guest account for every size
+    const page = await pageOf(ctx);
+    await ready(page);
     for (const [width, height] of [[320, 568], [360, 640], [360, 740], [390, 844], [412, 915], [768, 1024], [1280, 800]]) {
-      const ctx = await browser.newContext({ viewport: { width, height }, hasTouch: width < 700, isMobile: width < 700 });
-      const page = await pageOf(ctx);
-      await ready(page);
-      await page.waitForTimeout(1100); // the cards fade in one after another
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(700);
       const m = await page.evaluate(() => {
         const overflow = document.documentElement.scrollWidth - innerWidth;
-        const tiles = [...document.querySelectorAll(".primary-actions .action-tile")];
-        const cut = tiles.filter((t) => { const r = t.getBoundingClientRect(); return r.left < 8 || r.right > innerWidth - 8; }).length;
+        const orb = document.querySelector("#home-orb .orb").getBoundingClientRect();
+        const card = document.getElementById("home-prompt-form").getBoundingClientRect();
         const title = document.querySelector(".home-title");
         const lines = Math.round(title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight));
-        // Scroll each card to the middle of the screen: whatever is on top at its centre must be the card itself.
-        const covered = tiles.filter((t) => {
-          t.scrollIntoView({ block: "center" });
-          const r = t.getBoundingClientRect();
-          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          return !(top && t.contains(top));
-        }).length;
-        window.scrollTo(0, document.documentElement.scrollHeight);
-        const box = document.getElementById("home-prompt-form").getBoundingClientRect();
-        const nav = document.querySelector(".bottom-nav");
-        const navTop = nav && getComputedStyle(nav).display !== "none" ? nav.getBoundingClientRect().top : innerHeight;
-        return { overflow, cut, lines, covered, composerVisible: box.top >= 0 && box.bottom <= navTop + 1 };
+        const tools = [...document.querySelectorAll(".home-card-tools button")].map((b) => b.getBoundingClientRect());
+        const chips = [...document.querySelectorAll("#home-quick .chip:not([hidden])")];
+        // Scroll the first prompt to the middle of the screen: whatever is on top at its centre must be the prompt itself.
+        chips[0].scrollIntoView({ block: "center", inline: "start" });
+        const r = chips[0].getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const fab = document.querySelector(".bottom-nav .nav-fab");
+        const fabBox = fab.getBoundingClientRect();
+        return {
+          overflow, lines, orbInside: orb.left >= 0 && orb.right <= innerWidth, cardInside: card.left >= 0 && card.right <= innerWidth,
+          toolsInside: tools.every((t) => t.left >= card.left && t.right <= card.right + 0.5) && tools.every((t) => t.height >= 43.5),
+          promptReachable: !!(top && chips[0].contains(top)),
+          fabCentred: fab.getClientRects().length === 0 || Math.abs(fabBox.left + fabBox.width / 2 - innerWidth / 2) <= 1,
+        };
       });
       if (m.overflow > 0) problems.push(`${width}x${height}: the page is ${m.overflow}px wider than the screen`);
-      if (m.cut) problems.push(`${width}x${height}: ${m.cut} feature card(s) are cut off at the edge`);
       if (m.lines > 3) problems.push(`${width}x${height}: the headline takes ${m.lines} lines`);
-      if (m.covered) problems.push(`${width}x${height}: ${m.covered} card(s) stay hidden behind the message box or tab bar when scrolled to`);
-      if (!m.composerVisible) problems.push(`${width}x${height}: the message box is not fully visible above the tab bar at the end of the page`);
-      await ctx.close();
+      if (!m.orbInside) problems.push(`${width}x${height}: the orb is not fully on the screen`);
+      if (!m.cardInside) problems.push(`${width}x${height}: the message card is cut off`);
+      if (!m.toolsInside) problems.push(`${width}x${height}: the file and image buttons are cut off or under 44px`);
+      if (!m.promptReachable) problems.push(`${width}x${height}: the first quick prompt is covered when scrolled to`);
+      if (!m.fabCentred) problems.push(`${width}x${height}: the mic is not in the middle of the tab bar`);
     }
+    await ctx.close();
     assert.deepEqual(problems, []);
   });
 

@@ -268,6 +268,7 @@
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
+    homeOrb: document.getElementById("home-orb"),
     chatNewBtn: document.getElementById("chat-new-btn"),
     activityTimeline: document.getElementById("activity-timeline"),
     activitySearch: document.getElementById("activity-search"),
@@ -1657,13 +1658,6 @@
         setActiveView(btn.dataset.nav);
       });
     }
-    for (const btn of document.querySelectorAll('[data-home-action="voice"]')) {
-      btn.addEventListener("click", () => {
-        haptic();
-        setActiveView("chat");
-        startListening();
-      });
-    }
     for (const btn of document.querySelectorAll('[data-home-action="upload"]')) {
       btn.addEventListener("click", () => {
         haptic();
@@ -1678,6 +1672,11 @@
         openFilePicker(true);
       });
     }
+    el.homeOrb?.addEventListener("click", () => {
+      haptic();
+      setActiveView("chat");
+      startListening();
+    });
     el.chatNewBtn?.addEventListener("click", () => {
       haptic();
       startNewConversation();

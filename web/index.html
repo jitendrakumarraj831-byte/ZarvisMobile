@@ -131,18 +131,25 @@
       <main class="views" id="main-views">
         <!-- ============ HOME ============ -->
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
-          <div class="home-intro">
+          <div class="home-hero">
             <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span></p>
-            <h1 class="home-title" id="home-title">What can I help with today?</h1>
-            <p class="home-sub">Type, speak or share a file.</p>
+            <button type="button" class="orb-stage" id="home-orb" aria-label="ZARVIS AI — talk by voice">
+              <span class="orb orb-lg" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span><span class="orb-waves"><i></i><i></i><i></i><i></i></span><span class="orb-sparks"><b></b><b></b></span><span class="orb-label"><strong>ZARVIS AI</strong></span></span>
+            </button>
           </div>
 
-          <div class="primary-actions" role="group" aria-label="Start">
-            <button type="button" class="action-tile" data-nav="chat"><span class="tile-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span class="tile-copy"><strong>Chat</strong><small>Type a message</small></span></button>
-            <button type="button" class="action-tile" data-home-action="voice"><span class="tile-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="tile-copy"><strong>Voice</strong><small>Speak, hear the reply</small></span></button>
-            <button type="button" class="action-tile" data-home-action="image"><span class="tile-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></span><span class="tile-copy"><strong>Image</strong><small>Ask about a photo</small></span></button>
-            <button type="button" class="action-tile" data-home-action="upload"><span class="tile-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></span><span class="tile-copy"><strong>Files</strong><small>Summarize or ask</small></span></button>
-          </div>
+          <form class="home-card" id="home-prompt-form" autocomplete="off">
+            <h1 class="home-title" id="home-title">What can I help with today?</h1>
+            <div class="home-card-input">
+              <label class="sr-only" for="home-prompt-input">Ask ZARVIS</label>
+              <input id="home-prompt-input" type="text" placeholder="Type your request…" enterkeyhint="send" />
+              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
+            </div>
+            <div class="home-card-tools">
+              <button type="button" class="chip tone-amber" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg>Upload file</button>
+              <button type="button" class="chip tone-pink" data-home-action="image"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg>Select image</button>
+            </div>
+          </form>
 
           <section class="home-section home-quick" id="home-quick" aria-label="Quick actions">
             <div class="chip-row">
@@ -163,18 +170,6 @@
             </div>
             <div id="home-activity" class="list" aria-live="polite"></div>
           </section>
-
-          <form class="home-composer" id="home-prompt-form" autocomplete="off">
-            <label class="sr-only" for="home-prompt-input">Ask ZARVIS</label>
-            <input id="home-prompt-input" type="text" placeholder="Message ZARVIS…" enterkeyhint="send" />
-            <div class="home-composer-row">
-              <button type="button" class="icon-btn" data-home-action="upload" aria-label="Attach a document"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></button>
-              <button type="button" class="icon-btn" data-home-action="image" aria-label="Attach an image"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></button>
-              <span class="home-composer-gap"></span>
-              <button type="button" class="icon-btn" data-home-action="voice" aria-label="Speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
-              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
-            </div>
-          </form>
         </section>
 
         <!-- ============ CHAT ============ -->
@@ -659,7 +654,7 @@
     <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
       <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
       <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
-      <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-star4"/></svg></span><span class="fab-label">Chat</span></button>
+      <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="fab-label">Chat</span></button>
       <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></button>
       <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
     </nav>

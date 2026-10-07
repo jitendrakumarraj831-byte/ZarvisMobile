@@ -385,30 +385,34 @@ async function send(page, text) {
     await ctxW.close();
   });
 
-  await step("Home: the message box starts a chat, quick prompts fill the Chat box, cards open the right picker, and the app bar lines up with every page", async () => {
+  await step("Home: the message card sends to Chat and has direct file and image buttons, the orb and the footer mic open Chat, quick prompts fill the Chat box, and the app bar lines up with every page", async () => {
+    // Desktop: the orb opens Chat; a chip opens Chat with its starter text, ready to edit (nothing is sent).
     const ctxH = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageH = await pageOf(ctxH);
     await pageH.goto(BASE);
     await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-    // The prompt card sends exactly what was typed.
+    // The message card sends exactly what was typed.
     await pageH.fill("#home-prompt-input", "hello from home");
     await pageH.press("#home-prompt-input", "Enter");
     await pageH.waitForSelector("#view-chat:not([hidden])");
     await pageH.waitForSelector(".bubble.user >> text=hello from home");
     await pageH.waitForSelector(".bubble.assistant .bubble-body", { timeout: 15000 });
-    // The quick prompts are always on show; a chip opens Chat with its starter text, ready to edit (nothing is sent).
+    // The orb opens Chat.
+    await nav(pageH, "home");
+    await pageH.click("#home-orb");
+    await pageH.waitForSelector("#view-chat:not([hidden])");
     await nav(pageH, "home");
     assert.equal(await pageH.locator("#home-quick").isVisible(), true, "the quick prompts need no tap to appear");
     await pageH.click('#home-quick .chip[data-workspace-prompt^="Write a warm"]');
     await pageH.waitForSelector("#view-chat:not([hidden])");
     assert.match(await pageH.inputValue("#text-input"), /^Write a warm, concise message about:/);
     assert.equal(await pageH.locator(".bubble.user").count(), 1, "the chip did not send anything");
-    // Files lists every supported type; Image narrows the picker to pictures and the next Files pick is full again.
+    // "Upload file" lists every supported type; "Select image" goes straight to pictures and the next file pick is full again.
     await nav(pageH, "home");
-    await pageH.click('.action-tile[data-home-action="image"]');
+    await pageH.click('#home-prompt-form [data-home-action="image"]');
     assert.equal(await pageH.getAttribute("#file-input", "accept"), "image/*");
     await nav(pageH, "home");
-    await pageH.click('.action-tile[data-home-action="upload"]');
+    await pageH.click('#home-prompt-form [data-home-action="upload"]');
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
@@ -419,6 +423,19 @@ async function send(page, text) {
       assert.ok(Math.abs(edge - (await avatarRight())) <= 1, `${view}: page edge ${edge} vs app bar ${await avatarRight()}`);
     }
     await ctxH.close();
+
+    // Phone: the mic in the middle of the tab bar opens Chat at once, from any page.
+    const ctxP = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageP = await pageOf(ctxP);
+    await pageP.goto(BASE);
+    await pageP.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    for (const from of ["home", "settings"]) {
+      await pageP.evaluate((v) => document.querySelector(`.bottom-nav [data-view="${v}"]`).click(), from);
+      await pageP.waitForTimeout(300);
+      await pageP.click(".bottom-nav .nav-fab");
+      await pageP.waitForSelector("#view-chat:not([hidden])", { timeout: 3000 });
+    }
+    await ctxP.close();
   });
 
   await step("Developer access: off by default hides the Developer Agent and Metrics everywhere; the switch brings them back and is remembered", async () => {
@@ -539,52 +556,49 @@ async function send(page, text) {
     await ctxH.close();
   });
 
-  await step("Home: one question, four medium-colour feature cards, quick prompts and a message box that stays above the tab bar", async () => {
+  await step("Home: the glowing orb says only ZARVIS AI, the message card asks one question, the four feature tiles are gone, and a mic sits in the middle of the tab bar", async () => {
     for (const [label, viewport, touch] of [["phone", { width: 390, height: 844 }, true], ["desktop", { width: 1280, height: 800 }, false]]) {
       const ctxN = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch });
       const pageN = await pageOf(ctxN);
       await pageN.goto(BASE);
       await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-      await pageN.waitForTimeout(1100); // the cards fade in one after another
+      await pageN.waitForTimeout(800);
       const text = (selector) => pageN.evaluate((s) => document.querySelector(s)?.textContent.replace(/\s+/g, " ").trim(), selector);
-      assert.equal(await text(".home-title"), "What can I help with today?", label + ": the one question");
+      assert.equal(await text("#home-orb"), "ZARVIS AI", label + ": the orb says only ZARVIS AI");
+      assert.equal(await pageN.locator("#home-orb svg").count(), 0, label + ": no star in the orb");
+      assert.equal(await pageN.getAttribute("#home-orb", "aria-label"), "ZARVIS AI — talk by voice");
+      assert.equal(await text("#home-prompt-form .home-title"), "What can I help with today?", label + ": the one question sits in the message card");
+      assert.deepEqual(await pageN.evaluate(() => [...document.querySelectorAll("#home-prompt-form .home-card-tools button")].map((b) => b.textContent.trim() + "|" + b.dataset.homeAction)), ["Upload file|upload", "Select image|image"], label + ": direct file and image buttons in the card");
       assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
       assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
-      assert.equal(await pageN.locator("#home-orb, .home-mic, .mic-big").count(), 0, label + ": the old orb and big mic are gone");
-
-      const cards = await pageN.evaluate(() => [...document.querySelectorAll(".primary-actions .action-tile")].map((c) => {
-        const r = c.getBoundingClientRect();
-        const ico = c.querySelector(".tile-ico");
-        return { name: c.querySelector("strong").textContent, line: c.querySelector("small").textContent.trim(), tone: [...ico.classList].find((n) => n.startsWith("tone-")), shadow: getComputedStyle(ico).boxShadow, top: Math.round(r.top), right: Math.round(r.right) };
-      }));
-      assert.deepEqual(cards.map((c) => c.name), ["Chat", "Voice", "Image", "Files"], label + ": the four feature cards");
-      assert.ok(cards.every((c) => c.line.length > 3), label + ": every card says what it does");
-      assert.equal(new Set(cards.map((c) => c.tone)).size, 4, label + ": each card has its own colour");
-      assert.ok(cards.every((c) => c.shadow === "none"), label + ": the icon badges are flat (no glow)");
-      assert.ok(cards.every((c) => c.right <= viewport.width), label + ": no card runs off the screen");
-      if (!touch) assert.equal(new Set(cards.map((c) => c.top)).size, 1, label + ": the cards share one row on a wide screen");
+      assert.equal(await pageN.locator(".action-tile, .primary-actions, .home-composer").count(), 0, label + ": the four feature tiles and the bottom message bar are gone");
 
       const facts = await pageN.evaluate(() => {
-        const nav = document.querySelector(".bottom-nav");
-        const box = document.getElementById("home-prompt-form").getBoundingClientRect();
-        const navTop = nav && getComputedStyle(nav).display !== "none" ? nav.getBoundingClientRect().top : innerHeight;
+        const orb = document.querySelector("#home-orb .orb").getBoundingClientRect();
+        const hero = document.querySelector(".home-hero").getBoundingClientRect();
+        const fab = document.querySelector(".bottom-nav .nav-fab");
+        const fabBox = fab.getBoundingClientRect();
         const row = document.querySelector("#home-quick .chip-row");
         const chips = [...row.querySelectorAll(".chip:not([hidden])")];
         return {
-          composerTop: Math.round(box.top), composerBottom: Math.round(box.bottom), navTop: Math.round(navTop),
-          sticky: getComputedStyle(document.getElementById("home-prompt-form")).position,
+          orbCentre: Math.round(orb.left + orb.width / 2), heroCentre: Math.round(hero.left + hero.width / 2), screen: innerWidth,
+          fabVisible: fab.getClientRects().length > 0, fabCentre: Math.round(fabBox.left + fabBox.width / 2),
+          fabIcon: fab.querySelector("use").getAttribute("href"),
           chipScroll: row.scrollWidth > row.clientWidth + 8, chipOverflowX: getComputedStyle(row).overflowX, firstChipLeft: Math.round(chips[0].getBoundingClientRect().left),
-          small: [...document.querySelectorAll("#home-quick .chip, #home-prompt-form button")].filter((b) => b.getClientRects().length && (b.getBoundingClientRect().height < 43.5 || b.getBoundingClientRect().width < 43.5)).map((b) => b.textContent.trim() || b.getAttribute("aria-label")),
+          small: chips.filter((b) => b.getBoundingClientRect().height < 43.5).length,
           overflow: document.documentElement.scrollWidth - innerWidth,
         };
       });
-      assert.equal(facts.sticky, "sticky", label + ": the message box sticks");
-      assert.ok(facts.composerTop >= 0 && facts.composerBottom <= facts.navTop, `${label}: the message box (${facts.composerTop}-${facts.composerBottom}) sits above the tab bar (${facts.navTop})`);
-      assert.deepEqual(facts.small, [], label + ": quick prompts and message-box buttons are at least 44px");
+      assert.ok(Math.abs(facts.orbCentre - facts.heroCentre) <= 1, `${label}: the orb is centred (${facts.orbCentre} vs ${facts.heroCentre})`);
       assert.ok(facts.overflow <= 0, label + ": nothing widens the page");
+      assert.equal(facts.small, 0, label + ": quick prompts are at least 44px tall");
       if (touch) {
+        assert.ok(facts.fabVisible && Math.abs(facts.fabCentre - facts.screen / 2) <= 1, `${label}: the tab bar's middle button is centred (${facts.fabCentre})`);
+        assert.equal(facts.fabIcon, "#i-mic", label + ": the middle button is a microphone");
         assert.ok(facts.chipScroll && facts.chipOverflowX === "auto", label + ": the quick prompts swipe sideways");
         assert.ok(facts.firstChipLeft >= 12, label + ": the first prompt is not cut off at the edge (" + facts.firstChipLeft + "px)");
+      } else {
+        assert.equal(facts.fabVisible, false, label + ": a wide screen has no tab bar");
       }
 
       // "Medium colour": a mid-tone with real colour, and a white glyph that still reads (3:1 for graphics) - on every page.
@@ -596,7 +610,7 @@ async function send(page, text) {
           const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
           const lum = (hex) => { const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
           const out = [];
-          for (const node of document.querySelectorAll(".tile-ico, .row-ico, .stat-tile-ico")) {
+          for (const node of document.querySelectorAll(".row-ico, .stat-tile-ico")) {
             if (!node.getClientRects().length || node.closest(".is-off")) continue;
             const hex = getComputedStyle(node).getPropertyValue("--tone").trim();
             if (!/^#[0-9a-f]{6}$/i.test(hex)) { out.push({ bad: "no tone colour on " + node.className }); continue; }
@@ -606,7 +620,7 @@ async function send(page, text) {
           return out;
         });
       };
-      for (const view of touch ? ["home", "capabilities", "settings"] : ["home", "capabilities", "settings", "plans"]) { // Plans is in the phone menu, not its tab bar
+      for (const view of touch ? ["capabilities", "settings"] : ["capabilities", "settings", "plans"]) { // Plans is in the phone menu, not its tab bar
         const badges = await sweep(view);
         assert.ok(badges.length >= 3, `${label}/${view}: found its feature icons (${badges.length})`);
         for (const b of badges) {
@@ -615,7 +629,7 @@ async function send(page, text) {
           assert.ok(b.contrast >= 3, `${label}/${view}: a white icon on ${b.hex} reads at only ${b.contrast.toFixed(1)}:1`);
           assert.equal(b.shadow, "none", `${label}/${view}: ${b.hex} still glows`);
         }
-        if (view !== "home" && view !== "plans") assert.ok(new Set(badges.map((b) => b.hex)).size >= 5, `${label}/${view}: icons use at least five different colours`);
+        if (view !== "plans") assert.ok(new Set(badges.map((b) => b.hex)).size >= 5, `${label}/${view}: icons use at least five different colours`);
       }
       await ctxN.close();
     }
