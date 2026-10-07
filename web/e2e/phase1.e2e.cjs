@@ -827,7 +827,7 @@ async function send(page, text) {
     await ctxM.close();
   });
 
-  await step("First paint: the saved or device theme is applied before the app script runs; a notch never covers the top bar", async () => {
+  await step("First paint: light is the default on every device, a saved dark choice is applied before the app script runs; a notch never covers the top bar", async () => {
     for (const [stored, expected] of [["dim", "dim"], ["aurora", "aurora"]]) {
       const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 } });
       await ctxT.addInitScript((mode) => { try { localStorage.setItem("zarvis.appearance", mode); } catch {} }, stored);
@@ -838,11 +838,13 @@ async function send(page, text) {
       assert.equal(await pageT.evaluate(() => document.documentElement.getAttribute("data-appearance")), expected, "saved theme on first paint");
       await ctxT.close();
     }
-    for (const [scheme, expected] of [["light", "aurora"], ["dark", "dim"]]) {
+    // Light is the default whatever the device's own setting is; dark only once it was chosen.
+    for (const scheme of ["light", "dark", "no-preference"]) {
       const ctxD = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
       const pageD2 = await pageOf(ctxD);
       await pageD2.goto(BASE);
-      assert.equal(await pageD2.evaluate(() => document.documentElement.getAttribute("data-appearance")), expected, "first visit follows the device theme (" + scheme + ")");
+      assert.equal(await pageD2.evaluate(() => document.documentElement.getAttribute("data-appearance")), "aurora", "first visit is light on a " + scheme + " device");
+      assert.equal(await pageD2.evaluate(() => document.querySelector('meta[name="theme-color"]').getAttribute("content")), "#f4f3ff", "the browser bar is light on a " + scheme + " device");
       await ctxD.close();
     }
     const ctxS = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });

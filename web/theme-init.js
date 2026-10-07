@@ -1,11 +1,11 @@
-/* Runs in <head>, before the first paint: applies the saved theme (or the device's) so a dark
-   user never sees a light flash while the app script downloads. Keep it tiny and dependency-free. */
+/* Runs in <head>, before the first paint: applies the saved theme so a dark-mode user never sees a
+   light flash while the app script downloads. Light is the default for everyone, whatever the device's
+   own dark/light setting is; dark is only used once it has been chosen in Settings > Appearance.
+   Keep it tiny and dependency-free. */
 (function () {
-  var mode = "dim";
+  var mode = "aurora";
   try {
-    var saved = localStorage.getItem("zarvis.appearance");
-    if (saved === "dim" || saved === "aurora") mode = saved;
-    else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) mode = "aurora";
+    if (localStorage.getItem("zarvis.appearance") === "dim") mode = "dim";
   } catch (e) {}
   document.documentElement.setAttribute("data-appearance", mode);
   var color = mode === "dim" ? "#0a0d24" : "#f4f3ff";

@@ -307,7 +307,7 @@
     // Server-side durable conversation id. The browser keeps only this pointer; the
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
-    // theme-init.js (in <head>) already applied the saved or device theme before first paint.
+    // theme-init.js (in <head>) already applied the saved theme (light unless dark was chosen) before first paint.
     appearance: document.documentElement.dataset.appearance === "aurora" ? "aurora" : "dim",
     // "Developer access" is off by default: Developer Agent and Metrics stay out of the way until
     // the user switches them on in Settings → Developer. It only changes what is shown.
