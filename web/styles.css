@@ -2293,3 +2293,68 @@ html:has(body[data-active-view="chat"]) { scroll-padding-bottom: 160px; }
 .brand-text { flex-direction: row; align-items: baseline; gap: 0.32em; white-space: nowrap; }
 .brand-text small { margin-top: 0; font-size: 18px; letter-spacing: 0.06em; font-weight: 800; color: var(--primary); }
 @media (max-width: 339px) { .topbar .brand-text strong, .topbar .brand-text small { font-size: 16px; } }
+
+/* ---------- Home orb: a neon ring with rippling waves and drifting sparks; "ZARVIS AI" inside ----------
+   Same deep-blue glow in both themes. Only the Home orb (#home-orb); the Chat orb is unchanged.
+   The waves and sparks live in boxes 1.5x the orb that clip to a circle, so nothing (not even a spinning
+   layer's corners) can ever push the page wider than the screen. */
+#home-orb .orb { container-type: inline-size; }
+#home-orb .orb::before { inset: -22%; background: radial-gradient(circle, rgba(34, 211, 238, 0.36) 0%, rgba(37, 99, 235, 0.2) 42%, transparent 70%); }
+#home-orb .orb-ring { background: conic-gradient(from 0deg, #b6f6ff, #22d3ee, #2563eb, #22d3ee, #b6f6ff); }
+#home-orb .orb-ring::before { inset: 4%; background: radial-gradient(circle at 50% 38%, #0d63cf 0%, #07418f 46%, #041f55 100%); }
+#home-orb .orb-glint::before { background: radial-gradient(42% 30% at 34% 24%, rgba(182, 246, 255, 0.34), transparent 70%), radial-gradient(40% 36% at 70% 76%, rgba(37, 99, 235, 0.45), transparent 72%); animation: orb-spin 41s linear infinite reverse; }
+:root:not([data-appearance="dim"]) #home-orb .orb-glint::before { opacity: 1; }
+#home-orb .orb-core { box-shadow: inset 0 0 34px rgba(34, 211, 238, 0.55), 0 0 20px 2px rgba(34, 211, 238, 0.7), 0 0 62px 12px rgba(37, 99, 235, 0.42); }
+.orb-waves, .orb-sparks { position: absolute; inset: -25%; border-radius: 50%; overflow: hidden; overflow: clip; pointer-events: none; }
+.orb-waves { z-index: -1; }
+.orb-sparks { z-index: 2; }
+/* Waves: thin rings that spread outward from the orb's edge and fade, one after another. */
+.orb-waves i { position: absolute; inset: 16.667%; border-radius: 50%; border: 1px solid rgba(56, 189, 248, 0.55); opacity: 0; animation: orb-ripple 7s ease-out infinite; }
+.orb-waves i:nth-child(2) { animation-delay: -1.75s; }
+.orb-waves i:nth-child(3) { animation-delay: -3.5s; }
+.orb-waves i:nth-child(4) { animation-delay: -5.25s; }
+/* Sparks: tiny lights that drift slowly around the ring (two layers, opposite ways). */
+.orb-sparks b { position: absolute; inset: 0; animation: orb-spin 70s linear infinite;
+  background-image: radial-gradient(circle at 90.5% 49.3%, #5fd4ff 0 1.6px, transparent 2.5px),
+    radial-gradient(circle at 87.6% 65.7%, #e6fcff 0 1.6px, transparent 2.5px),
+    radial-gradient(circle at 78.5% 81.3%, #e6fcff 0 1.6px, transparent 2.5px),
+    radial-gradient(circle at 66.4% 82.9%, #e6fcff 0 1.6px, transparent 2.5px),
+    radial-gradient(circle at 43.1% 90.7%, #e6fcff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 32.1% 81.8%, #e6fcff 0 1.0px, transparent 1.9px),
+    radial-gradient(circle at 17.5% 74.6%, #5fd4ff 0 1.3px, transparent 2.2px),
+    radial-gradient(circle at 10.9% 67.2%, #e6fcff 0 1.3px, transparent 2.2px),
+    radial-gradient(circle at 8.7% 50.0%, #5fd4ff 0 1.3px, transparent 2.2px),
+    radial-gradient(circle at 12.2% 35.8%, #e6fcff 0 1.3px, transparent 2.2px),
+    radial-gradient(circle at 21.5% 25.1%, #9be8ff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 28.1% 14.0%, #5fd4ff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 54.9% 11.2%, #e6fcff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 62.4% 8.4%, #e6fcff 0 1.6px, transparent 2.5px),
+    radial-gradient(circle at 78.1% 19.2%, #5fd4ff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 85.1% 36.4%, #9be8ff 0 1.3px, transparent 2.2px); }
+.orb-sparks b + b { animation: orb-spin 110s linear infinite reverse, orb-twinkle 3.4s ease-in-out infinite;
+  background-image: radial-gradient(circle at 90.2% 44.0%, #9be8ff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 86.8% 73.4%, #e6fcff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 57.8% 91.2%, #e6fcff 0 1.1px, transparent 2.0px),
+    radial-gradient(circle at 26.9% 89.7%, #e6fcff 0 1.1px, transparent 2.0px),
+    radial-gradient(circle at 12.8% 61.4%, #9be8ff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 5.7% 42.4%, #9be8ff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 25.8% 16.7%, #e6fcff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 63.6% 12.7%, #9be8ff 0 0.8px, transparent 1.7px),
+    radial-gradient(circle at 83.5% 27.1%, #9be8ff 0 1.1px, transparent 2.0px); }
+.orb-label { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; pointer-events: none; text-align: center; }
+.orb-label strong {
+  font-family: var(--font-display); font-weight: 800; font-size: clamp(11px, 9.6cqw, 32px); letter-spacing: 0.1em; padding-left: 0.1em; line-height: 1; white-space: nowrap;
+  color: #fff; text-shadow: 0 0 8px rgba(165, 243, 252, 0.95), 0 0 22px rgba(34, 211, 238, 0.7);
+}
+.home-greet { position: relative; z-index: 2; }
+@keyframes orb-ripple { 0% { transform: scale(1.02); opacity: 0; } 14% { opacity: 0.6; } 100% { transform: scale(1.4); opacity: 0; } }
+@keyframes orb-twinkle { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+body.page-hidden .orb-waves i, body.page-hidden .orb-sparks b { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  /* Still: the rings stay as fixed, fading circles, like a frozen ripple. */
+  .orb-waves i, .orb-sparks b { animation: none; }
+  .orb-waves i:nth-child(1) { transform: scale(1.12); opacity: 0.5; }
+  .orb-waves i:nth-child(2) { transform: scale(1.22); opacity: 0.34; }
+  .orb-waves i:nth-child(3) { transform: scale(1.31); opacity: 0.22; }
+  .orb-waves i:nth-child(4) { transform: scale(1.39); opacity: 0.12; }
+}

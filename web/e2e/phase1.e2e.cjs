@@ -541,6 +541,23 @@ async function send(page, text) {
     await ctxH.close();
   });
 
+  await step("Home: the header says ZARVIS AI, the orb says only ZARVIS AI (no star, no subtitle), and the card asks one question", async () => {
+    for (const [label, viewport] of [["phone", { width: 390, height: 844 }], ["desktop", { width: 1280, height: 800 }]]) {
+      const ctxN = await browser.newContext({ viewport });
+      const pageN = await pageOf(ctxN);
+      await pageN.goto(BASE);
+      await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      const text = (selector) => pageN.evaluate((s) => document.querySelector(s)?.textContent.replace(/\s+/g, " ").trim(), selector);
+      assert.equal(await text("#home-orb"), "ZARVIS AI", label + ": the orb says only ZARVIS AI");
+      assert.equal(await pageN.locator("#home-orb svg").count(), 0, label + ": no star in the orb");
+      assert.equal(await pageN.getAttribute("#home-orb", "aria-label"), "ZARVIS AI — talk by voice");
+      assert.equal(await text(".home-card-copy"), "What can I help with today?", label + ": the card asks one question");
+      assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
+      assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
+      await ctxN.close();
+    }
+  });
+
   await step("Pages: the profile card opens Account, Capabilities tallies what it lists, Activity's empty state offers a next step", async () => {
     const ctxP = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageP = await pageOf(ctxP);

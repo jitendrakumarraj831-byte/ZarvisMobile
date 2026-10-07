@@ -106,6 +106,42 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     assert.deepEqual(problems, []);
   });
 
+  // ---- Home orb: ripples and sparks are decoration; they must never widen the page or crowd the name ----------
+  await step("Home orb: the ripples and sparks stay inside the screen while they move, ZARVIS AI fits inside the orb, and reduced motion keeps still rings", async () => {
+    const problems = [];
+    for (const [width, height] of [[320, 640], [360, 740], [390, 844], [412, 915], [1280, 800]]) {
+      const ctx = await browser.newContext({ viewport: { width, height } });
+      const page = await pageOf(ctx);
+      await ready(page);
+      let widest = 0;
+      for (let i = 0; i < 20; i += 1) {
+        widest = Math.max(widest, await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth));
+        await page.waitForTimeout(300);
+      }
+      if (widest > 0) problems.push(`${width}px: the page grew ${widest}px wider than the screen`);
+      const m = await page.evaluate(() => {
+        const orb = document.querySelector("#home-orb .orb");
+        const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, overflow: getComputedStyle(document.querySelector(selector)).overflow }; };
+        const halo = parseFloat(getComputedStyle(orb, "::before").width);
+        return { orb: orb.getBoundingClientRect().width, label: document.querySelector("#home-orb .orb-label strong").getBoundingClientRect().width, halo, waves: box("#home-orb .orb-waves"), sparks: box("#home-orb .orb-sparks"), screen: window.innerWidth };
+      });
+      if (m.label > m.orb * 0.8) problems.push(`${width}px: "ZARVIS AI" is ${Math.round(m.label)}px wide in a ${Math.round(m.orb)}px orb`);
+      for (const [name, b] of [["waves", m.waves], ["sparks", m.sparks]]) {
+        if (!["hidden", "clip"].includes(b.overflow)) problems.push(`${width}px: the ${name} layer is not clipped (${b.overflow})`);
+        if (b.left < -1 || b.right > m.screen + 1) problems.push(`${width}px: the ${name} layer is outside the screen`);
+      }
+      if (m.halo * 1.09 > m.screen) problems.push(`${width}px: the glow (${Math.round(m.halo)}px, breathing) is wider than the screen`);
+      await ctx.close();
+    }
+    const still = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+    const stillPage = await pageOf(still);
+    await ready(stillPage);
+    const rings = await stillPage.evaluate(() => Array.from(document.querySelectorAll("#home-orb .orb-waves i")).map((n) => [getComputedStyle(n).animationName, getComputedStyle(n).opacity]));
+    if (rings.length !== 4 || rings.some(([name, opacity]) => name !== "none" || Number(opacity) < 0.1)) problems.push("reduced motion: the rings are not still and visible: " + JSON.stringify(rings));
+    await still.close();
+    assert.deepEqual(problems, []);
+  });
+
   // ---- Small screens: nothing is cut off at 320px, tap targets reach 44px -----------------------------
   await step("320px phone: no card is cut off, no word breaks mid-way, touch targets are at least 44px", async () => {
     const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
