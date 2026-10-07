@@ -29,6 +29,8 @@
     "Search": "खोजें",
     "Search (Ctrl K)": "खोजें (Ctrl K)",
     "Main": "मुख्य",
+    "Menu": "मेन्यू",
+    "Close menu": "मेन्यू बंद करें",
     "ZARVIS MOBILE home": "ZARVIS MOBILE होम",
     "Notifications": "सूचनाएँ",
     "Account menu": "खाता मेनू",

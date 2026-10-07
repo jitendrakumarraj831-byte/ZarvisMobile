@@ -54,6 +54,7 @@
       <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
       <symbol id="i-left" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9"/><path d="M18.5 3.5v4h-4M5.5 20.5v-4h4"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
       <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z"/></symbol>
@@ -77,6 +78,7 @@
       <div class="brand">
         <span class="brand-orb" aria-hidden="true"></span>
         <span class="brand-text"><strong>ZARVIS</strong> <small>MOBILE</small></span>
+        <button type="button" class="icon-btn drawer-close" id="drawer-close" aria-label="Close menu" title="Close menu"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
       <div class="nav-group">
         <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
@@ -96,16 +98,20 @@
         <button type="button" class="nav-item nav-profile" data-nav="settings"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>Profile</span></button>
       </div>
     </nav>
+    <div class="drawer-scrim" id="drawer-scrim" hidden></div>
 
     <div class="main">
       <div class="offline-banner" id="offline-banner" role="status" hidden></div>
 
       <!-- Mobile top bar -->
       <header class="topbar">
-        <button type="button" class="topbar-brand" data-nav="home" aria-label="ZARVIS MOBILE home">
-          <span class="brand-orb" aria-hidden="true"></span>
-          <span class="brand-text"><strong>ZARVIS</strong> <small>MOBILE</small></span>
-        </button>
+        <div class="topbar-lead">
+          <button type="button" class="icon-btn topbar-menu" id="menu-btn" aria-label="Menu" title="Menu" aria-controls="sidebar-nav" aria-expanded="false"><svg class="ico" aria-hidden="true"><use href="#i-menu"/></svg></button>
+          <button type="button" class="topbar-brand" data-nav="home" aria-label="ZARVIS MOBILE home">
+            <span class="brand-orb" aria-hidden="true"></span>
+            <span class="brand-text"><strong>ZARVIS</strong> <small>MOBILE</small></span>
+          </button>
+        </div>
         <div class="topbar-actions">
           <button type="button" class="icon-btn" data-shell="search" aria-label="Search" title="Search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></button>
           <button type="button" class="icon-btn topbar-activity" data-shell="notifications" aria-label="Notifications" title="Notifications"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>

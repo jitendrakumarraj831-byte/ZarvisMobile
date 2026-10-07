@@ -387,6 +387,7 @@
       ["modals", setupModalManager],
       ["connection", setupConnectionState],
       ["history", setupHistory],
+      ["menu drawer", setupNavDrawer],
     ];
     for (const [name, initialize] of optionalInitializers) {
       try {
@@ -655,6 +656,63 @@
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     });
     sync();
+  }
+
+  // ---- Phone menu: under 700px the sidebar is a drawer behind the menu button ----------------
+  // Same navigation as the desktop sidebar (including Plans and, with Developer access, the developer
+  // pages). While it is open the page behind is inert and cannot scroll; Esc, the backdrop, the close
+  // button or choosing a page closes it and focus returns to the menu button.
+  function setupNavDrawer() {
+    const drawer = document.getElementById("sidebar-nav");
+    const scrim = document.getElementById("drawer-scrim");
+    const menuBtn = document.getElementById("menu-btn");
+    const closeBtn = document.getElementById("drawer-close");
+    const app = document.querySelector(".app");
+    if (!drawer || !scrim || !menuBtn || !app) return;
+    const phone = window.matchMedia("(max-width: 699px)");
+    const isOpen = () => drawer.classList.contains("is-open");
+    const behind = () => Array.from(app.children).filter((node) => node !== drawer && node !== scrim);
+    const focusable = () => Array.from(drawer.querySelectorAll("button")).filter((node) => !node.disabled && node.getClientRects().length);
+
+    function setOpen(open, restoreFocus = true) {
+      if (open === isOpen() || (open && !phone.matches)) return;
+      drawer.classList.toggle("is-open", open);
+      scrim.hidden = !open;
+      document.body.classList.toggle("drawer-open", open);
+      menuBtn.setAttribute("aria-expanded", String(open));
+      for (const node of behind()) node.toggleAttribute("inert", open);
+      if (open) (drawer.querySelector(".nav-item.active") || closeBtn)?.focus({ preventScroll: true });
+      else if (restoreFocus) menuBtn.focus({ preventScroll: true });
+    }
+
+    menuBtn.addEventListener("click", () => {
+      haptic();
+      setOpen(!isOpen());
+    });
+    closeBtn?.addEventListener("click", () => setOpen(false));
+    scrim.addEventListener("click", () => setOpen(false));
+    // Runs after the item's own handler has switched the page (tapping the current page still closes it).
+    drawer.addEventListener("click", (event) => {
+      if (event.target.closest(".nav-item")) setOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (!isOpen()) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+      } else if (event.key === "Tab") {
+        const items = focusable();
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (!drawer.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    });
+    // Back/Forward or a rotation to a wide screen (where the sidebar is always there) leaves nothing half open.
+    phone.addEventListener("change", () => { if (!phone.matches) setOpen(false, false); });
+    window.addEventListener("popstate", () => setOpen(false, false));
+    window.addEventListener("hashchange", () => setOpen(false, false));
   }
 
   // ---- Connection: say so when the device is offline (the header used to claim "Online") ----

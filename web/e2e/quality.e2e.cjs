@@ -132,7 +132,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await openView(page, "settings");
     await page.evaluate(() => document.querySelector('[data-settings-page="voice"]').click());
     await page.waitForTimeout(300);
-    const small = await page.evaluate(() => Array.from(document.querySelectorAll(".switch, .topbar-brand")).filter((n) => n.getClientRects().length).map((n) => { const r = n.getBoundingClientRect(); const after = getComputedStyle(n, "::after"); const h = r.height + (after.content !== "none" ? parseFloat(after.top) * -2 || 0 : 0); return [n.className, Math.round(r.width), Math.round(h)]; }).filter(([, w, h]) => w < 44 || h < 44));
+    const small = await page.evaluate(() => Array.from(document.querySelectorAll(".switch, .topbar-brand, .topbar-menu")).filter((n) => n.getClientRects().length).map((n) => { const r = n.getBoundingClientRect(); const after = getComputedStyle(n, "::after"); const h = r.height + (after.content !== "none" ? parseFloat(after.top) * -2 || 0 : 0); return [n.className, Math.round(r.width), Math.round(h)]; }).filter(([, w, h]) => w < 44 || h < 44));
     for (const [cls, w, h] of small) problems.push(`target ${cls}: ${w}x${h}`);
     await ctx.close();
     assert.deepEqual(problems, []);
@@ -164,6 +164,26 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
       }
       await ctx.close();
       assert.deepEqual(found, []);
+    });
+  }
+
+  // The phone menu drawer, open (the sweeps above only see it closed): contrast of the current-page row, names, focus.
+  for (const [appearance, lang] of [["aurora", "en"], ["dim", "en"], ["aurora", "hi"], ["dim", "hi"]]) {
+    await step(`accessibility: the open phone menu has no serious/critical axe violation (390px, ${appearance}${lang === "hi" ? ", Hindi" : ""})`, async () => {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, bypassCSP: true, reducedMotion: "reduce" });
+      await ctx.addInitScript(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
+      const page = await pageOf(ctx);
+      await ready(page);
+      await page.addScriptTag({ content: AXE_SOURCE });
+      await page.click("#menu-btn");
+      await page.waitForTimeout(500);
+      const violations = await page.evaluate(async () => {
+        // eslint-disable-next-line no-undef
+        const r = await axe.run(document, { resultTypes: ["violations"] });
+        return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+      });
+      await ctx.close();
+      assert.deepEqual(violations, []);
     });
   }
 

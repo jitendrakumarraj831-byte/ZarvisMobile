@@ -460,6 +460,87 @@ async function send(page, text) {
     }
   });
 
+  await step("Phone menu: the top-left menu button opens the whole navigation as a drawer that traps focus, locks the page behind, and closes on Esc, backdrop, Back or choosing a page", async () => {
+    const ctxM = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageM = await pageOf(ctxM);
+    await pageM.goto(BASE);
+    await pageM.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const menu = pageM.locator("#menu-btn");
+    const isOpen = () => pageM.evaluate(() => document.getElementById("sidebar-nav").classList.contains("is-open"));
+    const inDrawer = () => pageM.evaluate(() => document.getElementById("sidebar-nav").contains(document.activeElement));
+    const openDrawer = async () => { await menu.click(); await pageM.waitForFunction(() => document.getElementById("sidebar-nav").classList.contains("is-open")); await pageM.waitForTimeout(350); };
+    // Where the logo used to be: top-left, at least 44px, ahead of the wordmark and the actions.
+    const box = await menu.boundingBox();
+    assert.ok(box && box.x < 24 && box.y < 24 && box.width >= 44 && box.height >= 44, "menu button is top-left and 44px: " + JSON.stringify(box));
+    assert.equal(await menu.getAttribute("aria-expanded"), "false");
+    assert.equal(await pageM.locator("#sidebar-nav").isVisible(), false, "closed at first");
+    assert.equal(await pageM.locator("#sidebar-nav button:visible").count(), 0, "a closed drawer has nothing to tab to");
+    // Open: focus moves in, the page behind is inert and cannot scroll.
+    await openDrawer();
+    assert.equal(await menu.getAttribute("aria-expanded"), "true");
+    assert.equal(await inDrawer(), true, "focus is inside the drawer");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), true, "the page behind is inert");
+    assert.equal(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden", "the page behind cannot scroll");
+    // The whole navigation (no developer pages while that switch is off).
+    const labels = (await pageM.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
+    assert.deepEqual(labels, ["Home", "Chat", "Activity", "Capabilities", "Plans", "Settings", "Profile"]);
+    // Tab never leaves the drawer.
+    for (let i = 0; i < 12; i++) {
+      await pageM.keyboard.press("Tab");
+      assert.equal(await inDrawer(), true, "Tab stays in the drawer");
+    }
+    // Esc closes it and focus returns to the menu button.
+    await pageM.keyboard.press("Escape");
+    await pageM.waitForFunction(() => !document.getElementById("sidebar-nav").classList.contains("is-open"));
+    assert.equal(await pageM.evaluate(() => document.activeElement?.id), "menu-btn", "focus returns to the menu button");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), false);
+    assert.notEqual(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden");
+    // Choosing a page switches to it and closes the drawer.
+    await openDrawer();
+    await pageM.click('#sidebar-nav [data-view="plans"]');
+    await pageM.waitForSelector("#view-plans:not([hidden])");
+    assert.equal(await isOpen(), false, "choosing a page closes the drawer");
+    // Tapping the page you are already on closes it too.
+    await openDrawer();
+    await pageM.click('#sidebar-nav [data-view="plans"]');
+    assert.equal(await isOpen(), false, "tapping the current page closes the drawer");
+    assert.equal(await pageM.locator("#view-plans").isVisible(), true);
+    // The backdrop closes it.
+    await openDrawer();
+    await pageM.locator("#drawer-scrim").click({ position: { x: 360, y: 400 } });
+    assert.equal(await isOpen(), false, "the backdrop closes the drawer");
+    // So does the close button, and the browser's Back.
+    await openDrawer();
+    await pageM.click("#drawer-close");
+    assert.equal(await isOpen(), false, "the close button closes the drawer");
+    await openDrawer();
+    await pageM.goBack();
+    await pageM.waitForFunction(() => !document.getElementById("sidebar-nav").classList.contains("is-open"));
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), false, "Back leaves nothing inert");
+    // Turning the phone to a wide screen while it is open leaves nothing half open: the sidebar is simply there.
+    await openDrawer();
+    await pageM.setViewportSize({ width: 1280, height: 800 });
+    await pageM.waitForFunction(() => !document.getElementById("sidebar-nav").classList.contains("is-open"));
+    assert.equal(await pageM.locator("#menu-btn:visible").count(), 0, "no menu button on a wide screen");
+    assert.equal(await pageM.locator('#sidebar-nav [data-view="settings"]:visible').count(), 1, "the sidebar is shown instead");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), false);
+    await ctxM.close();
+
+    // Developer access adds its two pages; Hindi labels the button and the drawer.
+    const ctxH = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    await ctxH.addInitScript(() => { try { localStorage.setItem("zarvis.lang", "hi"); } catch {} });
+    const pageH = await pageOf(ctxH, { devAccess: true });
+    await pageH.goto(BASE);
+    await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    assert.equal(await pageH.getAttribute("#menu-btn", "aria-label"), "मेन्यू");
+    await pageH.click("#menu-btn");
+    await pageH.waitForTimeout(350);
+    const hindi = (await pageH.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
+    assert.deepEqual(hindi, ["होम", "चैट", "गतिविधि", "क्षमताएँ", "डेवलपर एजेंट", "मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
+    assert.equal(await pageH.getAttribute("#drawer-close", "aria-label"), "मेन्यू बंद करें");
+    await ctxH.close();
+  });
+
   await step("Pages: the profile card opens Account, Capabilities tallies what it lists, Activity's empty state offers a next step", async () => {
     const ctxP = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageP = await pageOf(ctxP);
