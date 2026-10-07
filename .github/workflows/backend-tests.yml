@@ -73,6 +73,8 @@ jobs:
         run: |
           node --check web/app.js
           node --check web/feature-pages.js
+          node --check web/shell.js
+          node --check web/theme-init.js
           node --check web/sw.js
           node --check web/logic.js
           node --test web/tests/*.test.js

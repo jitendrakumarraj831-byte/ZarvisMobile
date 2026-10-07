@@ -8,8 +8,11 @@
   <link rel="icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#f6f7fb" />
+  <meta name="theme-color" content="#0a0d24" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f4f3ff" media="(prefers-color-scheme: light)" />
+  <meta name="color-scheme" content="dark light" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -95,6 +98,8 @@
     </nav>
 
     <div class="main">
+      <div class="offline-banner" id="offline-banner" role="status" hidden></div>
+
       <!-- Mobile top bar -->
       <header class="topbar">
         <button type="button" class="topbar-brand" data-nav="home" aria-label="ZARVIS MOBILE home">
@@ -417,7 +422,7 @@
                 <p class="page-sub">Customize your Zarvis experience.</p>
               </div>
             </header>
-            <button type="button" class="profile-hero" id="settings-profile-hero" data-settings-page="account" data-settings-label="Profile">
+            <button type="button" class="profile-hero" id="settings-profile-hero" data-settings-page="account" data-settings-label="Profile" data-settings-desc="Your account, email link and sign-in">
               <span class="profile-hero-avatar" aria-hidden="true"><span class="avatar-text">Z</span></span>
               <span class="profile-hero-copy"><strong id="profile-hero-name">Guest</strong><small id="profile-hero-sub">Guest account. Link an email to keep it.</small></span>
               <span class="profile-hero-plan" id="profile-hero-plan" hidden></span>
@@ -725,5 +730,6 @@
   <script src="./shell.js"></script>
   <script src="./app.js"></script>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <div class="sr-only" id="route-announcer" role="status" aria-live="polite"></div>
 </body>
 </html>

@@ -479,6 +479,99 @@ async function send(page, text) {
     await ctxP.close();
   });
 
+  await step("Navigation: Back/Forward move between pages, reload and #/links keep the page, every page has its own title", async () => {
+    const ctxN = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const pageN = await pageOf(ctxN);
+    await pageN.goto(BASE);
+    await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const view = () => pageN.evaluate(() => document.body.dataset.activeView);
+    const homeTitle = await pageN.title();
+    await nav(pageN, "chat");
+    await nav(pageN, "activity");
+    assert.match(await pageN.title(), /^Activity · /, "each page sets its own tab title");
+    assert.notEqual(await pageN.title(), homeTitle);
+    await pageN.goBack();
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "chat");
+    await pageN.goForward();
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "activity");
+    await pageN.reload();
+    await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    assert.equal(await view(), "activity", "a reload keeps the page");
+    // A Settings sub-page is an entry too; the in-app back button behaves like the browser's.
+    await pageN.goto(BASE + "/#/settings/voice");
+    await pageN.waitForSelector('[data-settings-panel="voice"]:not([hidden])');
+    assert.match(await pageN.title(), /^Voice · /);
+    await pageN.click("[data-settings-back]");
+    await pageN.waitForSelector("#settings-grid:not([hidden])");
+    assert.equal(await pageN.evaluate(() => location.hash), "#/settings");
+    // The Account page is called Profile, not the user's name.
+    await pageN.click('[data-settings-page="account"]');
+    assert.equal(await pageN.innerText("#settings-subpage-title"), "Profile");
+    // Developer-only routes never open for someone without Developer access: they land on its switch.
+    await pageN.goto(BASE + "/#/metrics");
+    await pageN.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
+    assert.equal(await pageN.evaluate(() => location.hash), "#/settings/developer");
+    await ctxN.close();
+  });
+
+  await step("Dialogs: focus goes in and stays in, the page behind is locked, focus comes back; offline is shown, not hidden behind 'Online'", async () => {
+    const ctxM = await browser.newContext({ viewport: { width: 390, height: 700 } }); // first visit: the sign-in card opens on Chat
+    const pageM = await ctxM.newPage();
+    await pageM.goto(BASE);
+    await pageM.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageM, "chat");
+    await pageM.waitForSelector("#welcome-gate:not([hidden])");
+    const inside = () => pageM.evaluate(() => document.getElementById("welcome-gate").contains(document.activeElement));
+    assert.equal(await inside(), true, "focus moves into the card");
+    for (let i = 0; i < 14; i++) {
+      await pageM.keyboard.press("Tab");
+      assert.equal(await inside(), true, "Tab stays inside the card");
+    }
+    assert.equal(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden", "the page behind cannot scroll");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".app").inert), true, "the page behind is inert");
+    await pageM.keyboard.press("Escape");
+    await pageM.waitForSelector("#welcome-gate", { state: "hidden" });
+    assert.notEqual(await pageM.evaluate(() => document.activeElement && document.activeElement.tagName), "BODY", "focus returns to the page");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".app").inert), false);
+    // Offline: the header and a banner say so; coming back clears both.
+    await ctxM.setOffline(true);
+    await pageM.waitForSelector("#offline-banner:not([hidden])");
+    assert.match(await pageM.innerText(".chat-header"), /Offline/);
+    await ctxM.setOffline(false);
+    await pageM.waitForSelector("#offline-banner", { state: "hidden" });
+    await ctxM.close();
+  });
+
+  await step("First paint: the saved or device theme is applied before the app script runs; a notch never covers the top bar", async () => {
+    for (const [stored, expected] of [["dim", "dim"], ["aurora", "aurora"]]) {
+      const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      await ctxT.addInitScript((mode) => { try { localStorage.setItem("zarvis.appearance", mode); } catch {} }, stored);
+      const pageT = await ctxT.newPage();
+      await pageT.route("**/app.js", () => {}); // never answered: what is on screen before the app script exists
+      pageT.goto(BASE, { waitUntil: "commit" }).catch(() => {});
+      await pageT.waitForFunction(() => document.body && getComputedStyle(document.body).backgroundColor !== "", null, { timeout: 15000 });
+      assert.equal(await pageT.evaluate(() => document.documentElement.getAttribute("data-appearance")), expected, "saved theme on first paint");
+      await ctxT.close();
+    }
+    for (const [scheme, expected] of [["light", "aurora"], ["dark", "dim"]]) {
+      const ctxD = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+      const pageD2 = await pageOf(ctxD);
+      await pageD2.goto(BASE);
+      assert.equal(await pageD2.evaluate(() => document.documentElement.getAttribute("data-appearance")), expected, "first visit follows the device theme (" + scheme + ")");
+      await ctxD.close();
+    }
+    const ctxS = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageS = await pageOf(ctxS);
+    await pageS.goto(BASE);
+    await pageS.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const cdp = await ctxS.newCDPSession(pageS);
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 47, bottom: 34, left: 0, right: 0 } });
+    const box = await pageS.evaluate(() => ({ brandTop: document.querySelector(".topbar-brand").getBoundingClientRect().top, navPad: parseFloat(getComputedStyle(document.querySelector(".bottom-nav")).paddingBottom) }));
+    assert.ok(box.brandTop >= 47, "top bar content starts below the notch: " + box.brandTop);
+    assert.ok(box.navPad >= 34, "bottom nav clears the home indicator: " + box.navPad);
+    await ctxS.close();
+  });
+
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
     for (const path of ["/logic.js", "/feature-pages.js", "/app.js", "/sw.js"]) {
       const res = await fetch(BASE + path);

@@ -100,6 +100,9 @@
       extracting: "Reading document…",
       attachmentReady: "Ready to analyze",
       attachmentRemove: "Remove attachment",
+      offlineLabel: "Offline",
+      offlineBanner: "You're offline. ZARVIS works again as soon as you reconnect.",
+      backOnline: "Back online",
       stateLabels: {
         IDLE: "Online",
         LISTENING: "Listening",
@@ -158,6 +161,9 @@
       extracting: "डॉक्यूमेंट पढ़ा जा रहा है…",
       attachmentReady: "विश्लेषण के लिए तैयार",
       attachmentRemove: "अटैचमेंट हटाएं",
+      offlineLabel: "ऑफ़लाइन",
+      offlineBanner: "आप ऑफ़लाइन हैं। इंटरनेट लौटते ही ZARVIS फिर काम करेगा।",
+      backOnline: "फिर से ऑनलाइन",
       stateLabels: {
         IDLE: "ऑनलाइन",
         LISTENING: "सुन रहा हूँ",
@@ -302,7 +308,8 @@
     // Server-side durable conversation id. The browser keeps only this pointer; the
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
-    appearance: localStorage.getItem("zarvis.appearance") || "dim",
+    // theme-init.js (in <head>) already applied the saved or device theme before first paint.
+    appearance: document.documentElement.dataset.appearance === "aurora" ? "aurora" : "dim",
     // "Developer access" is off by default: Developer Agent and Metrics stay out of the way until
     // the user switches them on in Settings → Developer. It only changes what is shown.
     devAccess: readDevAccess(),
@@ -310,10 +317,8 @@
     featureId: null,
   };
 
-  // Declared here (not near their setup functions below) because init() runs synchronously
-  // up to its first `await` and calls those setup functions immediately — a `let` declared
-  // later in this same scope would still be in its temporal dead zone at that point,
-  // throwing "Cannot access '...' before initialization".
+  // Declared early out of habit: init() is now started at the very end of this file, so the
+  // order of declarations below no longer matters to it.
   let recognition = null;
   // Presentation state read by Settings, Metrics and Activity (declared early for init()).
   let currentPlanName = null;
@@ -325,15 +330,6 @@
   // called from submitUtterance() around the actual /orchestrator/turn fetch) — feeds the
   // System Metrics tab. In-memory only, capped, never persisted or fabricated.
   let latencyEntries = [];
-
-  init().catch((err) => {
-    // The technical detail (network failure, a platform error page, whatever) is only ever
-    // logged here — never rendered into the UI. addErrorBubble always shows the same
-    // friendly, translated connection message regardless of cause.
-    console.error(err);
-    addErrorBubble(COPY[state.lang].bootError, () => location.reload());
-    setOrbState("ERROR");
-  });
 
   async function init() {
     // Wire the core composer controls first. These must remain usable even if an optional
@@ -388,6 +384,9 @@
       ["account", setupAccountPanel],
       ["developer", setupDeveloper],
       ["github", setupGithubConnect],
+      ["modals", setupModalManager],
+      ["connection", setupConnectionState],
+      ["history", setupHistory],
     ];
     for (const [name, initialize] of optionalInitializers) {
       try {
@@ -452,7 +451,7 @@
     // later in this file — applyLanguage() runs synchronously from init(), before that
     // declaration executes, so calling it here throws "Cannot access before initialization"
     // and takes down the entire init() sequence with it. el.sendLabel is already set above.
-    el.heroStatusLabel.textContent = copy.stateLabels[el.orb.dataset.state] || copy.stateLabels.IDLE;
+    renderHeroStatus();
     if (state.skills.length) renderQuickActions(state.skills);
     populateVoiceSelect(); // available voices differ between "en" and "hi"
     for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
@@ -513,6 +512,172 @@
     setActiveView("settings");
     openSettingsPage("developer");
     return false;
+  }
+
+  // ---- Browser history: pages and Settings sub-pages are real history entries ---------------
+  // Back / Forward (and the Android system Back button) move between pages instead of leaving
+  // the app, a reload keeps the page, and #/settings/voice style links open that page.
+  let applyingRoute = false;
+  let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
+  let featureOwnsEntry = false; // same for a capability detail page
+
+  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", capabilities: "Capabilities", plans: "Plans", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
+
+  function currentRoute() {
+    if (state.activeView === "settings" && state.settingsPage) return "#/settings/" + state.settingsPage;
+    if (state.activeView === "feature" && state.featureId) return "#/capabilities/" + state.featureId;
+    return "#/" + state.activeView;
+  }
+
+  /** "Activity · ZARVIS MOBILE": what the tab, the history list and a screen reader announce. */
+  function pageTitle() {
+    const brand = "ZARVIS MOBILE";
+    if (state.activeView === "home") return brand;
+    let name = "";
+    if (state.activeView === "settings" && state.settingsPage) name = el.settingsSubpageTitle?.textContent || "";
+    else if (state.activeView === "feature") name = document.querySelector("#view-feature h1")?.textContent || "";
+    else name = document.querySelector(".view:not([hidden]) h1:not(.sr-only)")?.textContent || "";
+    name = (name || PAGE_TITLES[state.activeView] || "").trim();
+    return name ? name + " · " + brand : brand;
+  }
+
+  function syncRoute() {
+    const title = pageTitle();
+    document.title = title;
+    const announcer = document.getElementById("route-announcer");
+    if (announcer) announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
+    if (applyingRoute) return;
+    const route = currentRoute();
+    if (location.hash === route || (state.activeView === "home" && !location.hash)) return;
+    history.pushState({ zarvis: true }, "", route);
+    subpageOwnsEntry = state.activeView === "settings" && !!state.settingsPage;
+    featureOwnsEntry = state.activeView === "feature";
+  }
+
+  function applyRoute(hash) {
+    const match = /^#\/([a-z]+)(?:\/([\w-]+))?$/.exec(hash || "");
+    const view = match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home";
+    const sub = match ? match[2] : undefined;
+    applyingRoute = true;
+    subpageOwnsEntry = false;
+    featureOwnsEntry = false;
+    try {
+      if (view === "settings") {
+        if (state.activeView !== "settings") setActiveView("settings");
+        if (sub && document.querySelector(`[data-settings-page="${sub}"]`)) {
+          if (state.settingsPage !== sub) openSettingsPage(sub);
+        } else if (state.settingsPage) closeSettingsPage();
+      } else if (view === "capabilities" && sub && document.querySelector(`[data-feature-page="${sub}"]`)) {
+        openFeature(sub);
+      } else {
+        setActiveView(view);
+      }
+    } finally {
+      applyingRoute = false;
+    }
+    // A guard may have sent us elsewhere (e.g. Developer access is off): keep the address bar truthful.
+    const route = currentRoute();
+    if (location.hash !== route && !(state.activeView === "home" && !location.hash)) history.replaceState({ zarvis: true }, "", route);
+    syncRoute();
+  }
+
+  function onRouteChange() {
+    if (location.hash === currentRoute() || (!location.hash && state.activeView === "home" && !state.settingsPage)) return;
+    applyRoute(location.hash);
+  }
+
+  function setupHistory() {
+    window.addEventListener("popstate", onRouteChange);
+    window.addEventListener("hashchange", onRouteChange);
+    if (location.hash) applyRoute(location.hash);
+    else syncRoute();
+  }
+
+  /** The in-app "back" on a Settings sub-page behaves exactly like the browser's Back button. */
+  function leaveSettingsSubpage() {
+    if (subpageOwnsEntry) {
+      history.back();
+      return;
+    }
+    closeSettingsPage();
+    history.replaceState({ zarvis: true }, "", "#/settings");
+    syncRoute();
+  }
+
+  function leaveFeaturePage() {
+    if (featureOwnsEntry) {
+      history.back();
+      return;
+    }
+    setActiveView("capabilities");
+  }
+
+  // ---- Dialogs: focus goes in, stays in, and comes back; the page behind cannot scroll ------
+  function setupModalManager() {
+    const overlays = Array.from(document.querySelectorAll(".modal-overlay"));
+    const app = document.querySelector(".app");
+    let lastOutside = null;
+    document.addEventListener("focusin", (event) => {
+      if (!event.target.closest?.(".modal-overlay, .palette-overlay, .shell-popover")) lastOutside = event.target;
+    });
+    const focusable = (root) => Array.from(root.querySelectorAll('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')).filter((node) => !node.disabled && node.getClientRects().length);
+    const openOverlay = () => overlays.find((overlay) => !overlay.hidden);
+    let wasOpen = false;
+    const sync = () => {
+      const open = openOverlay();
+      if (open && !wasOpen) {
+        wasOpen = true;
+        app?.setAttribute("inert", "");
+        document.body.classList.add("modal-open");
+        if (!open.contains(document.activeElement)) (focusable(open)[0] || open).focus?.({ preventScroll: true });
+      } else if (!open && wasOpen) {
+        wasOpen = false;
+        app?.removeAttribute("inert");
+        document.body.classList.remove("modal-open");
+        const visible = (node) => !!node && document.contains(node) && node.getClientRects().length > 0;
+        const back = visible(lastOutside) ? lastOutside : Array.from(document.querySelectorAll(".nav-item.active")).find(visible);
+        back?.focus?.({ preventScroll: true });
+      }
+    };
+    const observer = new MutationObserver(sync);
+    for (const overlay of overlays) observer.observe(overlay, { attributes: true, attributeFilter: ["hidden"] });
+    // Browsers without `inert` still get a Tab trap.
+    document.addEventListener("keydown", (event) => {
+      const open = openOverlay();
+      if (!open || event.key !== "Tab") return;
+      const items = focusable(open);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (!open.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    sync();
+  }
+
+  // ---- Connection: say so when the device is offline (the header used to claim "Online") ----
+  function renderHeroStatus() {
+    if (!el.heroStatusLabel) return;
+    const copy = COPY[state.lang];
+    const key = el.orb?.dataset.state;
+    el.heroStatusLabel.textContent = navigator.onLine === false && (!key || key === "IDLE") ? copy.offlineLabel : copy.stateLabels[key] || copy.stateLabels.IDLE;
+  }
+
+  function setupConnectionState() {
+    const banner = document.getElementById("offline-banner");
+    const apply = (announce) => {
+      const offline = navigator.onLine === false;
+      document.body.dataset.offline = offline ? "1" : "0";
+      if (banner) {
+        banner.hidden = !offline;
+        banner.textContent = COPY[state.lang].offlineBanner;
+      }
+      renderHeroStatus();
+      if (announce) showToast(offline ? COPY[state.lang].offlineLabel : COPY[state.lang].backOnline);
+    };
+    window.addEventListener("offline", () => apply(true));
+    window.addEventListener("online", () => apply(true));
+    apply(false);
   }
 
   function applyVoiceToggleState() {
@@ -1695,11 +1860,14 @@
     state.featureId = id;
     if (!el.featureRoot || !window.ZarvisFeatures) return;
     window.ZarvisFeatures.renderDetail(el.featureRoot, id, {
-      onBack: () => setActiveView("capabilities"),
+      onBack: leaveFeaturePage,
       onPrimary: (feature) => runFeatureAction(feature, feature.prompt),
       onPrompt: (feature, prompt) => runFeatureAction(feature, prompt),
     });
-    if (state.activeView === "feature") return;
+    if (state.activeView === "feature") {
+      syncRoute();
+      return;
+    }
     setActiveView("feature");
   }
 
@@ -1818,6 +1986,7 @@
       void loadSettingsSummary();
     }
     if (view === "chat") scrollConversationToBottom();
+    syncRoute();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
@@ -1929,7 +2098,7 @@
     for (const btn of document.querySelectorAll("[data-settings-page]")) {
       btn.addEventListener("click", () => openSettingsPage(btn.dataset.settingsPage));
     }
-    el.settingsPanelBack?.addEventListener("click", closeSettingsPage);
+    el.settingsPanelBack?.addEventListener("click", leaveSettingsSubpage);
     el.appearanceAuroraBtn?.addEventListener("click", () => setAppearance("aurora"));
     el.appearanceDimBtn?.addEventListener("click", () => setAppearance("dim"));
     el.settingsOpenDeveloper?.addEventListener("click", () => setActiveView("developer"));
@@ -1989,10 +2158,11 @@
     el.viewSettings.classList.add("is-subpage");
     el.settingsGrid.hidden = true;
     el.settingsPanels.hidden = false;
-    const entry = document.querySelector(`[data-settings-page="${page}"] strong`);
-    if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = entry ? entry.textContent : "Settings";
+    const row = document.querySelector(`[data-settings-page="${page}"]`);
+    const title = row?.dataset.settingsLabel || row?.querySelector("strong")?.textContent;
+    if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = title || "Settings";
     const desc = document.getElementById("settings-subpage-desc");
-    if (desc) desc.textContent = document.querySelector(`[data-settings-page="${page}"] small`)?.textContent || "";
+    if (desc) desc.textContent = row?.dataset.settingsDesc || row?.querySelector("small")?.textContent || "";
     renderSettingsSubpageValue();
     for (const panel of document.querySelectorAll("[data-settings-panel]")) {
       panel.hidden = panel.dataset.settingsPanel !== page;
@@ -2001,6 +2171,7 @@
     if (page === "permissions") void renderPermissionCenter();
     if (page === "ai") void renderAiProvider();
     el.settingsPanelBack?.focus?.();
+    syncRoute();
   }
 
   function closeSettingsPage() {
@@ -2008,6 +2179,7 @@
     el.viewSettings.classList.remove("is-subpage");
     el.settingsPanels.hidden = true;
     el.settingsGrid.hidden = false;
+    document.title = pageTitle();
   }
 
   function setAppearance(mode) {
@@ -2114,8 +2286,10 @@
 
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
-    const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#0a0d24" : "#f4f3ff");
+    for (const themeMeta of document.querySelectorAll('meta[name="theme-color"]')) {
+      themeMeta.removeAttribute("media");
+      themeMeta.setAttribute("content", state.appearance === "dim" ? "#0a0d24" : "#f4f3ff");
+    }
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -3974,8 +4148,7 @@
     // state name — showing enum values like "EXECUTING" or "UNDERSTANDING" verbatim would be
     // exactly the kind of developer/debug leak the product content rules rule out. The
     // `dataset.state` above (unchanged) is what CSS/animations key off of.
-    const labels = COPY[state.lang].stateLabels;
-    el.heroStatusLabel.textContent = labels[newState] || labels.IDLE;
+    renderHeroStatus();
     updateComposerMode();
   }
 
@@ -4364,4 +4537,16 @@
     ttsScheduledUntil = 0;
     setOrbState("IDLE");
   }
+
+  // Started last, once every `const`/`let` above is initialised: init() runs synchronously up to
+  // its first `await`, so starting it earlier let setup code hit a temporal dead zone
+  // ("Cannot access '...' before initialization") whenever it touched a later declaration.
+  init().catch((err) => {
+    // The technical detail (network failure, a platform error page, whatever) is only ever
+    // logged here — never rendered into the UI. addErrorBubble always shows the same
+    // friendly, translated connection message regardless of cause.
+    console.error(err);
+    addErrorBubble(COPY[state.lang].bootError, () => location.reload());
+    setOrbState("ERROR");
+  });
 })();
