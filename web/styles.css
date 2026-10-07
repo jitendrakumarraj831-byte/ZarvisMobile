@@ -2236,9 +2236,9 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
    of the tab bar (it opens Chat); tapping the orb opens Chat and listens.
    ===================================================================== */
 .view-home { display: flex; flex-direction: column; }
-.home-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s3); text-align: center; padding: var(--s2) 0 var(--s3); }
+.home-hero { display: flex; flex-direction: column; align-items: center; gap: 0; margin-top: calc(-1 * var(--s1)); text-align: center; }
 .home-greet { position: relative; z-index: 2; margin: 0; font-size: 15px; font-weight: 600; color: var(--text-2); }
-#home-orb { margin: var(--s4) 0; padding: 0; }
+#home-orb { margin: var(--s8) 0 var(--s3); padding: 0; } /* clear air all round: the waves reach a quarter of the orb's width past its edge */
 .orb-lg { width: clamp(104px, min(41vw, calc(100dvh - 560px)), 190px); height: clamp(104px, min(41vw, calc(100dvh - 560px)), 190px); }
 /* The question under the orb. */
 .home-title { margin: 0; max-width: 15em; font-family: var(--font-display); font-size: clamp(24px, 6.8vw, 32px); line-height: 1.12; font-weight: 800; letter-spacing: -0.02em; text-wrap: balance; color: var(--text); }
@@ -2248,7 +2248,7 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
 .view-home { min-height: calc(100dvh - 190px); }
 .home-card {
   position: sticky; bottom: calc(var(--nav-h) + var(--safe-b) + var(--s3)); z-index: 6; box-sizing: border-box; width: 100%; max-width: 640px;
-  margin: auto auto 0; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px var(--s2);
+  margin: 0 auto; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px var(--s2);
   border-radius: 999px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-2);
 }
 .home-card:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
@@ -2267,7 +2267,9 @@ body[data-orb-state="UNDERSTANDING"] #home-orb .orb-ring::before, body[data-orb-
 body[data-orb-state="SPEAKING"] #home-orb .orb { animation: orb-speak 0.9s ease-in-out infinite; }
 
 /* Quick prompts: one swipeable row on a phone, centred and wrapped on a wide screen. */
-.view-home .home-quick { margin-top: 0; margin-bottom: var(--s5); animation: none; }
+@media (max-height: 720px) { #home-orb { margin-top: var(--s6); } }
+.home-lower { display: flex; flex-direction: column; align-items: center; gap: var(--s4); margin: auto 0; padding: var(--s5) 0; text-align: center; }
+.view-home .home-quick { margin: 0; animation: none; }
 .view-home .home-quick .chip-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter); margin-inline: calc(-1 * var(--gutter)); padding: 2px var(--gutter); }
 .view-home .home-quick .chip-row::-webkit-scrollbar { display: none; }
 .view-home .home-quick .chip { flex: none; min-height: 44px; padding: 0 var(--s4); scroll-snap-align: start; border-radius: var(--r-pill); font-size: 15px; font-weight: 600; }

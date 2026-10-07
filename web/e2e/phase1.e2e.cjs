@@ -567,7 +567,7 @@ async function send(page, text) {
       assert.equal(await text("#home-orb"), "ZARVIS AI", label + ": the orb says only ZARVIS AI");
       assert.equal(await pageN.locator("#home-orb svg").count(), 0, label + ": no star in the orb");
       assert.equal(await pageN.getAttribute("#home-orb", "aria-label"), "ZARVIS AI — talk by voice");
-      assert.equal(await text(".home-hero .home-title"), "What can I help with today?", label + ": the one question under the orb");
+      assert.equal(await text(".home-title"), "What can I help with today?", label + ": the one question under the orb");
       assert.deepEqual(await pageN.evaluate(() => [...document.querySelectorAll("#home-prompt-form [data-home-action]")].map((b) => b.getAttribute("aria-label") + "|" + b.dataset.homeAction + "|" + (b.textContent.trim() === ""))), ["Upload file|upload|true", "Select image|image|true"], label + ": icon-only file and image buttons in the card");
       assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
       assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
@@ -581,7 +581,11 @@ async function send(page, text) {
         const fabBox = fab.getBoundingClientRect();
         const row = document.querySelector("#home-quick .chip-row");
         const chips = [...row.querySelectorAll(".chip:not([hidden])")];
+        const greet = document.querySelector(".home-greet").getBoundingClientRect();
+        const title = document.querySelector(".home-title").getBoundingClientRect();
+        const card = document.getElementById("home-prompt-form").getBoundingClientRect();
         return {
+          aboveOrb: Math.round(orb.top - greet.bottom), belowOrb: Math.round(title.top - orb.bottom), orbW: orb.width, aboveCard: Math.round(card.top - row.getBoundingClientRect().bottom),
           orbWidth: Math.round(orb.width), orbCentre: Math.round(orb.left + orb.width / 2), heroCentre: Math.round(hero.left + hero.width / 2), screen: innerWidth,
           fabVisible: fab.getClientRects().length > 0, fabCentre: Math.round(fabBox.left + fabBox.width / 2),
           fabIcon: fab.querySelector("use").getAttribute("href"),
@@ -594,6 +598,9 @@ async function send(page, text) {
       const card = await pageN.evaluate(() => { const r = document.getElementById("home-prompt-form").getBoundingClientRect(); const nav = document.querySelector(".bottom-nav"); return { height: Math.round(r.height), top: Math.round(r.top), bottom: Math.round(r.bottom), navTop: nav && getComputedStyle(nav).display !== "none" ? Math.round(nav.getBoundingClientRect().top) : innerHeight, screen: innerHeight }; });
       assert.ok(card.height <= 80, `${label}: the message card is one short row (${card.height}px)`);
       assert.ok(card.bottom <= card.navTop && card.top >= card.screen * 0.55, `${label}: the message card sits low, just above the tab bar (${card.top}-${card.bottom} of ${card.screen}, bar at ${card.navTop})`);
+      assert.ok(facts.aboveOrb >= 36, `${label}: the greeting sits clear above the orb, out of its waves (${facts.aboveOrb}px)`);
+      assert.ok(facts.belowOrb >= facts.orbW * 0.25 + 16, `${label}: the question sits clear of the orb's waves (${facts.belowOrb}px under a ${Math.round(facts.orbW)}px orb)`);
+      assert.ok(facts.aboveCard >= 24, `${label}: the prompts keep their distance from the message card (${facts.aboveCard}px)`);
       assert.ok(facts.orbWidth <= 195 && facts.orbWidth <= facts.screen * 0.43, `${label}: the orb is a modest size (${facts.orbWidth}px on a ${facts.screen}px screen)`);
       assert.ok(facts.overflow <= 0, label + ": nothing widens the page");
       assert.equal(facts.small, 0, label + ": quick prompts are at least 44px tall");
