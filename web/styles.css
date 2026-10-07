@@ -2363,7 +2363,10 @@ body.page-hidden .orb-waves i, body.page-hidden .orb-sparks b { animation-play-s
    (12px at 780px tall, up to 36px). Shorter phones keep the compact spacing they have. */
 @media (max-width: 699px) and (min-height: 781px) {
   .view-home { --home-gap: clamp(12px, calc(12px + (100dvh - 780px) * 0.14), 36px); }
-  .view-home .home-hero { padding: calc(var(--home-gap) * 0.6) 0 calc(var(--home-gap) * 0.7); }
+  .view-home .home-hero { padding: calc(var(--home-gap) * 0.15) 0 calc(var(--home-gap) * 1.15); }
   .view-home .home-card { margin-bottom: var(--home-gap); }
   .view-home .primary-actions { margin-bottom: var(--home-gap); }
 }
+
+/* The orb's waves and sparks reach past the orb: the card below always sits on top of them, never the other way round. */
+.view-home .home-card { position: relative; z-index: 3; }
