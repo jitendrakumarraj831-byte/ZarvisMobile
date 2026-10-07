@@ -268,7 +268,6 @@
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
-    homeOrb: document.getElementById("home-orb"),
     chatNewBtn: document.getElementById("chat-new-btn"),
     activityTimeline: document.getElementById("activity-timeline"),
     activitySearch: document.getElementById("activity-search"),
@@ -1569,11 +1568,19 @@
     }
   }
 
+  /** A skill category always gets the same medium-colour tone. */
+  const SKILL_TONES = ["tone-blue", "tone-violet", "tone-pink", "tone-amber", "tone-green", "tone-cyan", "tone-coral"];
+  function skillTone(category) {
+    let sum = 0;
+    for (const ch of String(category || "")) sum += ch.charCodeAt(0);
+    return SKILL_TONES[sum % SKILL_TONES.length];
+  }
+
   function renderCapabilityCard(skill) {
     const row = document.createElement("div");
     row.className = "skill-row";
     const icon = document.createElement("span");
-    icon.className = "row-ico tone-blue";
+    icon.className = "row-ico " + skillTone(skill.category);
     icon.innerHTML = categoryIconSvg(skill.category);
     const copy = document.createElement("div");
     copy.className = "cap-copy";
@@ -1671,11 +1678,6 @@
         openFilePicker(true);
       });
     }
-    el.homeOrb?.addEventListener("click", () => {
-      haptic();
-      setActiveView("chat");
-      startListening();
-    });
     el.chatNewBtn?.addEventListener("click", () => {
       haptic();
       startNewConversation();
@@ -1702,7 +1704,6 @@
       });
     }
     setupKeyboardInset();
-    setupHomeQuickActions();
     setupDesignShortcuts();
     applyDevAccess();
     window.ZarvisShell?.init({
@@ -1755,20 +1756,6 @@
     vv.addEventListener("scroll", update);
     document.addEventListener("visibilitychange", () => {
       document.body.classList.toggle("page-hidden", document.hidden);
-    });
-  }
-
-  /** Home "Quick actions" chip: expands / collapses the suggestion chips under the mic. */
-  function setupHomeQuickActions() {
-    const toggle = document.getElementById("home-quick-toggle");
-    const panel = document.getElementById("home-quick");
-    if (!toggle || !panel) return;
-    toggle.addEventListener("click", () => {
-      haptic();
-      const open = panel.hidden;
-      panel.hidden = !open;
-      toggle.setAttribute("aria-expanded", String(open));
-      toggle.classList.toggle("active", open);
     });
   }
 
@@ -2935,9 +2922,9 @@
       { label: "Conversation turns", value: String(conversations), icon: "i-chat", tone: "tone-blue" },
       { label: "AI requests", value: String(latencyEntries.length), icon: "i-sparkle", tone: "tone-violet" },
       { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length), icon: "i-mic", tone: "tone-pink" },
-      { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-cyan" },
+      { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-amber" },
       { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
-      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-blue" },
+      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-green" },
       { label: "Credits", value: "…", id: "metrics-credits", icon: "i-bolt", tone: "tone-pink" },
       { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan", icon: "i-plan", tone: "tone-cyan" },
     ];
@@ -3092,12 +3079,12 @@
     document.getElementById("home-recent")?.classList.remove("is-empty");
     const rows = [];
     if (state.pendingAttachment) {
-      rows.push(listRow({ icon: "i-file", tone: "tone-cyan", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
+      rows.push(listRow({ icon: "i-file", tone: "tone-amber", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
     }
     for (const entry of activityLog.slice(0, 3)) {
       rows.push(listRow({
         icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
-        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" || entry.type === "image" ? "tone-cyan" : "tone-blue",
+        tone: entry.type === "developer" ? "tone-cyan" : entry.type === "file" || entry.type === "image" ? "tone-amber" : entry.type === "voice" ? "tone-violet" : "tone-blue",
         title: entry.title,
         meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
         onClick: () => setActiveView(entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat"),
@@ -3105,7 +3092,7 @@
     }
     if (Array.isArray(latestTasks)) {
       for (const task of latestTasks.slice(0, Math.max(0, 4 - rows.length))) {
-        rows.push(listRow({ icon: "i-task", tone: "tone-pink", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
+        rows.push(listRow({ icon: "i-task", tone: "tone-green", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
       }
     }
     if (!rows.length && state.history.length) {

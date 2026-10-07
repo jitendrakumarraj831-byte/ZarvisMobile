@@ -385,7 +385,7 @@ async function send(page, text) {
     await ctxW.close();
   });
 
-  await step("Home: the prompt card starts a chat, Quick actions fill the Chat box, tiles open the right picker, and the app bar lines up with every page", async () => {
+  await step("Home: the message box starts a chat, quick prompts fill the Chat box, cards open the right picker, and the app bar lines up with every page", async () => {
     const ctxH = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageH = await pageOf(ctxH);
     await pageH.goto(BASE);
@@ -396,11 +396,9 @@ async function send(page, text) {
     await pageH.waitForSelector("#view-chat:not([hidden])");
     await pageH.waitForSelector(".bubble.user >> text=hello from home");
     await pageH.waitForSelector(".bubble.assistant .bubble-body", { timeout: 15000 });
-    // "Quick actions" expands the chips; a chip opens Chat with its starter text, ready to edit (nothing is sent).
+    // The quick prompts are always on show; a chip opens Chat with its starter text, ready to edit (nothing is sent).
     await nav(pageH, "home");
-    assert.equal(await pageH.locator("#home-quick").isHidden(), true, "chips start collapsed");
-    await pageH.click("#home-quick-toggle");
-    assert.equal(await pageH.getAttribute("#home-quick-toggle", "aria-expanded"), "true");
+    assert.equal(await pageH.locator("#home-quick").isVisible(), true, "the quick prompts need no tap to appear");
     await pageH.click('#home-quick .chip[data-workspace-prompt^="Write a warm"]');
     await pageH.waitForSelector("#view-chat:not([hidden])");
     assert.match(await pageH.inputValue("#text-input"), /^Write a warm, concise message about:/);
@@ -541,19 +539,84 @@ async function send(page, text) {
     await ctxH.close();
   });
 
-  await step("Home: the header says ZARVIS AI, the orb says only ZARVIS AI (no star, no subtitle), and the card asks one question", async () => {
-    for (const [label, viewport] of [["phone", { width: 390, height: 844 }], ["desktop", { width: 1280, height: 800 }]]) {
-      const ctxN = await browser.newContext({ viewport });
+  await step("Home: one question, four medium-colour feature cards, quick prompts and a message box that stays above the tab bar", async () => {
+    for (const [label, viewport, touch] of [["phone", { width: 390, height: 844 }, true], ["desktop", { width: 1280, height: 800 }, false]]) {
+      const ctxN = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch });
       const pageN = await pageOf(ctxN);
       await pageN.goto(BASE);
       await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await pageN.waitForTimeout(1100); // the cards fade in one after another
       const text = (selector) => pageN.evaluate((s) => document.querySelector(s)?.textContent.replace(/\s+/g, " ").trim(), selector);
-      assert.equal(await text("#home-orb"), "ZARVIS AI", label + ": the orb says only ZARVIS AI");
-      assert.equal(await pageN.locator("#home-orb svg").count(), 0, label + ": no star in the orb");
-      assert.equal(await pageN.getAttribute("#home-orb", "aria-label"), "ZARVIS AI — talk by voice");
-      assert.equal(await text(".home-card-copy"), "What can I help with today?", label + ": the card asks one question");
+      assert.equal(await text(".home-title"), "What can I help with today?", label + ": the one question");
       assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
       assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
+      assert.equal(await pageN.locator("#home-orb, .home-mic, .mic-big").count(), 0, label + ": the old orb and big mic are gone");
+
+      const cards = await pageN.evaluate(() => [...document.querySelectorAll(".primary-actions .action-tile")].map((c) => {
+        const r = c.getBoundingClientRect();
+        const ico = c.querySelector(".tile-ico");
+        return { name: c.querySelector("strong").textContent, line: c.querySelector("small").textContent.trim(), tone: [...ico.classList].find((n) => n.startsWith("tone-")), shadow: getComputedStyle(ico).boxShadow, top: Math.round(r.top), right: Math.round(r.right) };
+      }));
+      assert.deepEqual(cards.map((c) => c.name), ["Chat", "Voice", "Image", "Files"], label + ": the four feature cards");
+      assert.ok(cards.every((c) => c.line.length > 3), label + ": every card says what it does");
+      assert.equal(new Set(cards.map((c) => c.tone)).size, 4, label + ": each card has its own colour");
+      assert.ok(cards.every((c) => c.shadow === "none"), label + ": the icon badges are flat (no glow)");
+      assert.ok(cards.every((c) => c.right <= viewport.width), label + ": no card runs off the screen");
+      if (!touch) assert.equal(new Set(cards.map((c) => c.top)).size, 1, label + ": the cards share one row on a wide screen");
+
+      const facts = await pageN.evaluate(() => {
+        const nav = document.querySelector(".bottom-nav");
+        const box = document.getElementById("home-prompt-form").getBoundingClientRect();
+        const navTop = nav && getComputedStyle(nav).display !== "none" ? nav.getBoundingClientRect().top : innerHeight;
+        const row = document.querySelector("#home-quick .chip-row");
+        const chips = [...row.querySelectorAll(".chip:not([hidden])")];
+        return {
+          composerTop: Math.round(box.top), composerBottom: Math.round(box.bottom), navTop: Math.round(navTop),
+          sticky: getComputedStyle(document.getElementById("home-prompt-form")).position,
+          chipScroll: row.scrollWidth > row.clientWidth + 8, chipOverflowX: getComputedStyle(row).overflowX, firstChipLeft: Math.round(chips[0].getBoundingClientRect().left),
+          small: [...document.querySelectorAll("#home-quick .chip, #home-prompt-form button")].filter((b) => b.getClientRects().length && (b.getBoundingClientRect().height < 43.5 || b.getBoundingClientRect().width < 43.5)).map((b) => b.textContent.trim() || b.getAttribute("aria-label")),
+          overflow: document.documentElement.scrollWidth - innerWidth,
+        };
+      });
+      assert.equal(facts.sticky, "sticky", label + ": the message box sticks");
+      assert.ok(facts.composerTop >= 0 && facts.composerBottom <= facts.navTop, `${label}: the message box (${facts.composerTop}-${facts.composerBottom}) sits above the tab bar (${facts.navTop})`);
+      assert.deepEqual(facts.small, [], label + ": quick prompts and message-box buttons are at least 44px");
+      assert.ok(facts.overflow <= 0, label + ": nothing widens the page");
+      if (touch) {
+        assert.ok(facts.chipScroll && facts.chipOverflowX === "auto", label + ": the quick prompts swipe sideways");
+        assert.ok(facts.firstChipLeft >= 12, label + ": the first prompt is not cut off at the edge (" + facts.firstChipLeft + "px)");
+      }
+
+      // "Medium colour": a mid-tone with real colour, and a white glyph that still reads (3:1 for graphics) - on every page.
+      const sweep = async (view) => {
+        await nav(pageN, view);
+        await pageN.waitForTimeout(500);
+        return pageN.evaluate(() => {
+          const hsl = (hex) => { const n = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255); const mx = Math.max(...n), mn = Math.min(...n), l = (mx + mn) / 2, d = mx - mn; const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1)); return { s: sat, l }; };
+          const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+          const lum = (hex) => { const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+          const out = [];
+          for (const node of document.querySelectorAll(".tile-ico, .row-ico, .stat-tile-ico")) {
+            if (!node.getClientRects().length || node.closest(".is-off")) continue;
+            const hex = getComputedStyle(node).getPropertyValue("--tone").trim();
+            if (!/^#[0-9a-f]{6}$/i.test(hex)) { out.push({ bad: "no tone colour on " + node.className }); continue; }
+            const { s, l } = hsl(hex);
+            out.push({ hex, s, l, contrast: 1.05 / (lum(hex) + 0.05), shadow: getComputedStyle(node).boxShadow });
+          }
+          return out;
+        });
+      };
+      for (const view of touch ? ["home", "capabilities", "settings"] : ["home", "capabilities", "settings", "plans"]) { // Plans is in the phone menu, not its tab bar
+        const badges = await sweep(view);
+        assert.ok(badges.length >= 3, `${label}/${view}: found its feature icons (${badges.length})`);
+        for (const b of badges) {
+          if (b.bad) assert.fail(`${label}/${view}: ${b.bad}`);
+          assert.ok(b.s >= 0.45 && b.l >= 0.3 && b.l <= 0.68, `${label}/${view}: ${b.hex} is not a medium colour (saturation ${b.s.toFixed(2)}, lightness ${b.l.toFixed(2)})`);
+          assert.ok(b.contrast >= 3, `${label}/${view}: a white icon on ${b.hex} reads at only ${b.contrast.toFixed(1)}:1`);
+          assert.equal(b.shadow, "none", `${label}/${view}: ${b.hex} still glows`);
+        }
+        if (view !== "home" && view !== "plans") assert.ok(new Set(badges.map((b) => b.hex)).size >= 5, `${label}/${view}: icons use at least five different colours`);
+      }
       await ctxN.close();
     }
   });
@@ -824,7 +887,7 @@ async function send(page, text) {
       await pageH.waitForTimeout(300);
       (await stray()).forEach((x) => problems.push("settings/" + sub + " " + x));
     }
-    assert.deepEqual([...new Set(problems)], [], "English left on Hindi pages");
+    assert.deepEqual([...new Set(problems)], [], "English left on Hindi pages: " + [...new Set(problems)].slice(0, 8).join(" | "));
     // Back to English: nothing Hindi is left behind, and the page title follows.
     await open("settings");
     await pageH.evaluate(() => document.querySelector('[data-settings-page="language"]').click());

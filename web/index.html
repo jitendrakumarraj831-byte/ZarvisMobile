@@ -132,52 +132,28 @@
       <main class="views" id="main-views">
         <!-- ============ HOME ============ -->
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
-          <h1 class="sr-only" id="home-title">ZARVIS AI</h1>
-          <div class="home-hero">
-            <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span> <span aria-hidden="true">👋</span></p>
-            <button type="button" class="orb-stage" id="home-orb" aria-label="ZARVIS AI — talk by voice">
-              <span class="orb orb-lg" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span><span class="orb-waves"><i></i><i></i><i></i><i></i></span><span class="orb-sparks"><b></b><b></b></span><span class="orb-label"><strong>ZARVIS AI</strong></span></span>
-            </button>
+          <div class="home-intro">
+            <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span></p>
+            <h1 class="home-title" id="home-title">What can I help with today?</h1>
+            <p class="home-sub">Type, speak or share a file.</p>
           </div>
-
-          <form class="home-card" id="home-prompt-form" autocomplete="off">
-            <span class="home-card-star" aria-hidden="true"><svg class="ico"><use href="#i-star4"/></svg></span>
-            <div class="home-card-copy">
-              <strong>What can I help with today?</strong>
-            </div>
-            <div class="home-card-input">
-              <label class="sr-only" for="home-prompt-input">Ask ZARVIS</label>
-              <input id="home-prompt-input" type="text" placeholder="Type your request…" enterkeyhint="send" />
-              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
-            </div>
-          </form>
 
           <div class="primary-actions" role="group" aria-label="Start">
-            <button type="button" class="action-tile" data-nav="chat"><span class="tile-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span class="tile-copy"><strong>Chat</strong></span></button>
-            <button type="button" class="action-tile" data-home-action="voice"><span class="tile-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="tile-copy"><strong>Voice</strong></span></button>
-            <button type="button" class="action-tile" data-home-action="image"><span class="tile-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></span><span class="tile-copy"><strong>Image</strong></span></button>
-            <button type="button" class="action-tile" data-home-action="upload"><span class="tile-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></span><span class="tile-copy"><strong>Files</strong></span></button>
+            <button type="button" class="action-tile" data-nav="chat"><span class="tile-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><span class="tile-copy"><strong>Chat</strong><small>Type a message</small></span></button>
+            <button type="button" class="action-tile" data-home-action="voice"><span class="tile-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="tile-copy"><strong>Voice</strong><small>Speak, hear the reply</small></span></button>
+            <button type="button" class="action-tile" data-home-action="image"><span class="tile-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></span><span class="tile-copy"><strong>Image</strong><small>Ask about a photo</small></span></button>
+            <button type="button" class="action-tile" data-home-action="upload"><span class="tile-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg></span><span class="tile-copy"><strong>Files</strong><small>Summarize or ask</small></span></button>
           </div>
 
-          <div class="home-mic">
-            <span class="mic-wave mic-wave-l" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-            <button type="button" class="mic-big" data-home-action="voice" aria-label="Tap to speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
-            <span class="mic-wave mic-wave-r" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-          </div>
-          <p class="mic-caption">Tap to Speak</p>
-          <div class="home-quick-row">
-            <button type="button" class="chip" id="home-quick-toggle" aria-expanded="false" aria-controls="home-quick"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>Quick actions</button>
-          </div>
-
-          <section class="home-section home-quick" id="home-quick" aria-label="Quick actions" hidden>
-            <div class="chip-row chip-row-center">
-              <button type="button" class="chip" data-workspace-prompt="Search the web and cite the sources you use: "><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
-              <button type="button" class="chip" data-workspace-prompt="Write a warm, concise message about: "><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
-              <button type="button" class="chip" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
-              <button type="button" class="chip" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
-              <button type="button" class="chip" data-workspace-prompt="Draft a polite customer reply to: "><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
-              <button type="button" class="chip" data-nav="developer" data-dev-only hidden><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
-              <button type="button" class="chip" data-nav="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>All capabilities</button>
+          <section class="home-section home-quick" id="home-quick" aria-label="Quick actions">
+            <div class="chip-row">
+              <button type="button" class="chip tone-cyan" data-workspace-prompt="Search the web and cite the sources you use: "><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
+              <button type="button" class="chip tone-pink" data-workspace-prompt="Write a warm, concise message about: "><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
+              <button type="button" class="chip tone-amber" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
+              <button type="button" class="chip tone-green" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
+              <button type="button" class="chip tone-coral" data-workspace-prompt="Draft a polite customer reply to: "><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
+              <button type="button" class="chip tone-violet" data-nav="developer" data-dev-only hidden><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
+              <button type="button" class="chip tone-blue" data-nav="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>All capabilities</button>
             </div>
           </section>
 
@@ -188,6 +164,18 @@
             </div>
             <div id="home-activity" class="list" aria-live="polite"></div>
           </section>
+
+          <form class="home-composer" id="home-prompt-form" autocomplete="off">
+            <label class="sr-only" for="home-prompt-input">Ask ZARVIS</label>
+            <input id="home-prompt-input" type="text" placeholder="Message ZARVIS…" enterkeyhint="send" />
+            <div class="home-composer-row">
+              <button type="button" class="icon-btn" data-home-action="upload" aria-label="Attach a document"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></button>
+              <button type="button" class="icon-btn" data-home-action="image" aria-label="Attach an image"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></button>
+              <span class="home-composer-gap"></span>
+              <button type="button" class="icon-btn" data-home-action="voice" aria-label="Speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
+              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
+            </div>
+          </form>
         </section>
 
         <!-- ============ CHAT ============ -->
@@ -444,15 +432,15 @@
                 <button type="button" class="settings-row" data-settings-page="language"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-lang"/></svg></span><span class="row-copy"><strong>Language</strong><small>Interface and request language</small></span><span class="row-value" data-setting-value="language"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="appearance"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-palette"/></svg></span><span class="row-copy"><strong>Appearance</strong><small>Dark or light</small></span><span class="row-value" data-setting-value="appearance"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="ai"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span class="row-copy"><strong>AI</strong><small>Model provider and behaviour</small></span><span class="row-value" data-setting-value="ai"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="memory"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></span><span class="row-copy"><strong>Memory</strong><small>Saved conversation</small></span><span class="row-value" data-setting-value="memory"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="notifications"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg></span><span class="row-copy"><strong>Notifications</strong><small>Alerts and reminders</small></span><span class="row-value" data-setting-value="notifications">Android app</span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="memory"><span class="row-ico tone-green"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></span><span class="row-copy"><strong>Memory</strong><small>Saved conversation</small></span><span class="row-value" data-setting-value="memory"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="notifications"><span class="row-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg></span><span class="row-copy"><strong>Notifications</strong><small>Alerts and reminders</small></span><span class="row-value" data-setting-value="notifications">Android app</span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Privacy &amp; security</p>
               <div class="settings-group">
-                <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-coral"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="privacy"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="row-copy"><strong>Privacy</strong><small>Confirmations and account deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="security"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></span><span class="row-copy"><strong>Security</strong><small>Session and sign out</small></span><span class="row-value" data-setting-value="security"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="data"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg></span><span class="row-copy"><strong>Data</strong><small>Stored data and deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="data"><span class="row-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg></span><span class="row-copy"><strong>Data</strong><small>Stored data and deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Advanced</p>
               <div class="settings-group">

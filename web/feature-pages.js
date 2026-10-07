@@ -247,7 +247,12 @@
     return svg;
   }
 
-  const TONES = ["tone-blue", "tone-violet", "tone-cyan", "tone-pink"];
+  /* One medium colour per hub group; the detail pages use the same colour for their category. */
+  const TONES = ["tone-blue", "tone-violet", "tone-pink", "tone-amber", "tone-green", "tone-cyan", "tone-coral"];
+  const CATEGORY_TONES = {
+    "AI & Conversation": "tone-blue", Voice: "tone-violet", Phone: "tone-green", "Web & Research": "tone-cyan",
+    Documents: "tone-amber", Creative: "tone-pink", Business: "tone-coral", Developer: "tone-cyan", Automation: "tone-green",
+  };
   /* Filter pills group the catalogue groups above. */
   const FILTERS = [
     { id: "all", label: "All" },
@@ -362,7 +367,7 @@
     }
 
     const head = el("header", "feature-hero");
-    const ico = el("span", "row-ico tone-blue");
+    const ico = el("span", "row-ico " + (CATEGORY_TONES[feature.category] || "tone-blue"));
     ico.appendChild(icon(ICONS[feature.id] || "i-sparkle"));
     const titles = el("div", "feature-hero-copy");
     titles.appendChild(el("p", "feature-kicker", feature.category));
