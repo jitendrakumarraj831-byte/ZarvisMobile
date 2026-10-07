@@ -532,9 +532,9 @@
     return "#/" + state.activeView;
   }
 
-  /** "Activity · ZARVIS MOBILE": what the tab, the history list and a screen reader announce. */
+  /** "Activity · ZARVIS AI": what the tab, the history list and a screen reader announce. */
   function pageTitle() {
-    const brand = "ZARVIS MOBILE";
+    const brand = "ZARVIS AI";
     if (state.activeView === "home") return brand;
     let name = "";
     if (state.activeView === "settings" && state.settingsPage) name = el.settingsSubpageTitle?.textContent || "";

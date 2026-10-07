@@ -660,7 +660,7 @@ async function send(page, text) {
     await pageH.goto(BASE);
     await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
     const stray = () => pageH.evaluate(() => {
-      const names = /^(ZARVIS|MOBILE|ZARVIS MOBILE|Zarvis Mobile|Ctrl K|Pro|PRO|UPI|GitHub|English|AI|Pull request|https:\/\/github\.com\/owner\/repo|ZARVIS MOBILE home)$/;
+      const names = /^(ZARVIS|ZARVIS AI|Ctrl K|Pro|PRO|UPI|GitHub|English|AI|Pull request|https:\/\/github\.com\/owner\/repo|ZARVIS AI home)$/;
       const found = [];
       const consider = (text, where) => { const t = text.replace(/\s+/g, " ").trim(); if (t && /[A-Za-z]{3,}/.test(t) && !/[\u0900-\u097F]/.test(t) && !names.test(t)) found.push(where + ": " + t.slice(0, 60)); };
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
