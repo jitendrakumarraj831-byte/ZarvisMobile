@@ -2020,7 +2020,6 @@
     if (view === "activity") refreshActivity();
     if (view === "home") {
       renderHomeGreeting();
-      renderHomeActivity();
     }
     if (view === "developer") void refreshGithubStatus();
     if (view === "settings") {
@@ -2520,7 +2519,6 @@
     const title = line.replace(/[#*`_>]/g, "").trim().slice(0, 90) || (status === "success" ? "Completed" : "Failed");
     recordActivity("developer", title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
     appendDeveloperLog(title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
-    renderHomeActivity();
   }
 
   function revealDeveloperResult() {
@@ -3041,91 +3039,6 @@
     activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date(), thumb: thumb || "" });
     if (activityLog.length > 200) activityLog.length = 200;
     if (state.activeView === "activity") renderActivityTimeline();
-    if (state.activeView === "home") renderHomeActivity();
-  }
-
-  function listRow({ icon, tone, title, meta, onClick }) {
-    const row = document.createElement(onClick ? "button" : "div");
-    if (onClick) {
-      row.type = "button";
-      row.addEventListener("click", onClick);
-    }
-    row.className = "list-row";
-    const ico = document.createElement("span");
-    ico.className = "row-ico " + (tone || "tone-blue");
-    ico.appendChild(svgIcon(icon));
-    const copy = document.createElement("span");
-    copy.className = "list-row-copy";
-    const strong = document.createElement("strong");
-    strong.dataset.userText = ""; // a task goal, file name or question: never translated
-    strong.textContent = title;
-    const small = document.createElement("small");
-    small.textContent = meta;
-    copy.append(strong, small);
-    row.append(ico, copy);
-    if (onClick) {
-      const chev = svgIcon("i-right");
-      chev.classList.add("row-chev");
-      row.appendChild(chev);
-    }
-    return row;
-  }
-
-  function renderHomeActivity() {
-    const root = document.getElementById("home-activity");
-    if (!root) return;
-    root.replaceChildren();
-    document.getElementById("home-recent")?.classList.remove("is-empty");
-    const rows = [];
-    if (state.pendingAttachment) {
-      rows.push(listRow({ icon: "i-file", tone: "tone-amber", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
-    }
-    for (const entry of activityLog.slice(0, 3)) {
-      rows.push(listRow({
-        icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
-        tone: entry.type === "developer" ? "tone-cyan" : entry.type === "file" || entry.type === "image" ? "tone-amber" : entry.type === "voice" ? "tone-violet" : "tone-blue",
-        title: entry.title,
-        meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
-        onClick: () => setActiveView(entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat"),
-      }));
-    }
-    if (Array.isArray(latestTasks)) {
-      for (const task of latestTasks.slice(0, Math.max(0, 4 - rows.length))) {
-        rows.push(listRow({ icon: "i-task", tone: "tone-green", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
-      }
-    }
-    if (!rows.length && state.history.length) {
-      const last = [...state.history].reverse().find((message) => message.role === "user");
-      if (last) rows.push(listRow({ icon: "i-chat", tone: "tone-blue", title: summarizeUtterance(String(last.content || "").replace(/^📎\s*/, "")), meta: "Conversation", onClick: () => setActiveView("chat") }));
-    }
-    if (!rows.length) {
-      if (latestTasks === undefined) {
-        const skeleton = document.createElement("div");
-        skeleton.className = "skeleton skeleton-row";
-        skeleton.setAttribute("aria-hidden", "true");
-        root.appendChild(skeleton);
-        return;
-      }
-      if (latestTasks === null) {
-        const failed = emptyState("Couldn't load your activity", "Check your connection and try again.");
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "btn btn-secondary";
-        retry.textContent = "Try again";
-        retry.addEventListener("click", () => { void fetchTasks().catch(() => {}); });
-        failed.appendChild(retry);
-        root.appendChild(failed);
-        return;
-      }
-      root.appendChild(emptyState("Nothing yet", "Your conversations and actions will appear here."));
-      document.getElementById("home-recent")?.classList.add("is-empty");
-      return;
-    }
-    document.getElementById("home-recent")?.classList.remove("is-empty");
-    rows.forEach((row, index) => {
-      row.style.animationDelay = index * 40 + "ms";
-      root.appendChild(row);
-    });
   }
 
   function setupActivityControls() {
@@ -3217,7 +3130,6 @@
             if (at >= 0) activityLog.splice(at, 1);
             if (entry.thumb) URL.revokeObjectURL(entry.thumb);
             renderActivityTimeline();
-            renderHomeActivity();
           } },
         ]);
       });
@@ -3247,12 +3159,10 @@
       res = await apiFetch("/tasks");
     } catch (err) {
       latestTasks = null;
-      renderHomeActivity();
       throw err;
     }
     if (!res.ok) {
       latestTasks = null;
-      renderHomeActivity();
       return null;
     }
     const { tasks } = await res.json();
@@ -3264,7 +3174,6 @@
       else item.removeAttribute("aria-label");
     }
     latestTasks = tasks;
-    renderHomeActivity();
     return tasks;
   }
 
@@ -3591,7 +3500,6 @@
           state.history.push({ role: "user", content: utterance });
           if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
           state.history = state.history.slice(-12);
-          renderHomeActivity();
           state.firstTurn = false;
           recordLatency(utterance, Math.round(performance.now() - startedAt), true, isVoice);
           renderToolActivity(data?.toolCalls);
@@ -4162,7 +4070,6 @@
     // An image attachment keeps its own small preview in Activity (a local blob: URL, never uploaded).
     const thumb = lastPreviewFile ? URL.createObjectURL(lastPreviewFile) : "";
     recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
-    renderHomeActivity();
     el.input.focus();
   }
 
@@ -4170,7 +4077,6 @@
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
     setAttachmentPreview(null);
-    renderHomeActivity();
   }
 
   /** The composer's single entry point for a user-authored turn (typed Send/Enter, or a

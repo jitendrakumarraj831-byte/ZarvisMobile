@@ -572,6 +572,7 @@ async function send(page, text) {
       assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
       assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
       assert.equal(await pageN.locator(".action-tile, .primary-actions, .home-composer").count(), 0, label + ": the four feature tiles and the bottom message bar are gone");
+      assert.equal(await pageN.locator("#view-home #home-recent, #view-home #home-activity, #view-home [data-nav='activity']").count(), 0, label + ": no activity status on Home");
 
       const facts = await pageN.evaluate(() => {
         const orb = document.querySelector("#home-orb .orb").getBoundingClientRect();
@@ -581,7 +582,7 @@ async function send(page, text) {
         const row = document.querySelector("#home-quick .chip-row");
         const chips = [...row.querySelectorAll(".chip:not([hidden])")];
         return {
-          orbCentre: Math.round(orb.left + orb.width / 2), heroCentre: Math.round(hero.left + hero.width / 2), screen: innerWidth,
+          orbWidth: Math.round(orb.width), orbCentre: Math.round(orb.left + orb.width / 2), heroCentre: Math.round(hero.left + hero.width / 2), screen: innerWidth,
           fabVisible: fab.getClientRects().length > 0, fabCentre: Math.round(fabBox.left + fabBox.width / 2),
           fabIcon: fab.querySelector("use").getAttribute("href"),
           chipScroll: row.scrollWidth > row.clientWidth + 8, chipOverflowX: getComputedStyle(row).overflowX, firstChipLeft: Math.round(chips[0].getBoundingClientRect().left),
@@ -593,6 +594,7 @@ async function send(page, text) {
       const card = await pageN.evaluate(() => { const r = document.getElementById("home-prompt-form").getBoundingClientRect(); const nav = document.querySelector(".bottom-nav"); return { height: Math.round(r.height), top: Math.round(r.top), bottom: Math.round(r.bottom), navTop: nav && getComputedStyle(nav).display !== "none" ? Math.round(nav.getBoundingClientRect().top) : innerHeight, screen: innerHeight }; });
       assert.ok(card.height <= 80, `${label}: the message card is one short row (${card.height}px)`);
       assert.ok(card.bottom <= card.navTop && card.top >= card.screen * 0.55, `${label}: the message card sits low, just above the tab bar (${card.top}-${card.bottom} of ${card.screen}, bar at ${card.navTop})`);
+      assert.ok(facts.orbWidth <= 195 && facts.orbWidth <= facts.screen * 0.43, `${label}: the orb is a modest size (${facts.orbWidth}px on a ${facts.screen}px screen)`);
       assert.ok(facts.overflow <= 0, label + ": nothing widens the page");
       assert.equal(facts.small, 0, label + ": quick prompts are at least 44px tall");
       if (touch) {

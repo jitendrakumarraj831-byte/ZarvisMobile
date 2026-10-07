@@ -57,11 +57,6 @@
     "Business draft": "बिज़नेस ड्राफ्ट",
     "Analyze a repo": "रेपो का विश्लेषण",
     "All capabilities": "सभी क्षमताएँ",
-    "Recent Activity": "हाल की गतिविधि",
-    "View all": "सभी देखें",
-    "Nothing yet": "अभी कुछ नहीं",
-    "Your conversations and actions will appear here.": "आपकी बातचीत और कार्य यहाँ दिखेंगे।",
-    "Couldn't load your activity": "आपकी गतिविधि लोड नहीं हो सकी",
     "Check your connection and try again.": "कनेक्शन जाँचें और फिर कोशिश करें।",
     "Try again": "फिर कोशिश करें",
     "New Chat": "नई चैट",
@@ -437,7 +432,6 @@
     "done": "पूरा",
     "failed": "विफल",
     "cancelled": "रद्द",
-    "Ready — ask about it in Chat": "तैयार — चैट में इसके बारे में पूछें",
     "Conversation started": "बातचीत शुरू हुई"
   };
 
