@@ -223,6 +223,48 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     });
   }
 
+  // Chat with real content: a formatted reply (list, code), an action row, a finished tool and a waiting "Thinking" card.
+  // One guest account for all four looks: the server allows 60 sign-ups an hour per address and the suites share them.
+  await step("accessibility: Chat with a rich reply, a tool row and Thinking has no serious/critical axe violation (phone and desktop, both themes)", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const CID = "00000000-0000-4000-8000-000000000001";
+    const RICH = "Here is **what I found**:\n\n## Summary\n- First point with a [link](https://example.com/docs)\n- Second point with `inline code`\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n1. One\n2. Two";
+    let turn = 0;
+    await page.route("**/api/v1/orchestrator/turn-stream", async (route) => {
+      turn += 1;
+      if (turn % 2 === 0) return; // every second turn never answers, so the Thinking card stays up
+      const toolCalls = [{ skillId: "web.search", outcome: { kind: "success" }, result: { status: "COMPLETED", userSafeMessage: "Found 5 results." } }];
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([["meta", { conversationId: CID, turnId: "a" }], ["delta", { text: RICH }], ["done", { message: RICH, toolCalls, conversationId: CID, turnId: "a" }]]) });
+    });
+    const found = [];
+    for (const [label, viewport, appearance] of [["phone light", { width: 390, height: 860 }, "aurora"], ["phone dark", { width: 390, height: 860 }, "dim"], ["desktop light", { width: 1280, height: 860 }, "aurora"], ["desktop dark", { width: 1280, height: 860 }, "dim"]]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate((a) => localStorage.setItem("zarvis.appearance", a), appearance);
+      await page.reload();
+      await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await page.addScriptTag({ content: AXE_SOURCE });
+      await openView(page, "chat");
+      await page.fill("#text-input", "Show me something formatted");
+      await page.press("#text-input", "Enter");
+      await page.waitForSelector(".bubble.assistant .bubble-actions");
+      await page.waitForSelector(".tool-row");
+      await page.fill("#text-input", "and one more thing");
+      await page.press("#text-input", "Enter");
+      await page.waitForSelector(".bubble.thinking");
+      await page.waitForTimeout(900);
+      const violations = await page.evaluate(async () => {
+        // eslint-disable-next-line no-undef
+        const r = await axe.run(document, { resultTypes: ["violations"] });
+        return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+      });
+      for (const v of violations) found.push(`${label}: ${v}`);
+    }
+    await ctx.close();
+    assert.deepEqual(found, []);
+  });
+
   // ---- Keyboard ---------------------------------------------------------------------------
   await step("keyboard: Tab reaches the composer, focus is visible, Enter sends exactly once", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });

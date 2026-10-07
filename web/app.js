@@ -1367,7 +1367,7 @@
 
     card.append(title, action, note, actions);
     container.appendChild(card);
-    if (container === el.conversation) scrollConversationToBottom();
+    if (container === el.conversation) scrollConversationToBottom(true);
     return card;
   }
 
@@ -1749,7 +1749,7 @@
       if (!MOBILE_KEYBOARD.matches || document.activeElement !== el.input) return;
       const keyboardShown = baseline.height - vv.height > 120;
       document.body.classList.toggle("keyboard-open", keyboardShown);
-      if (keyboardShown) scrollConversationToBottom();
+      if (keyboardShown) scrollConversationToBottom(true);
     };
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
@@ -1824,15 +1824,12 @@
       submitComposerInput(text);
     });
 
-    const latestBtn = document.getElementById("scroll-latest");
-    if (latestBtn) {
-      const update = () => {
-        const away = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
-        latestBtn.hidden = state.activeView !== "chat" || away < 360;
-      };
-      window.addEventListener("scroll", update, { passive: true });
-      latestBtn.addEventListener("click", () => { scrollConversationToBottom(); latestBtn.hidden = true; });
-    }
+    // Reading back up the thread stops the page following new text; the button takes you to the newest.
+    window.addEventListener("scroll", () => {
+      followNewest = distanceFromBottom() < NEAR_BOTTOM_PX;
+      updateLatestButton();
+    }, { passive: true });
+    document.getElementById("scroll-latest")?.addEventListener("click", () => scrollConversationToBottom(true));
 
     // The attach label opens the picker natively on click; make sure it lists every supported type.
     el.uploadBtn.addEventListener("click", () => setFilePickerAccept(false));
@@ -2045,7 +2042,7 @@
       void refreshGithubStatus();
       void loadSettingsSummary();
     }
-    if (view === "chat") scrollConversationToBottom();
+    if (view === "chat") scrollConversationToBottom(true);
     syncRoute();
   }
 
@@ -3422,6 +3419,7 @@
     const utterance = rawText.trim();
     if (!utterance) return;
     el.input.value = "";
+    resizeComposer(); // a long, multi-line message must not leave the composer tall once it is sent
     addBubble("user", displayText ?? utterance);
     await runTurn(utterance, isVoice, { clientTurnId: Logic.createClientTurnId() });
   }
@@ -3555,9 +3553,9 @@
         if (event === "progress" && data) {
           if (data.type === "tool_started") {
             setOrbState("EXECUTING");
-            showProgress(thinkingNode, "Using " + data.skillId + "…");
+            showProgress(thinkingNode, "Using " + skillDisplayName(data.skillId) + "…");
           } else if (data.type === "tool_finished") {
-            showProgress(thinkingNode, data.skillId + ": " + Logic.toolStatusLabel(data.status));
+            showProgress(thinkingNode, skillDisplayName(data.skillId) + ": " + Logic.toolStatusLabel(data.status));
           } else if (data.type === "thinking" && data.step > 1) {
             setOrbState("UNDERSTANDING");
             showProgress(thinkingNode, "Reviewing the result…");
@@ -3690,11 +3688,28 @@
 
   // The page (not the conversation element) scrolls; keep the newest message above the
   // floating composer.
-  function scrollConversationToBottom() {
+  /** True while the reader sits at the bottom of the thread: new text keeps them there. Scrolling up to
+   * re-read sets it false, so a long reply streaming in never drags them back down. */
+  let followNewest = true;
+  const NEAR_BOTTOM_PX = 140;
+  const distanceFromBottom = () => document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+
+  function updateLatestButton() {
+    const button = document.getElementById("scroll-latest");
+    if (button) button.hidden = state.activeView !== "chat" || distanceFromBottom() < 240;
+  }
+
+  /** `force` is for the reader's own actions (sending, opening Chat, the jump button); streamed text, tool
+   * rows and the thinking bubble only scroll when the reader is already at the bottom. */
+  function scrollConversationToBottom(force = false) {
     if (!el.conversation || state.activeView !== "chat") return;
-    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
-    toBottom();
-    requestAnimationFrame(toBottom);
+    if (force) followNewest = true;
+    if (followNewest) {
+      const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+      toBottom();
+      requestAnimationFrame(() => { toBottom(); updateLatestButton(); });
+    }
+    updateLatestButton();
   }
 
   /** `at` is when the message was sent: now for a new message, the server's createdAt for
@@ -3722,24 +3737,46 @@
     if (role === "assistant") {
       const actions = document.createElement("div");
       actions.className = "bubble-actions";
+      // Icon-only buttons in one row (the name is the tooltip and the accessible name); a click answers with
+      // a check mark and a short toast, then the icon returns.
       const actionButton = (iconId, label) => {
         const button = document.createElement("button");
         button.type = "button";
-        const labelNode = document.createElement("span");
-        labelNode.textContent = label;
-        button.append(svgIcon(iconId), labelNode);
-        return { button, labelNode };
+        button.setAttribute("aria-label", label);
+        button.title = label;
+        const icon = svgIcon(iconId);
+        button.append(icon);
+        const confirm = (done) => {
+          const use = icon.querySelector("use");
+          button.dataset.done = "1";
+          use?.setAttribute("href", "#i-check");
+          button.setAttribute("aria-label", done);
+          button.title = done;
+          showToast(done);
+          setTimeout(() => {
+            delete button.dataset.done;
+            use?.setAttribute("href", "#" + iconId);
+            button.setAttribute("aria-label", label);
+            button.title = label;
+          }, 1800);
+        };
+        return { button, confirm };
       };
-      const { button: copyBtn, labelNode: copyLabel } = actionButton("i-file", "Copy");
+      const { button: copyBtn, confirm: copied } = actionButton("i-copy", "Copy");
       copyBtn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(bubblePlainText(body) || text);
-          copyLabel.textContent = "Copied";
+          copied("Copied");
         } catch {
-          copyLabel.textContent = "Copy failed";
+          showToast("Copy failed");
         }
       });
       actions.appendChild(copyBtn);
+      const { button: listen } = actionButton("i-wave", "Listen");
+      listen.addEventListener("click", () => {
+        void speak(bubblePlainText(body) || text, null, true);
+      });
+      actions.appendChild(listen);
       if (utterance) {
         const { button: again } = actionButton("i-refresh", "Regenerate");
         again.addEventListener("click", () => {
@@ -3755,7 +3792,7 @@
         });
         actions.appendChild(share);
       }
-      const { button: download, labelNode: downloadLabel } = actionButton("i-download", "Download");
+      const { button: download, confirm: saved } = actionButton("i-download", "Download");
       download.addEventListener("click", () => {
         const blob = new Blob([bubblePlainText(body) || text], { type: "text/plain;charset=utf-8" });
         const url = URL.createObjectURL(blob);
@@ -3766,19 +3803,14 @@
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        downloadLabel.textContent = "Saved";
+        saved("Saved");
       });
       actions.appendChild(download);
-      const { button: listen } = actionButton("i-wave", "Listen");
-      listen.addEventListener("click", () => {
-        void speak(bubblePlainText(body) || text, null, true);
-      });
-      actions.appendChild(listen);
       bubble.appendChild(actions);
     }
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
-    scrollConversationToBottom();
+    scrollConversationToBottom(role === "user");
     if (role === "assistant") announceChat(text);
     return body;
   }
@@ -3834,6 +3866,11 @@
 
   function showProgress(thinkingNode, text) {
     if (!thinkingNode?.isConnected) return;
+    const label = thinkingNode.querySelector(".thinking-label");
+    if (label) {
+      label.textContent = text;
+      return;
+    }
     let note = thinkingNode.querySelector(".progress-note");
     if (!note) {
       note = document.createElement("div");
@@ -3879,7 +3916,8 @@
   function addThinkingBubble() {
     const bubble = document.createElement("div");
     bubble.className = "bubble assistant thinking";
-    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span><span class="thinking-label"></span>';
+    bubble.querySelector(".thinking-label").textContent = COPY[state.lang].thinking;
     el.conversation.appendChild(bubble);
     scrollConversationToBottom();
     return bubble;

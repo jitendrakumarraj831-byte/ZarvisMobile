@@ -558,6 +558,130 @@ async function send(page, text) {
     }
   });
 
+  await step("Chat: solid headers, readable scrolling code in both themes, one row of labelled icon actions with a confirmation, and a composer that shrinks back after a long message", async () => {
+    // One guest account for all four looks (the server allows 60 sign-ups an hour per address, and both suites share it).
+    const ctxC = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctxC.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
+    const pageC = await pageOf(ctxC);
+    await mockStream(pageC);
+    let first = true;
+    for (const [label, viewport, appearance] of [
+      ["phone light", { width: 390, height: 844 }, "aurora"],
+      ["phone dark", { width: 390, height: 844 }, "dim"],
+      ["desktop light", { width: 1280, height: 800 }, "aurora"],
+      ["desktop dark", { width: 1280, height: 800 }, "dim"],
+    ]) {
+      await pageC.setViewportSize(viewport);
+      if (first) await pageC.goto(BASE + "/#/chat");
+      await pageC.evaluate((a) => localStorage.setItem("zarvis.appearance", a), appearance);
+      if (!first) await pageC.reload();
+      first = false;
+      await pageC.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await pageC.waitForSelector("#text-input");
+      const idleHeight = await pageC.evaluate(() => Math.round(document.getElementById("text-input").getBoundingClientRect().height));
+      await pageC.fill("#text-input", "Please show me a tiny example, and explain it step by step so that I can follow along without any trouble at all, thanks.");
+      assert.ok((await pageC.evaluate(() => document.getElementById("text-input").getBoundingClientRect().height)) > idleHeight + 20, label + ": a long message grows the composer");
+      await pageC.press("#text-input", "Enter");
+      await pageC.waitForSelector(".bubble.assistant .bubble-actions");
+      assert.equal(await pageC.evaluate(() => Math.round(document.getElementById("text-input").getBoundingClientRect().height)), idleHeight, label + ": the composer shrinks back once the message is sent");
+
+      await pageC.waitForTimeout(600); // entrance animations settle before anything is measured
+      const facts = await pageC.evaluate(() => {
+        const rgb = (value) => {
+          const n = (value.match(/[\d.]+/g) || []).map(Number);
+          const scale = value.startsWith("color(") ? 255 : 1;
+          return { r: n[0] * scale, g: n[1] * scale, b: n[2] * scale, a: n.length > 3 ? n[3] : 1 };
+        };
+        const lum = ({ r, g, b }) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+        const contrast = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+        const pre = document.querySelector("pre.reply-code");
+        const code = pre.querySelector("code");
+        const buttons = [...document.querySelectorAll(".bubble.assistant .bubble-actions button")];
+        const rects = buttons.map((b) => b.getBoundingClientRect());
+        const desk = document.getElementById("desk-top");
+        return {
+          headerAlpha: rgb(getComputedStyle(document.querySelector(".chat-header")).backgroundColor).a,
+          deskAlpha: desk && getComputedStyle(desk).display !== "none" ? rgb(getComputedStyle(desk).backgroundColor).a : null,
+          codeContrast: contrast(rgb(getComputedStyle(code).color), rgb(getComputedStyle(pre).backgroundColor)),
+          codeOverflow: getComputedStyle(pre).overflowX,
+          codeScrolls: pre.scrollWidth > pre.clientWidth + 20,
+          pageOverflow: document.documentElement.scrollWidth - innerWidth,
+          buttons: buttons.length,
+          names: buttons.map((b) => b.getAttribute("aria-label")),
+          textual: buttons.filter((b) => b.textContent.trim() !== "").length,
+          small: rects.filter((r) => r.width < 40 || r.height < 40).map((r) => `${Math.round(r.width)}x${Math.round(r.height)}`),
+          rowSpread: Math.max(...rects.map((r) => r.top)) - Math.min(...rects.map((r) => r.top)),
+        };
+      });
+      assert.equal(facts.headerAlpha, 1, label + ": the Chat header is opaque (bubbles scrolling beneath never ghost through)");
+      if (facts.deskAlpha !== null) assert.equal(facts.deskAlpha, 1, label + ": the desktop app bar is opaque in Chat");
+      assert.ok(facts.codeContrast >= 7, label + ": code contrast " + facts.codeContrast.toFixed(1));
+      assert.equal(facts.codeOverflow, "auto", label + ": code scrolls sideways");
+      assert.ok(facts.codeScrolls, label + ": the long code line scrolls instead of being cut off");
+      assert.ok(facts.pageOverflow <= 0, label + ": a long code line never widens the page (" + facts.pageOverflow + "px)");
+      assert.ok(facts.buttons >= 3 && facts.names.every(Boolean), label + ": every reply action is named " + JSON.stringify(facts.names));
+      assert.equal(facts.textual, 0, label + ": reply actions are icon-only");
+      assert.deepEqual(facts.small, [], label + ": every reply action is at least 40px");
+      assert.ok(facts.rowSpread <= 2, label + ": reply actions share one row");
+
+      const copy = pageC.locator('.bubble.assistant .bubble-actions button[aria-label="Copy"]').first();
+      await copy.click();
+      await pageC.waitForSelector('.bubble.assistant .bubble-actions button[data-done="1"]', { timeout: 2000 });
+      assert.equal(await pageC.getAttribute('.bubble.assistant .bubble-actions button[data-done="1"]', "aria-label"), "Copied");
+      assert.match(await pageC.evaluate(() => navigator.clipboard.readText()), /tiny example/, label + ": Copy puts the reply text on the clipboard");
+      await pageC.waitForSelector('.bubble.assistant .bubble-actions button[data-done]', { state: "detached", timeout: 4000 });
+    }
+    await ctxC.close();
+  });
+
+  await step("Chat: reading back up the thread is never yanked down by a streaming reply, the jump button returns to the newest, and Thinking says what it is doing", async () => {
+    const ctxS = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const pageS = await pageOf(ctxS);
+    await mockStream(pageS);
+    await pageS.goto(BASE + "/#/chat");
+    await pageS.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const gap = () => pageS.evaluate(() => Math.round(document.documentElement.scrollHeight - innerHeight - scrollY));
+    const lines = (n, tag) => Array.from({ length: n }, (_, i) => `${tag} line ${i + 1} of the answer, long enough to be read.`).join("\n\n");
+    for (let i = 1; i <= 3; i++) {
+      await pageS.evaluate((text) => { window.__stream.reply = text; }, lines(8, "Earlier " + i));
+      await pageS.fill("#text-input", "question " + i);
+      await pageS.press("#text-input", "Enter");
+      await pageS.waitForFunction((n) => document.querySelectorAll(".bubble.assistant").length >= n, i);
+    }
+    assert.ok((await gap()) <= 8, "after a reply the thread sits at its bottom (" + (await gap()) + "px)");
+
+    await pageS.evaluate(() => { window.__stream.auto = false; });
+    await pageS.fill("#text-input", "stream something long");
+    await pageS.press("#text-input", "Enter");
+    await pageS.waitForSelector(".bubble.thinking .thinking-label");
+    assert.ok((await pageS.textContent(".bubble.thinking .thinking-label")).trim().length > 0, "Thinking is labelled");
+    await pageS.evaluate(() => window.__stream.push("meta", { conversationId: "00000000-0000-4000-8000-000000000001", turnId: "live" }));
+
+    // Following: the reader is at the bottom, so growing text keeps them there.
+    await pageS.evaluate((text) => window.__stream.push("delta", { text }), lines(6, "Live") + "\n\n");
+    await pageS.waitForTimeout(250);
+    assert.ok((await gap()) <= 8, "while following, the page stays at the bottom (" + (await gap()) + "px)");
+
+    // Reading back: scrolled up, more text arrives, the page stays where it was.
+    await pageS.evaluate(() => window.scrollTo(0, Math.max(0, scrollY - 900)));
+    await pageS.waitForTimeout(250);
+    const readingAt = await pageS.evaluate(() => Math.round(scrollY));
+    await pageS.evaluate((text) => window.__stream.push("delta", { text }), lines(10, "More") + "\n\n");
+    await pageS.waitForTimeout(400);
+    const after = await pageS.evaluate(() => Math.round(scrollY));
+    assert.ok(Math.abs(after - readingAt) <= 2, `streaming moved a reader who scrolled up (${readingAt} → ${after})`);
+    assert.equal(await pageS.locator("#scroll-latest").isVisible(), true, "the jump button is offered while reading back");
+
+    await pageS.click("#scroll-latest");
+    await pageS.waitForTimeout(350);
+    assert.ok((await gap()) <= 8, "the jump button returns to the newest text (" + (await gap()) + "px)");
+    assert.equal(await pageS.locator("#scroll-latest").isVisible(), false, "the jump button goes away at the bottom");
+
+    await pageS.evaluate(() => window.__stream.finish("All done."));
+    await pageS.waitForSelector(".bubble.assistant .bubble-actions >> nth=3");
+    await ctxS.close();
+  });
+
   await step("Pages: the profile card opens Account, Capabilities tallies what it lists, Activity's empty state offers a next step", async () => {
     const ctxP = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageP = await pageOf(ctxP);
@@ -746,4 +870,34 @@ async function pageOf(ctx, { devAccess = false } = {}) {
     } catch {}
   }, devAccess);
   return ctx.newPage();
+}
+
+/** Replaces the turn stream with a scriptable one. While `window.__stream.auto` is true every turn is answered at once with
+ * `window.__stream.reply`; with it off a turn stays open and the test pushes frames with `push(event, data)` and ends it with
+ * `finish(text)` - the way a model streams, which route.fulfill cannot do. */
+async function mockStream(page) {
+  await page.addInitScript(() => {
+    const realFetch = window.fetch.bind(window);
+    const enc = new TextEncoder();
+    const CID = "00000000-0000-4000-8000-000000000001";
+    const frame = (event, data) => enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const api = (window.__stream = {
+      auto: true,
+      reply: "Hello! I'm **ZARVIS** - here is a tiny example:\n\n```js\nconst greet = (name) => `Hello, ${name}! This line is deliberately far longer than a phone is wide, so it has to scroll sideways`;\n```\n\nThe `greet` function builds the text.\n\n1. Ask a question\n2. Attach a file",
+      controller: null,
+      push: (event, data) => api.controller.enqueue(frame(event, data)),
+      finish: (text) => { api.push("done", { message: text, toolCalls: [], conversationId: CID, turnId: "live" }); api.controller.close(); },
+    });
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (!url.endsWith("/orchestrator/turn-stream")) return realFetch(input, init);
+      const headers = { "content-type": "text/event-stream" };
+      if (api.auto) {
+        const turnId = "t" + Math.random().toString(36).slice(2);
+        const body = [frame("meta", { conversationId: CID, turnId }), frame("delta", { text: api.reply }), frame("done", { message: api.reply, toolCalls: [], conversationId: CID, turnId })];
+        return Promise.resolve(new Response(new Blob(body), { status: 200, headers }));
+      }
+      return Promise.resolve(new Response(new ReadableStream({ start(c) { api.controller = c; } }), { status: 200, headers }));
+    };
+  });
 }

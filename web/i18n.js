@@ -392,6 +392,7 @@
     "All conversations and tasks": "सारी बातचीत और कार्य",
     "You're all caught up. New conversations, files and tasks show up here.": "सब कुछ देख लिया गया है। नई बातचीत, फ़ाइलें और कार्य यहाँ दिखेंगे।",
     "Copied": "कॉपी हो गया",
+    "Reviewing the result…": "नतीजा देख रहा हूँ…",
     "Copy failed": "कॉपी नहीं हो सका",
     "Back online": "फिर से ऑनलाइन",
     "Developer access on": "डेवलपर एक्सेस चालू",
@@ -447,6 +448,7 @@
     [new RegExp("^Go to (.+)$"), "$1 पर जाएँ"],
     [new RegExp("^Voice: (.+)$"), "आवाज़: $1"],
     [new RegExp("^Run (.+)$"), "$1 चलाएँ"],
+    [new RegExp("^Using (.+)…$"), "$1 का उपयोग हो रहा है…"],
     [new RegExp("^(\\d+)m ago$"), "$1 मिनट पहले"],
     [new RegExp("^(\\d+)h ago$"), "$1 घंटे पहले"]
   ];

@@ -2370,3 +2370,53 @@ body.page-hidden .orb-waves i, body.page-hidden .orb-sparks b { animation-play-s
 
 /* The orb's waves and sparks reach past the orb: the card below always sits on top of them, never the other way round. */
 .view-home .home-card { position: relative; z-index: 3; }
+
+/* ---------- Chat: pro polish ---------- */
+/* The header is solid enough that messages scrolling underneath never ghost through it. */
+body[data-active-view="chat"] .chat-header {
+  background: var(--bg);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border-bottom: 1px solid var(--line);
+}
+@media (min-width: 700px) { body[data-active-view="chat"] .chat-header { border: 1px solid var(--line); } }
+/* Desktop: in Chat the app bar is solid too (its normal fade-out lets bubbles scrolling beneath it show through next to the icons). */
+@media (min-width: 700px) { body[data-active-view="chat"] .desk-top { background: var(--bg); } }
+
+/* Code is always light-on-dark and scrolls sideways instead of being cut off (the inline-code colour used to leak in). */
+.bubble.assistant .bubble-body pre.reply-code { background: #0d1224; color: #e6e9f5; }
+.bubble.assistant .bubble-body pre.reply-code code { color: inherit; background: none; border: 0; padding: 0; }
+pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; tab-size: 2; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.25) transparent; }
+
+/* Lists: bullets and numbers share one indent, with quiet markers. */
+.bubble-body ul.reply-list, .bubble-body ol.reply-list { margin: 0.4em 0 0.8em; padding-left: 1.5em; }
+.bubble-body ul.reply-list { list-style: disc; }
+.bubble-body ol.reply-list { list-style: decimal; }
+.bubble-body .reply-list li { margin: 0.3em 0; padding-left: 0.2em; }
+.bubble-body .reply-list li::marker { color: var(--text-3); font-weight: 600; }
+
+/* Reply actions: one quiet row of icon buttons (the name is the tooltip), not a stack of labelled pills. */
+.bubble .bubble-actions { flex-wrap: nowrap; gap: 2px; margin: 6px 0 0 -8px; opacity: 1; }
+.bubble .bubble-actions button {
+  display: inline-grid; place-items: center; width: 40px; height: 40px; min-height: 0; padding: 0;
+  border: 0; border-radius: 12px; background: none; box-shadow: none; color: var(--text-3);
+}
+.bubble .bubble-actions button:hover { background: var(--surface-2); color: var(--text); }
+.bubble .bubble-actions button[data-done] { color: var(--ok); }
+.bubble .bubble-actions .ico { width: 18px; height: 18px; }
+@media (hover: none), (pointer: coarse) { .bubble .bubble-actions button { width: 44px; height: 44px; } }
+
+/* "Thinking": the same soft card as a reply, and it says what ZARVIS is doing. */
+.bubble.thinking {
+  display: inline-flex; align-items: center; gap: 10px; align-self: flex-start; max-width: min(92%, 640px);
+  min-height: 0; padding: 10px 16px; border-radius: 4px 18px 18px 18px;
+  background: var(--bubble-ai-bg); box-shadow: var(--card-shadow);
+}
+[data-appearance="dim"] .bubble.thinking { border: 1px solid var(--card-border); }
+.bubble.thinking .thinking-dots { padding: 0; }
+.thinking-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--text-2); }
+
+/* Tool activity: a compact card with a status rail, in the reply's column. */
+.tool-row { max-width: min(92%, 640px); padding: 10px 14px; border-radius: 14px; border-left: 3px solid var(--line-2); }
+.tool-row[data-tone="success"] { border-left-color: var(--ok); }
+.tool-row[data-tone="confirm"] { border-left-color: var(--warn); }
+.tool-row[data-tone="failed"] { border-left-color: var(--err); }
