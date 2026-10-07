@@ -44,7 +44,7 @@ async function step(name, fn) {
     console.log("PASS", name);
   } catch (err) {
     results.push(["FAIL", name]);
-    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n").slice(0, 6).join("\n    ") : err);
+    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n").slice(0, 14).join("\n    ") : err);
   }
 }
 
@@ -54,9 +54,24 @@ async function openView(page, view) {
   await page.waitForTimeout(150);
 }
 
+/** What the page logged and which requests failed, so a timeout below explains itself. */
+function watch(page) {
+  const seen = [];
+  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") seen.push(`console.${m.type()}: ${m.text().slice(0, 160)}`); });
+  page.on("requestfailed", (r) => seen.push(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ""}`));
+  page.on("response", (r) => { if (r.status() >= 400) seen.push(`HTTP ${r.status()}: ${r.url()}`); });
+  return seen;
+}
+
 async function ready(page) {
+  const seen = watch(page);
   await page.goto(BASE);
-  await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+  try {
+    await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"), null, { timeout: 15000 });
+  } catch {
+    const now = await page.evaluate(() => ({ url: location.href, width: innerWidth, text: document.body.innerText.replace(/\s+/g, " ").slice(0, 140) })).catch(() => ({}));
+    throw new Error(`no guest session after 15s ${JSON.stringify(now)}; seen: ${seen.slice(-8).join(" | ") || "nothing"}`);
+  }
   await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 });
 }
 
@@ -74,7 +89,13 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
       const ctx = await browser.newContext({ viewport: { width, height: 860 } });
       const page = await pageOf(ctx);
       page.on("pageerror", (e) => errors.push(`pageerror@${width}: ${e.message}`));
-      await ready(page);
+      try {
+        await ready(page);
+      } catch (err) {
+        problems.push(`${width}px: ${err.message}`); // report every width that fails, not just the first
+        await ctx.close();
+        continue;
+      }
       for (const view of VIEWS) {
         await openView(page, view);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
