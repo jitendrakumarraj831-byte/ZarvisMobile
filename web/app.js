@@ -21,6 +21,7 @@
     ttsVoice: "zarvis.ttsVoice",
     userName: "zarvis.userName",
     conversationId: "zarvis.conversationId",
+    devAccess: "zarvis.devAccess",
   };
 
   const API_BASE = resolveApiBase();
@@ -63,8 +64,6 @@
       quickActionsLead: "Suggestions",
       placeholder: "Message ZARVIS…",
       homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
-      homeTitle: "How can I help you today?",
-      homePlaceholder: "Ask anything…",
       send: "Send",
       stop: "Stop",
       mic: "Speak",
@@ -101,6 +100,9 @@
       extracting: "Reading document…",
       attachmentReady: "Ready to analyze",
       attachmentRemove: "Remove attachment",
+      offlineLabel: "Offline",
+      offlineBanner: "You're offline. ZARVIS works again as soon as you reconnect.",
+      backOnline: "Back online",
       stateLabels: {
         IDLE: "Online",
         LISTENING: "Listening",
@@ -127,8 +129,6 @@
       quickActionsLead: "सुझाव",
       placeholder: "ZARVIS को संदेश भेजें…",
       homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
-      homeTitle: "आज मैं आपकी कैसे मदद करूँ?",
-      homePlaceholder: "कुछ भी पूछें…",
       send: "भेजें",
       stop: "रोकें",
       mic: "बोलें",
@@ -161,6 +161,9 @@
       extracting: "डॉक्यूमेंट पढ़ा जा रहा है…",
       attachmentReady: "विश्लेषण के लिए तैयार",
       attachmentRemove: "अटैचमेंट हटाएं",
+      offlineLabel: "ऑफ़लाइन",
+      offlineBanner: "आप ऑफ़लाइन हैं। इंटरनेट लौटते ही ZARVIS फिर काम करेगा।",
+      backOnline: "फिर से ऑनलाइन",
       stateLabels: {
         IDLE: "ऑनलाइन",
         LISTENING: "सुन रहा हूँ",
@@ -249,6 +252,8 @@
     appearanceAuroraBtn: document.getElementById("appearance-aurora-btn"),
     appearanceDimBtn: document.getElementById("appearance-dim-btn"),
     settingsOpenDeveloper: document.getElementById("settings-open-developer"),
+    settingsOpenMetrics: document.getElementById("settings-open-metrics"),
+    settingsDevToggle: document.getElementById("settings-dev-toggle"),
     activityTaskList: document.getElementById("activity-task-list"),
     activityRefreshBtn: document.getElementById("activity-refresh-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
@@ -263,8 +268,6 @@
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
-    homeTitle: document.getElementById("home-title"),
-    homePromptInput: document.getElementById("home-prompt-input"),
     homeOrb: document.getElementById("home-orb"),
     chatNewBtn: document.getElementById("chat-new-btn"),
     activityTimeline: document.getElementById("activity-timeline"),
@@ -305,15 +308,17 @@
     // Server-side durable conversation id. The browser keeps only this pointer; the
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
-    appearance: localStorage.getItem("zarvis.appearance") || "dim",
+    // theme-init.js (in <head>) already applied the saved theme (light unless dark was chosen) before first paint.
+    appearance: document.documentElement.dataset.appearance === "aurora" ? "aurora" : "dim",
+    // "Developer access" is off by default: Developer Agent and Metrics stay out of the way until
+    // the user switches them on in Settings → Developer. It only changes what is shown.
+    devAccess: readDevAccess(),
     settingsPage: null,
     featureId: null,
   };
 
-  // Declared here (not near their setup functions below) because init() runs synchronously
-  // up to its first `await` and calls those setup functions immediately — a `let` declared
-  // later in this same scope would still be in its temporal dead zone at that point,
-  // throwing "Cannot access '...' before initialization".
+  // Declared early out of habit: init() is now started at the very end of this file, so the
+  // order of declarations below no longer matters to it.
   let recognition = null;
   // Presentation state read by Settings, Metrics and Activity (declared early for init()).
   let currentPlanName = null;
@@ -325,15 +330,6 @@
   // called from submitUtterance() around the actual /orchestrator/turn fetch) — feeds the
   // System Metrics tab. In-memory only, capped, never persisted or fabricated.
   let latencyEntries = [];
-
-  init().catch((err) => {
-    // The technical detail (network failure, a platform error page, whatever) is only ever
-    // logged here — never rendered into the UI. addErrorBubble always shows the same
-    // friendly, translated connection message regardless of cause.
-    console.error(err);
-    addErrorBubble(COPY[state.lang].bootError, () => location.reload());
-    setOrbState("ERROR");
-  });
 
   async function init() {
     // Wire the core composer controls first. These must remain usable even if an optional
@@ -388,6 +384,10 @@
       ["account", setupAccountPanel],
       ["developer", setupDeveloper],
       ["github", setupGithubConnect],
+      ["modals", setupModalManager],
+      ["connection", setupConnectionState],
+      ["history", setupHistory],
+      ["menu drawer", setupNavDrawer],
     ];
     for (const [name, initialize] of optionalInitializers) {
       try {
@@ -437,8 +437,6 @@
     el.heroSubtitle.textContent = copy.subtitle;
     el.quickActionsLead.textContent = copy.quickActionsLead;
     renderHomeGreeting();
-    el.homeTitle.textContent = copy.homeTitle;
-    el.homePromptInput.placeholder = copy.homePlaceholder;
     el.input.placeholder = copy.placeholder;
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
@@ -454,12 +452,14 @@
     // later in this file — applyLanguage() runs synchronously from init(), before that
     // declaration executes, so calling it here throws "Cannot access before initialization"
     // and takes down the entire init() sequence with it. el.sendLabel is already set above.
-    el.heroStatusLabel.textContent = copy.stateLabels[el.orb.dataset.state] || copy.stateLabels.IDLE;
+    renderHeroStatus();
     if (state.skills.length) renderQuickActions(state.skills);
     populateVoiceSelect(); // available voices differ between "en" and "hi"
     for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
       btn.classList.toggle("active", btn.dataset.lang === state.lang);
     }
+    // Everything the page says in English that has a Hindi entry (see i18n.js); user content is left alone.
+    window.ZarvisI18n?.apply(state.lang);
   }
 
   /** Settings screen's language pills read/write the same `state.lang`/localStorage key. */
@@ -474,6 +474,270 @@
     state.speak = !state.speak;
     localStorage.setItem(STORAGE_KEYS.speak, state.speak ? "on" : "off");
     applyVoiceToggleState();
+  }
+
+  function readDevAccess() {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.devAccess) === "on";
+    } catch {
+      return false;
+    }
+  }
+
+  /** Shows or hides every Developer-access entry point (nav, Home chip, Activity filter, hub, skills). */
+  function applyDevAccess() {
+    const on = state.devAccess;
+    document.body.dataset.devAccess = on ? "on" : "off";
+    for (const node of document.querySelectorAll("[data-dev-only]")) node.hidden = !on;
+    el.settingsDevToggle?.setAttribute("aria-pressed", String(on));
+    const text = el.settingsDevToggle?.querySelector(".switch-text");
+    if (text) text.textContent = on ? "On" : "Off";
+    // Leaving Developer access while its Activity filter is selected falls back to "All"
+    // (through the filter's own handler, so the list and the pressed state stay in step).
+    if (!on) el.activityFilters?.querySelector('[data-filter="developer"].active') && el.activityFilters.querySelector('[data-filter="all"]')?.click();
+    if (el.capabilityHub && window.ZarvisFeatures) window.ZarvisFeatures.renderHub(el.capabilityHub, { developer: on });
+    if (state.skills.length) renderCapabilities();
+    updateSettingsValues();
+  }
+
+  function setDevAccess(on) {
+    state.devAccess = on;
+    try {
+      localStorage.setItem(STORAGE_KEYS.devAccess, on ? "on" : "off");
+    } catch {}
+    applyDevAccess();
+  }
+
+  /** Developer-only pages send everyone else to the switch that turns them on. */
+  function requireDevAccess(label) {
+    if (state.devAccess) return true;
+    showToast(label + " is part of Developer access. Turn it on in Settings.");
+    setActiveView("settings");
+    openSettingsPage("developer");
+    return false;
+  }
+
+  // ---- Browser history: pages and Settings sub-pages are real history entries ---------------
+  // Back / Forward (and the Android system Back button) move between pages instead of leaving
+  // the app, a reload keeps the page, and #/settings/voice style links open that page.
+  let applyingRoute = false;
+  let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
+  let featureOwnsEntry = false; // same for a capability detail page
+
+  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", capabilities: "Capabilities", plans: "Plans", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
+
+  function currentRoute() {
+    if (state.activeView === "settings" && state.settingsPage) return "#/settings/" + state.settingsPage;
+    if (state.activeView === "feature" && state.featureId) return "#/capabilities/" + state.featureId;
+    return "#/" + state.activeView;
+  }
+
+  /** "Activity · ZARVIS AI": what the tab, the history list and a screen reader announce. */
+  function pageTitle() {
+    const brand = "ZARVIS AI";
+    if (state.activeView === "home") return brand;
+    let name = "";
+    if (state.activeView === "settings" && state.settingsPage) name = el.settingsSubpageTitle?.textContent || "";
+    else if (state.activeView === "feature") name = document.querySelector("#view-feature h1")?.textContent || "";
+    else name = document.querySelector(".view:not([hidden]) h1:not(.sr-only)")?.textContent || "";
+    name = window.ZarvisI18n?.translate((name || PAGE_TITLES[state.activeView] || "").trim(), state.lang) || "";
+    return name ? name + " · " + brand : brand;
+  }
+
+  function syncRoute() {
+    const title = pageTitle();
+    document.title = title;
+    const announcer = document.getElementById("route-announcer");
+    if (announcer) announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
+    if (applyingRoute) return;
+    const route = currentRoute();
+    if (location.hash === route || (state.activeView === "home" && !location.hash)) return;
+    history.pushState({ zarvis: true }, "", route);
+    subpageOwnsEntry = state.activeView === "settings" && !!state.settingsPage;
+    featureOwnsEntry = state.activeView === "feature";
+  }
+
+  function applyRoute(hash) {
+    const match = /^#\/([a-z]+)(?:\/([\w-]+))?$/.exec(hash || "");
+    const view = match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home";
+    const sub = match ? match[2] : undefined;
+    applyingRoute = true;
+    subpageOwnsEntry = false;
+    featureOwnsEntry = false;
+    try {
+      if (view === "settings") {
+        if (state.activeView !== "settings") setActiveView("settings");
+        if (sub && document.querySelector(`[data-settings-page="${sub}"]`)) {
+          if (state.settingsPage !== sub) openSettingsPage(sub);
+        } else if (state.settingsPage) closeSettingsPage();
+      } else if (view === "capabilities" && sub && document.querySelector(`[data-feature-page="${sub}"]`)) {
+        openFeature(sub);
+      } else {
+        setActiveView(view);
+      }
+    } finally {
+      applyingRoute = false;
+    }
+    // A guard may have sent us elsewhere (e.g. Developer access is off): keep the address bar truthful.
+    const route = currentRoute();
+    if (location.hash !== route && !(state.activeView === "home" && !location.hash)) history.replaceState({ zarvis: true }, "", route);
+    syncRoute();
+  }
+
+  function onRouteChange() {
+    if (location.hash === currentRoute() || (!location.hash && state.activeView === "home" && !state.settingsPage)) return;
+    applyRoute(location.hash);
+  }
+
+  function setupHistory() {
+    window.addEventListener("popstate", onRouteChange);
+    window.addEventListener("hashchange", onRouteChange);
+    if (location.hash) applyRoute(location.hash);
+    else syncRoute();
+  }
+
+  /** The in-app "back" on a Settings sub-page behaves exactly like the browser's Back button. */
+  function leaveSettingsSubpage() {
+    if (subpageOwnsEntry) {
+      history.back();
+      return;
+    }
+    closeSettingsPage();
+    history.replaceState({ zarvis: true }, "", "#/settings");
+    syncRoute();
+  }
+
+  function leaveFeaturePage() {
+    if (featureOwnsEntry) {
+      history.back();
+      return;
+    }
+    setActiveView("capabilities");
+  }
+
+  // ---- Dialogs: focus goes in, stays in, and comes back; the page behind cannot scroll ------
+  function setupModalManager() {
+    const overlays = Array.from(document.querySelectorAll(".modal-overlay"));
+    const app = document.querySelector(".app");
+    let lastOutside = null;
+    document.addEventListener("focusin", (event) => {
+      if (!event.target.closest?.(".modal-overlay, .palette-overlay, .shell-popover")) lastOutside = event.target;
+    });
+    const focusable = (root) => Array.from(root.querySelectorAll('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')).filter((node) => !node.disabled && node.getClientRects().length);
+    const openOverlay = () => overlays.find((overlay) => !overlay.hidden);
+    let wasOpen = false;
+    const sync = () => {
+      const open = openOverlay();
+      if (open && !wasOpen) {
+        wasOpen = true;
+        app?.setAttribute("inert", "");
+        document.body.classList.add("modal-open");
+        if (!open.contains(document.activeElement)) (focusable(open)[0] || open).focus?.({ preventScroll: true });
+      } else if (!open && wasOpen) {
+        wasOpen = false;
+        app?.removeAttribute("inert");
+        document.body.classList.remove("modal-open");
+        const visible = (node) => !!node && document.contains(node) && node.getClientRects().length > 0;
+        const back = visible(lastOutside) ? lastOutside : Array.from(document.querySelectorAll(".nav-item.active")).find(visible);
+        back?.focus?.({ preventScroll: true });
+      }
+    };
+    const observer = new MutationObserver(sync);
+    for (const overlay of overlays) observer.observe(overlay, { attributes: true, attributeFilter: ["hidden"] });
+    // Browsers without `inert` still get a Tab trap.
+    document.addEventListener("keydown", (event) => {
+      const open = openOverlay();
+      if (!open || event.key !== "Tab") return;
+      const items = focusable(open);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (!open.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    sync();
+  }
+
+  // ---- Phone menu: under 700px the sidebar is a drawer behind the menu button ----------------
+  // Same navigation as the desktop sidebar (including Plans and, with Developer access, the developer
+  // pages). While it is open the page behind is inert and cannot scroll; Esc, the backdrop, the close
+  // button or choosing a page closes it and focus returns to the menu button.
+  function setupNavDrawer() {
+    const drawer = document.getElementById("sidebar-nav");
+    const scrim = document.getElementById("drawer-scrim");
+    const menuBtn = document.getElementById("menu-btn");
+    const closeBtn = document.getElementById("drawer-close");
+    const app = document.querySelector(".app");
+    if (!drawer || !scrim || !menuBtn || !app) return;
+    const phone = window.matchMedia("(max-width: 699px)");
+    const isOpen = () => drawer.classList.contains("is-open");
+    const behind = () => Array.from(app.children).filter((node) => node !== drawer && node !== scrim);
+    const focusable = () => Array.from(drawer.querySelectorAll("button")).filter((node) => !node.disabled && node.getClientRects().length);
+
+    function setOpen(open, restoreFocus = true) {
+      if (open === isOpen() || (open && !phone.matches)) return;
+      drawer.classList.toggle("is-open", open);
+      scrim.hidden = !open;
+      document.body.classList.toggle("drawer-open", open);
+      menuBtn.setAttribute("aria-expanded", String(open));
+      for (const node of behind()) node.toggleAttribute("inert", open);
+      if (open) (drawer.querySelector(".nav-item.active") || closeBtn)?.focus({ preventScroll: true });
+      else if (restoreFocus) menuBtn.focus({ preventScroll: true });
+    }
+
+    menuBtn.addEventListener("click", () => {
+      haptic();
+      setOpen(!isOpen());
+    });
+    closeBtn?.addEventListener("click", () => setOpen(false));
+    scrim.addEventListener("click", () => setOpen(false));
+    // Runs after the item's own handler has switched the page (tapping the current page still closes it).
+    drawer.addEventListener("click", (event) => {
+      if (event.target.closest(".nav-item")) setOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (!isOpen()) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+      } else if (event.key === "Tab") {
+        const items = focusable();
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (!drawer.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    });
+    // Back/Forward or a rotation to a wide screen (where the sidebar is always there) leaves nothing half open.
+    phone.addEventListener("change", () => { if (!phone.matches) setOpen(false, false); });
+    window.addEventListener("popstate", () => setOpen(false, false));
+    window.addEventListener("hashchange", () => setOpen(false, false));
+  }
+
+  // ---- Connection: say so when the device is offline (the header used to claim "Online") ----
+  function renderHeroStatus() {
+    if (!el.heroStatusLabel) return;
+    const copy = COPY[state.lang];
+    const key = el.orb?.dataset.state;
+    el.heroStatusLabel.textContent = navigator.onLine === false && (!key || key === "IDLE") ? copy.offlineLabel : copy.stateLabels[key] || copy.stateLabels.IDLE;
+  }
+
+  function setupConnectionState() {
+    const banner = document.getElementById("offline-banner");
+    const apply = (announce) => {
+      const offline = navigator.onLine === false;
+      document.body.dataset.offline = offline ? "1" : "0";
+      if (banner) {
+        banner.hidden = !offline;
+        banner.textContent = COPY[state.lang].offlineBanner;
+      }
+      renderHeroStatus();
+      if (announce) showToast(offline ? COPY[state.lang].offlineLabel : COPY[state.lang].backOnline);
+    };
+    window.addEventListener("offline", () => apply(true));
+    window.addEventListener("online", () => apply(true));
+    apply(false);
   }
 
   function applyVoiceToggleState() {
@@ -1103,7 +1367,7 @@
 
     card.append(title, action, note, actions);
     container.appendChild(card);
-    if (container === el.conversation) scrollConversationToBottom();
+    if (container === el.conversation) scrollConversationToBottom(true);
     return card;
   }
 
@@ -1119,7 +1383,7 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const status = await res.json();
       const rowValue = document.querySelector('[data-setting-value="developer"]');
-      if (rowValue) rowValue.textContent = !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
+      if (rowValue) rowValue.textContent = !state.devAccess ? "Off" : !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
       renderSettingsSubpageValue();
       if (!status.available) {
         statusNode.textContent = "GitHub connection isn't configured on this server. Public repositories can still be analyzed.";
@@ -1287,14 +1551,15 @@
 
   function renderCapabilities() {
     el.capabilitiesList.innerHTML = "";
-    if (state.skills.length === 0) {
+    const skills = state.devAccess ? state.skills : state.skills.filter((skill) => skill.category !== "DEVELOPER");
+    if (skills.length === 0) {
       const empty = document.createElement("p");
       empty.className = "task-empty";
       empty.textContent = "Couldn't load capabilities right now.";
       el.capabilitiesList.appendChild(empty);
       return;
     }
-    const byCategory = groupByCategory(state.skills);
+    const byCategory = groupByCategory(skills);
     for (const [category, categorySkills] of byCategory) {
       const label = document.createElement("p");
       label.className = "group-label";
@@ -1304,11 +1569,19 @@
     }
   }
 
+  /** A skill category always gets the same medium-colour tone. */
+  const SKILL_TONES = ["tone-blue", "tone-violet", "tone-pink", "tone-amber", "tone-green", "tone-cyan", "tone-coral"];
+  function skillTone(category) {
+    let sum = 0;
+    for (const ch of String(category || "")) sum += ch.charCodeAt(0);
+    return SKILL_TONES[sum % SKILL_TONES.length];
+  }
+
   function renderCapabilityCard(skill) {
     const row = document.createElement("div");
     row.className = "skill-row";
     const icon = document.createElement("span");
-    icon.className = "row-ico tone-blue";
+    icon.className = "row-ico " + skillTone(skill.category);
     icon.innerHTML = categoryIconSvg(skill.category);
     const copy = document.createElement("div");
     copy.className = "cap-copy";
@@ -1385,18 +1658,18 @@
         setActiveView(btn.dataset.nav);
       });
     }
-    for (const btn of document.querySelectorAll('[data-home-action="voice"]')) {
-      btn.addEventListener("click", () => {
-        haptic();
-        setActiveView("chat");
-        startListening();
-      });
-    }
     for (const btn of document.querySelectorAll('[data-home-action="upload"]')) {
       btn.addEventListener("click", () => {
         haptic();
         setActiveView("chat");
         openFilePicker();
+      });
+    }
+    for (const btn of document.querySelectorAll('[data-home-action="image"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        openFilePicker(true);
       });
     }
     el.homeOrb?.addEventListener("click", () => {
@@ -1431,6 +1704,7 @@
     }
     setupKeyboardInset();
     setupDesignShortcuts();
+    applyDevAccess();
     window.ZarvisShell?.init({
       setActiveView,
       getActivity: () => activityLog,
@@ -1440,6 +1714,7 @@
       newConversation: startNewConversation,
       startListening,
       pickFile: () => openFilePicker(),
+      devAccess: () => state.devAccess,
       account: () => {
         const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
         return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
@@ -1474,7 +1749,7 @@
       if (!MOBILE_KEYBOARD.matches || document.activeElement !== el.input) return;
       const keyboardShown = baseline.height - vv.height > 120;
       document.body.classList.toggle("keyboard-open", keyboardShown);
-      if (keyboardShown) scrollConversationToBottom();
+      if (keyboardShown) scrollConversationToBottom(true);
     };
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
@@ -1535,15 +1810,12 @@
       submitComposerInput(text);
     });
 
-    const latestBtn = document.getElementById("scroll-latest");
-    if (latestBtn) {
-      const update = () => {
-        const away = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
-        latestBtn.hidden = state.activeView !== "chat" || away < 360;
-      };
-      window.addEventListener("scroll", update, { passive: true });
-      latestBtn.addEventListener("click", () => { scrollConversationToBottom(); latestBtn.hidden = true; });
-    }
+    // Reading back up the thread stops the page following new text; the button takes you to the newest.
+    window.addEventListener("scroll", () => {
+      followNewest = distanceFromBottom() < NEAR_BOTTOM_PX;
+      updateLatestButton();
+    }, { passive: true });
+    document.getElementById("scroll-latest")?.addEventListener("click", () => scrollConversationToBottom(true));
 
     // The attach label opens the picker natively on click; make sure it lists every supported type.
     el.uploadBtn.addEventListener("click", () => setFilePickerAccept(false));
@@ -1597,7 +1869,7 @@
 
   function setupCapabilityPages() {
     if (el.capabilityHub && window.ZarvisFeatures) {
-      window.ZarvisFeatures.renderHub(el.capabilityHub);
+      window.ZarvisFeatures.renderHub(el.capabilityHub, { developer: state.devAccess });
       el.capabilityHub.addEventListener("click", (event) => {
         const button = event.target.closest("[data-cap-action]");
         if (!button) return;
@@ -1627,14 +1899,18 @@
   }
 
   function openFeature(id) {
+    if (id === "developer" && !requireDevAccess("Developer Agent")) return;
     state.featureId = id;
     if (!el.featureRoot || !window.ZarvisFeatures) return;
     window.ZarvisFeatures.renderDetail(el.featureRoot, id, {
-      onBack: () => setActiveView("capabilities"),
+      onBack: leaveFeaturePage,
       onPrimary: (feature) => runFeatureAction(feature, feature.prompt),
       onPrompt: (feature, prompt) => runFeatureAction(feature, prompt),
     });
-    if (state.activeView === "feature") return;
+    if (state.activeView === "feature") {
+      syncRoute();
+      return;
+    }
     setActiveView("feature");
   }
 
@@ -1710,6 +1986,8 @@
   function setActiveView(view) {
     if (view === "tasks") view = "activity";
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
+    if (view === "developer" && !requireDevAccess("Developer Agent")) return;
+    if (view === "metrics" && !requireDevAccess("Usage & Metrics")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
     if (state.activeView === "settings" && view !== "settings") closeSettingsPage();
 
@@ -1742,7 +2020,6 @@
     if (view === "activity") refreshActivity();
     if (view === "home") {
       renderHomeGreeting();
-      renderHomeActivity();
     }
     if (view === "developer") void refreshGithubStatus();
     if (view === "settings") {
@@ -1750,7 +2027,8 @@
       void refreshGithubStatus();
       void loadSettingsSummary();
     }
-    if (view === "chat") scrollConversationToBottom();
+    if (view === "chat") scrollConversationToBottom(true);
+    syncRoute();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
@@ -1785,7 +2063,8 @@
   let planCatalogue = null;
   let checkoutBusy = false;
   const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
-  const formatDate = (value) => new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const dateLocale = () => (state.lang === "hi" ? "hi-IN" : "en-IN");
+  const formatDate = (value) => new Date(value).toLocaleDateString(dateLocale(), { day: "numeric", month: "short", year: "numeric" });
 
   function setupPlans() {
     const options = el.billingToggle.querySelectorAll(".billing-option");
@@ -1862,10 +2141,16 @@
     for (const btn of document.querySelectorAll("[data-settings-page]")) {
       btn.addEventListener("click", () => openSettingsPage(btn.dataset.settingsPage));
     }
-    el.settingsPanelBack?.addEventListener("click", closeSettingsPage);
+    el.settingsPanelBack?.addEventListener("click", leaveSettingsSubpage);
     el.appearanceAuroraBtn?.addEventListener("click", () => setAppearance("aurora"));
     el.appearanceDimBtn?.addEventListener("click", () => setAppearance("dim"));
     el.settingsOpenDeveloper?.addEventListener("click", () => setActiveView("developer"));
+    el.settingsOpenMetrics?.addEventListener("click", () => setActiveView("metrics"));
+    el.settingsDevToggle?.addEventListener("click", () => {
+      haptic();
+      setDevAccess(!state.devAccess);
+      showToast(state.devAccess ? "Developer access on" : "Developer access off");
+    });
     el.settingsNewConversation?.addEventListener("click", () => {
       haptic();
       startNewConversation();
@@ -1916,10 +2201,11 @@
     el.viewSettings.classList.add("is-subpage");
     el.settingsGrid.hidden = true;
     el.settingsPanels.hidden = false;
-    const entry = document.querySelector(`[data-settings-page="${page}"] strong`);
-    if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = entry ? entry.textContent : "Settings";
+    const row = document.querySelector(`[data-settings-page="${page}"]`);
+    const title = row?.dataset.settingsLabel || row?.querySelector("strong")?.textContent;
+    if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = title || "Settings";
     const desc = document.getElementById("settings-subpage-desc");
-    if (desc) desc.textContent = document.querySelector(`[data-settings-page="${page}"] small`)?.textContent || "";
+    if (desc) desc.textContent = row?.dataset.settingsDesc || row?.querySelector("small")?.textContent || "";
     renderSettingsSubpageValue();
     for (const panel of document.querySelectorAll("[data-settings-panel]")) {
       panel.hidden = panel.dataset.settingsPanel !== page;
@@ -1928,6 +2214,7 @@
     if (page === "permissions") void renderPermissionCenter();
     if (page === "ai") void renderAiProvider();
     el.settingsPanelBack?.focus?.();
+    syncRoute();
   }
 
   function closeSettingsPage() {
@@ -1935,6 +2222,7 @@
     el.viewSettings.classList.remove("is-subpage");
     el.settingsPanels.hidden = true;
     el.settingsGrid.hidden = false;
+    document.title = pageTitle();
   }
 
   function setAppearance(mode) {
@@ -1974,6 +2262,15 @@
     set("language", state.lang === "hi" ? "हिंदी" : "English");
     set("appearance", state.appearance === "dim" ? "Dark" : "Light");
     set("memory", state.conversationId ? "Saved" : "New");
+    if (!state.devAccess) set("developer", "Off");
+    const heroName = document.getElementById("profile-hero-name");
+    if (heroName) {
+      heroName.textContent = accountDisplayName() || (isGuest ? "Guest" : "Signed in");
+      document.getElementById("profile-hero-sub").textContent = isGuest ? "Guest account. Link an email to keep it." : email || "";
+      const heroPlan = document.getElementById("profile-hero-plan");
+      heroPlan.hidden = !currentPlanName;
+      heroPlan.textContent = currentPlanName ? formatPlanName(currentPlanName) : "";
+    }
     if (healthCache) set("ai", healthCache.provider === "google" ? "Gemini" : "Not configured");
     set("security", isGuest ? "Guest session" : "Signed in");
     renderSettingsSubpageValue();
@@ -2032,8 +2329,10 @@
 
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
-    const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#0a0d24" : "#f4f3ff");
+    for (const themeMeta of document.querySelectorAll('meta[name="theme-color"]')) {
+      themeMeta.removeAttribute("media");
+      themeMeta.setAttribute("content", state.appearance === "dim" ? "#0a0d24" : "#f4f3ff");
+    }
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
@@ -2066,7 +2365,10 @@
       return;
     }
     if (!tasks.length) {
-      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here."));
+      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here.", {
+        icon: "i-task",
+        action: { label: "Plan a task", onClick: () => document.querySelector('[data-workspace-prompt^="Create a workflow"]')?.click() },
+      }));
       return;
     }
     for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
@@ -2217,7 +2519,6 @@
     const title = line.replace(/[#*`_>]/g, "").trim().slice(0, 90) || (status === "success" ? "Completed" : "Failed");
     recordActivity("developer", title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
     appendDeveloperLog(title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
-    renderHomeActivity();
   }
 
   function revealDeveloperResult() {
@@ -2288,7 +2589,7 @@
       el.plansCurrent.append(
         renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan), icon: "i-plan", tone: "tone-violet" }),
         renderStatTile({ label: "Credits", value: Number(snapshot.creditBalance).toLocaleString("en-IN"), icon: "i-bolt", tone: "tone-pink" }),
-        renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
+        renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
         renderStatTile({ label: "Payments", value: planCatalogue?.paymentsEnabled ? "UPI & cards" : "Not enabled", icon: "i-card", tone: "tone-blue" }),
       );
       updateSettingsValues();
@@ -2618,9 +2919,9 @@
       { label: "Conversation turns", value: String(conversations), icon: "i-chat", tone: "tone-blue" },
       { label: "AI requests", value: String(latencyEntries.length), icon: "i-sparkle", tone: "tone-violet" },
       { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length), icon: "i-mic", tone: "tone-pink" },
-      { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-cyan" },
+      { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-amber" },
       { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
-      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-blue" },
+      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-green" },
       { label: "Credits", value: "…", id: "metrics-credits", icon: "i-bolt", tone: "tone-pink" },
       { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan", icon: "i-plan", tone: "tone-cyan" },
     ];
@@ -2676,14 +2977,30 @@
 
   let latestTasks;
 
-  function emptyState(title, body) {
+  /** opts.icon: a sprite id shown in a soft halo; opts.action: { label, onClick } for a primary next step. */
+  function emptyState(title, body, opts) {
     const box = document.createElement("div");
     box.className = "empty-state";
+    if (opts && opts.icon) {
+      const halo = document.createElement("span");
+      halo.className = "empty-ico";
+      halo.setAttribute("aria-hidden", "true");
+      halo.appendChild(svgIcon(opts.icon));
+      box.appendChild(halo);
+    }
     const strong = document.createElement("strong");
     strong.textContent = title;
     const span = document.createElement("span");
     span.textContent = body;
     box.append(strong, span);
+    if (opts && opts.action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-secondary";
+      button.textContent = opts.action.label;
+      button.addEventListener("click", () => { haptic(); opts.action.onClick(); });
+      box.appendChild(button);
+    }
     return box;
   }
 
@@ -2722,90 +3039,6 @@
     activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date(), thumb: thumb || "" });
     if (activityLog.length > 200) activityLog.length = 200;
     if (state.activeView === "activity") renderActivityTimeline();
-    if (state.activeView === "home") renderHomeActivity();
-  }
-
-  function listRow({ icon, tone, title, meta, onClick }) {
-    const row = document.createElement(onClick ? "button" : "div");
-    if (onClick) {
-      row.type = "button";
-      row.addEventListener("click", onClick);
-    }
-    row.className = "list-row";
-    const ico = document.createElement("span");
-    ico.className = "row-ico " + (tone || "tone-blue");
-    ico.appendChild(svgIcon(icon));
-    const copy = document.createElement("span");
-    copy.className = "list-row-copy";
-    const strong = document.createElement("strong");
-    strong.textContent = title;
-    const small = document.createElement("small");
-    small.textContent = meta;
-    copy.append(strong, small);
-    row.append(ico, copy);
-    if (onClick) {
-      const chev = svgIcon("i-right");
-      chev.classList.add("row-chev");
-      row.appendChild(chev);
-    }
-    return row;
-  }
-
-  function renderHomeActivity() {
-    const root = document.getElementById("home-activity");
-    if (!root) return;
-    root.replaceChildren();
-    document.getElementById("home-recent")?.classList.remove("is-empty");
-    const rows = [];
-    if (state.pendingAttachment) {
-      rows.push(listRow({ icon: "i-file", tone: "tone-cyan", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
-    }
-    for (const entry of activityLog.slice(0, 3)) {
-      rows.push(listRow({
-        icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
-        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" || entry.type === "image" ? "tone-cyan" : "tone-blue",
-        title: entry.title,
-        meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
-        onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
-      }));
-    }
-    if (Array.isArray(latestTasks)) {
-      for (const task of latestTasks.slice(0, Math.max(0, 4 - rows.length))) {
-        rows.push(listRow({ icon: "i-task", tone: "tone-pink", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
-      }
-    }
-    if (!rows.length && state.history.length) {
-      const last = [...state.history].reverse().find((message) => message.role === "user");
-      if (last) rows.push(listRow({ icon: "i-chat", tone: "tone-blue", title: summarizeUtterance(String(last.content || "").replace(/^📎\s*/, "")), meta: "Conversation", onClick: () => setActiveView("chat") }));
-    }
-    if (!rows.length) {
-      if (latestTasks === undefined) {
-        const skeleton = document.createElement("div");
-        skeleton.className = "skeleton skeleton-row";
-        skeleton.setAttribute("aria-hidden", "true");
-        root.appendChild(skeleton);
-        return;
-      }
-      if (latestTasks === null) {
-        const failed = emptyState("Couldn't load your activity", "Check your connection and try again.");
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "btn btn-secondary";
-        retry.textContent = "Try again";
-        retry.addEventListener("click", () => { void fetchTasks().catch(() => {}); });
-        failed.appendChild(retry);
-        root.appendChild(failed);
-        return;
-      }
-      root.appendChild(emptyState("Nothing yet", "Your conversations and actions will appear here."));
-      document.getElementById("home-recent")?.classList.add("is-empty");
-      return;
-    }
-    document.getElementById("home-recent")?.classList.remove("is-empty");
-    rows.forEach((row, index) => {
-      row.style.animationDelay = index * 40 + "ms";
-      root.appendChild(row);
-    });
   }
 
   function setupActivityControls() {
@@ -2842,8 +3075,10 @@
     });
     if (!entries.length) {
       const empty = document.createElement("li");
-      empty.className = "timeline-empty";
-      empty.textContent = activityLog.length ? "No activity matches this filter." : "Nothing yet this session. Ask ZARVIS something to get started.";
+      empty.className = "timeline-empty timeline-empty-rich";
+      empty.appendChild(activityLog.length
+        ? emptyState("No activity matches", "Try a different filter or clear the search.", { icon: "i-search" })
+        : emptyState("Nothing yet this session", "Ask ZARVIS something and it shows up here.", { icon: "i-chat", action: { label: "Start a chat", onClick: () => setActiveView("chat") } }));
       root.appendChild(empty);
       return;
     }
@@ -2858,6 +3093,7 @@
       const body = document.createElement("div");
       body.className = "timeline-body";
       const title = document.createElement("strong");
+      title.dataset.userText = "";
       title.textContent = entry.title;
       const meta = document.createElement("div");
       meta.className = "timeline-meta";
@@ -2887,14 +3123,13 @@
       more.appendChild(svgIcon("i-more"));
       more.addEventListener("click", () => {
         window.ZarvisShell?.menu(more, entry.title || "Activity", [
-          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat") },
+          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat") },
           { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
           { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
             const at = activityLog.indexOf(entry);
             if (at >= 0) activityLog.splice(at, 1);
             if (entry.thumb) URL.revokeObjectURL(entry.thumb);
             renderActivityTimeline();
-            renderHomeActivity();
           } },
         ]);
       });
@@ -2924,12 +3159,10 @@
       res = await apiFetch("/tasks");
     } catch (err) {
       latestTasks = null;
-      renderHomeActivity();
       throw err;
     }
     if (!res.ok) {
       latestTasks = null;
-      renderHomeActivity();
       return null;
     }
     const { tasks } = await res.json();
@@ -2941,7 +3174,6 @@
       else item.removeAttribute("aria-label");
     }
     latestTasks = tasks;
-    renderHomeActivity();
     return tasks;
   }
 
@@ -3060,7 +3292,7 @@
     if (diffMin < 60) return `${diffMin}m ago`;
     const diffHr = Math.round(diffMin / 60);
     if (diffHr < 24) return `${diffHr}h ago`;
-    return new Date(dateInput).toLocaleDateString();
+    return new Date(dateInput).toLocaleDateString(dateLocale());
   }
 
   // ---- Conversation turn -----------------------------------------------------------------
@@ -3082,6 +3314,7 @@
     const utterance = rawText.trim();
     if (!utterance) return;
     el.input.value = "";
+    resizeComposer(); // a long, multi-line message must not leave the composer tall once it is sent
     addBubble("user", displayText ?? utterance);
     await runTurn(utterance, isVoice, { clientTurnId: Logic.createClientTurnId() });
   }
@@ -3215,9 +3448,9 @@
         if (event === "progress" && data) {
           if (data.type === "tool_started") {
             setOrbState("EXECUTING");
-            showProgress(thinkingNode, "Using " + data.skillId + "…");
+            showProgress(thinkingNode, "Using " + skillDisplayName(data.skillId) + "…");
           } else if (data.type === "tool_finished") {
-            showProgress(thinkingNode, data.skillId + ": " + Logic.toolStatusLabel(data.status));
+            showProgress(thinkingNode, skillDisplayName(data.skillId) + ": " + Logic.toolStatusLabel(data.status));
           } else if (data.type === "thinking" && data.step > 1) {
             setOrbState("UNDERSTANDING");
             showProgress(thinkingNode, "Reviewing the result…");
@@ -3267,7 +3500,6 @@
           state.history.push({ role: "user", content: utterance });
           if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
           state.history = state.history.slice(-12);
-          renderHomeActivity();
           state.firstTurn = false;
           recordLatency(utterance, Math.round(performance.now() - startedAt), true, isVoice);
           renderToolActivity(data?.toolCalls);
@@ -3350,11 +3582,28 @@
 
   // The page (not the conversation element) scrolls; keep the newest message above the
   // floating composer.
-  function scrollConversationToBottom() {
+  /** True while the reader sits at the bottom of the thread: new text keeps them there. Scrolling up to
+   * re-read sets it false, so a long reply streaming in never drags them back down. */
+  let followNewest = true;
+  const NEAR_BOTTOM_PX = 140;
+  const distanceFromBottom = () => document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+
+  function updateLatestButton() {
+    const button = document.getElementById("scroll-latest");
+    if (button) button.hidden = state.activeView !== "chat" || distanceFromBottom() < 240;
+  }
+
+  /** `force` is for the reader's own actions (sending, opening Chat, the jump button); streamed text, tool
+   * rows and the thinking bubble only scroll when the reader is already at the bottom. */
+  function scrollConversationToBottom(force = false) {
     if (!el.conversation || state.activeView !== "chat") return;
-    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
-    toBottom();
-    requestAnimationFrame(toBottom);
+    if (force) followNewest = true;
+    if (followNewest) {
+      const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+      toBottom();
+      requestAnimationFrame(() => { toBottom(); updateLatestButton(); });
+    }
+    updateLatestButton();
   }
 
   /** `at` is when the message was sent: now for a new message, the server's createdAt for
@@ -3382,24 +3631,46 @@
     if (role === "assistant") {
       const actions = document.createElement("div");
       actions.className = "bubble-actions";
+      // Icon-only buttons in one row (the name is the tooltip and the accessible name); a click answers with
+      // a check mark and a short toast, then the icon returns.
       const actionButton = (iconId, label) => {
         const button = document.createElement("button");
         button.type = "button";
-        const labelNode = document.createElement("span");
-        labelNode.textContent = label;
-        button.append(svgIcon(iconId), labelNode);
-        return { button, labelNode };
+        button.setAttribute("aria-label", label);
+        button.title = label;
+        const icon = svgIcon(iconId);
+        button.append(icon);
+        const confirm = (done) => {
+          const use = icon.querySelector("use");
+          button.dataset.done = "1";
+          use?.setAttribute("href", "#i-check");
+          button.setAttribute("aria-label", done);
+          button.title = done;
+          showToast(done);
+          setTimeout(() => {
+            delete button.dataset.done;
+            use?.setAttribute("href", "#" + iconId);
+            button.setAttribute("aria-label", label);
+            button.title = label;
+          }, 1800);
+        };
+        return { button, confirm };
       };
-      const { button: copyBtn, labelNode: copyLabel } = actionButton("i-file", "Copy");
+      const { button: copyBtn, confirm: copied } = actionButton("i-copy", "Copy");
       copyBtn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(bubblePlainText(body) || text);
-          copyLabel.textContent = "Copied";
+          copied("Copied");
         } catch {
-          copyLabel.textContent = "Copy failed";
+          showToast("Copy failed");
         }
       });
       actions.appendChild(copyBtn);
+      const { button: listen } = actionButton("i-wave", "Listen");
+      listen.addEventListener("click", () => {
+        void speak(bubblePlainText(body) || text, null, true);
+      });
+      actions.appendChild(listen);
       if (utterance) {
         const { button: again } = actionButton("i-refresh", "Regenerate");
         again.addEventListener("click", () => {
@@ -3415,7 +3686,7 @@
         });
         actions.appendChild(share);
       }
-      const { button: download, labelNode: downloadLabel } = actionButton("i-download", "Download");
+      const { button: download, confirm: saved } = actionButton("i-download", "Download");
       download.addEventListener("click", () => {
         const blob = new Blob([bubblePlainText(body) || text], { type: "text/plain;charset=utf-8" });
         const url = URL.createObjectURL(blob);
@@ -3426,19 +3697,14 @@
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        downloadLabel.textContent = "Saved";
+        saved("Saved");
       });
       actions.appendChild(download);
-      const { button: listen } = actionButton("i-wave", "Listen");
-      listen.addEventListener("click", () => {
-        void speak(bubblePlainText(body) || text, null, true);
-      });
-      actions.appendChild(listen);
       bubble.appendChild(actions);
     }
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
-    scrollConversationToBottom();
+    scrollConversationToBottom(role === "user");
     if (role === "assistant") announceChat(text);
     return body;
   }
@@ -3494,6 +3760,11 @@
 
   function showProgress(thinkingNode, text) {
     if (!thinkingNode?.isConnected) return;
+    const label = thinkingNode.querySelector(".thinking-label");
+    if (label) {
+      label.textContent = text;
+      return;
+    }
     let note = thinkingNode.querySelector(".progress-note");
     if (!note) {
       note = document.createElement("div");
@@ -3539,7 +3810,8 @@
   function addThinkingBubble() {
     const bubble = document.createElement("div");
     bubble.className = "bubble assistant thinking";
-    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span><span class="thinking-label"></span>';
+    bubble.querySelector(".thinking-label").textContent = COPY[state.lang].thinking;
     el.conversation.appendChild(bubble);
     scrollConversationToBottom();
     return bubble;
@@ -3798,7 +4070,6 @@
     // An image attachment keeps its own small preview in Activity (a local blob: URL, never uploaded).
     const thumb = lastPreviewFile ? URL.createObjectURL(lastPreviewFile) : "";
     recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
-    renderHomeActivity();
     el.input.focus();
   }
 
@@ -3806,7 +4077,6 @@
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
     setAttachmentPreview(null);
-    renderHomeActivity();
   }
 
   /** The composer's single entry point for a user-authored turn (typed Send/Enter, or a
@@ -3871,8 +4141,7 @@
     // state name — showing enum values like "EXECUTING" or "UNDERSTANDING" verbatim would be
     // exactly the kind of developer/debug leak the product content rules rule out. The
     // `dataset.state` above (unchanged) is what CSS/animations key off of.
-    const labels = COPY[state.lang].stateLabels;
-    el.heroStatusLabel.textContent = labels[newState] || labels.IDLE;
+    renderHeroStatus();
     updateComposerMode();
   }
 
@@ -4261,4 +4530,16 @@
     ttsScheduledUntil = 0;
     setOrbState("IDLE");
   }
+
+  // Started last, once every `const`/`let` above is initialised: init() runs synchronously up to
+  // its first `await`, so starting it earlier let setup code hit a temporal dead zone
+  // ("Cannot access '...' before initialization") whenever it touched a later declaration.
+  init().catch((err) => {
+    // The technical detail (network failure, a platform error page, whatever) is only ever
+    // logged here — never rendered into the UI. addErrorBubble always shows the same
+    // friendly, translated connection message regardless of cause.
+    console.error(err);
+    addErrorBubble(COPY[state.lang].bootError, () => location.reload());
+    setOrbState("ERROR");
+  });
 })();

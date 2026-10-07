@@ -61,7 +61,7 @@ const jsonBody = express.json({
   },
 });
 
-const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|feature-pages\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
+const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|feature-pages\.js|theme-init\.js|i18n\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
 
 /** `req.path` is still percent-encoded, while express.static decodes it: compare the decoded form. */
 function isWebAsset(path: string): boolean {
@@ -113,6 +113,10 @@ export function buildServer(container: Container): Express {
   // Separate per-IP ceiling for the non-API handlers that touch the database or the file system
   // (/health, the web client fallback), so monitoring never shares the /api/v1 budget.
   const publicLimit = apiRateLimit({ windowMs: 60 * 1000, limit: 600, standardHeaders: "draft-7", legacyHeaders: false });
+  // The client's own files count on a ceiling of their own. One visit fetches about a dozen of them, and the
+  // service worker fetches the same set again to precache the shell, so sharing the ceiling above locked out
+  // phones behind one carrier or office address (and rapid browser tests) with a "Too many requests" page.
+  const assetLimit = apiRateLimit({ windowMs: 60 * 1000, limit: 6000, standardHeaders: "draft-7", legacyHeaders: false });
 
   app.get("/health", publicLimit, async (_req, res) => {
     const database = (await container.store.healthCheck?.()) ?? "not_configured";
@@ -170,7 +174,7 @@ export function buildServer(container: Container): Express {
     // Only the files of the shipped client (the same list as vercel.json's routes). The folder also holds
     // browser tests and package metadata that are not part of the product and must not be downloadable.
     const staticFiles = express.static(webRoot);
-    app.use(publicLimit, (req, res, next) => (isWebAsset(req.path) ? staticFiles(req, res, next) : next()));
+    app.use(assetLimit, (req, res, next) => (isWebAsset(req.path) ? staticFiles(req, res, next) : next()));
     app.get(/^(?!\/api\/).*/, publicLimit, (_req, res) => res.sendFile(join(webRoot, "index.html")));
   }
 

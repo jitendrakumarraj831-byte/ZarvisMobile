@@ -54,6 +54,7 @@
   function buildItems() {
     const items = [];
     for (const [view, label, ico] of PAGES) {
+      if ((view === "developer" || view === "metrics") && !api.devAccess()) continue;
       items.push({ group: "Pages", label, hint: "Go to " + label, icon: ico, run: () => api.setActiveView(view) });
     }
     items.push({ group: "Actions", label: "New chat", hint: "Start a fresh conversation", icon: "i-plus", run: () => { api.setActiveView("chat"); api.newConversation(); } });
@@ -64,6 +65,7 @@
 
     const features = window.ZarvisFeatures;
     for (const group of features?.groups || []) {
+      if (group.title === "Developer" && !api.devAccess()) continue;
       for (const item of group.items) {
         items.push({
           group: "Capabilities", label: item.name, hint: item.short || item.desc, icon: item.icon, keywords: item.desc,
@@ -72,7 +74,7 @@
       }
     }
     for (const row of document.querySelectorAll("[data-settings-page]")) {
-      const label = row.querySelector("strong")?.textContent || row.dataset.settingsPage;
+      const label = row.dataset.settingsLabel || row.querySelector("strong")?.textContent || row.dataset.settingsPage;
       items.push({
         group: "Settings", label, hint: row.querySelector("small")?.textContent || "", icon: "i-settings",
         run: () => { api.setActiveView("settings"); api.openSettingsPage(row.dataset.settingsPage); },
@@ -293,7 +295,7 @@
       root.appendChild(head);
       root.appendChild(menuButton("Profile & account", "i-user", "Email link and sign in", () => { api.setActiveView("settings"); api.openSettingsPage("account"); }));
       root.appendChild(menuButton("Plans & credits", "i-plan", "Your plan and usage", () => api.setActiveView("plans")));
-      root.appendChild(menuButton("Developer Agent", "i-code", "Analyze a repository", () => api.setActiveView("developer")));
+      if (api.devAccess()) root.appendChild(menuButton("Developer Agent", "i-code", "Analyze a repository", () => api.setActiveView("developer")));
       root.appendChild(menuButton("Settings", "i-settings", "Voice, language, privacy", () => api.setActiveView("settings")));
       const dark = api.getAppearance() === "dim";
       root.appendChild(menuButton(dark ? "Switch to Light" : "Switch to Dark", "i-palette", "Appearance", () => api.setAppearance(dark ? "aurora" : "dim")));

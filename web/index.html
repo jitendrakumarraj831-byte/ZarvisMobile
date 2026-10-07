@@ -3,13 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-  <title>ZARVIS MOBILE</title>
+  <title>ZARVIS AI</title>
   <meta name="description" content="ZARVIS MOBILE is a personal AI assistant for conversation, voice, documents, research, writing, developer work and supported phone actions on Android." />
   <link rel="icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#f6f7fb" />
+  <meta name="theme-color" content="#f4f3ff" />
+  <meta name="color-scheme" content="dark light" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -51,6 +53,7 @@
       <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
       <symbol id="i-left" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9"/><path d="M18.5 3.5v4h-4M5.5 20.5v-4h4"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
       <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z"/></symbol>
@@ -60,6 +63,7 @@
       <symbol id="i-plane" viewBox="0 0 24 24"><path d="M21 3.5 10.5 14M21 3.5l-6.8 17-3.7-6.5L4 10.3z"/></symbol>
       <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5"/></symbol>
       <symbol id="i-star4" viewBox="0 0 24 24"><path d="M12 2.5c.9 5.6 3.9 8.6 9.5 9.5-5.6.9-8.6 3.9-9.5 9.5-.9-5.6-3.9-8.6-9.5-9.5 5.6-.9 8.6-3.9 9.5-9.5z"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></symbol>
       <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="m8.2 10.8 7-3.6M8.2 13.2l7 3.6"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></symbol>
       <symbol id="i-bug" viewBox="0 0 24 24"><rect x="8" y="8" width="8" height="11" rx="4"/><path d="M9 8a3 3 0 0 1 6 0M4 12h4M16 12h4M5 18l3-2M19 18l-3-2M5 6l3 2M19 6l-3 2"/></symbol>
@@ -73,7 +77,8 @@
     <nav class="sidebar" id="sidebar-nav" aria-label="Main">
       <div class="brand">
         <span class="brand-orb" aria-hidden="true"></span>
-        <span class="brand-text"><strong>ZARVIS</strong> <small>MOBILE</small></span>
+        <span class="brand-text"><strong>ZARVIS</strong> <small>AI</small></span>
+        <button type="button" class="icon-btn drawer-close" id="drawer-close" aria-label="Close menu" title="Close menu"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
       <div class="nav-group">
         <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
@@ -81,26 +86,32 @@
         <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
         <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
       </div>
-      <p class="nav-label">Workspace</p>
-      <div class="nav-group">
+      <p class="nav-label" data-dev-only hidden>Developer access</p>
+      <div class="nav-group" data-dev-only hidden>
         <button type="button" class="nav-item" data-view="developer"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg><span>Developer Agent</span></button>
         <button type="button" class="nav-item" data-view="metrics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Metrics</span></button>
-        <button type="button" class="nav-item" data-view="plans"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg><span>Plans</span></button>
       </div>
       <div class="nav-spacer"></div>
       <div class="nav-group">
+        <button type="button" class="nav-item" data-view="plans"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg><span>Plans</span></button>
         <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
         <button type="button" class="nav-item nav-profile" data-nav="settings"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>Profile</span></button>
       </div>
     </nav>
+    <div class="drawer-scrim" id="drawer-scrim" hidden></div>
 
     <div class="main">
+      <div class="offline-banner" id="offline-banner" role="status" hidden></div>
+
       <!-- Mobile top bar -->
       <header class="topbar">
-        <button type="button" class="topbar-brand" data-nav="home" aria-label="ZARVIS MOBILE home">
-          <span class="brand-orb" aria-hidden="true"></span>
-          <span class="brand-text"><strong>ZARVIS</strong> <small>MOBILE</small></span>
-        </button>
+        <div class="topbar-lead">
+          <button type="button" class="icon-btn topbar-menu" id="menu-btn" aria-label="Menu" title="Menu" aria-controls="sidebar-nav" aria-expanded="false"><svg class="ico" aria-hidden="true"><use href="#i-menu"/></svg></button>
+          <button type="button" class="topbar-brand" data-nav="home" aria-label="ZARVIS AI home">
+            <span class="brand-orb" aria-hidden="true"></span>
+            <span class="brand-text"><strong>ZARVIS</strong> <small>AI</small></span>
+          </button>
+        </div>
         <div class="topbar-actions">
           <button type="button" class="icon-btn" data-shell="search" aria-label="Search" title="Search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></button>
           <button type="button" class="icon-btn topbar-activity" data-shell="notifications" aria-label="Notifications" title="Notifications"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="nav-badge" id="activity-badge-mobile" hidden></span></button>
@@ -120,46 +131,35 @@
       <main class="views" id="main-views">
         <!-- ============ HOME ============ -->
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
-          <div class="home-welcome">
-            <button type="button" class="orb-stage home-orb" id="home-orb" aria-label="Talk to ZARVIS by voice">
-              <span class="orb orb-md" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span></span>
+          <div class="home-hero">
+            <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span></p>
+            <button type="button" class="orb-stage" id="home-orb" aria-label="ZARVIS AI — talk by voice">
+              <span class="orb orb-lg" aria-hidden="true"><span class="orb-ring"></span><span class="orb-glint"></span><span class="orb-core"></span><span class="orb-waves"><i></i><i></i><i></i><i></i></span><span class="orb-sparks"><b></b><b></b></span><span class="orb-label"><strong>ZARVIS AI</strong></span></span>
             </button>
-            <p class="home-eyebrow"><span id="home-greeting">Hello</span><span id="home-name"></span> <span aria-hidden="true">👋</span></p>
-            <h1 class="home-title" id="home-title">How can I help you today?</h1>
           </div>
 
-          <form class="home-composer" id="home-prompt-form" autocomplete="off">
+          <div class="home-lower">
+          <h1 class="home-title" id="home-title">What can I help with today?</h1>
+          <section class="home-section home-quick" id="home-quick" aria-label="Quick actions">
+            <div class="chip-row">
+              <button type="button" class="chip tone-cyan" data-workspace-prompt="Search the web and cite the sources you use: "><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
+              <button type="button" class="chip tone-pink" data-workspace-prompt="Write a warm, concise message about: "><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
+              <button type="button" class="chip tone-amber" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
+              <button type="button" class="chip tone-green" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
+              <button type="button" class="chip tone-coral" data-workspace-prompt="Draft a polite customer reply to: "><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
+              <button type="button" class="chip tone-violet" data-nav="developer" data-dev-only hidden><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
+              <button type="button" class="chip tone-blue" data-nav="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>All capabilities</button>
+            </div>
+          </section>
+          </div>
+
+          <form class="home-card" id="home-prompt-form" autocomplete="off">
+            <button type="button" class="icon-btn tone-amber" data-home-action="upload" aria-label="Upload file" title="Upload file"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></button>
+            <button type="button" class="icon-btn tone-pink" data-home-action="image" aria-label="Select image" title="Select image"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></button>
             <label class="sr-only" for="home-prompt-input">Ask ZARVIS</label>
-            <input id="home-prompt-input" type="text" placeholder="Ask anything…" enterkeyhint="send" />
-            <div class="home-composer-tools">
-              <button type="button" class="icon-btn" data-home-action="upload" aria-label="Attach a file" title="Attach a file"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></button>
-              <button type="button" class="icon-btn" data-home-action="voice" aria-label="Speak" title="Speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
-              <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
-            </div>
+            <input id="home-prompt-input" type="text" placeholder="Ask ZARVIS" enterkeyhint="send" />
+            <button type="submit" class="home-prompt-go" aria-label="Send to chat"><svg class="ico" aria-hidden="true"><use href="#i-plane"/></svg></button>
           </form>
-
-          <section class="home-section" aria-labelledby="suggest-title">
-            <div class="section-head">
-              <h2 class="section-title" id="suggest-title">Try something</h2>
-              <button type="button" class="link-btn" data-nav="capabilities">All capabilities</button>
-            </div>
-            <div class="suggest-grid">
-              <button type="button" class="suggest-card" data-workspace-prompt="Write a warm, concise message about: "><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg></span><span class="suggest-copy"><strong>Write</strong><small>Messages, posts and replies</small></span></button>
-              <button type="button" class="suggest-card" data-workspace-prompt="Search the web and cite the sources you use: "><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span><span class="suggest-copy"><strong>Research</strong><small>Web search with sources</small></span></button>
-              <button type="button" class="suggest-card" data-home-action="upload"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg></span><span class="suggest-copy"><strong>Summarize a file</strong><small>PDF, Word, text or image</small></span></button>
-              <button type="button" class="suggest-card" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg></span><span class="suggest-copy"><strong>Plan a task</strong><small>Turn a goal into steps</small></span></button>
-              <button type="button" class="suggest-card" data-workspace-prompt="Draft a polite customer reply to: "><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg></span><span class="suggest-copy"><strong>Business draft</strong><small>Replies, invoices, posts</small></span></button>
-              <button type="button" class="suggest-card" data-nav="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="suggest-copy"><strong>Analyze a repo</strong><small>Developer Agent</small></span></button>
-            </div>
-          </section>
-
-          <section class="home-section" id="home-recent" aria-labelledby="recent-title">
-            <div class="section-head">
-              <h2 class="section-title" id="recent-title">Recent activity</h2>
-              <button type="button" class="link-btn" data-nav="activity">View all</button>
-            </div>
-            <div id="home-activity" class="list" aria-live="polite"></div>
-          </section>
         </section>
 
         <!-- ============ CHAT ============ -->
@@ -168,7 +168,7 @@
             <button type="button" class="icon-btn chat-back" id="chat-back-btn" aria-label="Back to Home"><svg class="ico" aria-hidden="true"><use href="#i-left"/></svg></button>
             <span class="chat-avatar" aria-hidden="true"><svg class="ico"><use href="#i-star4"/></svg></span>
             <div class="chat-title">
-              <strong>Zarvis Mobile</strong>
+              <strong>ZARVIS AI</strong>
               <p class="status-pill" id="hero-status" data-state="IDLE"><span class="status-dot" aria-hidden="true"></span><span id="hero-status-label">Ready</span></p>
             </div>
             <button type="button" class="icon-btn chat-new-btn" id="chat-new-btn" aria-label="New Chat" title="Start a new conversation"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span class="chat-new-label">New Chat</span></button>
@@ -209,7 +209,7 @@
               <button type="button" class="seg" data-filter="file" aria-pressed="false">Files</button>
               <button type="button" class="seg" data-filter="image" aria-pressed="false">Images</button>
               <button type="button" class="seg" data-filter="voice" aria-pressed="false">Voice</button>
-              <button type="button" class="seg" data-filter="developer" aria-pressed="false">Developer</button>
+              <button type="button" class="seg" data-filter="developer" aria-pressed="false" data-dev-only hidden>Developer</button>
             </div>
           </div>
           <section class="activity-block" data-activity-block="timeline">
@@ -398,10 +398,16 @@
                 <p class="page-sub">Customize your Zarvis experience.</p>
               </div>
             </header>
+            <button type="button" class="profile-hero" id="settings-profile-hero" data-settings-page="account" data-settings-label="Profile" data-settings-desc="Your account, email link and sign-in">
+              <span class="profile-hero-avatar" aria-hidden="true"><span class="avatar-text">Z</span></span>
+              <span class="profile-hero-copy"><strong id="profile-hero-name">Guest</strong><small id="profile-hero-sub">Guest account. Link an email to keep it.</small></span>
+              <span class="profile-hero-plan" id="profile-hero-plan" hidden></span>
+              <span data-setting-value="account" hidden></span>
+              <svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg>
+            </button>
             <div class="settings-list">
               <p class="group-label">Account</p>
               <div class="settings-group">
-                <button type="button" class="settings-row" data-settings-page="account"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg></span><span class="row-copy"><strong>Profile</strong><small>Guest account, email link, sign in</small></span><span class="row-value" data-setting-value="account"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="subscription"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg></span><span class="row-copy"><strong>Subscription</strong><small>Plan and credits</small></span><span class="row-value" data-setting-value="subscription"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Assistant</p>
@@ -410,19 +416,19 @@
                 <button type="button" class="settings-row" data-settings-page="language"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-lang"/></svg></span><span class="row-copy"><strong>Language</strong><small>Interface and request language</small></span><span class="row-value" data-setting-value="language"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="appearance"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-palette"/></svg></span><span class="row-copy"><strong>Appearance</strong><small>Dark or light</small></span><span class="row-value" data-setting-value="appearance"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="ai"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span class="row-copy"><strong>AI</strong><small>Model provider and behaviour</small></span><span class="row-value" data-setting-value="ai"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="memory"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></span><span class="row-copy"><strong>Memory</strong><small>Saved conversation</small></span><span class="row-value" data-setting-value="memory"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="notifications"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg></span><span class="row-copy"><strong>Notifications</strong><small>Alerts and reminders</small></span><span class="row-value" data-setting-value="notifications">Android app</span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="memory"><span class="row-ico tone-green"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></span><span class="row-copy"><strong>Memory</strong><small>Saved conversation</small></span><span class="row-value" data-setting-value="memory"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="notifications"><span class="row-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg></span><span class="row-copy"><strong>Notifications</strong><small>Alerts and reminders</small></span><span class="row-value" data-setting-value="notifications">Android app</span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Privacy &amp; security</p>
               <div class="settings-group">
-                <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-coral"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="privacy"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="row-copy"><strong>Privacy</strong><small>Confirmations and account deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="security"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></span><span class="row-copy"><strong>Security</strong><small>Session and sign out</small></span><span class="row-value" data-setting-value="security"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="data"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg></span><span class="row-copy"><strong>Data</strong><small>Stored data and deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="data"><span class="row-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg></span><span class="row-copy"><strong>Data</strong><small>Stored data and deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Advanced</p>
               <div class="settings-group">
-                <button type="button" class="settings-row" data-settings-page="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Developer</strong><small>GitHub and the Developer Agent</small></span><span class="row-value" data-setting-value="developer"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Developer access</strong><small>Developer Agent, GitHub and Metrics</small></span><span class="row-value" data-setting-value="developer"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
             </div>
           </div>
@@ -482,6 +488,7 @@
             <section class="settings-panel" data-settings-panel="language" hidden>
               <div class="panel">
                 <p class="muted">Interface language and the locale sent with each request.</p>
+                <p class="muted" data-hi-only hidden>Long descriptions on some pages are still in English.</p>
                 <div class="choice-list" id="settings-lang-options" role="group" aria-label="Language">
                   <button type="button" class="option-btn choice" data-lang="en"><span>English</span><svg class="ico choice-check" aria-hidden="true"><use href="#i-check"/></svg></button>
                   <button type="button" class="option-btn choice" data-lang="hi"><span>हिंदी</span><svg class="ico choice-check" aria-hidden="true"><use href="#i-check"/></svg></button>
@@ -573,8 +580,16 @@
             <section class="settings-panel" data-settings-panel="developer" hidden>
               <div class="panel">
                 <div class="control-row">
+                  <div class="row-copy"><strong>Developer access</strong><small>Shows the Developer Agent and Metrics in the app. Off by default. This only changes what is shown: GitHub still needs your own connection, and every change still needs your confirmation.</small></div>
+                  <button type="button" class="switch" id="settings-dev-toggle" role="switch" aria-pressed="false" aria-label="Developer access"><span class="switch-thumb" aria-hidden="true"></span><span class="sr-only switch-text">Off</span></button>
+                </div>
+                <div class="control-row" data-dev-only hidden>
                   <div class="row-copy"><strong>Developer Agent</strong><small>Analyze a repository or request a confirmed implementation with your own GitHub account.</small></div>
                   <button type="button" class="btn btn-secondary" id="settings-open-developer">Open</button>
+                </div>
+                <div class="control-row" data-dev-only hidden>
+                  <div class="row-copy"><strong>Usage &amp; Metrics</strong><small>Latency, health and task counts for this session.</small></div>
+                  <button type="button" class="btn btn-secondary" id="settings-open-metrics">Open</button>
                 </div>
               </div>
             </section>
@@ -629,8 +644,8 @@
     <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
       <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
       <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
-      <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-star4"/></svg></span><span class="fab-label">Chat</span></button>
-      <button type="button" class="nav-item" data-view="metrics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Metrics</span></button>
+      <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="fab-label">Chat</span></button>
+      <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></button>
       <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
     </nav>
   </div>
@@ -690,7 +705,9 @@
   <script src="./logic.js"></script>
   <script src="./feature-pages.js"></script>
   <script src="./shell.js"></script>
+  <script src="./i18n.js"></script>
   <script src="./app.js"></script>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <div class="sr-only" id="route-announcer" role="status" aria-live="polite"></div>
 </body>
 </html>

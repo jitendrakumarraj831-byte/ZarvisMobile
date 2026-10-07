@@ -64,7 +64,7 @@ async function send(page, text) {
   const password = "correct horse battery";
 
   const ctxA = await browser.newContext();
-  const pageA = await pageOf(ctxA);
+  const pageA = await pageOf(ctxA, { devAccess: true }); // these flows use the Developer Agent
   const errorsA = [];
   watchErrors(pageA, errorsA);
 
@@ -385,35 +385,545 @@ async function send(page, text) {
     await ctxW.close();
   });
 
-  await step("Home: one composer starts a chat, suggestions fill the Chat box, and the app bar lines up with every page", async () => {
+  await step("Home: the message card sends to Chat and has direct file and image buttons, the orb and the footer mic open Chat, quick prompts fill the Chat box, and the app bar lines up with every page", async () => {
+    // Desktop: the orb opens Chat; a chip opens Chat with its starter text, ready to edit (nothing is sent).
     const ctxH = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageH = await pageOf(ctxH);
     await pageH.goto(BASE);
     await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-    // One composer: typing here opens Chat and sends exactly that message.
+    // The message card sends exactly what was typed.
     await pageH.fill("#home-prompt-input", "hello from home");
     await pageH.press("#home-prompt-input", "Enter");
     await pageH.waitForSelector("#view-chat:not([hidden])");
     await pageH.waitForSelector(".bubble.user >> text=hello from home");
     await pageH.waitForSelector(".bubble.assistant .bubble-body", { timeout: 15000 });
-    // A suggestion card opens Chat with its starter text, ready to edit (nothing is sent).
+    // The orb opens Chat.
     await nav(pageH, "home");
-    await pageH.click('.suggest-card[data-workspace-prompt^="Write a warm"]');
+    await pageH.click("#home-orb");
+    await pageH.waitForSelector("#view-chat:not([hidden])");
+    await nav(pageH, "home");
+    assert.equal(await pageH.locator("#home-quick").isVisible(), true, "the quick prompts need no tap to appear");
+    await pageH.click('#home-quick .chip[data-workspace-prompt^="Write a warm"]');
     await pageH.waitForSelector("#view-chat:not([hidden])");
     assert.match(await pageH.inputValue("#text-input"), /^Write a warm, concise message about:/);
-    assert.equal(await pageH.locator(".bubble.user").count(), 1, "the suggestion did not send anything");
-    // "Summarize a file" opens the picker with every supported type (not only images).
+    assert.equal(await pageH.locator(".bubble.user").count(), 1, "the chip did not send anything");
+    // "Upload file" lists every supported type; "Select image" goes straight to pictures and the next file pick is full again.
     await nav(pageH, "home");
-    await pageH.click('.suggest-card[data-home-action="upload"]');
+    await pageH.click('#home-prompt-form [data-home-action="image"]');
+    assert.equal(await pageH.getAttribute("#file-input", "accept"), "image/*");
+    await nav(pageH, "home");
+    await pageH.click('#home-prompt-form [data-home-action="upload"]');
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
-    for (const view of ["activity", "capabilities", "metrics", "plans", "settings"]) {
+    for (const view of ["activity", "capabilities", "plans", "settings"]) {
       await nav(pageH, view);
       await pageH.waitForTimeout(450); // the page's entrance animation
       const edge = await pageH.evaluate((v) => Math.round(document.querySelector(`#view-${v} .page-head`).getBoundingClientRect().right), view);
       assert.ok(Math.abs(edge - (await avatarRight())) <= 1, `${view}: page edge ${edge} vs app bar ${await avatarRight()}`);
     }
+    await ctxH.close();
+
+    // Phone: the mic in the middle of the tab bar opens Chat at once, from any page.
+    const ctxP = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageP = await pageOf(ctxP);
+    await pageP.goto(BASE);
+    await pageP.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    for (const from of ["home", "settings"]) {
+      await pageP.evaluate((v) => document.querySelector(`.bottom-nav [data-view="${v}"]`).click(), from);
+      await pageP.waitForTimeout(300);
+      await pageP.click(".bottom-nav .nav-fab");
+      await pageP.waitForSelector("#view-chat:not([hidden])", { timeout: 3000 });
+    }
+    await ctxP.close();
+  });
+
+  await step("Developer access: off by default hides the Developer Agent and Metrics everywhere; the switch brings them back and is remembered", async () => {
+    for (const [label, viewport] of [["desktop", { width: 1280, height: 800 }], ["phone", { width: 390, height: 844 }]]) {
+      const ctxD = await browser.newContext({ viewport });
+      const pageD = await pageOf(ctxD);
+      await pageD.goto(BASE);
+      await pageD.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      const visible = (sel) => pageD.locator(`${sel}:visible`).count();
+      assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "off", label + ": off by default");
+      assert.equal(await visible('[data-view="developer"]') + (await visible('[data-view="metrics"]')), 0, label + ": no Developer/Metrics nav");
+      assert.equal(await visible('#home-quick [data-nav="developer"]'), 0, label + ": no Analyze-a-repo chip");
+      assert.ok((await visible('[data-view="activity"]')) >= 1, label + ": Activity is a primary page");
+      // Any route to a hidden page lands on the switch instead of the page.
+      await pageD.evaluate(() => document.querySelector('[data-nav="developer"]').click());
+      await pageD.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
+      assert.equal(await pageD.getAttribute("#settings-dev-toggle", "aria-pressed"), "false");
+      await pageD.click("#settings-dev-toggle");
+      assert.equal(await pageD.getAttribute("#settings-dev-toggle", "aria-pressed"), "true");
+      if (label === "desktop") assert.equal(await visible('.sidebar [data-view="developer"]') + (await visible('.sidebar [data-view="metrics"]')), 2);
+      await pageD.click("#settings-open-metrics");
+      await pageD.waitForSelector("#view-metrics:not([hidden])");
+      await pageD.reload();
+      await pageD.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "on", label + ": remembered after reload");
+      assert.equal(await pageD.locator('#home-quick [data-nav="developer"]').count(), 1);
+      // Switching it off again removes the entry points and the hub group.
+      await pageD.evaluate(() => document.querySelector('[data-view="settings"]').click());
+      const back = pageD.locator("[data-settings-back]:visible");
+      if (await back.count()) await back.first().click();
+      await pageD.click('[data-settings-page="developer"]');
+      await pageD.click("#settings-dev-toggle");
+      assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "off");
+      await pageD.evaluate(() => document.querySelector('[data-view="capabilities"]').click());
+      assert.equal(await pageD.locator('.cap-pill[data-cap-filter="developer"]').count(), 0, label + ": hub drops the Developer group");
+      await ctxD.close();
+    }
+  });
+
+  await step("Phone menu: the top-left menu button opens the whole navigation as a drawer that traps focus, locks the page behind, and closes on Esc, backdrop, Back or choosing a page", async () => {
+    const ctxM = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageM = await pageOf(ctxM);
+    await pageM.goto(BASE);
+    await pageM.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const menu = pageM.locator("#menu-btn");
+    const isOpen = () => pageM.evaluate(() => document.getElementById("sidebar-nav").classList.contains("is-open"));
+    const inDrawer = () => pageM.evaluate(() => document.getElementById("sidebar-nav").contains(document.activeElement));
+    const openDrawer = async () => { await menu.click(); await pageM.waitForFunction(() => document.getElementById("sidebar-nav").classList.contains("is-open")); await pageM.waitForTimeout(350); };
+    // Where the logo used to be: top-left, at least 44px, ahead of the wordmark and the actions.
+    const box = await menu.boundingBox();
+    assert.ok(box && box.x < 24 && box.y < 24 && box.width >= 44 && box.height >= 44, "menu button is top-left and 44px: " + JSON.stringify(box));
+    assert.equal(await menu.getAttribute("aria-expanded"), "false");
+    assert.equal(await pageM.locator("#sidebar-nav").isVisible(), false, "closed at first");
+    assert.equal(await pageM.locator("#sidebar-nav button:visible").count(), 0, "a closed drawer has nothing to tab to");
+    // Open: focus moves in, the page behind is inert and cannot scroll.
+    await openDrawer();
+    assert.equal(await menu.getAttribute("aria-expanded"), "true");
+    assert.equal(await inDrawer(), true, "focus is inside the drawer");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), true, "the page behind is inert");
+    assert.equal(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden", "the page behind cannot scroll");
+    // The whole navigation (no developer pages while that switch is off).
+    const labels = (await pageM.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
+    assert.deepEqual(labels, ["Home", "Chat", "Activity", "Capabilities", "Plans", "Settings", "Profile"]);
+    // Tab never leaves the drawer.
+    for (let i = 0; i < 12; i++) {
+      await pageM.keyboard.press("Tab");
+      assert.equal(await inDrawer(), true, "Tab stays in the drawer");
+    }
+    // Esc closes it and focus returns to the menu button.
+    await pageM.keyboard.press("Escape");
+    await pageM.waitForFunction(() => !document.getElementById("sidebar-nav").classList.contains("is-open"));
+    assert.equal(await pageM.evaluate(() => document.activeElement?.id), "menu-btn", "focus returns to the menu button");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), false);
+    assert.notEqual(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden");
+    // Choosing a page switches to it and closes the drawer.
+    await openDrawer();
+    await pageM.click('#sidebar-nav [data-view="plans"]');
+    await pageM.waitForSelector("#view-plans:not([hidden])");
+    assert.equal(await isOpen(), false, "choosing a page closes the drawer");
+    // Tapping the page you are already on closes it too.
+    await openDrawer();
+    await pageM.click('#sidebar-nav [data-view="plans"]');
+    assert.equal(await isOpen(), false, "tapping the current page closes the drawer");
+    assert.equal(await pageM.locator("#view-plans").isVisible(), true);
+    // The backdrop closes it.
+    await openDrawer();
+    await pageM.locator("#drawer-scrim").click({ position: { x: 360, y: 400 } });
+    assert.equal(await isOpen(), false, "the backdrop closes the drawer");
+    // So does the close button, and the browser's Back.
+    await openDrawer();
+    await pageM.click("#drawer-close");
+    assert.equal(await isOpen(), false, "the close button closes the drawer");
+    await openDrawer();
+    await pageM.goBack();
+    await pageM.waitForFunction(() => !document.getElementById("sidebar-nav").classList.contains("is-open"));
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), false, "Back leaves nothing inert");
+    // Turning the phone to a wide screen while it is open leaves nothing half open: the sidebar is simply there.
+    await openDrawer();
+    await pageM.setViewportSize({ width: 1280, height: 800 });
+    await pageM.waitForFunction(() => !document.getElementById("sidebar-nav").classList.contains("is-open"));
+    assert.equal(await pageM.locator("#menu-btn:visible").count(), 0, "no menu button on a wide screen");
+    assert.equal(await pageM.locator('#sidebar-nav [data-view="settings"]:visible').count(), 1, "the sidebar is shown instead");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".main").hasAttribute("inert")), false);
+    await ctxM.close();
+
+    // Developer access adds its two pages; Hindi labels the button and the drawer.
+    const ctxH = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    await ctxH.addInitScript(() => { try { localStorage.setItem("zarvis.lang", "hi"); } catch {} });
+    const pageH = await pageOf(ctxH, { devAccess: true });
+    await pageH.goto(BASE);
+    await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    assert.equal(await pageH.getAttribute("#menu-btn", "aria-label"), "मेन्यू");
+    await pageH.click("#menu-btn");
+    await pageH.waitForTimeout(350);
+    const hindi = (await pageH.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
+    assert.deepEqual(hindi, ["होम", "चैट", "गतिविधि", "क्षमताएँ", "डेवलपर एजेंट", "मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
+    assert.equal(await pageH.getAttribute("#drawer-close", "aria-label"), "मेन्यू बंद करें");
+    await ctxH.close();
+  });
+
+  await step("Home: the glowing orb says only ZARVIS AI, the message card asks one question, the four feature tiles are gone, and a mic sits in the middle of the tab bar", async () => {
+    for (const [label, viewport, touch] of [["phone", { width: 390, height: 844 }, true], ["desktop", { width: 1280, height: 800 }, false]]) {
+      const ctxN = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch });
+      const pageN = await pageOf(ctxN);
+      await pageN.goto(BASE);
+      await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await pageN.waitForTimeout(800);
+      const text = (selector) => pageN.evaluate((s) => document.querySelector(s)?.textContent.replace(/\s+/g, " ").trim(), selector);
+      assert.equal(await text("#home-orb"), "ZARVIS AI", label + ": the orb says only ZARVIS AI");
+      assert.equal(await pageN.locator("#home-orb svg").count(), 0, label + ": no star in the orb");
+      assert.equal(await pageN.getAttribute("#home-orb", "aria-label"), "ZARVIS AI — talk by voice");
+      assert.equal(await text(".home-title"), "What can I help with today?", label + ": the one question under the orb");
+      assert.deepEqual(await pageN.evaluate(() => [...document.querySelectorAll("#home-prompt-form [data-home-action]")].map((b) => b.getAttribute("aria-label") + "|" + b.dataset.homeAction + "|" + (b.textContent.trim() === ""))), ["Upload file|upload|true", "Select image|image|true"], label + ": icon-only file and image buttons in the card");
+      assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
+      assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
+      assert.equal(await pageN.locator(".action-tile, .primary-actions, .home-composer").count(), 0, label + ": the four feature tiles and the bottom message bar are gone");
+      assert.equal(await pageN.locator("#view-home #home-recent, #view-home #home-activity, #view-home [data-nav='activity']").count(), 0, label + ": no activity status on Home");
+
+      const facts = await pageN.evaluate(() => {
+        const orb = document.querySelector("#home-orb .orb").getBoundingClientRect();
+        const hero = document.querySelector(".home-hero").getBoundingClientRect();
+        const fab = document.querySelector(".bottom-nav .nav-fab");
+        const fabBox = fab.getBoundingClientRect();
+        const row = document.querySelector("#home-quick .chip-row");
+        const chips = [...row.querySelectorAll(".chip:not([hidden])")];
+        const greet = document.querySelector(".home-greet").getBoundingClientRect();
+        const title = document.querySelector(".home-title").getBoundingClientRect();
+        const card = document.getElementById("home-prompt-form").getBoundingClientRect();
+        return {
+          aboveOrb: Math.round(orb.top - greet.bottom), belowOrb: Math.round(title.top - orb.bottom), orbW: orb.width, aboveCard: Math.round(card.top - row.getBoundingClientRect().bottom),
+          orbWidth: Math.round(orb.width), orbCentre: Math.round(orb.left + orb.width / 2), heroCentre: Math.round(hero.left + hero.width / 2), screen: innerWidth,
+          fabVisible: fab.getClientRects().length > 0, fabCentre: Math.round(fabBox.left + fabBox.width / 2),
+          fabIcon: fab.querySelector("use").getAttribute("href"),
+          chipScroll: row.scrollWidth > row.clientWidth + 8, chipOverflowX: getComputedStyle(row).overflowX, firstChipLeft: Math.round(chips[0].getBoundingClientRect().left),
+          small: chips.filter((b) => b.getBoundingClientRect().height < 43.5).length,
+          overflow: document.documentElement.scrollWidth - innerWidth,
+        };
+      });
+      assert.ok(Math.abs(facts.orbCentre - facts.heroCentre) <= 1, `${label}: the orb is centred (${facts.orbCentre} vs ${facts.heroCentre})`);
+      const card = await pageN.evaluate(() => { const r = document.getElementById("home-prompt-form").getBoundingClientRect(); const nav = document.querySelector(".bottom-nav"); return { height: Math.round(r.height), top: Math.round(r.top), bottom: Math.round(r.bottom), navTop: nav && getComputedStyle(nav).display !== "none" ? Math.round(nav.getBoundingClientRect().top) : innerHeight, screen: innerHeight }; });
+      assert.ok(card.height <= 80, `${label}: the message card is one short row (${card.height}px)`);
+      assert.ok(card.bottom <= card.navTop && card.top >= card.screen * 0.55, `${label}: the message card sits low, just above the tab bar (${card.top}-${card.bottom} of ${card.screen}, bar at ${card.navTop})`);
+      assert.ok(facts.aboveOrb >= 36, `${label}: the greeting sits clear above the orb, out of its waves (${facts.aboveOrb}px)`);
+      assert.ok(facts.belowOrb >= facts.orbW * 0.25 + 16, `${label}: the question sits clear of the orb's waves (${facts.belowOrb}px under a ${Math.round(facts.orbW)}px orb)`);
+      assert.ok(facts.aboveCard >= 24, `${label}: the prompts keep their distance from the message card (${facts.aboveCard}px)`);
+      assert.ok(facts.orbWidth <= 195 && facts.orbWidth <= facts.screen * 0.43, `${label}: the orb is a modest size (${facts.orbWidth}px on a ${facts.screen}px screen)`);
+      assert.ok(facts.overflow <= 0, label + ": nothing widens the page");
+      assert.equal(facts.small, 0, label + ": quick prompts are at least 44px tall");
+      if (touch) {
+        assert.ok(facts.fabVisible && Math.abs(facts.fabCentre - facts.screen / 2) <= 1, `${label}: the tab bar's middle button is centred (${facts.fabCentre})`);
+        assert.equal(facts.fabIcon, "#i-mic", label + ": the middle button is a microphone");
+        assert.ok(facts.chipScroll && facts.chipOverflowX === "auto", label + ": the quick prompts swipe sideways");
+        assert.ok(facts.firstChipLeft >= 12, label + ": the first prompt is not cut off at the edge (" + facts.firstChipLeft + "px)");
+      } else {
+        assert.equal(facts.fabVisible, false, label + ": a wide screen has no tab bar");
+      }
+
+      // "Medium colour": a mid-tone with real colour, and a white glyph that still reads (3:1 for graphics) - on every page.
+      const sweep = async (view) => {
+        await nav(pageN, view);
+        await pageN.waitForTimeout(500);
+        return pageN.evaluate(() => {
+          const hsl = (hex) => { const n = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255); const mx = Math.max(...n), mn = Math.min(...n), l = (mx + mn) / 2, d = mx - mn; const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1)); return { s: sat, l }; };
+          const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+          const lum = (hex) => { const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+          const out = [];
+          for (const node of document.querySelectorAll(".row-ico, .stat-tile-ico")) {
+            if (!node.getClientRects().length || node.closest(".is-off")) continue;
+            const hex = getComputedStyle(node).getPropertyValue("--tone").trim();
+            if (!/^#[0-9a-f]{6}$/i.test(hex)) { out.push({ bad: "no tone colour on " + node.className }); continue; }
+            const { s, l } = hsl(hex);
+            out.push({ hex, s, l, contrast: 1.05 / (lum(hex) + 0.05), shadow: getComputedStyle(node).boxShadow });
+          }
+          return out;
+        });
+      };
+      for (const view of touch ? ["capabilities", "settings"] : ["capabilities", "settings", "plans"]) { // Plans is in the phone menu, not its tab bar
+        const badges = await sweep(view);
+        assert.ok(badges.length >= 3, `${label}/${view}: found its feature icons (${badges.length})`);
+        for (const b of badges) {
+          if (b.bad) assert.fail(`${label}/${view}: ${b.bad}`);
+          assert.ok(b.s >= 0.45 && b.l >= 0.3 && b.l <= 0.68, `${label}/${view}: ${b.hex} is not a medium colour (saturation ${b.s.toFixed(2)}, lightness ${b.l.toFixed(2)})`);
+          assert.ok(b.contrast >= 3, `${label}/${view}: a white icon on ${b.hex} reads at only ${b.contrast.toFixed(1)}:1`);
+          assert.equal(b.shadow, "none", `${label}/${view}: ${b.hex} still glows`);
+        }
+        if (view !== "plans") assert.ok(new Set(badges.map((b) => b.hex)).size >= 5, `${label}/${view}: icons use at least five different colours`);
+      }
+      await ctxN.close();
+    }
+  });
+
+  await step("Chat: solid headers, readable scrolling code in both themes, one row of labelled icon actions with a confirmation, and a composer that shrinks back after a long message", async () => {
+    // One guest account for all four looks (the server allows 60 sign-ups an hour per address, and both suites share it).
+    const ctxC = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctxC.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
+    const pageC = await pageOf(ctxC);
+    await mockStream(pageC);
+    let first = true;
+    for (const [label, viewport, appearance] of [
+      ["phone light", { width: 390, height: 844 }, "aurora"],
+      ["phone dark", { width: 390, height: 844 }, "dim"],
+      ["desktop light", { width: 1280, height: 800 }, "aurora"],
+      ["desktop dark", { width: 1280, height: 800 }, "dim"],
+    ]) {
+      await pageC.setViewportSize(viewport);
+      if (first) await pageC.goto(BASE + "/#/chat");
+      await pageC.evaluate((a) => localStorage.setItem("zarvis.appearance", a), appearance);
+      if (!first) await pageC.reload();
+      first = false;
+      await pageC.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await pageC.waitForSelector("#text-input");
+      const idleHeight = await pageC.evaluate(() => Math.round(document.getElementById("text-input").getBoundingClientRect().height));
+      await pageC.fill("#text-input", "Please show me a tiny example, and explain it step by step so that I can follow along without any trouble at all, thanks.");
+      assert.ok((await pageC.evaluate(() => document.getElementById("text-input").getBoundingClientRect().height)) > idleHeight + 20, label + ": a long message grows the composer");
+      await pageC.press("#text-input", "Enter");
+      await pageC.waitForSelector(".bubble.assistant .bubble-actions");
+      assert.equal(await pageC.evaluate(() => Math.round(document.getElementById("text-input").getBoundingClientRect().height)), idleHeight, label + ": the composer shrinks back once the message is sent");
+
+      await pageC.waitForTimeout(600); // entrance animations settle before anything is measured
+      const facts = await pageC.evaluate(() => {
+        const rgb = (value) => {
+          const n = (value.match(/[\d.]+/g) || []).map(Number);
+          const scale = value.startsWith("color(") ? 255 : 1;
+          return { r: n[0] * scale, g: n[1] * scale, b: n[2] * scale, a: n.length > 3 ? n[3] : 1 };
+        };
+        const lum = ({ r, g, b }) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+        const contrast = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+        const pre = document.querySelector("pre.reply-code");
+        const code = pre.querySelector("code");
+        const buttons = [...document.querySelectorAll(".bubble.assistant .bubble-actions button")];
+        const rects = buttons.map((b) => b.getBoundingClientRect());
+        const desk = document.getElementById("desk-top");
+        return {
+          headerAlpha: rgb(getComputedStyle(document.querySelector(".chat-header")).backgroundColor).a,
+          deskAlpha: desk && getComputedStyle(desk).display !== "none" ? rgb(getComputedStyle(desk).backgroundColor).a : null,
+          codeContrast: contrast(rgb(getComputedStyle(code).color), rgb(getComputedStyle(pre).backgroundColor)),
+          codeOverflow: getComputedStyle(pre).overflowX,
+          codeScrolls: pre.scrollWidth > pre.clientWidth + 20,
+          pageOverflow: document.documentElement.scrollWidth - innerWidth,
+          buttons: buttons.length,
+          names: buttons.map((b) => b.getAttribute("aria-label")),
+          textual: buttons.filter((b) => b.textContent.trim() !== "").length,
+          small: rects.filter((r) => r.width < 40 || r.height < 40).map((r) => `${Math.round(r.width)}x${Math.round(r.height)}`),
+          rowSpread: Math.max(...rects.map((r) => r.top)) - Math.min(...rects.map((r) => r.top)),
+        };
+      });
+      assert.equal(facts.headerAlpha, 1, label + ": the Chat header is opaque (bubbles scrolling beneath never ghost through)");
+      if (facts.deskAlpha !== null) assert.equal(facts.deskAlpha, 1, label + ": the desktop app bar is opaque in Chat");
+      assert.ok(facts.codeContrast >= 7, label + ": code contrast " + facts.codeContrast.toFixed(1));
+      assert.equal(facts.codeOverflow, "auto", label + ": code scrolls sideways");
+      assert.ok(facts.codeScrolls, label + ": the long code line scrolls instead of being cut off");
+      assert.ok(facts.pageOverflow <= 0, label + ": a long code line never widens the page (" + facts.pageOverflow + "px)");
+      assert.ok(facts.buttons >= 3 && facts.names.every(Boolean), label + ": every reply action is named " + JSON.stringify(facts.names));
+      assert.equal(facts.textual, 0, label + ": reply actions are icon-only");
+      assert.deepEqual(facts.small, [], label + ": every reply action is at least 40px");
+      assert.ok(facts.rowSpread <= 2, label + ": reply actions share one row");
+
+      const copy = pageC.locator('.bubble.assistant .bubble-actions button[aria-label="Copy"]').first();
+      await copy.click();
+      await pageC.waitForSelector('.bubble.assistant .bubble-actions button[data-done="1"]', { timeout: 2000 });
+      assert.equal(await pageC.getAttribute('.bubble.assistant .bubble-actions button[data-done="1"]', "aria-label"), "Copied");
+      assert.match(await pageC.evaluate(() => navigator.clipboard.readText()), /tiny example/, label + ": Copy puts the reply text on the clipboard");
+      await pageC.waitForSelector('.bubble.assistant .bubble-actions button[data-done]', { state: "detached", timeout: 4000 });
+    }
+    await ctxC.close();
+  });
+
+  await step("Chat: reading back up the thread is never yanked down by a streaming reply, the jump button returns to the newest, and Thinking says what it is doing", async () => {
+    const ctxS = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const pageS = await pageOf(ctxS);
+    await mockStream(pageS);
+    await pageS.goto(BASE + "/#/chat");
+    await pageS.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const gap = () => pageS.evaluate(() => Math.round(document.documentElement.scrollHeight - innerHeight - scrollY));
+    const lines = (n, tag) => Array.from({ length: n }, (_, i) => `${tag} line ${i + 1} of the answer, long enough to be read.`).join("\n\n");
+    for (let i = 1; i <= 3; i++) {
+      await pageS.evaluate((text) => { window.__stream.reply = text; }, lines(8, "Earlier " + i));
+      await pageS.fill("#text-input", "question " + i);
+      await pageS.press("#text-input", "Enter");
+      await pageS.waitForFunction((n) => document.querySelectorAll(".bubble.assistant").length >= n, i);
+    }
+    assert.ok((await gap()) <= 8, "after a reply the thread sits at its bottom (" + (await gap()) + "px)");
+
+    await pageS.evaluate(() => { window.__stream.auto = false; });
+    await pageS.fill("#text-input", "stream something long");
+    await pageS.press("#text-input", "Enter");
+    await pageS.waitForSelector(".bubble.thinking .thinking-label");
+    assert.ok((await pageS.textContent(".bubble.thinking .thinking-label")).trim().length > 0, "Thinking is labelled");
+    await pageS.evaluate(() => window.__stream.push("meta", { conversationId: "00000000-0000-4000-8000-000000000001", turnId: "live" }));
+
+    // Following: the reader is at the bottom, so growing text keeps them there.
+    await pageS.evaluate((text) => window.__stream.push("delta", { text }), lines(6, "Live") + "\n\n");
+    await pageS.waitForTimeout(250);
+    assert.ok((await gap()) <= 8, "while following, the page stays at the bottom (" + (await gap()) + "px)");
+
+    // Reading back: scrolled up, more text arrives, the page stays where it was.
+    await pageS.evaluate(() => window.scrollTo(0, Math.max(0, scrollY - 900)));
+    await pageS.waitForTimeout(250);
+    const readingAt = await pageS.evaluate(() => Math.round(scrollY));
+    await pageS.evaluate((text) => window.__stream.push("delta", { text }), lines(10, "More") + "\n\n");
+    await pageS.waitForTimeout(400);
+    const after = await pageS.evaluate(() => Math.round(scrollY));
+    assert.ok(Math.abs(after - readingAt) <= 2, `streaming moved a reader who scrolled up (${readingAt} → ${after})`);
+    assert.equal(await pageS.locator("#scroll-latest").isVisible(), true, "the jump button is offered while reading back");
+
+    await pageS.click("#scroll-latest");
+    await pageS.waitForTimeout(350);
+    assert.ok((await gap()) <= 8, "the jump button returns to the newest text (" + (await gap()) + "px)");
+    assert.equal(await pageS.locator("#scroll-latest").isVisible(), false, "the jump button goes away at the bottom");
+
+    await pageS.evaluate(() => window.__stream.finish("All done."));
+    await pageS.waitForSelector(".bubble.assistant .bubble-actions >> nth=3");
+    await ctxS.close();
+  });
+
+  await step("Pages: the profile card opens Account, Capabilities tallies what it lists, Activity's empty state offers a next step", async () => {
+    const ctxP = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageP = await pageOf(ctxP);
+    await pageP.goto(BASE);
+    await pageP.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageP, "settings");
+    assert.match(await pageP.innerText("#profile-hero-name"), /Guest/);
+    await pageP.click("#settings-profile-hero");
+    await pageP.waitForSelector('[data-settings-panel="account"]:not([hidden])');
+    await nav(pageP, "capabilities");
+    await pageP.waitForSelector(".cap-summary .cap-sum");
+    const tally = await pageP.$$eval(".cap-summary .cap-sum strong", (nodes) => nodes.reduce((sum, node) => sum + Number(node.textContent), 0));
+    assert.equal(tally, await pageP.locator(".cap-grid .cap-item").count(), "the tally adds up to the cards shown");
+    await nav(pageP, "activity");
+    await pageP.click(".timeline-empty-rich .empty-state .btn");
+    await pageP.waitForSelector("#view-chat:not([hidden])");
+    await ctxP.close();
+  });
+
+  await step("Navigation: Back/Forward move between pages, reload and #/links keep the page, every page has its own title", async () => {
+    const ctxN = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const pageN = await pageOf(ctxN);
+    await pageN.goto(BASE);
+    await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const view = () => pageN.evaluate(() => document.body.dataset.activeView);
+    const homeTitle = await pageN.title();
+    await nav(pageN, "chat");
+    await nav(pageN, "activity");
+    assert.match(await pageN.title(), /^Activity · /, "each page sets its own tab title");
+    assert.notEqual(await pageN.title(), homeTitle);
+    await pageN.goBack();
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "chat");
+    await pageN.goForward();
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "activity");
+    await pageN.reload();
+    await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    assert.equal(await view(), "activity", "a reload keeps the page");
+    // A Settings sub-page is an entry too; the in-app back button behaves like the browser's.
+    await pageN.goto(BASE + "/#/settings/voice");
+    await pageN.waitForSelector('[data-settings-panel="voice"]:not([hidden])');
+    assert.match(await pageN.title(), /^Voice · /);
+    await pageN.click("[data-settings-back]");
+    await pageN.waitForSelector("#settings-grid:not([hidden])");
+    assert.equal(await pageN.evaluate(() => location.hash), "#/settings");
+    // The Account page is called Profile, not the user's name.
+    await pageN.click('[data-settings-page="account"]');
+    assert.equal(await pageN.innerText("#settings-subpage-title"), "Profile");
+    // Developer-only routes never open for someone without Developer access: they land on its switch.
+    await pageN.goto(BASE + "/#/metrics");
+    await pageN.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
+    assert.equal(await pageN.evaluate(() => location.hash), "#/settings/developer");
+    await ctxN.close();
+  });
+
+  await step("Dialogs: focus goes in and stays in, the page behind is locked, focus comes back; offline is shown, not hidden behind 'Online'", async () => {
+    const ctxM = await browser.newContext({ viewport: { width: 390, height: 700 } }); // first visit: the sign-in card opens on Chat
+    const pageM = await ctxM.newPage();
+    await pageM.goto(BASE);
+    await pageM.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await nav(pageM, "chat");
+    await pageM.waitForSelector("#welcome-gate:not([hidden])");
+    const inside = () => pageM.evaluate(() => document.getElementById("welcome-gate").contains(document.activeElement));
+    assert.equal(await inside(), true, "focus moves into the card");
+    for (let i = 0; i < 14; i++) {
+      await pageM.keyboard.press("Tab");
+      assert.equal(await inside(), true, "Tab stays inside the card");
+    }
+    assert.equal(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden", "the page behind cannot scroll");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".app").inert), true, "the page behind is inert");
+    await pageM.keyboard.press("Escape");
+    await pageM.waitForSelector("#welcome-gate", { state: "hidden" });
+    assert.notEqual(await pageM.evaluate(() => document.activeElement && document.activeElement.tagName), "BODY", "focus returns to the page");
+    assert.equal(await pageM.evaluate(() => document.querySelector(".app").inert), false);
+    // Offline: the header and a banner say so; coming back clears both.
+    await ctxM.setOffline(true);
+    await pageM.waitForSelector("#offline-banner:not([hidden])");
+    assert.match(await pageM.innerText(".chat-header"), /Offline/);
+    await ctxM.setOffline(false);
+    await pageM.waitForSelector("#offline-banner", { state: "hidden" });
+    await ctxM.close();
+  });
+
+  await step("First paint: light is the default on every device, a saved dark choice is applied before the app script runs; a notch never covers the top bar", async () => {
+    for (const [stored, expected] of [["dim", "dim"], ["aurora", "aurora"]]) {
+      const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      await ctxT.addInitScript((mode) => { try { localStorage.setItem("zarvis.appearance", mode); } catch {} }, stored);
+      const pageT = await ctxT.newPage();
+      await pageT.route("**/app.js", () => {}); // never answered: what is on screen before the app script exists
+      pageT.goto(BASE, { waitUntil: "commit" }).catch(() => {});
+      await pageT.waitForFunction(() => document.body && getComputedStyle(document.body).backgroundColor !== "", null, { timeout: 15000 });
+      assert.equal(await pageT.evaluate(() => document.documentElement.getAttribute("data-appearance")), expected, "saved theme on first paint");
+      await ctxT.close();
+    }
+    // Light is the default whatever the device's own setting is; dark only once it was chosen.
+    for (const scheme of ["light", "dark", "no-preference"]) {
+      const ctxD = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+      const pageD2 = await pageOf(ctxD);
+      await pageD2.goto(BASE);
+      assert.equal(await pageD2.evaluate(() => document.documentElement.getAttribute("data-appearance")), "aurora", "first visit is light on a " + scheme + " device");
+      assert.equal(await pageD2.evaluate(() => document.querySelector('meta[name="theme-color"]').getAttribute("content")), "#f4f3ff", "the browser bar is light on a " + scheme + " device");
+      await ctxD.close();
+    }
+    const ctxS = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageS = await pageOf(ctxS);
+    await pageS.goto(BASE);
+    await pageS.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const cdp = await ctxS.newCDPSession(pageS);
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 47, bottom: 34, left: 0, right: 0 } });
+    const box = await pageS.evaluate(() => ({ brandTop: document.querySelector(".topbar-brand").getBoundingClientRect().top, navPad: parseFloat(getComputedStyle(document.querySelector(".bottom-nav")).paddingBottom) }));
+    assert.ok(box.brandTop >= 47, "top bar content starts below the notch: " + box.brandTop);
+    assert.ok(box.navPad >= 34, "bottom nav clears the home indicator: " + box.navPad);
+    await ctxS.close();
+  });
+
+  await step("Hindi: the main pages are fully in Hindi (only names stay English), and English comes back clean", async () => {
+    const ctxH = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctxH.addInitScript(() => { try { localStorage.setItem("zarvis.welcomeDismissed", "1"); localStorage.setItem("zarvis.devAccess", "on"); localStorage.setItem("zarvis.lang", "hi"); } catch {} });
+    const pageH = await ctxH.newPage();
+    await pageH.goto(BASE);
+    await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const stray = () => pageH.evaluate(() => {
+      const names = /^(ZARVIS|ZARVIS AI|Ctrl K|Pro|PRO|UPI|GitHub|English|AI|Pull request|https:\/\/github\.com\/owner\/repo|ZARVIS AI home)$/;
+      const found = [];
+      const consider = (text, where) => { const t = text.replace(/\s+/g, " ").trim(); if (t && /[A-Za-z]{3,}/.test(t) && !/[\u0900-\u097F]/.test(t) && !names.test(t)) found.push(where + ": " + t.slice(0, 60)); };
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let n; (n = walker.nextNode());) { const el = n.parentElement; if (el && !el.closest("script,style,svg,.bubble,[data-user-text]") && el.checkVisibility && el.checkVisibility({ checkVisibilityCSS: true })) consider(n.textContent, "text"); }
+      for (const el of document.querySelectorAll("[aria-label],[title],[placeholder]")) {
+        if (!el.checkVisibility || !el.checkVisibility({ checkVisibilityCSS: true })) continue;
+        for (const a of ["aria-label", "title", "placeholder"]) if (el.getAttribute(a)) consider(el.getAttribute(a), a);
+      }
+      return found;
+    });
+    const problems = [];
+    const open = async (view) => { await pageH.evaluate((v) => document.querySelector(`[data-view="${v}"]`).click(), view); await pageH.waitForTimeout(400); };
+    for (const view of ["home", "chat", "activity", "capabilities", "plans", "settings", "developer", "metrics"]) {
+      await open(view);
+      (await stray()).forEach((x) => problems.push(view + " " + x));
+    }
+    for (const sub of ["account", "subscription", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "data", "developer"]) {
+      await open("settings");
+      await pageH.evaluate((p) => document.querySelector(`[data-settings-page="${p}"]`).click(), sub);
+      await pageH.waitForTimeout(300);
+      (await stray()).forEach((x) => problems.push("settings/" + sub + " " + x));
+    }
+    assert.deepEqual([...new Set(problems)], [], "English left on Hindi pages: " + [...new Set(problems)].slice(0, 8).join(" | "));
+    // Back to English: nothing Hindi is left behind, and the page title follows.
+    await open("settings");
+    await pageH.evaluate(() => document.querySelector('[data-settings-page="language"]').click());
+    await pageH.evaluate(() => document.querySelector('[data-lang="en"]').click());
+    await open("activity");
+    assert.equal(await pageH.innerText('.sidebar [data-view="activity"] span'), "Activity");
+    assert.match(await pageH.title(), /^Activity · /);
+    assert.equal(await pageH.evaluate(() => /[\u0900-\u097F]/.test(document.querySelector("#view-activity").innerText)), false, "no Hindi left on the English Activity page");
     await ctxH.close();
   });
 
@@ -443,9 +953,42 @@ async function send(page, text) {
 });
 
 /** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
-async function pageOf(ctx) {
-  await ctx.addInitScript(() => {
-    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
-  });
+async function pageOf(ctx, { devAccess = false } = {}) {
+  await ctx.addInitScript((dev) => {
+    try {
+      localStorage.setItem("zarvis.welcomeDismissed", "1");
+      if (dev) localStorage.setItem("zarvis.devAccess", "on");
+    } catch {}
+  }, devAccess);
   return ctx.newPage();
+}
+
+/** Replaces the turn stream with a scriptable one. While `window.__stream.auto` is true every turn is answered at once with
+ * `window.__stream.reply`; with it off a turn stays open and the test pushes frames with `push(event, data)` and ends it with
+ * `finish(text)` - the way a model streams, which route.fulfill cannot do. */
+async function mockStream(page) {
+  await page.addInitScript(() => {
+    const realFetch = window.fetch.bind(window);
+    const enc = new TextEncoder();
+    const CID = "00000000-0000-4000-8000-000000000001";
+    const frame = (event, data) => enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const api = (window.__stream = {
+      auto: true,
+      reply: "Hello! I'm **ZARVIS** - here is a tiny example:\n\n```js\nconst greet = (name) => `Hello, ${name}! This line is deliberately far longer than a phone is wide, so it has to scroll sideways`;\n```\n\nThe `greet` function builds the text.\n\n1. Ask a question\n2. Attach a file",
+      controller: null,
+      push: (event, data) => api.controller.enqueue(frame(event, data)),
+      finish: (text) => { api.push("done", { message: text, toolCalls: [], conversationId: CID, turnId: "live" }); api.controller.close(); },
+    });
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (!url.endsWith("/orchestrator/turn-stream")) return realFetch(input, init);
+      const headers = { "content-type": "text/event-stream" };
+      if (api.auto) {
+        const turnId = "t" + Math.random().toString(36).slice(2);
+        const body = [frame("meta", { conversationId: CID, turnId }), frame("delta", { text: api.reply }), frame("done", { message: api.reply, toolCalls: [], conversationId: CID, turnId })];
+        return Promise.resolve(new Response(new Blob(body), { status: 200, headers }));
+      }
+      return Promise.resolve(new Response(new ReadableStream({ start(c) { api.controller = c; } }), { status: 200, headers }));
+    };
+  });
 }

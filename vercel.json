@@ -2,7 +2,7 @@
   "version": 2,
   "headers": [
     {
-      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|shell\\.js|styles\\.css|sw\\.js|index\\.html)",
+      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|shell\\.js|theme-init\\.js|i18n\\.js|styles\\.css|sw\\.js|index\\.html)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -70,6 +70,18 @@
     {
       "src": "^/feature-pages\\.js$",
       "dest": "/web/feature-pages.js"
+    },
+    {
+      "src": "^/shell\\.js$",
+      "dest": "/web/shell.js"
+    },
+    {
+      "src": "^/theme-init\\.js$",
+      "dest": "/web/theme-init.js"
+    },
+    {
+      "src": "^/i18n\\.js$",
+      "dest": "/web/i18n.js"
     },
     {
       "src": "^/styles\\.css$",

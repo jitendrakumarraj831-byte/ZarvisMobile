@@ -44,7 +44,7 @@ async function step(name, fn) {
     console.log("PASS", name);
   } catch (err) {
     results.push(["FAIL", name]);
-    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n").slice(0, 6).join("\n    ") : err);
+    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n").slice(0, 14).join("\n    ") : err);
   }
 }
 
@@ -54,9 +54,24 @@ async function openView(page, view) {
   await page.waitForTimeout(150);
 }
 
+/** What the page logged and which requests failed, so a timeout below explains itself. */
+function watch(page) {
+  const seen = [];
+  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") seen.push(`console.${m.type()}: ${m.text().slice(0, 160)}`); });
+  page.on("requestfailed", (r) => seen.push(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ""}`));
+  page.on("response", (r) => { if (r.status() >= 400) seen.push(`HTTP ${r.status()}: ${r.url()}`); });
+  return seen;
+}
+
 async function ready(page) {
+  const seen = watch(page);
   await page.goto(BASE);
-  await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+  try {
+    await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"), null, { timeout: 15000 });
+  } catch {
+    const now = await page.evaluate(() => ({ url: location.href, width: innerWidth, text: document.body.innerText.replace(/\s+/g, " ").slice(0, 140) })).catch(() => ({}));
+    throw new Error(`no guest session after 15s ${JSON.stringify(now)}; seen: ${seen.slice(-8).join(" | ") || "nothing"}`);
+  }
   await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 });
 }
 
@@ -74,7 +89,13 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
       const ctx = await browser.newContext({ viewport: { width, height: 860 } });
       const page = await pageOf(ctx);
       page.on("pageerror", (e) => errors.push(`pageerror@${width}: ${e.message}`));
-      await ready(page);
+      try {
+        await ready(page);
+      } catch (err) {
+        problems.push(`${width}px: ${err.message}`); // report every width that fails, not just the first
+        await ctx.close();
+        continue;
+      }
       for (const view of VIEWS) {
         await openView(page, view);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -85,14 +106,127 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     assert.deepEqual(problems, []);
   });
 
+  // ---- Home orb: ripples and sparks are decoration; they must never widen the page or crowd the name ----------
+  await step("Home orb: the ripples and sparks stay inside the screen while they move, ZARVIS AI fits inside the orb, and reduced motion keeps still rings", async () => {
+    const problems = [];
+    // One guest account for all five sizes (the server allows 60 sign-ups an hour per address and both suites share them).
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 640 } });
+    const page = await pageOf(ctx);
+    await ready(page);
+    for (const [width, height] of [[320, 640], [360, 740], [390, 844], [412, 915], [1280, 800]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(400);
+      let widest = 0;
+      for (let i = 0; i < 20; i += 1) {
+        widest = Math.max(widest, await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth));
+        await page.waitForTimeout(300);
+      }
+      if (widest > 0) problems.push(`${width}px: the page grew ${widest}px wider than the screen`);
+      const m = await page.evaluate(() => {
+        const orb = document.querySelector("#home-orb .orb");
+        const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, overflow: getComputedStyle(document.querySelector(selector)).overflow }; };
+        const halo = parseFloat(getComputedStyle(orb, "::before").width);
+        return { orb: orb.getBoundingClientRect().width, label: document.querySelector("#home-orb .orb-label strong").getBoundingClientRect().width, halo, waves: box("#home-orb .orb-waves"), sparks: box("#home-orb .orb-sparks"), screen: window.innerWidth };
+      });
+      if (m.label > m.orb * 0.8) problems.push(`${width}px: "ZARVIS AI" is ${Math.round(m.label)}px wide in a ${Math.round(m.orb)}px orb`);
+      for (const [name, b] of [["waves", m.waves], ["sparks", m.sparks]]) {
+        if (!["hidden", "clip"].includes(b.overflow)) problems.push(`${width}px: the ${name} layer is not clipped (${b.overflow})`);
+        if (b.left < -1 || b.right > m.screen + 1) problems.push(`${width}px: the ${name} layer is outside the screen`);
+      }
+      if (m.halo * 1.09 > m.screen) problems.push(`${width}px: the glow (${Math.round(m.halo)}px, breathing) is wider than the screen`);
+    }
+    await ctx.close();
+    const still = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+    const stillPage = await pageOf(still);
+    await ready(stillPage);
+    const rings = await stillPage.evaluate(() => Array.from(document.querySelectorAll("#home-orb .orb-waves i")).map((n) => [getComputedStyle(n).animationName, getComputedStyle(n).opacity]));
+    if (rings.length !== 4 || rings.some(([name, opacity]) => name !== "none" || Number(opacity) < 0.1)) problems.push("reduced motion: the rings are not still and visible: " + JSON.stringify(rings));
+    await still.close();
+    assert.deepEqual(problems, []);
+  });
+
+  // ---- Home: the orb, the message card, the prompts and the mic work at every size ------------------------
+  await step("Home: at every screen size nothing is cut off or widens the page, the orb and the card fit, every quick prompt can be reached, and the mic sits in the middle of the tab bar", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 568 } }); // one guest account for every size
+    const page = await pageOf(ctx);
+    await ready(page);
+    for (const [width, height] of [[320, 568], [360, 640], [360, 740], [390, 844], [412, 915], [768, 1024], [1280, 800]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(700);
+      const m = await page.evaluate(() => {
+        const overflow = document.documentElement.scrollWidth - innerWidth;
+        const orb = document.querySelector("#home-orb .orb").getBoundingClientRect();
+        const card = document.getElementById("home-prompt-form").getBoundingClientRect();
+        const title = document.querySelector(".home-title");
+        const lines = Math.round(title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight));
+        const tools = [...document.querySelectorAll("#home-prompt-form button")].map((b) => b.getBoundingClientRect());
+        const chips = [...document.querySelectorAll("#home-quick .chip:not([hidden])")];
+        // Scroll the first prompt to the middle of the screen: whatever is on top at its centre must be the prompt itself.
+        chips[0].scrollIntoView({ block: "center", inline: "start" });
+        const r = chips[0].getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const fab = document.querySelector(".bottom-nav .nav-fab");
+        const fabBox = fab.getBoundingClientRect();
+        return {
+          overflow, lines, orbInside: orb.left >= 0 && orb.right <= innerWidth, cardInside: card.left >= 0 && card.right <= innerWidth,
+          toolsInside: tools.every((t) => t.left >= card.left && t.right <= card.right + 0.5) && tools.every((t) => t.height >= 43.5),
+          promptReachable: !!(top && chips[0].contains(top)),
+          fabCentred: fab.getClientRects().length === 0 || Math.abs(fabBox.left + fabBox.width / 2 - innerWidth / 2) <= 1,
+        };
+      });
+      if (m.overflow > 0) problems.push(`${width}x${height}: the page is ${m.overflow}px wider than the screen`);
+      if (m.lines > 3) problems.push(`${width}x${height}: the headline takes ${m.lines} lines`);
+      if (!m.orbInside) problems.push(`${width}x${height}: the orb is not fully on the screen`);
+      if (!m.cardInside) problems.push(`${width}x${height}: the message card is cut off`);
+      if (!m.toolsInside) problems.push(`${width}x${height}: a message-card button is cut off or under 44px`);
+      if (!m.promptReachable) problems.push(`${width}x${height}: the first quick prompt is covered when scrolled to`);
+      if (!m.fabCentred) problems.push(`${width}x${height}: the mic is not in the middle of the tab bar`);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  // ---- Small screens: nothing is cut off at 320px, tap targets reach 44px -----------------------------
+  await step("320px phone: no card is cut off, no word breaks mid-way, touch targets are at least 44px", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const problems = [];
+    await openView(page, "capabilities");
+    await page.waitForSelector("#capability-hub .cap-item");
+    problems.push(...(await page.evaluate(() => Array.from(document.querySelectorAll("#capability-hub .cap-item")).filter((c) => c.getBoundingClientRect().right > innerWidth - 8 || c.getBoundingClientRect().left < 8).map((c) => "card cut off: " + c.textContent.slice(0, 20)))));
+    for (const view of ["plans", "metrics"]) {
+      await openView(page, view);
+      await page.waitForTimeout(400);
+      problems.push(...(await page.evaluate((v) => Array.from(document.querySelectorAll(".stat-tile-value, .stat-tile-label")).filter((n) => n.getClientRects().length).flatMap((n) => {
+        // a value that is wider than its tile, or a word that had to be split to fit
+        const r = n.getBoundingClientRect(); const tile = n.closest(".stat-tile").getBoundingClientRect();
+        const bad = [];
+        if (r.right > tile.right + 1) bad.push(v + ": text pokes out of its tile: " + n.textContent);
+        const words = n.textContent.trim().split(/\s+/).filter((w) => w.length > 3);
+        const range = document.createRange();
+        for (const node of n.childNodes) if (node.nodeType === 3) for (const w of words) { const i = node.textContent.indexOf(w); if (i < 0) continue; range.setStart(node, i); range.setEnd(node, i + w.length); if (range.getClientRects().length > 1) bad.push(v + ": word split across lines: " + w); }
+        return bad;
+      }), view)));
+    }
+    await openView(page, "settings");
+    await page.evaluate(() => document.querySelector('[data-settings-page="voice"]').click());
+    await page.waitForTimeout(300);
+    const small = await page.evaluate(() => Array.from(document.querySelectorAll(".switch, .topbar-brand, .topbar-menu")).filter((n) => n.getClientRects().length).map((n) => { const r = n.getBoundingClientRect(); const after = getComputedStyle(n, "::after"); const h = r.height + (after.content !== "none" ? parseFloat(after.top) * -2 || 0 : 0); return [n.className, Math.round(r.width), Math.round(h)]; }).filter(([, w, h]) => w < 44 || h < 44));
+    for (const [cls, w, h] of small) problems.push(`target ${cls}: ${w}x${h}`);
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
   // ---- Accessibility (axe) ----------------------------------------------------------------
   // The app's own appearances (Settings → Appearance), not the OS colour scheme it ignores.
-  for (const [width, appearance] of [[412, "aurora"], [1280, "aurora"], [412, "dim"], [1280, "dim"]]) {
-    await step(`accessibility: no serious/critical axe violation on any view (${width}px, ${appearance})`, async () => {
+  for (const [width, appearance, lang] of [[412, "aurora", "en"], [1280, "aurora", "en"], [412, "dim", "en"], [1280, "dim", "en"], [412, "dim", "hi"], [1280, "aurora", "hi"]]) {
+    await step(`accessibility: no serious/critical axe violation on any view (${width}px, ${appearance}${lang === "hi" ? ", Hindi" : ""})`, async () => {
       // bypassCSP only so the audit script can be injected; the app itself runs unchanged.
       // Reduced motion, and a settle wait: entrance fades would otherwise be measured mid-way.
       const ctx = await browser.newContext({ viewport: { width, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
-      await ctx.addInitScript((a) => localStorage.setItem("zarvis.appearance", a), appearance);
+      await ctx.addInitScript(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
       const page = await pageOf(ctx);
       await ready(page);
       await page.addScriptTag({ content: AXE_SOURCE });
@@ -113,6 +247,68 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
       assert.deepEqual(found, []);
     });
   }
+
+  // The phone menu drawer, open (the sweeps above only see it closed): contrast of the current-page row, names, focus.
+  for (const [appearance, lang] of [["aurora", "en"], ["dim", "en"], ["aurora", "hi"], ["dim", "hi"]]) {
+    await step(`accessibility: the open phone menu has no serious/critical axe violation (390px, ${appearance}${lang === "hi" ? ", Hindi" : ""})`, async () => {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, bypassCSP: true, reducedMotion: "reduce" });
+      await ctx.addInitScript(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
+      const page = await pageOf(ctx);
+      await ready(page);
+      await page.addScriptTag({ content: AXE_SOURCE });
+      await page.click("#menu-btn");
+      await page.waitForTimeout(500);
+      const violations = await page.evaluate(async () => {
+        // eslint-disable-next-line no-undef
+        const r = await axe.run(document, { resultTypes: ["violations"] });
+        return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+      });
+      await ctx.close();
+      assert.deepEqual(violations, []);
+    });
+  }
+
+  // Chat with real content: a formatted reply (list, code), an action row, a finished tool and a waiting "Thinking" card.
+  // One guest account for all four looks: the server allows 60 sign-ups an hour per address and the suites share them.
+  await step("accessibility: Chat with a rich reply, a tool row and Thinking has no serious/critical axe violation (phone and desktop, both themes)", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const CID = "00000000-0000-4000-8000-000000000001";
+    const RICH = "Here is **what I found**:\n\n## Summary\n- First point with a [link](https://example.com/docs)\n- Second point with `inline code`\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n1. One\n2. Two";
+    let turn = 0;
+    await page.route("**/api/v1/orchestrator/turn-stream", async (route) => {
+      turn += 1;
+      if (turn % 2 === 0) return; // every second turn never answers, so the Thinking card stays up
+      const toolCalls = [{ skillId: "web.search", outcome: { kind: "success" }, result: { status: "COMPLETED", userSafeMessage: "Found 5 results." } }];
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([["meta", { conversationId: CID, turnId: "a" }], ["delta", { text: RICH }], ["done", { message: RICH, toolCalls, conversationId: CID, turnId: "a" }]]) });
+    });
+    const found = [];
+    for (const [label, viewport, appearance] of [["phone light", { width: 390, height: 860 }, "aurora"], ["phone dark", { width: 390, height: 860 }, "dim"], ["desktop light", { width: 1280, height: 860 }, "aurora"], ["desktop dark", { width: 1280, height: 860 }, "dim"]]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate((a) => localStorage.setItem("zarvis.appearance", a), appearance);
+      await page.reload();
+      await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await page.addScriptTag({ content: AXE_SOURCE });
+      await openView(page, "chat");
+      await page.fill("#text-input", "Show me something formatted");
+      await page.press("#text-input", "Enter");
+      await page.waitForSelector(".bubble.assistant .bubble-actions");
+      await page.waitForSelector(".tool-row");
+      await page.fill("#text-input", "and one more thing");
+      await page.press("#text-input", "Enter");
+      await page.waitForSelector(".bubble.thinking");
+      await page.waitForTimeout(900);
+      const violations = await page.evaluate(async () => {
+        // eslint-disable-next-line no-undef
+        const r = await axe.run(document, { resultTypes: ["violations"] });
+        return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+      });
+      for (const v of violations) found.push(`${label}: ${v}`);
+    }
+    await ctx.close();
+    assert.deepEqual(found, []);
+  });
 
   // ---- Keyboard ---------------------------------------------------------------------------
   await step("keyboard: Tab reaches the composer, focus is visible, Enter sends exactly once", async () => {
@@ -323,8 +519,9 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
 /** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
 async function pageOf(ctx) {
+  // Developer access on, so the responsive and axe sweeps still cover the Developer and Metrics pages.
   await ctx.addInitScript(() => {
-    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
+    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); localStorage.setItem("zarvis.devAccess", "on"); } catch {}
   });
   return ctx.newPage();
 }

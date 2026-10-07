@@ -247,7 +247,12 @@
     return svg;
   }
 
-  const TONES = ["tone-blue", "tone-violet", "tone-cyan", "tone-pink"];
+  /* One medium colour per hub group; the detail pages use the same colour for their category. */
+  const TONES = ["tone-blue", "tone-violet", "tone-pink", "tone-amber", "tone-green", "tone-cyan", "tone-coral"];
+  const CATEGORY_TONES = {
+    "AI & Conversation": "tone-blue", Voice: "tone-violet", Phone: "tone-green", "Web & Research": "tone-cyan",
+    Documents: "tone-amber", Creative: "tone-pink", Business: "tone-coral", Developer: "tone-cyan", Automation: "tone-green",
+  };
   /* Filter pills group the catalogue groups above. */
   const FILTERS = [
     { id: "all", label: "All" },
@@ -263,13 +268,16 @@
     return found ? found.id : "all";
   }
 
-  function renderHub(container) {
+  /** options.developer: include the Developer group and filter (only while Developer access is on). */
+  function renderHub(container, options) {
+    const withDeveloper = !!(options && options.developer);
+    const filters = FILTERS.filter((filter) => withDeveloper || filter.id !== "developer");
     container.replaceChildren();
     const pills = el("div", "cap-filters");
     pills.setAttribute("role", "group");
     pills.setAttribute("aria-label", "Filter capabilities");
     const grid = el("div", "cap-grid");
-    for (const filter of FILTERS) {
+    for (const filter of filters) {
       const pill = el("button", "cap-pill" + (filter.id === "all" ? " active" : ""), filter.label);
       pill.type = "button";
       pill.dataset.capFilter = filter.id;
@@ -285,9 +293,27 @@
       });
       pills.appendChild(pill);
     }
-    container.append(pills, grid);
+    // A truthful tally of what the catalogue below says, by status.
+    const counts = { ok: 0, warn: 0, info: 0, off: 0 };
+    for (const group of GROUPS) {
+      if (group.title === "Developer" && !withDeveloper) continue;
+      for (const item of group.items) counts[item.status[1]] = (counts[item.status[1]] || 0) + 1;
+    }
+    const summary = el("div", "cap-summary");
+    summary.setAttribute("role", "list");
+    summary.setAttribute("aria-label", "Capabilities by status");
+    for (const [kind, label] of [["ok", "ready now"], ["warn", "need your approval"], ["info", "limited or Android-only"], ["off", "not available"]]) {
+      if (!counts[kind]) continue;
+      const chip = el("span", "cap-sum");
+      chip.dataset.kind = kind;
+      chip.setAttribute("role", "listitem");
+      chip.append(el("i", "cap-sum-dot"), el("strong", null, String(counts[kind])), document.createTextNode(" " + label));
+      summary.appendChild(chip);
+    }
+    container.append(summary, pills, grid);
 
     GROUPS.forEach((group, groupIndex) => {
+      if (group.title === "Developer" && !withDeveloper) return;
       group.items.forEach((item, index) => {
         const row = el("article", "cap-item " + TONES[groupIndex % TONES.length] + (item.status[1] === "off" ? " is-off" : ""));
         row.dataset.capGroup = filterFor(group.title);
@@ -341,7 +367,7 @@
     }
 
     const head = el("header", "feature-hero");
-    const ico = el("span", "row-ico tone-blue");
+    const ico = el("span", "row-ico " + (CATEGORY_TONES[feature.category] || "tone-blue"));
     ico.appendChild(icon(ICONS[feature.id] || "i-sparkle"));
     const titles = el("div", "feature-hero-copy");
     titles.appendChild(el("p", "feature-kicker", feature.category));
