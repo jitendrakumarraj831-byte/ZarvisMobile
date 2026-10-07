@@ -59,3 +59,28 @@ describe("web client files are registered everywhere they are served", () => {
     expect(sw).toContain(`"/${file}"`);
   });
 });
+
+/**
+ * One visit loads a dozen client files, twice on a first visit (the service worker precaches the shell). They
+ * once shared the 600-a-minute ceiling of /health and the page itself, so about two dozen first visits a minute
+ * from one address (a carrier or office gateway, or the browser tests) got a "Too many requests" page.
+ */
+describe("the client's own files are not throttled like the API", () => {
+  it("serves far more than 600 file requests a minute from one address", async () => {
+    const server = app();
+    const statuses = new Set<number>();
+    for (let i = 0; i < 700; i++) statuses.add((await request(server).get("/styles.css")).status);
+    expect([...statuses]).toEqual([200]);
+  }, 30_000);
+
+  it("still limits the page and /health at 600 a minute", async () => {
+    const server = app();
+    expect((await request(server).get("/")).headers["ratelimit-policy"]).toBe("600;w=60");
+    expect((await request(server).get("/health")).headers["ratelimit-policy"]).toBe("600;w=60");
+  });
+
+  it("gives the files their own, larger counter", async () => {
+    const res = await request(app()).get("/app.js");
+    expect(res.headers["ratelimit-policy"]).toBe("6000;w=60");
+  });
+});
