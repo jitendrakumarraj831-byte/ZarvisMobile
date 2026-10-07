@@ -14,8 +14,10 @@ const app = () => buildServer(buildContainer(new InMemoryStore()));
 function referencedFiles(): string[] {
   const html = readFileSync(join(repo, "web/index.html"), "utf8");
   const found = new Set<string>();
-  for (const match of html.matchAll(/<script[^>]+src="\.?\/?([\w.-]+\.js)"/g)) found.add(match[1]);
-  for (const match of html.matchAll(/<link[^>]+rel="(?:stylesheet|manifest)"[^>]+href="\.?\/?([\w.-]+\.(?:css|webmanifest))"/g)) found.add(match[1]);
+  const patterns = [/<script[^>]+src="\.?\/?([\w.-]+\.js)"/g, /<link[^>]+rel="(?:stylesheet|manifest)"[^>]+href="\.?\/?([\w.-]+\.(?:css|webmanifest))"/g];
+  for (const pattern of patterns) {
+    for (const match of html.matchAll(pattern)) if (match[1]) found.add(match[1]);
+  }
   return [...found];
 }
 
