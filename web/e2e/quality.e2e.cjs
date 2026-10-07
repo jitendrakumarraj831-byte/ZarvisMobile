@@ -160,7 +160,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         const card = document.getElementById("home-prompt-form").getBoundingClientRect();
         const title = document.querySelector(".home-title");
         const lines = Math.round(title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight));
-        const tools = [...document.querySelectorAll(".home-card-tools button")].map((b) => b.getBoundingClientRect());
+        const tools = [...document.querySelectorAll("#home-prompt-form button")].map((b) => b.getBoundingClientRect());
         const chips = [...document.querySelectorAll("#home-quick .chip:not([hidden])")];
         // Scroll the first prompt to the middle of the screen: whatever is on top at its centre must be the prompt itself.
         chips[0].scrollIntoView({ block: "center", inline: "start" });
@@ -179,7 +179,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
       if (m.lines > 3) problems.push(`${width}x${height}: the headline takes ${m.lines} lines`);
       if (!m.orbInside) problems.push(`${width}x${height}: the orb is not fully on the screen`);
       if (!m.cardInside) problems.push(`${width}x${height}: the message card is cut off`);
-      if (!m.toolsInside) problems.push(`${width}x${height}: the file and image buttons are cut off or under 44px`);
+      if (!m.toolsInside) problems.push(`${width}x${height}: a message-card button is cut off or under 44px`);
       if (!m.promptReachable) problems.push(`${width}x${height}: the first quick prompt is covered when scrolled to`);
       if (!m.fabCentred) problems.push(`${width}x${height}: the mic is not in the middle of the tab bar`);
     }

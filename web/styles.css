@@ -2245,25 +2245,30 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
    of the tab bar (it opens Chat); tapping the orb opens Chat and listens.
    ===================================================================== */
 .view-home { display: flex; flex-direction: column; }
-.home-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s2); text-align: center; padding: var(--s2) 0 var(--s3); }
+.home-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s3); text-align: center; padding: var(--s2) 0 var(--s3); }
 .home-greet { position: relative; z-index: 2; margin: 0; font-size: 15px; font-weight: 600; color: var(--text-2); }
 #home-orb { margin: var(--s4) 0; padding: 0; }
-.orb-lg { width: clamp(112px, min(46vw, calc(100dvh - 600px)), 210px); height: clamp(112px, min(46vw, calc(100dvh - 600px)), 210px); }
-/* The message card: the question, a text box that sends to Chat, and direct buttons for a file and an image. It sits above the orb's waves. */
+.orb-lg { width: clamp(120px, min(48vw, calc(100dvh - 520px)), 220px); height: clamp(120px, min(48vw, calc(100dvh - 520px)), 220px); }
+/* The question under the orb. */
+.home-title { margin: 0; max-width: 15em; font-family: var(--font-display); font-size: clamp(24px, 6.8vw, 32px); line-height: 1.12; font-weight: 800; letter-spacing: -0.02em; text-wrap: balance; color: var(--text); }
+
+/* The message card: one short row - file, image, the text box, send. It sits at the bottom of the page, just above the tab bar,
+   and stays there while the page scrolls under it. */
+.view-home { min-height: calc(100dvh - 190px); }
 .home-card {
-  position: relative; z-index: 3; box-sizing: border-box; width: 100%; max-width: 560px; margin: 0 auto var(--s5);
-  display: flex; flex-direction: column; gap: var(--s3); padding: var(--s5) var(--s4) var(--s4);
-  border-radius: 24px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--card-shadow);
+  position: sticky; bottom: calc(var(--nav-h) + var(--safe-b) + var(--s3)); z-index: 6; box-sizing: border-box; width: 100%; max-width: 640px;
+  margin: auto auto 0; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px var(--s2);
+  border-radius: 999px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-2);
 }
-.home-title { margin: 0; font-family: var(--font-display); font-size: clamp(20px, 5.6vw, 24px); line-height: 1.2; font-weight: 800; letter-spacing: -0.01em; text-wrap: balance; color: var(--text); }
-.home-card-input { display: flex; align-items: center; gap: var(--s2); padding: 4px 4px 4px var(--s4); border-radius: var(--r-pill); background: var(--surface-2); border: 1px solid var(--line-2); }
-.home-card-input:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
-.home-card-input input { flex: 1; min-width: 0; min-height: 44px; border: 0; outline: none; background: none; font-size: 16px; color: var(--text); }
-.home-card-input input::placeholder { color: var(--text-3); }
+.home-card:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
+.home-card .icon-btn { width: 44px; height: 44px; flex: none; border-radius: 50%; background: var(--tone-soft); }
+.home-card .icon-btn .ico { width: 21px; height: 21px; color: var(--tone); }
+.home-card input { flex: 1; min-width: 0; min-height: 44px; margin: 0 var(--s1); border: 0; outline: none; background: none; font-size: 16px; color: var(--text); }
+.home-card input::placeholder { color: var(--text-3); }
 .home-prompt-go { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--grad); color: #fff; }
 .home-prompt-go .ico { width: 20px; height: 20px; stroke-width: 2; }
-.home-card-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--s2); }
-.home-card-tools .chip { justify-content: center; min-height: 44px; padding: 0 var(--s3); border-radius: var(--r-pill); font-size: 15px; font-weight: 600; }
+body.keyboard-open .home-card { bottom: var(--s3); }
+@media (min-width: 700px) { .view-home { min-height: calc(100dvh - var(--appbar-h) - 64px); } .home-card { bottom: var(--s4); } }
 .view-home .home-section { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
 body[data-orb-state="LISTENING"] #home-orb .orb { animation: orb-listen 1.4s ease-in-out infinite; }
 body[data-orb-state="LISTENING"] #home-orb .orb-ring::before { animation-duration: 8s; }

@@ -41,7 +41,6 @@
     "What can I help with today?": "आज मैं आपकी क्या मदद कर सकता हूँ?",
     "Ask ZARVIS": "ZARVIS से पूछें",
     "ZARVIS AI — talk by voice": "ZARVIS AI — बोलकर बात करें",
-    "Type your request…": "अपना अनुरोध लिखें…",
     "Upload file": "फ़ाइल अपलोड करें",
     "Select image": "इमेज चुनें",
     "Speak": "बोलें",

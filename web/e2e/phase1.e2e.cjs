@@ -567,8 +567,8 @@ async function send(page, text) {
       assert.equal(await text("#home-orb"), "ZARVIS AI", label + ": the orb says only ZARVIS AI");
       assert.equal(await pageN.locator("#home-orb svg").count(), 0, label + ": no star in the orb");
       assert.equal(await pageN.getAttribute("#home-orb", "aria-label"), "ZARVIS AI — talk by voice");
-      assert.equal(await text("#home-prompt-form .home-title"), "What can I help with today?", label + ": the one question sits in the message card");
-      assert.deepEqual(await pageN.evaluate(() => [...document.querySelectorAll("#home-prompt-form .home-card-tools button")].map((b) => b.textContent.trim() + "|" + b.dataset.homeAction)), ["Upload file|upload", "Select image|image"], label + ": direct file and image buttons in the card");
+      assert.equal(await text(".home-hero .home-title"), "What can I help with today?", label + ": the one question under the orb");
+      assert.deepEqual(await pageN.evaluate(() => [...document.querySelectorAll("#home-prompt-form [data-home-action]")].map((b) => b.getAttribute("aria-label") + "|" + b.dataset.homeAction + "|" + (b.textContent.trim() === ""))), ["Upload file|upload|true", "Select image|image|true"], label + ": icon-only file and image buttons in the card");
       assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
       assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
       assert.equal(await pageN.locator(".action-tile, .primary-actions, .home-composer").count(), 0, label + ": the four feature tiles and the bottom message bar are gone");
@@ -590,6 +590,9 @@ async function send(page, text) {
         };
       });
       assert.ok(Math.abs(facts.orbCentre - facts.heroCentre) <= 1, `${label}: the orb is centred (${facts.orbCentre} vs ${facts.heroCentre})`);
+      const card = await pageN.evaluate(() => { const r = document.getElementById("home-prompt-form").getBoundingClientRect(); const nav = document.querySelector(".bottom-nav"); return { height: Math.round(r.height), top: Math.round(r.top), bottom: Math.round(r.bottom), navTop: nav && getComputedStyle(nav).display !== "none" ? Math.round(nav.getBoundingClientRect().top) : innerHeight, screen: innerHeight }; });
+      assert.ok(card.height <= 80, `${label}: the message card is one short row (${card.height}px)`);
+      assert.ok(card.bottom <= card.navTop && card.top >= card.screen * 0.55, `${label}: the message card sits low, just above the tab bar (${card.top}-${card.bottom} of ${card.screen}, bar at ${card.navTop})`);
       assert.ok(facts.overflow <= 0, label + ": nothing widens the page");
       assert.equal(facts.small, 0, label + ": quick prompts are at least 44px tall");
       if (touch) {
