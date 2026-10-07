@@ -1703,7 +1703,7 @@ body.page-hidden .mic-big, body.page-hidden .brand-orb, body.page-hidden .nav-fa
 }
 @media (min-width: 700px) and (max-width: 1099px) {
   :root { --sidebar-w: 100px; }
-  .sidebar .nav-item { font-size: 10.5px; letter-spacing: -0.01em; }
+  .sidebar .nav-item { font-size: 11px; letter-spacing: -0.01em; }
   .sidebar .nav-item span { overflow-wrap: normal; word-break: normal; }
 }
 .page-head { position: relative; }
@@ -2224,3 +2224,36 @@ body.modal-open { overflow: hidden; }
 html { scroll-padding-top: calc(var(--topbar-h) + var(--s4)); scroll-padding-bottom: calc(var(--nav-h) + var(--safe-b) + var(--s6)); }
 html:has(body[data-active-view="chat"]) { scroll-padding-bottom: 160px; }
 @media (min-width: 700px) { html { scroll-padding-top: calc(var(--appbar-h) + var(--s5)); scroll-padding-bottom: var(--s6); } html:has(body[data-active-view="chat"]) { scroll-padding-bottom: 140px; } }
+
+/* ---------- Small screens (320px phones) and touch targets ---------- */
+/* Capability cards: two columns that may shrink below their content, one column on the narrowest phones
+   (the second column used to be cut off at the screen edge). */
+@media (max-width: 560px) { #capability-hub .cap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 339px) { #capability-hub .cap-grid { grid-template-columns: minmax(0, 1fr); } }
+#capability-hub .cap-copy strong, #capability-hub .cap-copy small { overflow-wrap: break-word; }
+
+/* Stat tiles (Plans, Metrics): words wrap at spaces, never in the middle; icon above the text on narrow phones. */
+.stat-tile-value, .stat-tile-label { overflow-wrap: break-word; word-break: normal; }
+@media (max-width: 420px) { .stat-tile.has-icon { flex-direction: column; align-items: flex-start; gap: var(--s2); } }
+
+/* Settings sub-page header: the value chip moves under the title when there is no room beside it. */
+@media (max-width: 420px) {
+  .detail-head { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .detail-head-copy .page-title { overflow-wrap: break-word; }
+  .detail-head-value { grid-column: 2; justify-self: start; margin-top: 0; max-width: 100%; }
+}
+
+/* Touch targets: the visible control keeps its size, the tappable area reaches 44px. */
+#capability-hub .cap-action::after { content: ""; position: absolute; inset: -5px; }
+.switch::after { content: ""; position: absolute; inset: -6px 0; }
+.disclosure > summary, .capability-item summary { min-height: 44px; }
+.topbar-brand { min-width: 44px; }
+@media (min-width: 700px) {
+  .desk-top-btn, .desk-avatar { width: 44px; height: 44px; }
+  .desk-search { min-height: 44px; }
+}
+/* Three small tiles in a row do not fit a 320px phone (their words were split); stack them. */
+@media (max-width: 380px) { .stat-grid-2, .stat-grid-3 { grid-template-columns: minmax(0, 1fr); } }
+
+/* Devanagari must not be letter-spaced: tracking pulls the conjuncts apart ("अ प ना प्ला न"). The brand name keeps its own. */
+:lang(hi) :where(h1, h2, h3, h4, p, span, small, strong, button, label, li, a, div, dt, dd, summary):not(.brand-text *) { letter-spacing: normal; }

@@ -61,7 +61,7 @@ const jsonBody = express.json({
   },
 });
 
-const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|feature-pages\.js|theme-init\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
+const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|feature-pages\.js|theme-init\.js|i18n\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
 
 /** `req.path` is still percent-encoded, while express.static decodes it: compare the decoded form. */
 function isWebAsset(path: string): boolean {

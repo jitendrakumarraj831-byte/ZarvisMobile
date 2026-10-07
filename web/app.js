@@ -457,6 +457,8 @@
     for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
       btn.classList.toggle("active", btn.dataset.lang === state.lang);
     }
+    // Everything the page says in English that has a Hindi entry (see i18n.js); user content is left alone.
+    window.ZarvisI18n?.apply(state.lang);
   }
 
   /** Settings screen's language pills read/write the same `state.lang`/localStorage key. */
@@ -537,7 +539,7 @@
     if (state.activeView === "settings" && state.settingsPage) name = el.settingsSubpageTitle?.textContent || "";
     else if (state.activeView === "feature") name = document.querySelector("#view-feature h1")?.textContent || "";
     else name = document.querySelector(".view:not([hidden]) h1:not(.sr-only)")?.textContent || "";
-    name = (name || PAGE_TITLES[state.activeView] || "").trim();
+    name = window.ZarvisI18n?.translate((name || PAGE_TITLES[state.activeView] || "").trim(), state.lang) || "";
     return name ? name + " · " + brand : brand;
   }
 
@@ -2021,7 +2023,8 @@
   let planCatalogue = null;
   let checkoutBusy = false;
   const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
-  const formatDate = (value) => new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const dateLocale = () => (state.lang === "hi" ? "hi-IN" : "en-IN");
+  const formatDate = (value) => new Date(value).toLocaleDateString(dateLocale(), { day: "numeric", month: "short", year: "numeric" });
 
   function setupPlans() {
     const options = el.billingToggle.querySelectorAll(".billing-option");
@@ -2547,7 +2550,7 @@
       el.plansCurrent.append(
         renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan), icon: "i-plan", tone: "tone-violet" }),
         renderStatTile({ label: "Credits", value: Number(snapshot.creditBalance).toLocaleString("en-IN"), icon: "i-bolt", tone: "tone-pink" }),
-        renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
+        renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
         renderStatTile({ label: "Payments", value: planCatalogue?.paymentsEnabled ? "UPI & cards" : "Not enabled", icon: "i-card", tone: "tone-blue" }),
       );
       updateSettingsValues();
@@ -3013,6 +3016,7 @@
     const copy = document.createElement("span");
     copy.className = "list-row-copy";
     const strong = document.createElement("strong");
+    strong.dataset.userText = ""; // a task goal, file name or question: never translated
     strong.textContent = title;
     const small = document.createElement("small");
     small.textContent = meta;
@@ -3135,6 +3139,7 @@
       const body = document.createElement("div");
       body.className = "timeline-body";
       const title = document.createElement("strong");
+      title.dataset.userText = "";
       title.textContent = entry.title;
       const meta = document.createElement("div");
       meta.className = "timeline-meta";
@@ -3337,7 +3342,7 @@
     if (diffMin < 60) return `${diffMin}m ago`;
     const diffHr = Math.round(diffMin / 60);
     if (diffHr < 24) return `${diffHr}h ago`;
-    return new Date(dateInput).toLocaleDateString();
+    return new Date(dateInput).toLocaleDateString(dateLocale());
   }
 
   // ---- Conversation turn -----------------------------------------------------------------

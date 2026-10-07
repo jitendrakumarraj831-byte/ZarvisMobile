@@ -572,6 +572,48 @@ async function send(page, text) {
     await ctxS.close();
   });
 
+  await step("Hindi: the main pages are fully in Hindi (only names stay English), and English comes back clean", async () => {
+    const ctxH = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctxH.addInitScript(() => { try { localStorage.setItem("zarvis.welcomeDismissed", "1"); localStorage.setItem("zarvis.devAccess", "on"); localStorage.setItem("zarvis.lang", "hi"); } catch {} });
+    const pageH = await ctxH.newPage();
+    await pageH.goto(BASE);
+    await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const stray = () => pageH.evaluate(() => {
+      const names = /^(ZARVIS|MOBILE|ZARVIS MOBILE|Zarvis Mobile|Ctrl K|Pro|PRO|UPI|GitHub|English|AI|Pull request|https:\/\/github\.com\/owner\/repo|ZARVIS MOBILE home)$/;
+      const found = [];
+      const consider = (text, where) => { const t = text.replace(/\s+/g, " ").trim(); if (t && /[A-Za-z]{3,}/.test(t) && !/[\u0900-\u097F]/.test(t) && !names.test(t)) found.push(where + ": " + t.slice(0, 60)); };
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let n; (n = walker.nextNode());) { const el = n.parentElement; if (el && !el.closest("script,style,svg,.bubble,[data-user-text]") && el.checkVisibility && el.checkVisibility({ checkVisibilityCSS: true })) consider(n.textContent, "text"); }
+      for (const el of document.querySelectorAll("[aria-label],[title],[placeholder]")) {
+        if (!el.checkVisibility || !el.checkVisibility({ checkVisibilityCSS: true })) continue;
+        for (const a of ["aria-label", "title", "placeholder"]) if (el.getAttribute(a)) consider(el.getAttribute(a), a);
+      }
+      return found;
+    });
+    const problems = [];
+    const open = async (view) => { await pageH.evaluate((v) => document.querySelector(`[data-view="${v}"]`).click(), view); await pageH.waitForTimeout(400); };
+    for (const view of ["home", "chat", "activity", "capabilities", "plans", "settings", "developer", "metrics"]) {
+      await open(view);
+      (await stray()).forEach((x) => problems.push(view + " " + x));
+    }
+    for (const sub of ["account", "subscription", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "data", "developer"]) {
+      await open("settings");
+      await pageH.evaluate((p) => document.querySelector(`[data-settings-page="${p}"]`).click(), sub);
+      await pageH.waitForTimeout(300);
+      (await stray()).forEach((x) => problems.push("settings/" + sub + " " + x));
+    }
+    assert.deepEqual([...new Set(problems)], [], "English left on Hindi pages");
+    // Back to English: nothing Hindi is left behind, and the page title follows.
+    await open("settings");
+    await pageH.evaluate(() => document.querySelector('[data-settings-page="language"]').click());
+    await pageH.evaluate(() => document.querySelector('[data-lang="en"]').click());
+    await open("activity");
+    assert.equal(await pageH.innerText('.sidebar [data-view="activity"] span'), "Activity");
+    assert.match(await pageH.title(), /^Activity · /);
+    assert.equal(await pageH.evaluate(() => /[\u0900-\u097F]/.test(document.querySelector("#view-activity").innerText)), false, "no Hindi left on the English Activity page");
+    await ctxH.close();
+  });
+
   await step("every static script is served as JavaScript (no index.html fallback)", async () => {
     for (const path of ["/logic.js", "/feature-pages.js", "/app.js", "/sw.js"]) {
       const res = await fetch(BASE + path);

@@ -85,14 +85,46 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     assert.deepEqual(problems, []);
   });
 
+  // ---- Small screens: nothing is cut off at 320px, tap targets reach 44px -----------------------------
+  await step("320px phone: no card is cut off, no word breaks mid-way, touch targets are at least 44px", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const problems = [];
+    await openView(page, "capabilities");
+    await page.waitForSelector("#capability-hub .cap-item");
+    problems.push(...(await page.evaluate(() => Array.from(document.querySelectorAll("#capability-hub .cap-item")).filter((c) => c.getBoundingClientRect().right > innerWidth - 8 || c.getBoundingClientRect().left < 8).map((c) => "card cut off: " + c.textContent.slice(0, 20)))));
+    for (const view of ["plans", "metrics"]) {
+      await openView(page, view);
+      await page.waitForTimeout(400);
+      problems.push(...(await page.evaluate((v) => Array.from(document.querySelectorAll(".stat-tile-value, .stat-tile-label")).filter((n) => n.getClientRects().length).flatMap((n) => {
+        // a value that is wider than its tile, or a word that had to be split to fit
+        const r = n.getBoundingClientRect(); const tile = n.closest(".stat-tile").getBoundingClientRect();
+        const bad = [];
+        if (r.right > tile.right + 1) bad.push(v + ": text pokes out of its tile: " + n.textContent);
+        const words = n.textContent.trim().split(/\s+/).filter((w) => w.length > 3);
+        const range = document.createRange();
+        for (const node of n.childNodes) if (node.nodeType === 3) for (const w of words) { const i = node.textContent.indexOf(w); if (i < 0) continue; range.setStart(node, i); range.setEnd(node, i + w.length); if (range.getClientRects().length > 1) bad.push(v + ": word split across lines: " + w); }
+        return bad;
+      }), view)));
+    }
+    await openView(page, "settings");
+    await page.evaluate(() => document.querySelector('[data-settings-page="voice"]').click());
+    await page.waitForTimeout(300);
+    const small = await page.evaluate(() => Array.from(document.querySelectorAll(".switch, .topbar-brand")).filter((n) => n.getClientRects().length).map((n) => { const r = n.getBoundingClientRect(); const after = getComputedStyle(n, "::after"); const h = r.height + (after.content !== "none" ? parseFloat(after.top) * -2 || 0 : 0); return [n.className, Math.round(r.width), Math.round(h)]; }).filter(([, w, h]) => w < 44 || h < 44));
+    for (const [cls, w, h] of small) problems.push(`target ${cls}: ${w}x${h}`);
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
   // ---- Accessibility (axe) ----------------------------------------------------------------
   // The app's own appearances (Settings → Appearance), not the OS colour scheme it ignores.
-  for (const [width, appearance] of [[412, "aurora"], [1280, "aurora"], [412, "dim"], [1280, "dim"]]) {
-    await step(`accessibility: no serious/critical axe violation on any view (${width}px, ${appearance})`, async () => {
+  for (const [width, appearance, lang] of [[412, "aurora", "en"], [1280, "aurora", "en"], [412, "dim", "en"], [1280, "dim", "en"], [412, "dim", "hi"], [1280, "aurora", "hi"]]) {
+    await step(`accessibility: no serious/critical axe violation on any view (${width}px, ${appearance}${lang === "hi" ? ", Hindi" : ""})`, async () => {
       // bypassCSP only so the audit script can be injected; the app itself runs unchanged.
       // Reduced motion, and a settle wait: entrance fades would otherwise be measured mid-way.
       const ctx = await browser.newContext({ viewport: { width, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
-      await ctx.addInitScript((a) => localStorage.setItem("zarvis.appearance", a), appearance);
+      await ctx.addInitScript(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
       const page = await pageOf(ctx);
       await ready(page);
       await page.addScriptTag({ content: AXE_SOURCE });
