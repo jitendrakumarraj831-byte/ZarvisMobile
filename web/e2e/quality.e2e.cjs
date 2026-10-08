@@ -33,7 +33,7 @@ const AXE_SOURCE = require("node:fs").readFileSync(
 );
 
 const BASE = process.env.ZARVIS_URL || "http://localhost:3100";
-const VIEWS = ["home", "chat", "activity", "capabilities", "developer", "metrics", "plans", "settings"];
+const VIEWS = ["home", "chat", "tasks", "activity", "capabilities", "developer", "metrics", "plans", "settings"];
 const WIDTHS = [360, 412, 768, 1024, 1280, 1920];
 const results = [];
 

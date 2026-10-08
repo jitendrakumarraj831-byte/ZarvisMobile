@@ -442,7 +442,7 @@ async function send(page, text) {
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
-    for (const view of ["activity", "capabilities", "plans", "settings"]) {
+    for (const view of ["tasks", "activity", "capabilities", "plans", "settings"]) {
       await nav(pageH, view);
       await pageH.waitForTimeout(450); // the page's entrance animation
       const edge = await pageH.evaluate((v) => Math.round(document.querySelector(`#view-${v} .page-head`).getBoundingClientRect().right), view);
@@ -474,7 +474,8 @@ async function send(page, text) {
       assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "off", label + ": off by default");
       assert.equal(await visible('[data-view="developer"]') + (await visible('[data-view="metrics"]')), 0, label + ": no Developer/Metrics nav");
       assert.equal(await visible('#home-quick [data-nav="developer"]'), 0, label + ": no Analyze-a-repo chip");
-      assert.ok((await visible('[data-view="activity"]')) >= 1, label + ": Activity is a primary page");
+      assert.ok((await pageD.locator('[data-view="activity"]').count()) >= 1, label + ": Activity is still in the navigation (the phone keeps it in the menu)");
+      assert.ok((await visible('[data-view="tasks"]')) >= 1, label + ": Tasks is a primary page");
       // Any route to a hidden page lands on the switch instead of the page.
       await pageD.evaluate(() => document.querySelector('[data-nav="developer"]').click());
       await pageD.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
@@ -524,7 +525,7 @@ async function send(page, text) {
     assert.equal(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden", "the page behind cannot scroll");
     // The whole navigation (no developer pages while that switch is off).
     const labels = (await pageM.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(labels, ["Home", "Chat", "Activity", "Capabilities", "Plans", "Settings", "Profile"]);
+    assert.deepEqual(labels, ["Home", "Chat", "Capabilities", "Tasks", "Activity", "Plans", "Settings", "Profile"]);
     // Tab never leaves the drawer.
     for (let i = 0; i < 12; i++) {
       await pageM.keyboard.press("Tab");
@@ -577,7 +578,7 @@ async function send(page, text) {
     await pageH.click("#menu-btn");
     await pageH.waitForTimeout(350);
     const hindi = (await pageH.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(hindi, ["होम", "चैट", "गतिविधि", "क्षमताएँ", "डेवलपर एजेंट", "उपयोग और मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
+    assert.deepEqual(hindi, ["होम", "चैट", "क्षमताएँ", "कार्य", "गतिविधि", "डेवलपर एजेंट", "उपयोग और मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
     assert.equal(await pageH.getAttribute("#drawer-close", "aria-label"), "मेन्यू बंद करें");
     await ctxH.close();
   });
@@ -824,16 +825,20 @@ async function send(page, text) {
     const view = () => pageN.evaluate(() => document.body.dataset.activeView);
     const homeTitle = await pageN.title();
     await nav(pageN, "chat");
-    await nav(pageN, "activity");
-    assert.match(await pageN.title(), /^Activity · /, "each page sets its own tab title");
+    await nav(pageN, "tasks");
+    assert.match(await pageN.title(), /^Tasks · /, "each page sets its own tab title");
     assert.notEqual(await pageN.title(), homeTitle);
     await pageN.goBack();
     await pageN.waitForFunction(() => document.body.dataset.activeView === "chat");
     await pageN.goForward();
-    await pageN.waitForFunction(() => document.body.dataset.activeView === "activity");
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "tasks");
     await pageN.reload();
     await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-    assert.equal(await view(), "activity", "a reload keeps the page");
+    assert.equal(await view(), "tasks", "a reload keeps the page");
+    // Activity has no tab on the phone, but its address still opens it with its own title.
+    await pageN.goto(BASE + "/#/activity");
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "activity");
+    assert.match(await pageN.title(), /^Activity · /);
     // A Settings sub-page is an entry too; the in-app back button behaves like the browser's.
     await pageN.goto(BASE + "/#/settings/voice");
     await pageN.waitForSelector('[data-settings-panel="voice"]:not([hidden])');
@@ -914,6 +919,78 @@ async function send(page, text) {
     await pageG.click('#view-metrics [data-go="plans"]');
     await pageG.waitForSelector("#view-plans:not([hidden])");
     await ctxG.close();
+  });
+
+  await step("Tasks is its own page: a link opens it, tasks are listed, searched and cancelled there, the badge and the Home and Activity rows count open ones, Activity no longer holds tasks, and the phone tab bar has Tasks in place of Activity", async () => {
+    const ctxT = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageT = await pageOf(ctxT);
+    await pageT.goto(BASE + "/#/tasks");
+    await pageT.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    assert.equal(await pageT.innerText("#view-tasks h1"), "Tasks");
+    assert.match(await pageT.title(), /^Tasks · /);
+    await pageT.waitForSelector("#task-list .empty-state");
+    assert.match(await pageT.innerText("#task-list"), /No tracked tasks/);
+    assert.equal(await pageT.locator('.sidebar [data-view="tasks"]').getAttribute("aria-current"), "page");
+    // Two tasks on the server; Refresh lists them and the nav says how many are open.
+    await pageT.evaluate(async () => {
+      for (const goal of ["Plan the launch day", "Renew the domain"]) {
+        await fetch("/api/v1/tasks", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify({ goal }) });
+      }
+    });
+    await pageT.click("#tasks-refresh-btn");
+    await pageT.waitForSelector("#task-list .task-card");
+    assert.equal(await pageT.locator("#task-list .task-card").count(), 2);
+    assert.equal(await pageT.locator('.sidebar [data-view="tasks"]').getAttribute("aria-label"), "Tasks, 2 open");
+    assert.equal(await pageT.locator("#tasks-badge").isVisible(), true);
+    // Search narrows the cards and says so when nothing fits.
+    await pageT.fill("#tasks-search", "launch");
+    assert.equal(await pageT.locator("#task-list .task-card:visible").count(), 1);
+    await pageT.fill("#tasks-search", "zzz");
+    assert.equal(await pageT.locator("#task-list .task-card:visible").count(), 0);
+    assert.equal(await pageT.locator("#tasks-no-match").isVisible(), true);
+    await pageT.fill("#tasks-search", "");
+    assert.equal(await pageT.locator("#tasks-no-match").isVisible(), false);
+    // Cancelling changes the status and the count.
+    await pageT.locator('#task-list .task-card:has-text("Renew the domain") .task-action-btn.danger').click();
+    await pageT.waitForFunction(() => document.querySelector('.sidebar [data-view="tasks"]').getAttribute("aria-label") === "Tasks, 1 open");
+    assert.equal(await pageT.locator('#task-list .task-card[data-status="CANCELLED"]').count(), 1);
+    // Home and Activity point at the Tasks page; Activity holds no tasks of its own.
+    await nav(pageT, "home");
+    assert.match(await pageT.innerText("#home-tasks"), /1 open task/);
+    await pageT.click("#home-tasks");
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await nav(pageT, "activity");
+    await pageT.waitForSelector("#activity-tasks:not([hidden])");
+    assert.match(await pageT.innerText("#activity-tasks"), /1 open task/);
+    assert.equal(await pageT.locator('#view-activity [data-filter="task"], #view-activity #task-list').count(), 0, "no Tasks filter or list on Activity");
+    await pageT.click("#activity-tasks");
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    // The "g then t" shortcut and the capability card both lead here too.
+    await nav(pageT, "home");
+    await pageT.keyboard.press("g");
+    await pageT.keyboard.press("t");
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await pageT.goto(BASE + "/#/capabilities");
+    await pageT.waitForSelector("#view-capabilities:not([hidden]) #capability-hub .cap-item");
+    await pageT.locator('#capability-hub .cap-item:has-text("Tracked tasks") .cap-action').click();
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    assert.equal(await pageT.locator("#capability-hub").count(), 1);
+    assert.equal(await pageT.locator('[data-feature-page="workspace"], [data-feature-page="tasks"]').count(), 0, "the AI Workspace and Tasks & Automation pages are gone");
+    await ctxT.close();
+    // Phone: the tab bar is Home, Capabilities, Chat, Tasks, Settings; Activity stays reachable from the menu.
+    const ctxQ = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageQ = await pageOf(ctxQ);
+    await pageQ.goto(BASE + "/#/home");
+    await pageQ.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const tabs = (await pageQ.locator("#bottom-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
+    assert.deepEqual(tabs, ["Home", "Capabilities", "Chat", "Tasks", "Settings"]);
+    await pageQ.click('#bottom-nav [data-view="tasks"]');
+    await pageQ.waitForSelector("#view-tasks:not([hidden])");
+    assert.equal(await pageQ.locator('#bottom-nav [data-view="tasks"]').getAttribute("aria-current"), "page");
+    await pageQ.click("#menu-btn");
+    await pageQ.waitForSelector('#sidebar-nav [data-view="activity"]:visible');
+    await ctxQ.close();
   });
 
   await step("First visit: a link straight to a page that loads data (Plans, Activity, a Settings page) opens it, makes one guest account and never says 'session ended'", async () => {
@@ -1012,7 +1089,7 @@ async function send(page, text) {
     });
     const problems = [];
     const open = async (view) => { await pageH.evaluate((v) => document.querySelector(`[data-view="${v}"]`).click(), view); await pageH.waitForTimeout(400); };
-    for (const view of ["home", "chat", "activity", "capabilities", "plans", "settings", "developer", "metrics"]) {
+    for (const view of ["home", "chat", "tasks", "activity", "capabilities", "plans", "settings", "developer", "metrics"]) {
       await open(view);
       (await stray()).forEach((x) => problems.push(view + " " + x));
     }

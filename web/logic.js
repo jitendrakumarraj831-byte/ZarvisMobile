@@ -459,7 +459,7 @@
   }
 
   /** "g" then a letter jumps to a page (like GitHub). Only pages that exist. */
-  const GO_SHORTCUTS = { h: "home", c: "chat", a: "activity", k: "capabilities", p: "plans", s: "settings" };
+  const GO_SHORTCUTS = { h: "home", c: "chat", t: "tasks", a: "activity", k: "capabilities", p: "plans", s: "settings" };
 
   function goShortcutTarget(key) {
     const target = GO_SHORTCUTS[String(key || "").toLowerCase()];
@@ -468,7 +468,7 @@
 
   /** Where an in-text link points: "plans", "activity", "settings:voice", "history". null for anything unknown,
    * so a typo in copy can never become a link that does nothing. */
-  const GO_VIEWS = ["home", "chat", "activity", "capabilities", "plans", "settings", "developer", "metrics"];
+  const GO_VIEWS = ["home", "chat", "tasks", "activity", "capabilities", "plans", "settings", "developer", "metrics"];
 
   function parseGoTarget(target) {
     const [name, sub, extra] = String(target || "").split(":");
@@ -486,7 +486,7 @@
   }
 
   const PAGE_LABELS = {
-    home: "Home", chat: "Chat", activity: "Activity", capabilities: "Capabilities", plans: "Plans",
+    home: "Home", chat: "Chat", tasks: "Tasks", activity: "Activity", capabilities: "Capabilities", plans: "Plans",
     settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities",
   };
 

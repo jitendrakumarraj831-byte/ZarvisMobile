@@ -46,8 +46,8 @@
   /* ---------- Search / command palette ---------- */
 
   const PAGES = [
-    ["home", "Home", "i-home"], ["chat", "Chat", "i-chat"], ["activity", "Activity", "i-activity"],
-    ["capabilities", "Capabilities", "i-grid"], ["developer", "Developer Agent", "i-code"],
+    ["home", "Home", "i-home"], ["chat", "Chat", "i-chat"], ["capabilities", "Capabilities", "i-grid"],
+    ["tasks", "Tasks", "i-task"], ["activity", "Activity", "i-activity"], ["developer", "Developer Agent", "i-code"],
     ["metrics", "Usage & Metrics", "i-chart"], ["plans", "Plans", "i-plan"], ["settings", "Settings", "i-settings"],
   ];
 

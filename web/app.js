@@ -256,6 +256,7 @@
     viewPlans: document.getElementById("view-plans"),
     viewMetrics: document.getElementById("view-metrics"),
     viewActivity: document.getElementById("view-activity"),
+    viewTasks: document.getElementById("view-tasks"),
     viewDeveloper: document.getElementById("view-developer"),
     viewSettings: document.getElementById("view-settings"),
     viewFeature: document.getElementById("view-feature"),
@@ -283,7 +284,11 @@
     settingsOpenDeveloper: document.getElementById("settings-open-developer"),
     settingsOpenMetrics: document.getElementById("settings-open-metrics"),
     settingsDevToggle: document.getElementById("settings-dev-toggle"),
-    activityTaskList: document.getElementById("activity-task-list"),
+    taskList: document.getElementById("task-list"),
+    tasksSearch: document.getElementById("tasks-search"),
+    tasksNoMatch: document.getElementById("tasks-no-match"),
+    tasksRefreshBtn: document.getElementById("tasks-refresh-btn"),
+    activityTasks: document.getElementById("activity-tasks"),
     activityRefreshBtn: document.getElementById("activity-refresh-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
     developerRepoInput: document.getElementById("developer-repo-input"),
@@ -563,7 +568,7 @@
   let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
   let featureOwnsEntry = false; // same for a capability detail page
 
-  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", capabilities: "Capabilities", plans: "Plans", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
+  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", tasks: "Tasks", capabilities: "Capabilities", plans: "Plans", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
 
   function currentRoute() {
     if (state.activeView === "settings" && state.settingsPage) return "#/settings/" + state.settingsPage;
@@ -1753,6 +1758,7 @@
     plans: el.viewPlans,
     metrics: el.viewMetrics,
     activity: el.viewActivity,
+    tasks: el.viewTasks,
     settings: el.viewSettings,
     feature: el.viewFeature,
     developer: el.viewDeveloper,
@@ -1772,6 +1778,8 @@
     }
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
+    el.tasksRefreshBtn?.addEventListener("click", () => void refreshTasksPage());
+    el.tasksSearch?.addEventListener("input", applyTaskFilter);
     for (const btn of document.querySelectorAll("[data-nav]")) {
       btn.addEventListener("click", () => {
         haptic();
@@ -2078,6 +2086,8 @@
           openSettingsPage(button.dataset.capSettings || "voice");
         } else if (action === "feature") {
           openFeature(button.dataset.featurePage);
+        } else if (action === "page") {
+          setActiveView(button.dataset.capPage);
         } else {
           setActiveView("chat");
           el.input.value = button.dataset.capPrompt || "";
@@ -2174,7 +2184,6 @@
   }
 
   function setActiveView(view) {
-    if (view === "tasks") view = "activity";
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
     if (view === "developer" && !requireDevAccess("Developer Agent")) return;
     if (view === "metrics" && !requireDevAccess("Usage & Metrics")) return;
@@ -2209,6 +2218,7 @@
       startMetricsPolling();
     }
     if (view === "activity") refreshActivity();
+    if (view === "tasks") void refreshTasksPage();
     if (view === "home") {
       renderHomeGreeting();
     }
@@ -2551,17 +2561,23 @@
     }
   }
 
-  async function refreshActivity() {
-    if (!el.activityTaskList) return;
-    const refreshBtn = el.activityRefreshBtn;
+  /** Activity is this session's log plus the chat list; Refresh pulls the account's chats again and re-counts open tasks. */
+  function refreshActivity() {
+    applyActivityFilter();
+    void kit("sync", { force: true });
+    void refreshTasks();
+  }
+
+  async function refreshTasksPage() {
+    if (!el.taskList) return;
+    const refreshBtn = el.tasksRefreshBtn;
     if (refreshBtn) refreshBtn.disabled = true;
-    el.activityTaskList.setAttribute("aria-busy", "true");
-    renderActivityTimeline();
-    if (!el.activityTaskList.children.length) {
+    el.taskList.setAttribute("aria-busy", "true");
+    if (!el.taskList.children.length) {
       const skeleton = document.createElement("div");
       skeleton.className = "skeleton skeleton-row";
       skeleton.setAttribute("aria-hidden", "true");
-      el.activityTaskList.appendChild(skeleton);
+      el.taskList.appendChild(skeleton);
     }
     let tasks = null;
     try {
@@ -2570,22 +2586,36 @@
       console.error(err);
       tasks = null;
     }
-    el.activityTaskList.innerHTML = "";
+    el.taskList.innerHTML = "";
     if (refreshBtn) refreshBtn.disabled = false;
-    el.activityTaskList.removeAttribute("aria-busy");
+    el.taskList.removeAttribute("aria-busy");
     if (!tasks) {
-      el.activityTaskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
+      el.taskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
+      applyTaskFilter();
       return;
     }
     if (!tasks.length) {
-      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here.", {
+      el.taskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here.", {
         icon: "i-task",
         action: { label: "Plan a task", onClick: () => document.querySelector('[data-workspace-prompt^="Create a workflow"]')?.click() },
       }));
+      applyTaskFilter();
       return;
     }
-    for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
-    applyActivityFilter();
+    for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
+    applyTaskFilter();
+  }
+
+  /** The search box narrows the task cards; "No tasks match" shows only when cards exist but none fit. */
+  function applyTaskFilter() {
+    const query = (el.tasksSearch?.value || "").trim().toLowerCase();
+    const cards = el.taskList ? Array.from(el.taskList.querySelectorAll(".task-card")) : [];
+    let shown = 0;
+    for (const card of cards) {
+      card.hidden = !!query && !card.textContent.toLowerCase().includes(query);
+      if (!card.hidden) shown += 1;
+    }
+    if (el.tasksNoMatch) el.tasksNoMatch.hidden = !cards.length || shown > 0;
   }
 
   async function deleteAccount() {
@@ -3319,10 +3349,9 @@
       more.addEventListener("click", () => {
         window.ZarvisShell?.menu(more, entry.title || "Activity", [
           { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => {
-            const to = entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat";
+            // A developer entry without Developer access has nowhere of its own to open, so it goes to Chat rather than doing nothing.
+            const to = entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" ? "tasks" : "chat";
             setActiveView(to);
-            // Already on Activity: take the reader to the task list instead of doing nothing.
-            if (to === "activity") document.querySelector('[data-activity-block="task"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
           } },
           { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
           { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
@@ -3338,20 +3367,11 @@
     });
   }
 
-  /** Shows/hides the timeline and task blocks for the chosen filter, and filters tasks by text. */
+  /** Applies the chosen filter and search to the chat list, the open-tasks row and this session's timeline. */
   function applyActivityFilter() {
-    const type = activityFilter.type;
-    const timelineBlock = document.querySelector('[data-activity-block="timeline"]');
-    const taskBlock = document.querySelector('[data-activity-block="task"]');
-    if (timelineBlock) timelineBlock.hidden = type === "task";
-    if (taskBlock) taskBlock.hidden = type !== "all" && type !== "task";
-    kit("syncActivityChats", type, activityFilter.query);
+    kit("syncActivityChats", activityFilter.type, activityFilter.query);
+    if (el.activityTasks) el.activityTasks.hidden = !(activityFilter.type === "all" && openTaskCount > 0);
     renderActivityTimeline();
-    if (el.activityTaskList) {
-      for (const card of el.activityTaskList.querySelectorAll(".task-card")) {
-        card.hidden = !matchesQuery(card.textContent);
-      }
-    }
   }
 
   async function fetchTasks() {
@@ -3364,28 +3384,37 @@
     }
     if (!res.ok) {
       latestTasks = null;
-      renderHomeTasks(0);
+      renderOpenTasks(0);
       return null;
     }
     const { tasks } = await res.json();
     const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
     for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
-    renderHomeTasks(activeCount);
+    renderOpenTasks(activeCount);
     for (const item of el.navItems) {
-      if (item.dataset.view !== "activity") continue;
-      if (activeCount > 0) item.setAttribute("aria-label", "Activity, activity in progress");
+      if (item.dataset.view !== "tasks") continue;
+      if (activeCount > 0) item.setAttribute("aria-label", "Tasks, " + activeCount + " open");
       else item.removeAttribute("aria-label");
     }
     latestTasks = tasks;
     return tasks;
   }
 
-  /** Home shows the open tasks (not finished, failed or cancelled), linking to where they are tracked. Hidden at zero. */
-  function renderHomeTasks(count) {
-    const button = document.getElementById("home-tasks");
-    if (!button) return;
-    button.hidden = !count;
-    if (count) document.getElementById("home-tasks-text").textContent = count + (count === 1 ? " open task" : " open tasks");
+  let openTaskCount = 0;
+
+  /** Home and Activity show the open tasks (not finished, failed or cancelled), linking to the Tasks page. Hidden at zero. */
+  function renderOpenTasks(count) {
+    openTaskCount = count;
+    const text = count + (count === 1 ? " open task" : " open tasks");
+    const home = document.getElementById("home-tasks");
+    if (home) {
+      home.hidden = !count;
+      if (count) document.getElementById("home-tasks-text").textContent = text;
+    }
+    if (el.activityTasks) {
+      if (count) document.getElementById("activity-tasks-text").textContent = text;
+      el.activityTasks.hidden = !(count && activityFilter.type === "all");
+    }
   }
 
   /** Background refresh (Metrics page and its polling): keeps the Activity badge and Home list
@@ -3494,7 +3523,7 @@
       showToast("Couldn't reach ZARVIS. Check your connection.");
       return;
     }
-    void refreshActivity();
+    void refreshTasksPage();
   }
 
   function formatRelativeTime(dateInput) {
@@ -3989,11 +4018,11 @@
     scrollConversationToBottom();
   }
 
-  /** The page where a finished tool's result can be followed up: tasks live in Activity, repository work in the Developer Agent
+  /** The page where a finished tool's result can be followed up: tasks live on the Tasks page, repository work in the Developer Agent
    * (only when Developer access is on, otherwise the link would bounce to Settings). */
   function toolDestination(skillId, statusCode) {
     if (statusCode !== "COMPLETED" || typeof skillId !== "string") return null;
-    if (skillId.startsWith("automation.")) return { target: "activity", label: "Open Activity" };
+    if (skillId.startsWith("automation.")) return { target: "tasks", label: "Open Tasks" };
     if (skillId.startsWith("developer.") && state.devAccess) return { target: "developer", label: "Open Developer Agent" };
     return null;
   }

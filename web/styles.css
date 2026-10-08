@@ -2635,3 +2635,9 @@ body.chat-loading .chat-empty { display: none; }
 /* The way back on a phone is a real touch target, not a 32px text link. */
 @media (max-width: 1099px), (pointer: coarse) { .crumb { min-height: 44px; display: inline-flex; align-items: center; padding: 0 var(--s3); } }
 .home-tasks .home-continue-ico { background: var(--ok-soft); color: var(--ok); }
+
+/* ---------- Tasks page ---------- */
+#view-tasks .toolbar { margin-bottom: var(--s3); }
+#view-tasks .hint { margin: 0 0 var(--s4); }
+#tasks-no-match { margin-top: var(--s3); }
+#activity-tasks { margin-bottom: var(--s5); }

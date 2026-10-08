@@ -315,6 +315,8 @@ test("export keeps the whole conversation, in order, and names a safe file", () 
 test("go-to shortcuts only point at real pages", () => {
   for (const key of Object.keys(L.GO_SHORTCUTS)) assert.ok(L.breadcrumbs({ view: L.goShortcutTarget(key) }) !== undefined);
   assert.equal(L.goShortcutTarget("C"), "chat");
+  assert.equal(L.goShortcutTarget("t"), "tasks");
+  assert.equal(L.goShortcutTarget("a"), "activity");
   assert.equal(L.goShortcutTarget("z"), null);
   assert.equal(L.goShortcutTarget(undefined), null);
 });
@@ -322,6 +324,7 @@ test("go-to shortcuts only point at real pages", () => {
 test("breadcrumbs: Home is the root, sub-pages link back through their parent", () => {
   assert.deepEqual(L.breadcrumbs({ view: "home" }), []);
   assert.deepEqual(L.breadcrumbs({ view: "activity" }), [{ label: "Home", view: "home" }, { label: "Activity" }]);
+  assert.deepEqual(L.breadcrumbs({ view: "tasks" }), [{ label: "Home", view: "home" }, { label: "Tasks" }]);
   assert.deepEqual(L.breadcrumbs({ view: "settings", settingsTitle: "Voice" }), [
     { label: "Home", view: "home" },
     { label: "Settings", view: "settings", closeSubpage: true },
@@ -338,6 +341,7 @@ test("breadcrumbs: Home is the root, sub-pages link back through their parent", 
 test("in-text links only point at pages that exist", () => {
   assert.deepEqual(L.parseGoTarget("plans"), { view: "plans" });
   assert.deepEqual(L.parseGoTarget("activity"), { view: "activity" });
+  assert.deepEqual(L.parseGoTarget("tasks"), { view: "tasks" });
   assert.deepEqual(L.parseGoTarget("settings"), { view: "settings", settingsPage: null });
   assert.deepEqual(L.parseGoTarget("settings:permissions"), { view: "settings", settingsPage: "permissions" });
   assert.deepEqual(L.parseGoTarget("history"), { action: "history" });

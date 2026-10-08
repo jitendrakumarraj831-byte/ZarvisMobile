@@ -3,25 +3,6 @@
 (function () {
   const CATALOG = [
     {
-      id: "workspace",
-      category: "AI & Conversation",
-      title: "AI Workspace",
-      summary: "A conversation that can use the skills ZARVIS already ships.",
-      availability: "Available now",
-      kind: "now",
-      what: "Chat in natural language. ZARVIS keeps the current conversation so follow-up questions stay in context, and it can hand a request to a skill such as search, documents, or writing.",
-      why: "One workspace covers questions, writing, files, and tasks without a separate app for each.",
-      how: ["You type or speak a request.", "ZARVIS replies in the same chat.", "When a skill fits, the result appears in the thread.", "You can ask a follow-up in the same conversation."],
-      canDo: ["English, Hindi, and Hinglish", "Follow-up questions in the same conversation", "Attach a file and ask about it", "Start a request by voice from the orb or microphone"],
-      start: "Open Chat and type a request, or tap a prompt below. Edit it before you send.",
-      permissions: "No permission is required to type. The microphone is requested only after you tap Speak.",
-      limits: ["Replies depend on the configured AI provider.", "ZARVIS does not browse your device files unless you attach one."],
-      examples: ["Explain this document", "Research this topic", "Create a business plan", "Help me write this message"],
-      cta: "Start Chat",
-      action: "chat",
-      prompt: "",
-    },
-    {
       id: "voice",
       category: "Voice",
       title: "Voice Assistant",
@@ -160,40 +141,22 @@
       action: "developer",
       prompt: "I want help with my GitHub project. I will provide the repository URL. Analyze it first and tell me what needs fixing.",
     },
-    {
-      id: "tasks",
-      category: "Automation",
-      title: "Tasks & Automation",
-      summary: "Create a trackable task, then pause, resume, cancel, or retry it.",
-      availability: "Available now",
-      kind: "now",
-      what: "You can create a workflow task, list tasks, and cancel one by describing it. {{Activity|activity}} shows status and the pause, resume, cancel, and retry controls.",
-      why: "A multi-step goal stays visible after you leave the chat.",
-      how: ["Describe the goal.", "ZARVIS creates a task you can open in {{Activity|activity}}.", "Use Pause, Resume, Cancel, or Retry on that task.", "Creating a task does not mean each step has already run."],
-      canDo: ["Create a tracked workflow", "List your tasks", "Cancel by describing the goal", "Pause, resume, and retry from Activity"],
-      start: "Create a task from Chat, then review it in {{Activity|activity}}.",
-      permissions: "Uses your ZARVIS account. No extra device permission on the web.",
-      limits: ["Creating a workflow stores and tracks the steps. It does not execute those steps.", "Reminders that fire on a schedule are an Android skill (personal.reminder), separate from workflow execution."],
-      examples: ["Create a workflow for this goal and break it into clear steps: ", "Show my tasks", "Cancel my standup workflow"],
-      cta: "Create a Task",
-      action: "chat",
-      prompt: "Create a workflow for this goal and break it into clear steps: ",
-    },
   ];
 
   const ICONS = {
-    workspace: "i-chat", voice: "i-mic", phone: "i-phone", research: "i-globe", documents: "i-file",
-    creative: "i-pen", business: "i-briefcase", developer: "i-code", tasks: "i-task",
+    voice: "i-mic", phone: "i-phone", research: "i-globe", documents: "i-file",
+    creative: "i-pen", business: "i-briefcase", developer: "i-code",
   };
 
   /* Capabilities hub: grouped, one line per capability, each with an honest status and the
      real action that uses it. Actions are handled by app.js through data attributes:
-       data-cap-action = chat | voice | attach | developer | settings | feature
+       data-cap-action = chat | voice | attach | developer | settings | feature | page
+       data-cap-page = view id (page action)
        data-cap-prompt = text placed in the composer (chat)
        data-feature-page = detail page id */
   const GROUPS = [
     { title: "AI", items: [
-      { icon: "i-chat", name: "Conversation", short: "Ask anything, get answers", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["Available", "ok"], action: ["chat", "Open"], feature: "workspace" },
+      { icon: "i-chat", name: "Conversation", short: "Ask anything, get answers", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["Available", "ok"], action: ["chat", "Open"] },
       { icon: "i-globe", name: "Web search", short: "Live, sourced results", desc: "Live, sourced results when the provider can ground them.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
       { icon: "i-search", name: "Research writing", short: "Compare, report, outline", desc: "Compare, report and outline — labelled when not from a live source.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
     ] },
@@ -209,7 +172,7 @@
       { icon: "i-file", name: "Document summaries", short: "PDF, Docs, text files", desc: "PDF, DOCX and text files — summarize or ask questions.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
     ] },
     { title: "Automation", items: [
-      { icon: "i-task", name: "Tracked tasks", short: "Plan goals in steps", desc: "Break a goal into steps and track its status in Activity.", status: ["Status only", "info"], action: ["chat", "Create"], prompt: "Create a workflow for this goal and break it into clear steps: ", feature: "tasks" },
+      { icon: "i-task", name: "Tracked tasks", short: "Plan goals in steps", desc: "Break a goal into steps and track its status on the Tasks page.", status: ["Status only", "info"], action: ["page", "Open"], page: "tasks" },
       { icon: "i-phone", name: "Phone Agent", short: "Android app actions", desc: "Open apps, find contacts and place confirmed calls.", status: ["Android app", "info"], action: ["feature", "Details"], feature: "phone" },
     ] },
     { title: "Developer", items: [
@@ -250,8 +213,8 @@
   /* One medium colour per hub group; the detail pages use the same colour for their category. */
   const TONES = ["tone-blue", "tone-violet", "tone-pink", "tone-amber", "tone-green", "tone-cyan", "tone-coral"];
   const CATEGORY_TONES = {
-    "AI & Conversation": "tone-blue", Voice: "tone-violet", Phone: "tone-green", "Web & Research": "tone-cyan",
-    Documents: "tone-amber", Creative: "tone-pink", Business: "tone-coral", Developer: "tone-cyan", Automation: "tone-green",
+    Voice: "tone-violet", Phone: "tone-green", "Web & Research": "tone-cyan",
+    Documents: "tone-amber", Creative: "tone-pink", Business: "tone-coral", Developer: "tone-cyan",
   };
   /* Filter pills group the catalogue groups above. */
   const FILTERS = [
@@ -341,6 +304,7 @@
           btn.dataset.capAction = item.action[0];
           if (item.prompt) btn.dataset.capPrompt = item.prompt;
           if (item.feature) btn.dataset.featurePage = item.feature;
+          if (item.page) btn.dataset.capPage = item.page;
           if (item.settings) btn.dataset.capSettings = item.settings;
           btn.setAttribute("aria-label", item.action[1] + " — " + item.name);
           row.appendChild(btn);

@@ -91,8 +91,9 @@
       <div class="nav-group">
         <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
         <button type="button" class="nav-item" data-view="chat"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><span>Chat</span></button>
-        <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
         <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
+        <button type="button" class="nav-item" data-view="tasks"><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg><span>Tasks</span><span class="nav-badge" id="tasks-badge" hidden></span></button>
+        <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></button>
       </div>
       <p class="nav-label nav-recent-label" id="nav-recent-label" hidden>Recent chats</p>
       <div class="nav-group nav-recent" id="nav-recent" aria-label="Recent chats" hidden></div>
@@ -170,7 +171,7 @@
             <span class="home-continue-copy"><small id="home-continue-label">Continue where you left off</small><strong id="home-continue-title" data-user-text></strong></span>
             <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
           </button>
-          <button type="button" class="home-continue home-tasks" id="home-tasks" data-go="activity" hidden>
+          <button type="button" class="home-continue home-tasks" id="home-tasks" data-go="tasks" hidden>
             <span class="home-continue-ico" aria-hidden="true"><svg class="ico"><use href="#i-task"/></svg></span>
             <span class="home-continue-copy"><small>Tracked tasks</small><strong id="home-tasks-text"></strong></span>
             <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
@@ -225,7 +226,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="activity-title">Activity</h1>
-              <p class="page-sub">Your recent conversations &amp; tasks.</p>
+              <p class="page-sub">Your recent chats and what you did this session.</p>
             </div>
             <button type="button" class="btn btn-ghost" id="activity-refresh-btn"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Refresh</span></button>
           </header>
@@ -238,13 +239,17 @@
             <div class="segmented" id="activity-filters" role="group" aria-label="Filter activity">
               <button type="button" class="seg active" data-filter="all" aria-pressed="true">All</button>
               <button type="button" class="seg" data-filter="conversation" aria-pressed="false">Chats</button>
-              <button type="button" class="seg" data-filter="task" aria-pressed="false">Tasks</button>
               <button type="button" class="seg" data-filter="file" aria-pressed="false">Files</button>
               <button type="button" class="seg" data-filter="image" aria-pressed="false">Images</button>
               <button type="button" class="seg" data-filter="voice" aria-pressed="false">Voice</button>
               <button type="button" class="seg" data-filter="developer" aria-pressed="false" data-dev-only hidden>Developer</button>
             </div>
           </div>
+          <button type="button" class="home-continue home-tasks" id="activity-tasks" data-go="tasks" hidden>
+            <span class="home-continue-ico" aria-hidden="true"><svg class="ico"><use href="#i-task"/></svg></span>
+            <span class="home-continue-copy"><small>Tracked tasks</small><strong id="activity-tasks-text"></strong></span>
+            <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
+          </button>
           <section class="activity-block" data-activity-block="chats" id="activity-chats-block" hidden>
             <div class="section-head">
               <h2 class="section-title">Recent chats</h2>
@@ -256,14 +261,28 @@
             <h2 class="section-title">This session</h2>
             <ol class="timeline" id="activity-timeline" aria-live="polite"></ol>
           </section>
-          <section class="activity-block" data-activity-block="task">
-            <div class="section-head">
-              <h2 class="section-title">Tracked tasks</h2>
-              <button type="button" class="link-btn" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg>New task</button>
+        </section>
+
+        <!-- ============ TASKS ============ -->
+        <section class="view" id="view-tasks" hidden aria-labelledby="tasks-title">
+          <header class="page-head">
+            <div>
+              <h1 class="page-title" id="tasks-title">Tasks</h1>
+              <p class="page-sub">Goals ZARVIS is tracking for you.</p>
             </div>
-            <p class="hint">Tasks record steps and status. Pause, resume and cancel change the status; they don't run the steps.</p>
-            <div class="list" id="activity-task-list"></div>
-          </section>
+            <button type="button" class="btn btn-ghost" id="tasks-refresh-btn"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Refresh</span></button>
+          </header>
+          <div class="toolbar">
+            <label class="search-field">
+              <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+              <span class="sr-only">Search tasks</span>
+              <input type="search" id="tasks-search" aria-label="Search tasks" placeholder="Search tasks" autocomplete="off" />
+            </label>
+            <button type="button" class="btn btn-secondary" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New task</span></button>
+          </div>
+          <p class="hint">Tasks record steps and status. Pause, resume and cancel change the status; they don't run the steps.</p>
+          <div class="list" id="task-list"></div>
+          <div class="empty-state" id="tasks-no-match" hidden><strong>No tasks match</strong><span>Try a different word.</span></div>
         </section>
 
         <!-- ============ CAPABILITIES ============ -->
@@ -591,8 +610,8 @@
             <section class="settings-panel" data-settings-panel="notifications" hidden>
               <div class="panel">
                 <div class="control-row">
-                  <div class="row-copy"><strong>On the web</strong><small>Web notifications aren't used. Task status stays in Activity.</small></div>
-                  <button type="button" class="btn btn-secondary" data-go="activity">Open Activity</button>
+                  <div class="row-copy"><strong>On the web</strong><small>Web notifications aren't used. Task status stays on the Tasks page.</small></div>
+                  <button type="button" class="btn btn-secondary" data-go="tasks">Open Tasks</button>
                 </div>
                 <div class="control-row">
                   <div class="row-copy"><strong>On Android</strong><small>Reminders are delivered by Android. Reading or speaking your notifications needs Notification access, which you control in Permissions.</small></div>
@@ -704,7 +723,7 @@
       <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
       <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
       <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="fab-label">Chat</span></button>
-      <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></button>
+      <button type="button" class="nav-item" data-view="tasks"><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg><span>Tasks</span><span class="nav-badge" id="tasks-badge-bottom" hidden></span></button>
       <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
     </nav>
   </div>
@@ -756,8 +775,9 @@
       <dl class="shortcuts-list">
         <div><dt><kbd>H</kbd></dt><dd>Home</dd></div>
         <div><dt><kbd>C</kbd></dt><dd>Chat</dd></div>
-        <div><dt><kbd>A</kbd></dt><dd>Activity</dd></div>
         <div><dt><kbd>K</kbd></dt><dd>Capabilities</dd></div>
+        <div><dt><kbd>T</kbd></dt><dd>Tasks</dd></div>
+        <div><dt><kbd>A</kbd></dt><dd>Activity</dd></div>
         <div><dt><kbd>P</kbd></dt><dd>Plans</dd></div>
         <div><dt><kbd>S</kbd></dt><dd>Settings</dd></div>
       </dl>
