@@ -22,13 +22,15 @@ const GITHUB_STUB = process.env.GITHUB_STUB_URL || "http://localhost:3200";
 const results = [];
 
 async function step(name, fn) {
+  // ONLY="text" runs just the steps whose name contains it (steps that need an earlier one will fail on their own).
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return;
   try {
     await fn();
     results.push(["PASS", name]);
     console.log("PASS", name);
   } catch (err) {
     results.push(["FAIL", name]);
-    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n")[0] : err);
+    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n").slice(0, 4).join("\n    ") : err);
   }
 }
 
@@ -83,7 +85,7 @@ async function send(page, text) {
 
   await step("a tool call shows its structured status from the backend", async () => {
     await send(pageA, "please search and compare the best phones, find results");
-    await pageA.waitForSelector('.tool-row[data-status="COMPLETED"]', { timeout: 15000 });
+    await pageA.waitForSelector('.exec-card[data-status="COMPLETED"]', { timeout: 15000 });
   });
 
   await step("reload restores only the server-persisted conversation", async () => {
@@ -243,7 +245,7 @@ async function send(page, text) {
     assert.match(text, /add a README badge/);
     assert.match(text, /works once/);
     const id = await pageA.locator("#developer-result .confirm-card").getAttribute("data-confirmation-id");
-    await pageA.click("#developer-result .confirm-card >> text=Approve");
+    await pageA.click("#developer-result .confirm-card button:has-text(\"Confirm\")");
     // The mock content generator (no AI key) returns no valid change plan, so the approved
     // action ends honestly as "invalid plan" and nothing is written to GitHub.
     await pageA.waitForSelector("#developer-result >> text=invalid change plan", { timeout: 15000 });
@@ -334,11 +336,12 @@ async function send(page, text) {
     ];
     for (const [label, handler] of cases) {
       await pageC.route("**/api/v1/orchestrator/turn-stream", handler);
-      const rowsBefore = await pageC.locator(".tool-row").count();
+      const rowsBefore = await pageC.locator(".exec-card").count();
       await send(pageC, `failure case: ${label}`);
       if (label === "failed tool") {
-        await pageC.waitForFunction((n) => document.querySelectorAll(".tool-row").length === n + 1, rowsBefore, { timeout: 10000 });
-        assert.equal(await pageC.locator(".tool-row").count(), rowsBefore + 1, "one failed execution renders one row");
+        await pageC.waitForFunction((n) => document.querySelectorAll(".exec-card").length === n + 1, rowsBefore, { timeout: 10000 });
+        assert.equal(await pageC.locator(".exec-card").count(), rowsBefore + 1, "one failed execution renders one card");
+        assert.equal(await pageC.locator('.exec-card[data-status="FAILED"]').count() >= 1, true, "and it says it failed");
       } else {
         await pageC.waitForSelector(".bubble-retry-btn", { timeout: 10000 });
       }
@@ -442,7 +445,7 @@ async function send(page, text) {
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
-    for (const view of ["tasks", "activity", "capabilities", "plans", "settings"]) {
+    for (const view of ["work", "agents", "activity", "plans", "settings"]) {
       await nav(pageH, view);
       await pageH.waitForTimeout(450); // the page's entrance animation
       const edge = await pageH.evaluate((v) => Math.round(document.querySelector(`#view-${v} .page-head`).getBoundingClientRect().right), view);
@@ -475,7 +478,7 @@ async function send(page, text) {
       assert.equal(await visible('[data-view="developer"]') + (await visible('[data-view="metrics"]')), 0, label + ": no Developer/Metrics nav");
       assert.equal(await visible('#home-quick [data-nav="developer"]'), 0, label + ": no Analyze-a-repo chip");
       assert.ok((await pageD.locator('[data-view="activity"]').count()) >= 1, label + ": Activity is still in the navigation (the phone keeps it in the menu)");
-      assert.ok((await visible('[data-view="tasks"]')) >= 1, label + ": Tasks is a primary page");
+      assert.ok((await visible('[data-view="work"]')) >= 1 && (await visible('[data-view="agents"]')) >= 1, label + ": Work and Agents are primary pages");
       // Any route to a hidden page lands on the switch instead of the page.
       await pageD.evaluate(() => document.querySelector('[data-nav="developer"]').click());
       await pageD.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
@@ -496,7 +499,8 @@ async function send(page, text) {
       await pageD.click('[data-settings-page="developer"]');
       await pageD.click("#settings-dev-toggle");
       assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "off");
-      await pageD.evaluate(() => document.querySelector('[data-view="capabilities"]').click());
+      await pageD.evaluate(() => { location.hash = "#/capabilities"; });
+      await pageD.waitForSelector("#view-capabilities:not([hidden]) .cap-pill");
       assert.equal(await pageD.locator('.cap-pill[data-cap-filter="developer"]').count(), 0, label + ": hub drops the Developer group");
       await ctxD.close();
     }
@@ -525,7 +529,7 @@ async function send(page, text) {
     assert.equal(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden", "the page behind cannot scroll");
     // The whole navigation (no developer pages while that switch is off).
     const labels = (await pageM.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(labels, ["Home", "Chat", "Capabilities", "Tasks", "Activity", "Plans", "Settings", "Profile"]);
+    assert.deepEqual(labels, ["Home", "Chat", "Work", "Agents", "Activity", "Plans & Usage", "Settings", "Profile"]);
     // Tab never leaves the drawer.
     for (let i = 0; i < 12; i++) {
       await pageM.keyboard.press("Tab");
@@ -578,7 +582,7 @@ async function send(page, text) {
     await pageH.click("#menu-btn");
     await pageH.waitForTimeout(350);
     const hindi = (await pageH.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(hindi, ["होम", "चैट", "क्षमताएँ", "कार्य", "गतिविधि", "डेवलपर एजेंट", "उपयोग और मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
+    assert.deepEqual(hindi, ["होम", "चैट", "काम", "एजेंट", "गतिविधि", "डेवलपर एजेंट", "उपयोग और मेट्रिक्स", "प्लान और उपयोग", "सेटिंग्स", "प्रोफ़ाइल"]);
     assert.equal(await pageH.getAttribute("#drawer-close", "aria-label"), "मेन्यू बंद करें");
     await ctxH.close();
   });
@@ -659,7 +663,7 @@ async function send(page, text) {
           return out;
         });
       };
-      for (const view of touch ? ["capabilities", "settings"] : ["capabilities", "settings", "plans"]) { // Plans is in the phone menu, not its tab bar
+      for (const view of touch ? ["agents", "settings"] : ["agents", "settings", "plans"]) { // Plans is in the phone menu, not its tab bar
         const badges = await sweep(view);
         assert.ok(badges.length >= 3, `${label}/${view}: found its feature icons (${badges.length})`);
         for (const b of badges) {
@@ -807,8 +811,8 @@ async function send(page, text) {
     assert.match(await pageP.innerText("#profile-hero-name"), /Guest/);
     await pageP.click("#settings-profile-hero");
     await pageP.waitForSelector('[data-settings-panel="account"]:not([hidden])');
-    await nav(pageP, "capabilities");
-    await pageP.waitForSelector(".cap-summary .cap-sum");
+    await pageP.evaluate(() => { location.hash = "#/capabilities"; });
+    await pageP.waitForSelector("#view-capabilities:not([hidden]) .cap-summary .cap-sum");
     const tally = await pageP.$$eval(".cap-summary .cap-sum strong", (nodes) => nodes.reduce((sum, node) => sum + Number(node.textContent), 0));
     assert.equal(tally, await pageP.locator(".cap-grid .cap-item").count(), "the tally adds up to the cards shown");
     await nav(pageP, "activity");
@@ -825,16 +829,16 @@ async function send(page, text) {
     const view = () => pageN.evaluate(() => document.body.dataset.activeView);
     const homeTitle = await pageN.title();
     await nav(pageN, "chat");
-    await nav(pageN, "tasks");
-    assert.match(await pageN.title(), /^Tasks · /, "each page sets its own tab title");
+    await nav(pageN, "work");
+    assert.match(await pageN.title(), /^Work · /, "each page sets its own tab title");
     assert.notEqual(await pageN.title(), homeTitle);
     await pageN.goBack();
     await pageN.waitForFunction(() => document.body.dataset.activeView === "chat");
     await pageN.goForward();
-    await pageN.waitForFunction(() => document.body.dataset.activeView === "tasks");
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "work");
     await pageN.reload();
     await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-    assert.equal(await view(), "tasks", "a reload keeps the page");
+    assert.equal(await view(), "work", "a reload keeps the page");
     // Activity has no tab on the phone, but its address still opens it with its own title.
     await pageN.goto(BASE + "/#/activity");
     await pageN.waitForFunction(() => document.body.dataset.activeView === "activity");
@@ -921,17 +925,18 @@ async function send(page, text) {
     await ctxG.close();
   });
 
-  await step("Tasks is its own page: a link opens it, tasks are listed, searched and cancelled there, the badge and the Home and Activity rows count open ones, Activity no longer holds tasks, and the phone tab bar has Tasks in place of Activity", async () => {
+  await step("Tasks live in Work: the old #/tasks link opens them, tasks are listed, searched and cancelled there, the badge and the Home and Activity rows count open ones, and the phone tab bar is Home, Work, Chat, Agents, Settings", async () => {
     const ctxT = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pageT = await pageOf(ctxT);
     await pageT.goto(BASE + "/#/tasks");
     await pageT.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-    await pageT.waitForSelector("#view-tasks:not([hidden])");
-    assert.equal(await pageT.innerText("#view-tasks h1"), "Tasks");
-    assert.match(await pageT.title(), /^Tasks · /);
+    await pageT.waitForSelector("#view-work:not([hidden]) #work-panel-tasks:not([hidden])");
+    assert.equal(await pageT.getAttribute("#work-tab-tasks", "aria-selected"), "true");
+    assert.equal(await pageT.evaluate(() => location.hash), "#/work/tasks", "the old address is corrected");
+    assert.match(await pageT.title(), /^Tasks · Work · /);
     await pageT.waitForSelector("#task-list .empty-state");
-    assert.match(await pageT.innerText("#task-list"), /No tracked tasks/);
-    assert.equal(await pageT.locator('.sidebar [data-view="tasks"]').getAttribute("aria-current"), "page");
+    assert.match(await pageT.innerText("#task-list"), /No tasks yet/);
+    assert.equal(await pageT.locator('.sidebar [data-view="work"]').getAttribute("aria-current"), "page");
     // Two tasks on the server; Refresh lists them and the nav says how many are open.
     await pageT.evaluate(async () => {
       for (const goal of ["Plan the launch day", "Renew the domain"]) {
@@ -941,7 +946,7 @@ async function send(page, text) {
     await pageT.click("#tasks-refresh-btn");
     await pageT.waitForSelector("#task-list .task-card");
     assert.equal(await pageT.locator("#task-list .task-card").count(), 2);
-    assert.equal(await pageT.locator('.sidebar [data-view="tasks"]').getAttribute("aria-label"), "Tasks, 2 open");
+    assert.equal(await pageT.locator('.sidebar [data-view="work"]').getAttribute("aria-label"), "Work, 2 open tasks");
     assert.equal(await pageT.locator("#tasks-badge").isVisible(), true);
     // Search narrows the cards and says so when nothing fits.
     await pageT.fill("#tasks-search", "launch");
@@ -951,43 +956,43 @@ async function send(page, text) {
     assert.equal(await pageT.locator("#tasks-no-match").isVisible(), true);
     await pageT.fill("#tasks-search", "");
     assert.equal(await pageT.locator("#tasks-no-match").isVisible(), false);
-    // Cancelling changes the status and the count.
+    // Cancelling asks first, then changes the status and the count.
     await pageT.locator('#task-list .task-card:has-text("Renew the domain") .task-action-btn.danger').click();
-    await pageT.waitForFunction(() => document.querySelector('.sidebar [data-view="tasks"]').getAttribute("aria-label") === "Tasks, 1 open");
+    await pageT.click("#confirm-modal-confirm");
+    await pageT.waitForFunction(() => document.querySelector('.sidebar [data-view="work"]').getAttribute("aria-label") === "Work, 1 open task");
     assert.equal(await pageT.locator('#task-list .task-card[data-status="CANCELLED"]').count(), 1);
-    // Home and Activity point at the Tasks page; Activity holds no tasks of its own.
+    // Home and Activity point at the Tasks tab; Activity also lists tasks as entries of its feed.
     await nav(pageT, "home");
     assert.match(await pageT.innerText("#home-tasks"), /1 open task/);
     await pageT.click("#home-tasks");
-    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await pageT.waitForSelector("#work-panel-tasks:not([hidden])");
     await nav(pageT, "activity");
     await pageT.waitForSelector("#activity-tasks:not([hidden])");
     assert.match(await pageT.innerText("#activity-tasks"), /1 open task/);
-    assert.equal(await pageT.locator('#view-activity [data-filter="task"], #view-activity #task-list').count(), 0, "no Tasks filter or list on Activity");
     await pageT.click("#activity-tasks");
-    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await pageT.waitForSelector("#work-panel-tasks:not([hidden])");
     // The "g then t" shortcut and the capability card both lead here too.
     await nav(pageT, "home");
     await pageT.keyboard.press("g");
     await pageT.keyboard.press("t");
-    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await pageT.waitForSelector("#work-panel-tasks:not([hidden])");
     await pageT.goto(BASE + "/#/capabilities");
     await pageT.waitForSelector("#view-capabilities:not([hidden]) #capability-hub .cap-item");
-    await pageT.locator('#capability-hub .cap-item:has-text("Tracked tasks") .cap-action').click();
-    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await pageT.locator('#capability-hub .cap-item:has(.cap-name:has-text("Tasks")) .cap-action').click();
+    await pageT.waitForSelector("#work-panel-tasks:not([hidden])");
     assert.equal(await pageT.locator("#capability-hub").count(), 1);
     assert.equal(await pageT.locator('[data-feature-page="workspace"], [data-feature-page="tasks"]').count(), 0, "the AI Workspace and Tasks & Automation pages are gone");
     await ctxT.close();
-    // Phone: the tab bar is Home, Capabilities, Chat, Tasks, Settings; Activity stays reachable from the menu.
+    // Phone: the tab bar is Home, Work, Chat, Agents, Settings; Activity stays reachable from the menu.
     const ctxQ = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     const pageQ = await pageOf(ctxQ);
     await pageQ.goto(BASE + "/#/home");
     await pageQ.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
     const tabs = (await pageQ.locator("#bottom-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(tabs, ["Home", "Capabilities", "Chat", "Tasks", "Settings"]);
-    await pageQ.click('#bottom-nav [data-view="tasks"]');
-    await pageQ.waitForSelector("#view-tasks:not([hidden])");
-    assert.equal(await pageQ.locator('#bottom-nav [data-view="tasks"]').getAttribute("aria-current"), "page");
+    assert.deepEqual(tabs, ["Home", "Work", "Chat", "Agents", "Settings"]);
+    await pageQ.click('#bottom-nav [data-view="work"]');
+    await pageQ.waitForSelector("#view-work:not([hidden])");
+    assert.equal(await pageQ.locator('#bottom-nav [data-view="work"]').getAttribute("aria-current"), "page");
     await pageQ.click("#menu-btn");
     await pageQ.waitForSelector('#sidebar-nav [data-view="activity"]:visible');
     await ctxQ.close();
@@ -1089,9 +1094,30 @@ async function send(page, text) {
     });
     const problems = [];
     const open = async (view) => { await pageH.evaluate((v) => document.querySelector(`[data-view="${v}"]`).click(), view); await pageH.waitForTimeout(400); };
-    for (const view of ["home", "chat", "tasks", "activity", "capabilities", "plans", "settings", "developer", "metrics"]) {
+    for (const view of ["home", "chat", "work", "agents", "activity", "plans", "settings", "developer", "metrics"]) {
       await open(view);
       (await stray()).forEach((x) => problems.push(view + " " + x));
+    }
+    // Work tabs and an agent page, with a project, a file, a note and a task on the account so their rows are read too.
+    await pageH.evaluate(async () => {
+      const call = (path, body) => fetch("/api/v1" + path, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify(body) }).then((r) => r.json());
+      const project = await call("/projects", { name: "Launch", goal: "Ship it", agentId: "research" });
+      await call("/notes", { kind: "decision", content: "Use teal", projectId: project.id });
+      await call("/files/text", { name: "brief.txt", text: "hello", source: "upload", projectId: project.id });
+      await call("/tasks", { goal: "Write the brief", projectId: project.id });
+      window.__projectId = project.id;
+    });
+    const hashes = ["#/work/projects", "#/work/files", "#/work/research", "#/work/tasks", "#/work/outputs", "#/agents/research", "#/agents/developer"];
+    hashes.push("#/work/project-" + (await pageH.evaluate(() => window.__projectId)));
+    for (const hash of hashes) {
+      await pageH.evaluate((h) => { location.hash = h; }, hash);
+      await pageH.waitForTimeout(700);
+      (await stray()).forEach((x) => problems.push(hash.replace(/project-[\w-]+/, "project") + " " + x));
+    }
+    for (const tab of ["chats", "files", "research", "tasks", "decisions", "memory", "activity"]) {
+      await pageH.evaluate((t) => document.getElementById("project-tab-" + t).click(), tab);
+      await pageH.waitForTimeout(250);
+      (await stray()).forEach((x) => problems.push("project/" + tab + " " + x));
     }
     for (const sub of ["account", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "developer"]) {
       await open("settings");

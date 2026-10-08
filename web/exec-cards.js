@@ -28,6 +28,12 @@
     return node;
   }
 
+  /** Text that came from the user, a website or the model, not from the interface: the Hindi translator leaves it as it is. */
+  function data(node) {
+    node.dataset.userText = "";
+    return node;
+  }
+
   const hostOf = (url) => {
     try {
       return new URL(url).hostname.replace(/^www\./, "");
@@ -60,16 +66,18 @@
   void CATEGORY_ICON;
 
   const STAGE_ORDER = ["understand", "skill", "permission", "prepare", "confirm", "execute", "verify", "result"];
+  /** A stage reads differently while it is happening and after it has: "Checking…" is never left on a finished step. */
   const STAGE_TITLE = {
-    understand: "Understood the request",
-    skill: "Chose a skill",
-    permission: "Permission and plan",
-    prepare: "Action prepared",
-    confirm: "Confirmation",
-    execute: "Running",
-    verify: "Result checked",
-    result: "Result",
+    understand: { done: "Understood the request" },
+    skill: { done: "Chose a skill" },
+    permission: { active: "Checking permission and plan", done: "Permission and plan checked", failed: "Permission or plan refused" },
+    prepare: { done: "Action prepared" },
+    confirm: { waiting: "Waiting for your confirmation", done: "Confirmed by you", failed: "Not confirmed" },
+    execute: { active: "Running the skill", done: "Ran the skill", failed: "The run failed" },
+    verify: { active: "Checking the result", done: "Result checked", failed: "The check failed" },
+    result: { done: "Result", failed: "Result" },
   };
+  const stageTitle = (key, state) => (STAGE_TITLE[key] && (STAGE_TITLE[key][state] || STAGE_TITLE[key].done)) || key;
 
   const riskText = (risk) => ({ LOW: "Low risk", MEDIUM: "Medium risk", HIGH: "High risk", VERY_HIGH: "Very high risk" }[risk] || "");
   const classText = (cls) => ({ READ_ONLY: "Read only", LOW_IMPACT: "Low impact", EXTERNAL_COMMUNICATION: "Acts outside ZARVIS" }[cls] || "");
@@ -78,13 +86,14 @@
 
   function kv(rows) {
     const dl = h("dl", "exec-kv");
-    for (const [label, value] of rows) {
+    for (const [label, value, dataRow] of rows) {
       if (value == null || value === "") continue;
       const row = h("div");
       row.append(h("dt", null, label));
       const dd = h("dd");
       if (value instanceof Node) dd.appendChild(value);
       else dd.textContent = String(value);
+      if (dataRow) dd.dataset.userText = "";
       row.appendChild(dd);
       dl.appendChild(row);
     }
@@ -92,8 +101,8 @@
   }
 
   function link(url, label) {
-    if (!isHttp(url)) return h("span", null, label || String(url));
-    const a = h("a", "exec-link", label || url);
+    if (!isHttp(url)) return data(h("span", null, label || String(url)));
+    const a = data(h("a", "exec-link", label || url));
     a.href = url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
@@ -117,13 +126,13 @@
     box.appendChild(h("h4", "exec-panel-title", "Repository"));
     box.appendChild(kv([
       ["Repository", link(s.repoUrl, String(s.repoUrl).replace(/^https?:\/\/(www\.)?github\.com\//, ""))],
-      ["Main language", s.primaryLanguage],
-      ["Build system", s.buildSystem],
+      ["Main language", s.primaryLanguage, true],
+      ["Build system", s.buildSystem, true],
       ["Tests in the tree", s.hasTests ? "Found" : "None found"],
       ["CI workflow", s.hasCi ? "Found" : "None found"],
       ["Files", String(s.fileCount)],
-      ["Top-level folders", (s.topLevelDirs || []).join(", ") || "None"],
-      ["Read as", output.githubLogin ? "GitHub account " + output.githubLogin : "No GitHub account (public repositories only)"],
+      ["Top-level folders", (s.topLevelDirs || []).join(", ") || "None", true],
+      ["Read as", output.githubLogin ? "GitHub account " + output.githubLogin : "No GitHub account (public repositories only)", !!output.githubLogin],
     ]));
     const notes = observations(s);
     const obs = h("div", "exec-observe");
@@ -157,7 +166,7 @@
       const state = check.status !== "completed" || check.conclusion === null ? "pending" : ["success", "neutral", "skipped"].includes(check.conclusion) ? "pass" : "fail";
       li.dataset.state = state;
       li.appendChild(icon(state === "pass" ? "i-check" : state === "fail" ? "i-x" : "i-clock"));
-      const label = check.url && isHttp(check.url) ? link(check.url, check.name) : h("span", null, check.name);
+      const label = check.url && isHttp(check.url) ? link(check.url, check.name) : data(h("span", null, check.name));
       li.appendChild(label);
       li.appendChild(h("small", null, state === "pending" ? (check.status === "completed" ? "no result" : check.status.replace(/_/g, " ")) : check.conclusion.replace(/_/g, " ")));
       ul.appendChild(li);
@@ -197,18 +206,18 @@
     box.appendChild(h("h4", "exec-panel-title", "Pull request"));
     box.appendChild(kv([
       ["Pull request", link(pr.url, "#" + pr.number + " on GitHub")],
-      ["Branch", output.branch],
+      ["Branch", output.branch, true],
       ["Changed files", (output.files || []).length ? String(output.files.length) : "0"],
     ]));
     if ((output.files || []).length) {
       const ul = h("ul", "exec-files");
-      for (const file of output.files) ul.appendChild(h("li", null, file));
+      for (const file of output.files) ul.appendChild(data(h("li", null, file)));
       box.appendChild(ul);
     }
     if ((output.suggestedTests || []).length) {
       box.appendChild(h("h5", "exec-sub", "Checks the change suggests (ZARVIS did not run them)"));
       const ul = h("ul");
-      for (const test of output.suggestedTests) ul.appendChild(h("li", null, test));
+      for (const test of output.suggestedTests) ul.appendChild(data(h("li", null, test)));
       box.appendChild(ul);
     }
     box.appendChild(h("p", "muted", "Tests: ZARVIS runs none. The only test evidence is what your repository's own checks report on GitHub."));
@@ -235,7 +244,7 @@
     const list = h("ul", "exec-source-list");
     list.hidden = true;
     for (const r of results) {
-      const li = h("li");
+      const li = data(h("li"));
       li.appendChild(link(r.url, r.title || hostOf(r.url)));
       li.appendChild(h("small", null, hostOf(r.url)));
       list.appendChild(li);
@@ -326,7 +335,7 @@
       this.chip = h("span", "z-badge exec-chip");
       this.chip.setAttribute("role", "status");
       this.head.append(this.ico, this.title, this.chip);
-      this.input = h("p", "exec-input");
+      this.input = data(h("p", "exec-input"));
       this.steps = h("ol", "exec-steps");
       this.steps.setAttribute("aria-label", "What happened, in order");
       this.message = h("p", "exec-message");
@@ -341,8 +350,10 @@
       this.render();
     }
 
+    /** A note belongs to the state it was written for: when a stage moves on without a new note, the old one is dropped. */
     stage(key, state, note) {
-      this.model.stages.set(key, { state, note: note || (this.model.stages.get(key) || {}).note || "" });
+      const before = this.model.stages.get(key);
+      this.model.stages.set(key, { state, note: note != null ? note : before && before.state === state ? before.note : "" });
       this.render();
     }
 
@@ -379,7 +390,7 @@
         else if (entry.state === "failed") dot.appendChild(icon("i-x"));
         else if (entry.state === "waiting") dot.appendChild(icon("i-clock"));
         const text = h("span", "exec-step-text");
-        text.appendChild(h("span", "exec-step-title", STAGE_TITLE[key]));
+        text.appendChild(h("span", "exec-step-title", stageTitle(key, entry.state)));
         if (entry.note) text.appendChild(h("small", null, entry.note));
         li.append(dot, text);
         this.steps.appendChild(li);
@@ -409,7 +420,7 @@
       // Details: what ran, how risky it is, what was checked.
       this.detailsBody.replaceChildren();
       const rows = [];
-      if (m.action) rows.push(["Action", m.action]);
+      if (m.action) rows.push(["Action", m.action, true]);
       const risk = [riskText(m.riskLevel), classText(m.actionClass)].filter(Boolean).join(" · ");
       if (risk) rows.push(["Risk", risk]);
       const evidence = summarizeEvidence(m.evidence);

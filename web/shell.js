@@ -226,7 +226,7 @@
     popoverAnchor = null;
   }
 
-  function showPopover(anchor, title, build) {
+  function showPopover(anchor, title, build, userTitle) {
     if (popoverEl && !popoverEl.hidden && popoverAnchor === anchor) { closePopover(); return; }
     closePalette();
     if (!popoverEl) {
@@ -245,8 +245,18 @@
       });
     }
     popoverEl.replaceChildren();
-    popoverEl.setAttribute("aria-label", title);
-    popoverEl.appendChild(node("p", "popover-title", title));
+    // A menu titled with the user's own words (a file or chat name) is labelled by that title, which the translator skips.
+    const heading = node("p", "popover-title", title);
+    popoverEl.removeAttribute("aria-label");
+    popoverEl.removeAttribute("aria-labelledby");
+    if (userTitle) {
+      heading.id = "shell-popover-title";
+      heading.dataset.userText = "";
+      popoverEl.setAttribute("aria-labelledby", heading.id);
+    } else {
+      popoverEl.setAttribute("aria-label", title);
+    }
+    popoverEl.appendChild(heading);
     build(popoverEl);
     popoverEl.hidden = false;
     popoverAnchor = anchor;
@@ -352,7 +362,7 @@
   function menu(anchor, title, items) {
     showPopover(anchor, title, (root) => {
       for (const item of items) root.appendChild(menuButton(item.label, item.icon, item.hint, item.run));
-    });
+    }, true);
   }
 
   window.ZarvisShell = { init, menu };

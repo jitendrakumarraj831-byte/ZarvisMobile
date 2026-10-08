@@ -497,7 +497,7 @@
   };
 
   /** The trail above a page: Home › Settings › Voice. Every item but the last is a link (it has `view`). */
-  function breadcrumbs({ view, settingsTitle, featureTitle, workTitle, agentTitle } = {}) {
+  function breadcrumbs({ view, settingsTitle, featureTitle, workTitle, workTitleIsName, agentTitle } = {}) {
     if (!view || view === "home") return [];
     const trail = [{ label: PAGE_LABELS.home, view: "home" }];
     if (view === "settings" && settingsTitle) {
@@ -506,7 +506,7 @@
       trail.push({ label: PAGE_LABELS.capabilities, view: "capabilities" });
       if (featureTitle) trail.push({ label: featureTitle });
     } else if (view === "work" && workTitle) {
-      trail.push({ label: PAGE_LABELS.work, view: "work" }, { label: workTitle });
+      trail.push({ label: PAGE_LABELS.work, view: "work" }, { label: workTitle, ...(workTitleIsName ? { name: true } : {}) });
     } else if (view === "agents" && agentTitle) {
       trail.push({ label: PAGE_LABELS.agents, view: "agents" }, { label: agentTitle });
     } else {

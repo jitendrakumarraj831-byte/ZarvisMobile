@@ -619,10 +619,15 @@
       settingsTitle: state.settingsPage ? el.settingsSubpageTitle?.textContent || "" : "",
       featureTitle: state.activeView === "feature" ? document.querySelector("#view-feature h1")?.textContent || "" : "",
       workTitle: state.activeView === "work" ? workTitle() : "",
+      workTitleIsName: state.activeView === "work" && (workspace()?.workSub() || "").startsWith("project-"),
       agentTitle: state.activeView === "agents" ? agentTitle() : "",
     });
     const announcer = document.getElementById("route-announcer");
-    if (announcer) announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
+    if (announcer) {
+      announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
+      // A project's own name is not interface text, so Hindi mode leaves it as written.
+      announcer.toggleAttribute("data-user-text", state.activeView === "work" && (workspace()?.workSub() || "").startsWith("project-"));
+    }
     if (applyingRoute) return;
     const route = currentRoute();
     if (location.hash === route || (state.activeView === "home" && !location.hash)) return;
@@ -1491,7 +1496,9 @@
     title.append(svgIcon("i-alert"), document.createTextNode("Confirmation required" + (confirmation.riskLevel ? " · " + Logic.riskLabel(confirmation.riskLevel) : "")));
     const action = document.createElement("p");
     action.className = "confirm-action";
-    action.append(document.createTextNode("ZARVIS wants to: "), Object.assign(document.createElement("span"), { textContent: confirmation.action }));
+    const what = Object.assign(document.createElement("span"), { textContent: confirmation.action });
+    what.dataset.userText = ""; // what the action is was written by the server from the user's own request
+    action.append(document.createTextNode("ZARVIS wants to: "), what);
     const note = document.createElement("small");
     const expires = new Date(confirmation.expiresAt);
     note.textContent = "Nothing has been done yet. This approval works once, for this action only" +
@@ -2123,6 +2130,8 @@
       submitComposerInput(text);
     });
 
+    setupChatContextChips();
+
     // Reading back up the thread stops the page following new text; the button takes you to the newest.
     window.addEventListener("scroll", () => {
       followNewest = distanceFromBottom() < NEAR_BOTTOM_PX;
@@ -2149,6 +2158,20 @@
         panel?.scrollIntoView({ behavior: "smooth", block: "start" });
         if (target && target.matches("textarea, input")) target.focus({ preventScroll: true });
       });
+    });
+  }
+
+  /** The project chip opens that project; the agent chip lets go of the agent so the chat may use every skill again. */
+  function setupChatContextChips() {
+    document.getElementById("chat-project-chip")?.addEventListener("click", () => {
+      if (state.projectId) goWork("project-" + state.projectId);
+    });
+    document.getElementById("chat-agent-chip")?.addEventListener("click", () => {
+      haptic();
+      state.agentId = null;
+      renderChatContext();
+      showToast("This chat can use every skill again.");
+      el.input.focus();
     });
   }
 

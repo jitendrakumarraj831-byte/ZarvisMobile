@@ -258,9 +258,295 @@ const overflowOf = (page) => page.evaluate(() => document.documentElement.scroll
     assert.equal(invented.status, 400);
   });
 
+  /* ---------- Tasks ---------- */
+
+  let taskId = null;
+
+  await step("a task is recorded as QUEUED and nothing runs until Run is pressed", async () => {
+    await workTab(page, "tasks");
+    await page.click("#tasks-new-btn");
+    await fillDialog(page, { Goal: "Prepare the weekly report", "Steps (one per line, optional)": "hello\nsearch and compare the best phones, find results", Project: project.id });
+    await page.waitForSelector('#task-list .task-card[data-lifecycle="QUEUED"]');
+    const tasks = (await api(page, "/tasks")).body.tasks;
+    assert.equal(tasks.length, 1);
+    taskId = tasks[0].id;
+    assert.equal(tasks[0].lifecycle, "QUEUED");
+    assert.equal(tasks[0].progress.done, 0);
+    assert.match(await page.locator("#task-list .task-card").innerText(), /Queued/);
+  });
+
+  await step("Run executes exactly one step and the card shows the real lifecycle and evidence", async () => {
+    await page.click('#task-list .task-card button:has-text("Run first step")');
+    await page.waitForSelector('#task-list .task-card[data-lifecycle="WAITING"]', { timeout: 20000 });
+    const task = (await api(page, "/tasks/" + taskId)).body;
+    assert.equal(task.progress.done, 1);
+    assert.equal(task.steps[0].status, "DONE");
+    assert.equal(task.steps[1].status, "PENDING");
+    const card = await page.locator("#task-list .task-card").innerText();
+    assert.match(card, /1 of 2 steps finished/);
+    assert.match(card, /Waiting for you/);
+    await page.click('#task-list .task-card summary:has-text("Result")');
+    const evidence = await page.locator("#task-list .task-card").innerText();
+    assert.match(evidence, /What was checked: [\w.]+: completed/, "the step shows what the server actually verified: " + evidence);
+    assert.equal(task.steps[0].evidence.check, "tool_results");
+  });
+
+  await step("the last step completes the task with tool evidence; it is stored as COMPLETED", async () => {
+    await page.click('#task-list .task-card button:has-text("Run next step")');
+    await page.waitForSelector('#task-list .task-card[data-lifecycle="COMPLETED"]', { timeout: 25000 });
+    const task = (await api(page, "/tasks/" + taskId)).body;
+    assert.equal(task.progress.done, 2);
+    assert.equal(task.lifecycle, "COMPLETED");
+    assert.ok(task.result && task.result.summary, "a stored result");
+    assert.equal(await page.locator('#task-list .task-card button:has-text("Run")').count(), 0, "no Run button on a finished task");
+  });
+
+  await step("a queued task can be cancelled after confirming, and stays cancelled", async () => {
+    const created = await post(page, "/tasks", { goal: "Throwaway task" });
+    assert.equal(created.status, 201);
+    await workTab(page, "tasks");
+    await page.click("#tasks-refresh-btn");
+    const card = page.locator("#task-list .task-card", { hasText: "Throwaway task" });
+    await card.locator('button:has-text("Cancel")').click();
+    await page.click("#confirm-modal-confirm");
+    await page.waitForSelector('#task-list .task-card[data-lifecycle="CANCELLED"]');
+    assert.equal((await api(page, "/tasks/" + created.body.id)).body.lifecycle, "CANCELLED");
+  });
+
+  /* ---------- Agents ---------- */
+
+  await step("Agents lists the six agents; each page is built from the real skills", async () => {
+    await go(page, "#/agents");
+    await page.waitForSelector("#agents-root .ws-agent");
+    const names = await page.locator("#agents-root .ws-agent .ws-card-title").allInnerTexts();
+    assert.deepEqual(names.map((n) => n.trim()), ["Personal agent", "Research agent", "Documents agent", "Creative agent", "Business agent", "Developer agent"]);
+    await page.click('#agents-root .ws-agent button[aria-label="Open the Research agent"]');
+    await page.waitForSelector("#agents-root .ws-agent-head");
+    const text = await page.locator("#agents-root").innerText();
+    for (const heading of ["What it can do", "Required integrations and permissions", "Current work", "Recent results", "Limitations"]) assert.match(text, new RegExp(heading, "i"));
+    assert.match(await page.evaluate(() => location.hash), /#\/agents\/research/);
+    const real = (await api(page, "/agents/research")).body;
+    assert.equal(await page.locator("#agents-root .ws-section").nth(1).locator(".ws-row").count(), real.skills.length);
+  });
+
+  await step("Ask Agent opens a chat that is limited to that agent and says so", async () => {
+    await page.fill('#agents-root textarea[aria-label^="Ask the Research"]', "search and compare the best phones, find results");
+    await page.click('#agents-root button:has-text("Ask")');
+    await page.waitForSelector("#view-chat:not([hidden])");
+    await page.waitForSelector("#chat-agent-chip:not([hidden])");
+    assert.match(await page.locator("#chat-agent-chip").innerText(), /Research/);
+    await page.waitForSelector('.exec-card[data-status="COMPLETED"]', { timeout: 20000 });
+  });
+
+  await step("an unknown agent address falls back to the Agents list, never a blank page", async () => {
+    await go(page, "#/agents/nope");
+    await page.waitForSelector("#agents-root .ws-agent");
+    assert.equal(await page.locator("#agents-root .ws-agent").count(), 6);
+    assert.equal(await page.evaluate(() => location.hash), "#/agents");
+    page.expectRejections += 1;
+    const direct = await api(page, "/agents/nope");
+    assert.equal(direct.status, 404);
+  });
+
+  /* ---------- Execution cards in chat: real events only ---------- */
+
+  await step("after a reload the chat shows the stored execution cards from the ledger, with their real result", async () => {
+    await page.reload();
+    await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await go(page, "#/chat");
+    await page.waitForSelector('.exec-card[data-status="COMPLETED"]', { timeout: 15000 });
+    await page.locator(".exec-card").first().locator("summary").click();
+    const text = await page.locator(".exec-card").first().innerText();
+    assert.match(text, /Read from the stored record of this run/);
+    assert.match(text, /Web Search/);
+  });
+
+  const mocked = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await mocked.addInitScript(() => {
+    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {}
+    const realFetch = window.fetch.bind(window);
+    const enc = new TextEncoder();
+    const CID = "00000000-0000-4000-8000-000000000001";
+    const frame = (event, data) => enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const api = (window.__stream = { controller: null, push: (event, data) => api.controller.enqueue(frame(event, data)), end: () => api.controller.close(), CID });
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (!url.endsWith("/orchestrator/turn-stream")) return realFetch(input, init);
+      return Promise.resolve(new Response(new ReadableStream({ start(c) { api.controller = c; } }), { status: 200, headers: { "content-type": "text/event-stream" } }));
+    };
+  });
+  const mp = await mocked.newPage();
+  const mockedErrors = [];
+  watchErrors(mp, mockedErrors);
+  await mp.goto(BASE);
+  await mp.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+  const push = (event, data) => mp.evaluate(([e, d]) => window.__stream.push(e, d), [event, data]);
+  const stepsOf = (card) => card.locator(".exec-step").evaluateAll((nodes) => nodes.map((n) => n.querySelector(".exec-step-title").textContent + "|" + n.dataset.state));
+  const startTurn = async (text) => {
+    await mp.evaluate(() => { location.hash = "#/chat"; });
+    await mp.fill("#text-input", text);
+    await mp.press("#text-input", "Enter");
+    await mp.waitForFunction(() => !!window.__stream.controller);
+    await push("meta", { conversationId: "00000000-0000-4000-8000-000000000001", turnId: "t" });
+  };
+
+  await step("a running tool shows only the stages that have really happened, each worded for its state", async () => {
+    await startTurn("search the web for phones");
+    await push("progress", { type: "tool_started", skillId: "web.search", skillName: "Web Search", toolCallId: "c1", riskLevel: "LOW", actionClass: "READ_ONLY", inputPreview: { query: "phones" } });
+    const card = mp.locator('.exec-card[data-tool-call-id="c1"]');
+    await card.waitFor();
+    assert.deepEqual(await stepsOf(card), ["Understood the request|done", "Chose a skill|done"]);
+    assert.match(await card.locator(".exec-chip").innerText(), /Running/);
+    assert.equal(await card.locator(".exec-step", { hasText: /^Result/ }).count(), 0, "no Result stage before there is a result");
+    await push("progress", { type: "tool_stage", stage: "permitted", skillId: "web.search", toolCallId: "c1" });
+    await push("progress", { type: "tool_stage", stage: "entitled", skillId: "web.search", toolCallId: "c1" });
+    await push("progress", { type: "tool_stage", stage: "prepared", skillId: "web.search", toolCallId: "c1", action: "Web Search: query = phones" });
+    await push("progress", { type: "tool_stage", stage: "executing", skillId: "web.search", toolCallId: "c1" });
+    await mp.waitForFunction(() => document.querySelector('.exec-step[data-state="active"]'));
+    const live = await stepsOf(card);
+    assert.deepEqual(live.slice(-2), ["Action prepared|done", "Running the skill|active"]);
+    assert.equal(live.filter((s) => s.endsWith("|active")).length, 1, "only the stage that is running now is animated");
+  });
+
+  await step("when the result arrives every stage is settled: nothing is left 'Running' or 'Checking'", async () => {
+    await push("progress", { type: "tool_stage", stage: "verifying", skillId: "web.search", toolCallId: "c1" });
+    await push("progress", { type: "tool_finished", skillId: "web.search", toolCallId: "c1", status: "COMPLETED" });
+    const toolCalls = [{ toolCallId: "c1", skillId: "web.search", outcome: { kind: "success", result: { output: { query: "phones", answer: "A.", results: [{ title: "Example", url: "https://example.com/a" }] } }, chargedCredits: 1 }, result: { success: true, status: "COMPLETED", userSafeMessage: "Found 1 result.", verificationEvidence: { check: "non_empty_result", outputKeys: ["query", "answer", "results"], chargedCredits: 1 } } }];
+    await push("done", { message: "Here is what I found.", toolCalls, conversationId: "00000000-0000-4000-8000-000000000001", turnId: "t" });
+    await mp.evaluate(() => window.__stream.end());
+    const card = mp.locator('.exec-card[data-tool-call-id="c1"]');
+    await mp.waitForSelector('.exec-card[data-status="COMPLETED"]');
+    const done = await stepsOf(card);
+    assert.deepEqual(done, ["Understood the request|done", "Chose a skill|done", "Permission and plan checked|done", "Action prepared|done", "Ran the skill|done", "Result checked|done", "Result|done"]);
+    assert.equal(await card.locator('.exec-step[data-state="active"]').count(), 0);
+    assert.match(await card.innerText(), /Live web/);
+    assert.ok(!/Running now|Checking what it returned/.test(await card.innerText()), "no stale present-tense notes on a finished card");
+  });
+
+  await step("a tool that needs confirmation says nothing was done and offers Confirm / Decline inside the card", async () => {
+    await startTurn("create the pull request");
+    await push("progress", { type: "tool_started", skillId: "developer.implement", skillName: "Implement Repository Change", toolCallId: "c2", riskLevel: "HIGH", actionClass: "EXTERNAL_COMMUNICATION", inputPreview: { requirement: "add a badge" } });
+    await push("progress", { type: "tool_finished", skillId: "developer.implement", toolCallId: "c2", status: "CONFIRMATION_REQUIRED" });
+    const confirmation = { id: "00000000-0000-4000-8000-0000000000aa", action: "Create a branch and open a pull request", riskLevel: "HIGH", actionClass: "EXTERNAL_COMMUNICATION", expiresAt: new Date(Date.now() + 600000).toISOString(), skillName: "Implement Repository Change" };
+    const toolCalls = [{ toolCallId: "c2", skillId: "developer.implement", outcome: { kind: "confirmation_required", confirmation }, result: { success: false, status: "CONFIRMATION_REQUIRED", userSafeMessage: "Needs your confirmation.", verificationEvidence: null } }];
+    await push("done", { message: "I need your confirmation first.", toolCalls, conversationId: "00000000-0000-4000-8000-000000000001", turnId: "t" });
+    await mp.evaluate(() => window.__stream.end());
+    const card = mp.locator('.exec-card[data-tool-call-id="c2"]');
+    await card.locator(".exec-confirm .confirm-card").waitFor();
+    assert.match(await card.locator(".exec-chip").innerText(), /Needs your confirmation/);
+    const steps = await stepsOf(card);
+    assert.ok(steps.includes("Waiting for your confirmation|waiting"), "waiting stage: " + steps.join(", "));
+    assert.ok(!steps.some((s) => s.startsWith("Result|done") || s.startsWith("Ran the skill")), "nothing is claimed as done: " + steps.join(", "));
+    assert.match(await card.locator(".confirm-card").innerText(), /Nothing has been done yet/);
+    assert.equal(await card.locator(".confirm-card button").count(), 2);
+  });
+
+  await step("declining a confirmation that is no longer valid says so and removes the buttons (no stuck 'Running…')", async () => {
+    mockedErrors.length = 0;
+    mp.expectRejections = 1;
+    const card = mp.locator('.exec-card[data-tool-call-id="c2"]');
+    await card.locator('.confirm-card button:has-text("Decline")').click();
+    await card.locator(".confirm-card >> text=expired or was already used").waitFor();
+    assert.equal(await card.locator(".confirm-card button").count(), 0);
+    assert.equal(await card.locator('.confirm-card button:has-text("Running")').count(), 0);
+  });
+
+  await step("a failed tool is shown as failed with its reason, never as a success", async () => {
+    await startTurn("search again");
+    await push("progress", { type: "tool_started", skillId: "web.search", skillName: "Web Search", toolCallId: "c3", riskLevel: "LOW", actionClass: "READ_ONLY" });
+    await push("progress", { type: "tool_stage", stage: "executing", skillId: "web.search", toolCallId: "c3" });
+    await push("progress", { type: "tool_finished", skillId: "web.search", toolCallId: "c3", status: "FAILED", summary: "The search provider timed out." });
+    const toolCalls = [{ toolCallId: "c3", skillId: "web.search", outcome: { kind: "execution_failed", result: { kind: "failure", reason: "handler_error", userMessage: "x" } }, result: { success: false, status: "FAILED", userSafeMessage: "The search provider timed out.", retryable: true, verificationEvidence: null } }];
+    await push("done", { message: "That search didn't work.", toolCalls, conversationId: "00000000-0000-4000-8000-000000000001", turnId: "t" });
+    await mp.evaluate(() => window.__stream.end());
+    const card = mp.locator('.exec-card[data-tool-call-id="c3"]');
+    await mp.waitForSelector('.exec-card[data-tool-call-id="c3"][data-status="FAILED"]');
+    const text = await card.innerText();
+    assert.match(text, /Couldn't complete/);
+    assert.match(text, /The search provider timed out/);
+    assert.ok(!/Completed|Result checked/.test(text), "a failure never reads as completed or verified: " + text);
+    assert.equal(await card.locator('.exec-step[data-state="active"]').count(), 0, "nothing keeps spinning");
+    assert.match(await card.locator(".exec-chip").getAttribute("class"), /z-badge-err/);
+  });
+
+  await step("the agent chip releases the agent; the project chip opens the project", async () => {
+    await page.evaluate((id) => { location.hash = "#/agents/research"; }, project.id);
+    await page.waitForSelector("#agents-root .ws-agent-head");
+    await page.fill('#agents-root textarea[aria-label^="Ask the Research"]', "hello there");
+    await page.click('#agents-root button:has-text("Ask")');
+    await page.waitForSelector("#chat-agent-chip:not([hidden])");
+    await page.click("#chat-agent-chip");
+    await page.waitForSelector("#chat-agent-chip", { state: "hidden" });
+    await go(page, "#/work/project-" + project.id);
+    await page.click('.ws-continue-foot button:has-text("New chat in this project")');
+    await page.waitForSelector("#chat-project-chip:not([hidden])");
+    await page.click("#chat-project-chip");
+    await page.waitForSelector(".ws-project-head .ws-h2 >> text=Website relaunch");
+  });
+
+  /* ---------- Activity ---------- */
+
+  await step("Activity merges real tool runs, tasks, files, notes, chats and projects; filters narrow it", async () => {
+    await go(page, "#/activity");
+    await page.waitForSelector("#activity-list .timeline-item, #activity-feed .timeline-item");
+    const types = await page.evaluate(() => [...document.querySelectorAll("#view-activity .timeline-item .timeline-meta span:first-child")].map((n) => n.textContent.trim()));
+    for (const t of ["Tool", "Task", "File", "Note", "Chat", "Project"]) assert.ok(types.includes(t), "activity has a " + t + " entry: " + types.join(","));
+    await page.click('#activity-filters button:has-text("Tools")');
+    const filtered = await page.evaluate(() => [...document.querySelectorAll("#view-activity .timeline-item .timeline-meta span:first-child")].map((n) => n.textContent.trim()));
+    assert.ok(filtered.length > 0 && filtered.every((t) => t === "Tool"), "only tool runs after the Tools filter: " + filtered.join(","));
+  });
+
+  /* ---------- Memory ---------- */
+
+  const openMemory = async () => {
+    await go(page, "#/settings");
+    const back = page.locator("[data-settings-back]:visible");
+    if (await back.count()) await back.first().click();
+    await page.click('[data-settings-page="memory"]');
+    await page.waitForSelector("#memory-root .panel");
+  };
+
+  await step("Memory: only what the user saves; it can be paused, edited, deleted and switched off", async () => {
+    await openMemory();
+    assert.match(await page.locator("#memory-root").innerText(), /Nothing saved/);
+    await page.click('#memory-root button:has-text("Add memory")');
+    await fillDialog(page, { "What should ZARVIS remember about you?": "I prefer short answers" });
+    await page.waitForSelector("#memory-root .ws-note >> text=I prefer short answers");
+    let mem = (await api(page, "/memory")).body;
+    assert.equal(mem.personal.length, 1);
+    assert.equal(mem.personal[0].enabled, true);
+    await page.click('#memory-root .ws-note button:has-text("Pause")');
+    await page.waitForSelector("#memory-root .ws-note.is-paused");
+    mem = (await api(page, "/memory")).body;
+    assert.equal(mem.personal[0].enabled, false);
+    await page.click('#memory-root .ws-note button:has-text("Use again")');
+    await page.waitForSelector("#memory-root .ws-note:not(.is-paused)");
+    await page.click('#memory-root .control-row button.switch');
+    await page.waitForFunction(() => document.querySelector('#memory-root .control-row button.switch').getAttribute("aria-pressed") === "false");
+    assert.equal((await api(page, "/memory")).body.enabled, false);
+    await page.click('#memory-root .control-row button.switch');
+    await page.waitForFunction(() => document.querySelector('#memory-root .control-row button.switch').getAttribute("aria-pressed") === "true");
+    await page.click('#memory-root .ws-note button[aria-label^="Delete"]');
+    await page.click("#confirm-modal-confirm");
+    await page.waitForSelector("#memory-root .empty-state >> text=Nothing saved");
+    assert.equal((await api(page, "/memory")).body.personal.length, 0);
+  });
+
+  /* ---------- Plans & Usage ---------- */
+
+  await step("Plans & Usage shows real usage read from the server, not placeholder numbers", async () => {
+    await go(page, "#/plans");
+    await page.waitForSelector("#usage-panel");
+    const summary = (await api(page, "/usage/summary")).body;
+    assert.ok(summary && typeof summary.runs === "number" && summary.runs >= 1, "usage summary: " + JSON.stringify(summary).slice(0, 120));
+    const text = await page.locator("#usage-panel").innerText();
+    assert.ok(!/\bnull\b|NaN|undefined/.test(text), "no broken values: " + text.slice(0, 200));
+  });
+
   /* ---------- Report ---------- */
 
   const failed = results.filter(([status]) => status === "FAIL");
+  errors.push(...mockedErrors);
   if (errors.length) {
     console.log("CONSOLE/PAGE ERRORS:\n  " + errors.join("\n  "));
   }

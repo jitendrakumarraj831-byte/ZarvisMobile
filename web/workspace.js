@@ -56,6 +56,20 @@
     return h("span", "z-badge" + (tone ? " z-badge-" + tone : ""), text);
   }
 
+  /** A link whose text came from a website or a search provider. */
+  function userLink(text) {
+    const a = h("a", "exec-link", text);
+    a.dataset.userText = "";
+    return a;
+  }
+
+  /** A badge that carries a name the user chose (a project): the translator leaves it alone. */
+  function userBadge(text, tone) {
+    const node = badge(text, tone);
+    node.dataset.userText = "";
+    return node;
+  }
+
   /** Server-provided text (names, goals, notes) is the user's own words: the interface translator leaves it alone. */
   function userText(tag, cls, text) {
     const node = h(tag, cls, text);
@@ -86,6 +100,9 @@
   function toast(text) {
     host?.toast?.(text);
   }
+
+  /** Static interface text for places the page translator does not reach (the options of a drop-down). */
+  const T = (text) => (window.ZarvisI18n && host && host.lang ? window.ZarvisI18n.translate(text, host.lang()) : text);
 
   /* ---------- Talking to the server ---------- */
 
@@ -184,7 +201,7 @@
           box.value = option.value;
           box.checked = option.checked !== false;
           box.id = id + "-" + i;
-          set.appendChild(h("label", "ws-check", box, h("span", null, option.label)));
+          set.appendChild(h("label", "ws-check", box, userText("span", null, option.label)));
           return box;
         });
         inputs[field.name] = { focus: (opts) => boxes[0]?.focus(opts), values: () => boxes.filter((b) => b.checked).map((b) => b.value), isChecks: true };
@@ -300,11 +317,13 @@
   }
 
   /** The side panel used to read a file or one run's output. build(body) fills it; it is closed with Esc, the button or the backdrop. */
-  function openViewer({ title, build }) {
+  function openViewer({ title, build, userTitle = false }) {
     const overlay = $("viewer-overlay");
     const body = $("viewer-body");
     if (!overlay) return;
     $("viewer-title").textContent = title;
+    if (userTitle) $("viewer-title").dataset.userText = "";
+    else delete $("viewer-title").dataset.userText;
     body.replaceChildren();
     build(body);
     overlay.hidden = false;
@@ -396,7 +415,7 @@
     if (Array.isArray(note.sources) && note.sources.length) {
       const list = h("ul", "ws-citations");
       note.sources.forEach((source, index) => {
-        const a = h("a", "exec-link", source.title || source.url);
+        const a = userLink(source.title || source.url);
         a.href = source.url;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
@@ -562,7 +581,7 @@
   /* ---------- Projects ---------- */
 
   function agentOptions(includeNone = true) {
-    return [...(includeNone ? [{ value: "", label: "No particular agent" }] : []), ...Object.entries(AGENT_NAMES).map(([value, label]) => ({ value, label: label + " agent" }))];
+    return [...(includeNone ? [{ value: "", label: T("No particular agent") }] : []), ...Object.entries(AGENT_NAMES).map(([value, label]) => ({ value, label: T(label + " agent") }))];
   }
 
   function newProjectDialog() {
@@ -921,7 +940,7 @@
     void formDialog({
       title: "Add an existing chat",
       description: "The chat keeps its messages. It is listed in this project, and the project's goal, decisions and memory are used when you continue it.",
-      fields: [{ name: "chat", label: "Chat", type: "select", options: chats.map((c) => ({ value: c.id, label: (c.title || "Chat") + (c.projectId ? " (in another project)" : "") })) }],
+      fields: [{ name: "chat", label: "Chat", type: "select", options: chats.map((c) => ({ value: c.id, label: (c.title || T("Chat")) + (c.projectId ? " " + T("(in another project)") : "") })) }],
       submitLabel: "Add chat",
       onSubmit: async (v) => {
         const res = await call("/conversations/" + encodeURIComponent(v.chat) + "/project", json({ projectId }));
@@ -1210,7 +1229,7 @@
     const meta = h("div", "ws-meta");
     meta.appendChild(h("span", null, FILE_KIND[file.kind] || "File"));
     meta.appendChild(h("span", null, file.source === "generated" ? "Generated" : bytes(file.sizeBytes)));
-    if (!hideProject && file.projectId && projectNameOf(file.projectId)) meta.appendChild(badge(projectNameOf(file.projectId), "info"));
+    if (!hideProject && file.projectId && projectNameOf(file.projectId)) meta.appendChild(userBadge(projectNameOf(file.projectId), "info"));
     meta.appendChild(h("span", null, relative(file.createdAt)));
     const copy = h("div", "ws-row-copy", userText("strong", "ws-file-name", file.name), meta);
     const open = button("", "ws-row-open", () => void openFileViewer(file, onChanged));
@@ -1336,7 +1355,7 @@
     const projects = await loadProjectsCache(true);
     void formDialog({
       title: "Move “" + file.name + "”",
-      fields: [{ name: "projectId", label: "Project", type: "select", value: file.projectId || "", options: [{ value: "", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name }))] }],
+      fields: [{ name: "projectId", label: "Project", type: "select", value: file.projectId || "", options: [{ value: "", label: T("No project") }, ...projects.map((p) => ({ value: p.id, label: p.name }))] }],
       submitLabel: "Move",
       onSubmit: async (v) => {
         const r = await call("/files/" + encodeURIComponent(file.id), send("PATCH", { projectId: v.projectId || null }));
@@ -1366,7 +1385,7 @@
   }
 
   async function openFileViewer(file, onChanged) {
-    const close = openViewer({ title: file.name, build: (body) => body.appendChild(skeleton(2)) });
+    const close = openViewer({ title: file.name, userTitle: true, build: (body) => body.appendChild(skeleton(2)) });
     void close;
     const r = await call("/files/" + encodeURIComponent(file.id));
     if (r.ended) return closeViewer();
@@ -1661,7 +1680,7 @@
       body.appendChild(h("p", "hint", "Links the search provider returned. ZARVIS lists them; it does not open and read each page."));
       const list = h("ul", "ws-source-list");
       for (const s of [...seen.values()].slice(0, 40)) {
-        const a = h("a", "exec-link", s.title || domainOf(s.url));
+        const a = userLink(s.title || domainOf(s.url));
         a.href = s.url;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
@@ -1707,7 +1726,7 @@
     else {
       const ol = h("ol", "ws-citation-list");
       for (const c of cites) {
-        const a = h("a", "exec-link", c.title || domainOf(c.url));
+        const a = userLink(c.title || domainOf(c.url));
         a.href = c.url;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
@@ -1812,7 +1831,7 @@
     const chip = h("span", "task-status-badge", LIFECYCLE_LABEL[task.lifecycle] || task.lifecycle);
     chip.dataset.status = task.status;
     chip.dataset.lifecycle = task.lifecycle;
-    put(top, chip, task.projectId && projectNameOf(task.projectId) ? badge(projectNameOf(task.projectId), "info") : null, h("span", "task-time", relative(task.updatedAt || task.createdAt)));
+    put(top, chip, task.projectId && projectNameOf(task.projectId) ? userBadge(projectNameOf(task.projectId), "info") : null, h("span", "task-time", relative(task.updatedAt || task.createdAt)));
     card.appendChild(top);
     card.appendChild(userText("p", "task-goal", task.goal));
 
@@ -1940,7 +1959,7 @@
         fields: [
           { name: "goal", label: "Goal", required: true, maxLength: 500, placeholder: "e.g. Prepare the weekly report" },
           { name: "steps", label: "Steps (one per line, optional)", type: "textarea", rows: 5, help: "Up to 20 steps. With none, the goal itself is the one step." },
-          ...(projectId ? [] : [{ name: "projectId", label: "Project", type: "select", options: [{ value: "", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name }))] }]),
+          ...(projectId ? [] : [{ name: "projectId", label: "Project", type: "select", options: [{ value: "", label: T("No project") }, ...projects.map((p) => ({ value: p.id, label: p.name }))] }]),
         ],
         submitLabel: "Create task",
         onSubmit: async (v) => {
@@ -2060,7 +2079,7 @@
       const ico = h("span", "row-ico " + (AGENT_TONES[a.id] || "tone-blue"), icon(AGENT_ICONS[a.id] || "i-bot"));
       const open = button("", "ws-card-open", () => openAgent(a.id));
       open.setAttribute("aria-label", "Open the " + a.name + " agent");
-      card.append(h("div", "ws-card-head", ico, h("strong", "ws-card-title", a.name + " agent")), userText("p", "ws-card-goal", a.tagline), h("p", "ws-card-counts", a.available + " of " + a.skillCount + " skill" + (a.skillCount === 1 ? "" : "s") + " available on your plan"), open);
+      card.append(h("div", "ws-card-head", ico, h("strong", "ws-card-title", a.name + " agent")), h("p", "ws-card-goal", a.tagline), h("p", "ws-card-counts", a.available + " of " + a.skillCount + " skill" + (a.skillCount === 1 ? "" : "s") + " available on your plan"), open);
       grid.appendChild(card);
     }
     root.appendChild(grid);
@@ -2093,7 +2112,7 @@
     const a = r.body;
     const head = h("header", "ws-agent-head");
     head.append(h("span", "row-ico row-ico-lg " + (AGENT_TONES[a.id] || "tone-blue"), icon(AGENT_ICONS[a.id] || "i-bot")),
-      h("div", null, h("h1", "page-title", a.name + " agent"), userText("p", "page-sub", a.tagline), badge(a.available + " of " + a.skillCount + " skills available", a.available === a.skillCount ? "ok" : "info")));
+      h("div", null, h("h1", "page-title", a.name + " agent"), h("p", "page-sub", a.tagline), badge(a.available + " of " + a.skillCount + " skills available", a.available === a.skillCount ? "ok" : "info")));
     root.appendChild(head);
     root.appendChild(userText("p", "ws-desc", a.description));
 
@@ -2126,7 +2145,7 @@
     for (const s of a.skills) {
       const row = h("article", "ws-row");
       const meta = h("div", "ws-meta");
-      meta.append(badge({ LOW: "Low risk", MEDIUM: "Medium risk", HIGH: "High risk", VERY_HIGH: "Very high risk" }[s.riskLevel] || s.riskLevel, s.riskLevel === "LOW" ? "ok" : "err"),
+      put(meta, badge({ LOW: "Low risk", MEDIUM: "Medium risk", HIGH: "High risk", VERY_HIGH: "Very high risk" }[s.riskLevel] || s.riskLevel, s.riskLevel === "LOW" ? "ok" : "err"),
         s.asksConfirmation ? badge("Asks you first", "info") : badge("Doesn't act outside ZARVIS", "off"),
         s.usageCost.value ? h("span", null, s.usageCost.value + " credit" + (s.usageCost.value === 1 ? "" : "s")) : h("span", null, "Free"),
         s.upgradeRequired ? badge("Needs the " + s.requiredEntitlement + " plan", "err") : null, s.outOfCredits ? badge("Out of credits", "err") : null);
@@ -2220,7 +2239,6 @@
     const master = h("div", "panel");
     const sw = h("button", "switch");
     sw.type = "button";
-    sw.setAttribute("role", "switch");
     sw.setAttribute("aria-pressed", String(m.enabled));
     sw.setAttribute("aria-label", "Use saved memory in replies");
     sw.append(h("span", "switch-thumb"), h("span", "sr-only switch-text", m.enabled ? "On" : "Off"));
@@ -2320,7 +2338,7 @@
       description: "Keeps this reply as a generated file you can find under Work → Outputs.",
       fields: [
         { name: "name", label: "File name", required: true, maxLength: 200, value: "ZARVIS reply – " + stamp + ".md" },
-        { name: "projectId", label: "Project", type: "select", value: projectId || "", options: [{ value: "", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name }))] },
+        { name: "projectId", label: "Project", type: "select", value: projectId || "", options: [{ value: "", label: T("No project") }, ...projects.map((p) => ({ value: p.id, label: p.name }))] },
       ],
       submitLabel: "Save",
       onSubmit: async (v) => {

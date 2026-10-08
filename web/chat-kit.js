@@ -212,6 +212,7 @@
       const button = node("button", "nav-item nav-chat");
       button.type = "button";
       button.title = chat.title;
+      button.dataset.userText = ""; // the chat's own title is the user's words
       if (chat.id === api.conversationId() && api.activeView() === "chat") {
         button.classList.add("is-current");
         button.setAttribute("aria-current", "page");
@@ -231,6 +232,7 @@
     button.hidden = !latest;
     if (!latest) return;
     $("home-continue-title").textContent = latest.title;
+    $("home-continue-title").dataset.userText = "";
     $("home-continue-label").textContent = "Continue where you left off · " + relative(latest.updatedAt);
   }
 
@@ -763,6 +765,7 @@
       } else {
         const current = node("span", "crumb crumb-current", crumb.label);
         current.setAttribute("aria-current", "page");
+        if (crumb.name) current.dataset.userText = ""; // a project's own name
         item.appendChild(current);
       }
       if (index < trail.length - 1) {
