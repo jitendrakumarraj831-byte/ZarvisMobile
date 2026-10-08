@@ -61,6 +61,15 @@ The Web version is a full AI workspace for:
 
 The responsive Web application should work across desktop, tablet and mobile browsers.
 
+### Web Chat and navigation
+
+Everything below is a real client-side behaviour (`web/chat-kit.js`; the pure rules are unit tested in `web/logic.js`):
+
+- **Chat history.** A side panel (and the sidebar, Home and Activity) lists the chats opened in this browser. Opening one loads its real messages from the server. The list is an index of ids, titles and times kept in `localStorage`; it is cleared on sign-out and never claims chats the browser has not opened.
+- **Composer.** A `/` command menu (prompts to edit, or real actions), drafts that survive a reload, drag-and-drop and paste of files and images.
+- **Messages.** Day dividers, Copy / Edit on your own messages, one-tap refine follow-ups under the newest reply, and export of a chat as Markdown or text.
+- **Navigation.** Breadcrumbs, `#/chat/<id>` links, remembered scroll position on Back, a collapsible sidebar, a skip link, scroll-to-top, and keyboard shortcuts (`?` lists them).
+
 ## Android
 
 The Android version is the personal device agent.

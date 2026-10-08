@@ -2,7 +2,7 @@
   "version": 2,
   "headers": [
     {
-      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|shell\\.js|theme-init\\.js|i18n\\.js|styles\\.css|sw\\.js|index\\.html)",
+      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|shell\\.js|chat-kit\\.js|theme-init\\.js|i18n\\.js|styles\\.css|sw\\.js|index\\.html)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -74,6 +74,10 @@
     {
       "src": "^/shell\\.js$",
       "dest": "/web/shell.js"
+    },
+    {
+      "src": "^/chat-kit\\.js$",
+      "dest": "/web/chat-kit.js"
     },
     {
       "src": "^/theme-init\\.js$",

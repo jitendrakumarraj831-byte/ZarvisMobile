@@ -31,7 +31,7 @@ describe("web client files are registered everywhere they are served", () => {
   const files = referencedFiles();
 
   it("finds the scripts and styles the page uses", () => {
-    expect(files).toEqual(expect.arrayContaining(["app.js", "logic.js", "shell.js", "feature-pages.js", "theme-init.js", "styles.css", "manifest.webmanifest"]));
+    expect(files).toEqual(expect.arrayContaining(["app.js", "logic.js", "shell.js", "chat-kit.js", "feature-pages.js", "theme-init.js", "styles.css", "manifest.webmanifest"]));
   });
 
   it.each(files)("%s: Express serves it with a real content type (not the index.html fallback)", async (file) => {

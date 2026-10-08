@@ -80,6 +80,7 @@
         run: () => { api.setActiveView("settings"); api.openSettingsPage(row.dataset.settingsPage); },
       });
     }
+    items.push(...(api.extraItems?.() || []));
     for (const entry of (api.getActivity() || []).slice(0, 12)) {
       items.push({ group: "Recent activity", label: entry.title || "Activity", hint: relative(entry.at), icon: "i-activity", run: () => api.setActiveView("activity") });
     }

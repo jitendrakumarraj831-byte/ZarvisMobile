@@ -121,6 +121,14 @@
         analyze: "Analyze",
         plan: "Plan",
       },
+      quickHints: {
+        ask: "Chat about anything",
+        write: "Messages, posts and poems",
+        research: "Search the web, with sources",
+        code: "Generate and explain code",
+        analyze: "Documents and images",
+        plan: "Break a goal into steps",
+      },
     },
     hi: {
       greeting: "ZARVIS",
@@ -182,6 +190,14 @@
         analyze: "एनालाइज़",
         plan: "प्लान",
       },
+      quickHints: {
+        ask: "किसी भी विषय पर बात करें",
+        write: "संदेश, पोस्ट और कविता",
+        research: "वेब पर खोजें, स्रोतों के साथ",
+        code: "कोड बनाएँ और समझें",
+        analyze: "डॉक्यूमेंट और इमेज",
+        plan: "लक्ष्य को चरणों में बाँटें",
+      },
     },
   };
 
@@ -193,6 +209,17 @@
       if (navigator.vibrate) navigator.vibrate(ms);
     } catch {
       /* unsupported — ignore */
+    }
+  }
+
+  /** Calls into the chat kit (chat-kit.js). It adds conveniences around the thread, so a problem in it
+   * is logged and never allowed to break sending or showing a message. */
+  function kit(method, ...args) {
+    try {
+      return window.ZarvisChatKit?.[method]?.(...args);
+    } catch (err) {
+      console.warn("Zarvis chat kit:", method, err);
+      return undefined;
     }
   }
 
@@ -375,6 +402,7 @@
       ["speech recognition", setupSpeechRecognition],
       ["service worker", registerServiceWorker],
       ["navigation", setupBottomNav],
+      ["chat kit", setupChatKit],
       ["home feature links", setupHomeFeatures],
       ["capability pages", setupCapabilityPages],
       ["plans", setupPlans],
@@ -399,7 +427,17 @@
 
     try {
       await ensureSession();
-      void restoreConversation();
+      const resumeId = state.conversationId;
+      if (pendingChatLink) {
+        const link = pendingChatLink;
+        pendingChatLink = null;
+        void openConversation(link);
+      } else {
+        void restoreConversation().then((result) => {
+          if (result === "missing") kit("remove", resumeId);
+          kit("renderAll");
+        });
+      }
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
       if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
@@ -521,6 +559,7 @@
   // Back / Forward (and the Android system Back button) move between pages instead of leaving
   // the app, a reload keeps the page, and #/settings/voice style links open that page.
   let applyingRoute = false;
+  let pendingChatLink = null; // a #/chat/<id> link opened before the session exists; opened once it does
   let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
   let featureOwnsEntry = false; // same for a capability detail page
 
@@ -546,7 +585,12 @@
 
   function syncRoute() {
     const title = pageTitle();
-    document.title = title;
+    document.title = kit("decorateTitle", title) || title;
+    kit("updateCrumbs", {
+      view: state.activeView,
+      settingsTitle: state.settingsPage ? el.settingsSubpageTitle?.textContent || "" : "",
+      featureTitle: state.activeView === "feature" ? document.querySelector("#view-feature h1")?.textContent || "" : "",
+    });
     const announcer = document.getElementById("route-announcer");
     if (announcer) announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
     if (applyingRoute) return;
@@ -561,6 +605,8 @@
     const match = /^#\/([a-z]+)(?:\/([\w-]+))?$/.exec(hash || "");
     const view = match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home";
     const sub = match ? match[2] : undefined;
+    // A link to a page that doesn't exist lands on Home, and says so instead of silently showing the wrong thing.
+    if (hash && hash !== "#" && hash !== "#/" && !(match && VIEWS[match[1]] && match[1] !== "feature")) showToast("That page doesn't exist. Opened Home.");
     applyingRoute = true;
     subpageOwnsEntry = false;
     featureOwnsEntry = false;
@@ -572,6 +618,14 @@
         } else if (state.settingsPage) closeSettingsPage();
       } else if (view === "capabilities" && sub && document.querySelector(`[data-feature-page="${sub}"]`)) {
         openFeature(sub);
+      } else if (view === "chat" && sub) {
+        // #/chat/<id> opens that chat (the address bar then goes back to plain #/chat).
+        setActiveView("chat");
+        if (sub !== state.conversationId) {
+          // Without a session yet (a first visit) the request would look like a signed-out user: wait for init().
+          if (localStorage.getItem(STORAGE_KEYS.accessToken)) void openConversation(sub);
+          else pendingChatLink = sub;
+        }
       } else {
         setActiveView(view);
       }
@@ -788,6 +842,7 @@
     }
     state.conversationId = null;
     state.history = [];
+    kit("forgetAll");
   }
 
   /** Ends the session locally (tokens are useless now) and asks the user what to do next. */
@@ -1184,26 +1239,82 @@
   // After a reload (or on another browser signed into the same account) only real,
   // server-persisted messages are shown — nothing is reconstructed or invented.
 
-  async function restoreConversation() {
-    if (!state.conversationId || el.conversation.children.length > 0) return;
+  /** One load per conversation at a time: the start-up restore and a deep link must not both fill the thread. */
+  let restoreInFlight = null;
+
+  /** Returns "loaded", "missing" (the server no longer has it), "error" or "skipped". */
+  function restoreConversation() {
+    if (!state.conversationId || el.conversation.children.length > 0) return Promise.resolve("skipped");
+    if (restoreInFlight && restoreInFlight.id === state.conversationId) return restoreInFlight.promise;
+    const id = state.conversationId;
+    const promise = loadConversationMessages(id).finally(() => {
+      if (restoreInFlight?.promise === promise) restoreInFlight = null;
+    });
+    restoreInFlight = { id, promise };
+    return promise;
+  }
+
+  async function loadConversationMessages(wanted) {
+    kit("setThreadLoading", true);
     try {
-      const res = await apiFetch(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
+      const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`);
+      if (state.conversationId !== wanted) return "skipped"; // another chat was opened while this one loaded
       if (res.status === 404) {
         state.conversationId = null;
         localStorage.removeItem(STORAGE_KEYS.conversationId);
-        return;
+        return "missing";
       }
-      if (!res.ok) return;
+      if (!res.ok) return "error";
       const body = await res.json();
-      for (const message of body.messages || []) {
+      if (state.conversationId !== wanted) return "skipped";
+      const messages = body.messages || [];
+      for (const message of messages) {
         addBubble(message.role === "user" ? "user" : "assistant", message.content, undefined, message.createdAt ? new Date(message.createdAt) : null);
         state.history.push({ role: message.role, content: message.content });
       }
       state.history = state.history.slice(-12);
-      if ((body.messages || []).length) state.firstTurn = false;
+      if (messages.length) {
+        state.firstTurn = false;
+        const firstUser = messages.find((message) => message.role === "user");
+        const last = messages[messages.length - 1];
+        const lastAt = last?.createdAt ? Date.parse(last.createdAt) : NaN;
+        kit("record", wanted, { title: body.title || firstUser?.content, at: lastAt });
+      }
+      return "loaded";
     } catch (err) {
       if (!(err instanceof SessionEndedError)) console.warn("Conversation restore failed:", err);
+      return "error";
+    } finally {
+      if (state.conversationId === wanted || !state.conversationId) kit("setThreadLoading", false);
     }
+  }
+
+  /** Opens one of the user's earlier chats: its real messages are loaded from the server. */
+  async function openConversation(id) {
+    if (!id) return false;
+    if (id === state.conversationId && el.conversation.children.length > 0) {
+      setActiveView("chat");
+      return true;
+    }
+    if (currentTurnController) cancelCurrentTurn();
+    state.conversationId = id;
+    localStorage.setItem(STORAGE_KEYS.conversationId, id);
+    state.history = [];
+    state.firstTurn = true;
+    el.conversation.replaceChildren();
+    kit("threadReset");
+    syncChatConversationLayout();
+    setActiveView("chat");
+    const result = await restoreConversation();
+    if (result === "missing") {
+      kit("remove", id);
+      showToast("That chat is no longer available");
+    } else if (result === "error") {
+      showToast("Couldn't load that chat. Check your connection.");
+    }
+    updateSettingsValues();
+    kit("renderAll");
+    return result === "loaded";
   }
 
   // ---- Permissions & Device Access (Phase 1 capability registry) -------------------------
@@ -1510,6 +1621,8 @@
     plan: CATEGORY_ICON_PATHS.AUTOMATION,
   };
 
+  const QUICK_ACTION_TONES = { ask: "blue", write: "pink", research: "cyan", code: "violet", analyze: "amber", plan: "green" };
+
   function quickActionIconSvg(key) {
     return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${QUICK_ACTION_ICON_PATHS[key]}</svg>`;
   }
@@ -1525,11 +1638,13 @@
 
       const card = document.createElement("button");
       card.type = "button";
-      card.className = "chip";
-      card.innerHTML = `${quickActionIconSvg(group.key)}<span>${labels[group.key]}</span>`;
+      card.className = "starter-card tone-" + (QUICK_ACTION_TONES[group.key] || "blue");
+      const hint = COPY[state.lang].quickHints?.[group.key] || "";
+      card.innerHTML = `<span class="starter-ico">${quickActionIconSvg(group.key)}</span><span class="starter-copy"><strong>${labels[group.key]}</strong><small>${hint}</small></span>`;
       card.addEventListener("click", () => {
         haptic();
         el.input.value = example;
+        resizeComposer();
         el.input.focus();
       });
       el.categories.appendChild(card);
@@ -1715,6 +1830,7 @@
       startListening,
       pickFile: () => openFilePicker(),
       devAccess: () => state.devAccess,
+      extraItems: () => kit("paletteItems") || [],
       account: () => {
         const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
         return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
@@ -1723,6 +1839,46 @@
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
+  }
+
+  /** Hands the chat kit (chat-kit.js) the few things it needs from this file. */
+  function setupChatKit() {
+    window.ZarvisChatKit?.init({
+      input: el.input,
+      lang: () => state.lang,
+      activeView: () => state.activeView,
+      setActiveView,
+      conversationId: () => state.conversationId,
+      openConversation,
+      newConversation: startNewConversation,
+      submit: (text) => submitComposerInput(text),
+      fill: (text) => {
+        setActiveView("chat");
+        el.input.value = text;
+        resizeComposer();
+        el.input.focus();
+        el.input.setSelectionRange(text.length, text.length);
+      },
+      resizeInput: resizeComposer,
+      pickFile: () => {
+        setActiveView("chat");
+        openFilePicker();
+      },
+      attachFile: (file) => {
+        setActiveView("chat");
+        void handleFileSelected({ target: { files: [file], value: "" } });
+      },
+      startListening: () => {
+        setActiveView("chat");
+        startListening();
+      },
+      isBusy,
+      scrollToNewest: () => scrollConversationToBottom(),
+      bubbleText: bubblePlainText,
+      toast: showToast,
+      confirm: showConfirmModal,
+      closeSubpage: leaveSettingsSubpage,
+    });
   }
 
   /**
@@ -1848,6 +2004,7 @@
     state.history = [];
     state.firstTurn = true;
     el.conversation.replaceChildren();
+    kit("threadReset");
     syncChatConversationLayout();
     recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
     updateSettingsValues();
@@ -1990,6 +2147,7 @@
     if (view === "metrics" && !requireDevAccess("Usage & Metrics")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
     if (state.activeView === "settings" && view !== "settings") closeSettingsPage();
+    kit("rememberScroll", state.activeView);
 
     state.activeView = view;
     document.body.dataset.activeView = view;
@@ -2005,7 +2163,7 @@
     }
     el.composer.hidden = view !== "chat";
     document.body.classList.remove("keyboard-open");
-    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+    window.scrollTo({ top: kit("scrollTargetFor", view, applyingRoute) || 0, behavior: "instant" in window ? "instant" : "auto" });
 
     if (view === "chat") maybeShowWelcomeGate();
     if (view === "capabilities") renderCapabilities();
@@ -2021,6 +2179,7 @@
     if (view === "home") {
       renderHomeGreeting();
     }
+    kit("renderAll"); // the open chat is highlighted in the sidebar only while Chat is showing
     if (view === "developer") void refreshGithubStatus();
     if (view === "settings") {
       updateSettingsValues();
@@ -3145,6 +3304,7 @@
     const taskBlock = document.querySelector('[data-activity-block="task"]');
     if (timelineBlock) timelineBlock.hidden = type === "task";
     if (taskBlock) taskBlock.hidden = type !== "all" && type !== "task";
+    kit("syncActivityChats", type, activityFilter.query);
     renderActivityTimeline();
     if (el.activityTaskList) {
       for (const card of el.activityTaskList.querySelectorAll(".task-card")) {
@@ -3314,6 +3474,8 @@
     const utterance = rawText.trim();
     if (!utterance) return;
     el.input.value = "";
+    kit("clearDraft");
+    kit("noteUserMessage", displayText ?? utterance);
     resizeComposer(); // a long, multi-line message must not leave the composer tall once it is sent
     addBubble("user", displayText ?? utterance);
     await runTurn(utterance, isVoice, { clientTurnId: Logic.createClientTurnId() });
@@ -3442,6 +3604,7 @@
         if (event === "meta" && data?.conversationId) {
           state.conversationId = String(data.conversationId);
           localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
+          kit("record", state.conversationId, { title: isFirstTurn ? kit("pendingTitle") : undefined });
           return;
         }
         // Real backend stages only (model step / tool started / tool finished) — no simulated steps.
@@ -3505,6 +3668,7 @@
           renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
+          if (fullMessage.trim()) kit("afterTurn", { isFirstTurn });
           drainTts();
           await waitForTtsPlayback(controller.signal);
           if (!controller.signal.aborted) setOrbState("IDLE");
@@ -3590,13 +3754,20 @@
 
   function updateLatestButton() {
     const button = document.getElementById("scroll-latest");
-    if (button) button.hidden = state.activeView !== "chat" || distanceFromBottom() < 240;
+    // Only a conversation has a "latest" to jump to; the welcome screen is read from the top.
+    if (button) button.hidden = state.activeView !== "chat" || el.conversation.children.length === 0 || distanceFromBottom() < 240;
   }
 
   /** `force` is for the reader's own actions (sending, opening Chat, the jump button); streamed text, tool
    * rows and the thinking bubble only scroll when the reader is already at the bottom. */
   function scrollConversationToBottom(force = false) {
     if (!el.conversation || state.activeView !== "chat") return;
+    // Nothing said yet: the page is the welcome (starters, recent chats), which is read from the top.
+    if (!el.conversation.children.length) {
+      if (force) window.scrollTo({ top: 0, behavior: "auto" });
+      updateLatestButton();
+      return;
+    }
     if (force) followNewest = true;
     if (followNewest) {
       const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
@@ -3702,6 +3873,11 @@
       actions.appendChild(download);
       bubble.appendChild(actions);
     }
+    if (role === "user" || role === "assistant") {
+      const divider = kit("daySeparator", at);
+      if (divider) el.conversation.appendChild(divider);
+    }
+    kit("decorateBubble", bubble, role, text);
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
     scrollConversationToBottom(role === "user");
@@ -3777,12 +3953,15 @@
   /** Render a safe subset of Markdown (all input escaped first — see web/logic.js, tested). */
   /** A reply's readable text, without the code blocks' Copy buttons. */
   function bubblePlainText(body) {
+    // The reply as it was written (Markdown): copying the rendered, detached DOM would lose its line breaks.
+    if (typeof body.__zarvisSource === "string") return body.__zarvisSource;
     const clone = body.cloneNode(true);
     for (const button of clone.querySelectorAll(".code-copy")) button.remove();
     return clone.innerText || clone.textContent || "";
   }
 
   function renderFormattedText(container, text) {
+    container.__zarvisSource = text;
     container.innerHTML = Logic.formatReplyHtml(text);
     for (const pre of container.querySelectorAll("pre.reply-code")) {
       const copy = document.createElement("button");
@@ -4158,6 +4337,7 @@
     el.sendBtn.title = busy ? copy.stop : copy.send;
     el.sendBtn.setAttribute("aria-label", busy ? copy.stop : copy.send);
     el.sendLabel.textContent = busy ? copy.stop : copy.send;
+    kit("setBusy", busy);
   }
 
   // A turn is "in flight" for every state between UNDERSTANDING and the SPEAKING reply —
