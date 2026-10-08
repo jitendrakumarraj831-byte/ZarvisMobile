@@ -39,6 +39,30 @@ export interface RepoStructure {
   topLevelDirs: string[];
 }
 
+export interface PullRequestCheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  url: string | null;
+}
+
+/** What GitHub itself reports about a pull request and the checks that ran on its latest commit. */
+export interface PullRequestStatus {
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "closed";
+  merged: boolean;
+  draft: boolean;
+  headSha: string;
+  headRef: string;
+  baseRef: string;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+  checks: PullRequestCheck[];
+}
+
 export interface GitHubClient {
   /** The authenticated user behind this client's token (fails for an anonymous client). */
   getAuthenticatedUser(): Promise<GitHubUser>;
@@ -53,6 +77,8 @@ export interface GitHubClient {
   createImplementationBranch(repoUrl: string, branch: string): Promise<{ branch: string }>;
   applyImplementationFiles(repoUrl: string, branch: string, files: Array<{ path: string; content: string }>, message: string): Promise<{ commitShas: string[] }>;
   createPullRequest(repoUrl: string, branch: string, title: string, body: string): Promise<{ number: number; url: string }>;
+  /** Read-only: the pull request and the check runs / commit statuses GitHub reports for its head commit. */
+  getPullRequestStatus(repoUrl: string, number: number): Promise<PullRequestStatus>;
 }
 
 interface GitHubRepo {
@@ -222,6 +248,35 @@ export class RealGitHubClient implements GitHubClient {
     return { number: pr.number, url: pr.html_url };
   }
 
+  async getPullRequestStatus(repoUrl: string, number: number): Promise<PullRequestStatus> {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    if (!Number.isInteger(number) || number < 1) throw new GitHubApiError(400, "A pull request number is required.");
+    const pr = await this.request<{
+      number: number; title: string; html_url: string; state: "open" | "closed"; merged?: boolean; draft?: boolean;
+      head: { sha: string; ref: string }; base: { ref: string }; changed_files?: number; additions?: number; deletions?: number;
+    }>(`/repos/${owner}/${repo}/pulls/${number}`);
+    const sha = encodeURIComponent(pr.head.sha);
+    // A repository without any CI answers both with empty lists; a failing lookup is not "no checks".
+    const [runs, combined] = await Promise.all([
+      this.request<{ check_runs?: Array<{ name: string; status: string; conclusion: string | null; html_url?: string | null }> }>(`/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=50`),
+      this.request<{ statuses?: Array<{ context: string; state: string; target_url?: string | null }> }>(`/repos/${owner}/${repo}/commits/${sha}/status`),
+    ]);
+    const checks: PullRequestCheck[] = [
+      ...(runs.check_runs ?? []).map((run) => ({ name: run.name, status: run.status, conclusion: run.conclusion ?? null, url: run.html_url ?? null })),
+      ...(combined.statuses ?? []).map((status) => ({
+        name: status.context,
+        status: status.state === "pending" ? "in_progress" : "completed",
+        conclusion: status.state === "pending" ? null : status.state === "success" ? "success" : "failure",
+        url: status.target_url ?? null,
+      })),
+    ];
+    return {
+      number: pr.number, title: pr.title, url: pr.html_url, state: pr.state, merged: pr.merged === true, draft: pr.draft === true,
+      headSha: pr.head.sha, headRef: pr.head.ref, baseRef: pr.base.ref,
+      changedFiles: pr.changed_files ?? 0, additions: pr.additions ?? 0, deletions: pr.deletions ?? 0, checks,
+    };
+  }
+
   private headers(json = false): Record<string, string> {
     const headers: Record<string, string> = {
       accept: "application/vnd.github+json",
@@ -327,6 +382,15 @@ export class MockGitHubClient implements GitHubClient {
 
   async createPullRequest(_repoUrl: string, _branch: string, _title: string, _body: string) {
     return { number: 1, url: "https://github.com/example/demo/pull/1" };
+  }
+
+  async getPullRequestStatus(repoUrl: string, number: number): Promise<PullRequestStatus> {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    return {
+      number, title: "Mock pull request", url: `https://github.com/${owner}/${repo}/pull/${number}`, state: "open", merged: false, draft: false,
+      headSha: "mock-head-sha", headRef: "zarvis/agent-mock", baseRef: "main", changedFiles: 1, additions: 2, deletions: 0,
+      checks: [{ name: "mock-ci", status: "completed", conclusion: "success", url: null }],
+    };
   }
 }
 

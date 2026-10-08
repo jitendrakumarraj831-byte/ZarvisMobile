@@ -1,51 +1,46 @@
 import { randomUUID } from "node:crypto";
-import type { RiskLevel, Task, TaskStatus, TaskStep } from "../domain/types.js";
+import { taskLifecycle, type RiskLevel, type Task, type TaskLifecycle, type TaskStep } from "../domain/types.js";
 import type { Store } from "../store/store.js";
+import { TaskError, TaskExecutionUnavailableError, TaskNotFoundError } from "./errors.js";
+import type { TaskRunnerPort } from "./taskRunner.js";
+import { event, withEvent, withLifecycle } from "./taskState.js";
 
-export class TaskError extends Error {
-  readonly code: string = "invalid_transition";
+export { TaskError, TaskExecutionUnavailableError, TaskNotFoundError };
+
+/** Lifecycles a user can cancel from: every one that has not ended. */
+const CANCELLABLE: TaskLifecycle[] = ["QUEUED", "WAITING", "BLOCKED", "RUNNING", "EXECUTING", "VERIFYING", "CONFIRMATION_REQUIRED"];
+
+export interface CreateTaskOptions {
+  projectId?: string;
+  conversationId?: string;
 }
 
 /**
- * No task executor exists yet: nothing would run a task's steps. Moving a task to RUNNING
- * ("Start", "Resume", "Retry") would show work that is not happening, so it is refused.
- */
-export class TaskExecutionUnavailableError extends TaskError {
-  override readonly code = "task_execution_unavailable";
-  constructor() {
-    super("ZARVIS can't run tasks automatically yet, so nothing was started.");
-  }
-}
-
-const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  PENDING: ["RUNNING", "CANCELLED"],
-  RUNNING: ["PAUSED", "DONE", "FAILED", "CANCELLED"],
-  PAUSED: ["RUNNING", "CANCELLED"],
-  DONE: [],
-  FAILED: ["RUNNING"], // retry
-  CANCELLED: [],
-};
-
-/**
- * Reusable multi-step task engine — see MASTER_SPEC.md §18. This backend slice covers
- * lifecycle transitions (pause/resume/cancel/retry) over a Task record; step execution
- * itself is produced by whichever Agent decomposed the goal (e.g. the Developer Agent
- * flow in DEVELOPER_AGENT.md) and is out of scope for this reference implementation.
+ * The task engine's lifecycle rules over a Task record — see MASTER_SPEC.md §18.
+ *
+ * A task record is not proof of execution. Moving a task to a running state is only possible
+ * through the TaskRunner, which runs a step as a real Orchestrator turn when the user starts it
+ * and reports what that turn really did. Without a runner (`new TaskService(store)`), Run and
+ * Retry are refused with `task_execution_unavailable`, exactly as before the runner existed.
  */
 export class TaskService {
-  constructor(private readonly store: Store) {}
+  constructor(
+    private readonly store: Store,
+    private readonly runner?: TaskRunnerPort,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   /**
-   * `stepDescriptions` lets a caller (e.g. `automation.create_workflow`, SKILLS.md) seed a
-   * task with a known step breakdown up front — every step starts PENDING; nothing here
-   * executes them (see this class's own doc comment above: step execution is still out of
-   * scope for this reference implementation, an honestly-disclosed gap, not new to this).
+   * `stepDescriptions` lets a caller (e.g. `automation.create_workflow`, SKILLS.md) seed a task with a known step
+   * breakdown up front — every step starts PENDING and the task starts QUEUED; nothing executes them until the user
+   * starts a step.
    */
   async create(
     accountId: string,
     goal: string,
     riskLevel: RiskLevel = "LOW",
     stepDescriptions: string[] = [],
+    options: CreateTaskOptions = {},
   ): Promise<Task> {
     const steps: TaskStep[] = stepDescriptions.map((description) => ({
       id: randomUUID(),
@@ -53,15 +48,24 @@ export class TaskService {
       status: "PENDING",
       retryCount: 0,
     }));
-    const task: Task = {
-      id: randomUUID(),
-      accountId,
-      goal,
-      status: "PENDING",
-      steps,
-      riskLevel,
-      createdAt: new Date(),
-    };
+    const now = this.now();
+    const task: Task = withEvent(
+      {
+        id: randomUUID(),
+        accountId,
+        goal,
+        status: "PENDING",
+        lifecycle: "QUEUED",
+        steps,
+        riskLevel,
+        createdAt: now,
+        updatedAt: now,
+        retryCount: 0,
+        ...(options.projectId ? { projectId: options.projectId } : {}),
+        ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+      },
+      event("created", steps.length ? `Recorded with ${steps.length} step${steps.length === 1 ? "" : "s"}. Nothing has started.` : "Recorded. Nothing has started.", now),
+    );
     return this.store.createTask(task);
   }
 
@@ -73,39 +77,44 @@ export class TaskService {
     return this.store.listTasksForAccount(accountId);
   }
 
+  /** Legacy: older clients could pause a task a previous version left RUNNING. Only that state can be paused. */
   async pause(taskId: string): Promise<Task> {
-    return this.transition(taskId, "PAUSED");
+    const task = await this.requireTask(taskId);
+    if (taskLifecycle(task) !== "RUNNING") throw new TaskError(`Cannot move task from ${task.status} to PAUSED`);
+    const now = this.now();
+    return this.store.updateTask(withEvent(withLifecycle(task, "WAITING", now), event("paused", "Paused.", now)));
   }
 
+  /** Starts the next step. Needs the runner. */
   async resume(taskId: string): Promise<Task> {
-    await this.requireTask(taskId);
-    throw new TaskExecutionUnavailableError();
+    const task = await this.requireTask(taskId);
+    if (!this.runner) throw new TaskExecutionUnavailableError();
+    return this.runner.runNext(task.accountId, taskId);
+  }
+
+  /** Runs the failed (or interrupted) step again. Needs the runner. */
+  async retry(taskId: string): Promise<Task> {
+    const task = await this.requireTask(taskId);
+    if (!this.runner) throw new TaskExecutionUnavailableError();
+    return this.runner.runNext(task.accountId, taskId);
   }
 
   async cancel(taskId: string): Promise<Task> {
-    return this.transition(taskId, "CANCELLED");
-  }
-
-  async retry(taskId: string): Promise<Task> {
-    await this.requireTask(taskId);
-    throw new TaskExecutionUnavailableError();
+    const task = await this.requireTask(taskId);
+    const lifecycle = taskLifecycle(task);
+    if (!CANCELLABLE.includes(lifecycle)) throw new TaskError(`Cannot move task from ${task.status} to CANCELLED`);
+    const now = this.now();
+    this.runner?.abort(taskId);
+    // A step that was running when the user cancelled did not finish: it is skipped, not "done".
+    const steps = task.steps.map((step) => (step.status === "RUNNING" ? { ...step, status: "SKIPPED" as const, error: "Cancelled.", completedAt: now.toISOString() } : step));
+    return this.store.updateTask(
+      withEvent({ ...withLifecycle({ ...task, steps }, "CANCELLED", now), pendingConfirmationId: undefined, completedAt: now.toISOString() }, event("cancelled", "Cancelled by you.", now)),
+    );
   }
 
   private async requireTask(taskId: string): Promise<Task> {
     const task = await this.store.getTask(taskId);
     if (!task) throw new TaskError(`Unknown task '${taskId}'`);
     return task;
-  }
-
-  private async transition(taskId: string, next: TaskStatus): Promise<Task> {
-    const task = await this.store.getTask(taskId);
-    if (!task) {
-      throw new TaskError(`Unknown task '${taskId}'`);
-    }
-    const allowed = VALID_TRANSITIONS[task.status];
-    if (!allowed.includes(next)) {
-      throw new TaskError(`Cannot move task from ${task.status} to ${next}`);
-    }
-    return this.store.updateTask({ ...task, status: next });
   }
 }

@@ -5,6 +5,11 @@ import express, { type Express, type Router } from "express";
 import { rateLimit as apiRateLimit } from "express-rate-limit";
 import type { Container } from "./container.js";
 import { accountRouter } from "./api/routes/account.js";
+import { activityRouter, executionsRouter } from "./api/routes/activity.js";
+import { agentsRouter } from "./api/routes/agents.js";
+import { filesRouter } from "./api/routes/files.js";
+import { memoryRouter, notesRouter } from "./api/routes/notes.js";
+import { projectsRouter } from "./api/routes/projects.js";
 import { authRouter } from "./api/routes/auth.js";
 import { billingRouter } from "./api/routes/billing.js";
 import { capabilitiesRouter } from "./api/routes/capabilities.js";
@@ -142,16 +147,23 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/skills", skillsRouter(container.registry, container.entitlementPort));
   app.use("/api/v1/orchestrator", orchestratorRouter(container.orchestrator));
   app.use("/api/v1/entitlements", entitlementsRouter(container.entitlementPort));
-  app.use("/api/v1/tasks", tasksRouter(container.taskService));
+  app.use("/api/v1/tasks", tasksRouter(container.taskService, container.store));
   app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
-  app.use("/api/v1/developer", developerRouter(container.pipeline, container.registry));
+  app.use("/api/v1/developer", developerRouter(container.pipeline, container.registry, container.githubAccess));
   app.use(
     "/api/v1/confirmations",
-    confirmationsRouter(container.confirmationService, container.pipeline, container.registry, container.store),
+    confirmationsRouter(container.confirmationService, container.pipeline, container.registry, container.store, container.taskRunner),
   );
   app.use("/api/v1/integrations", integrationsRouter(container.githubAccess));
   app.use("/api/v1/capabilities", capabilitiesRouter());
-  app.use("/api/v1/conversations", conversationsRouter(container.store));
+  app.use("/api/v1/conversations", conversationsRouter(container.store, container.workspace));
+  app.use("/api/v1/projects", projectsRouter(container.workspace));
+  app.use("/api/v1/notes", notesRouter(container.workspace));
+  app.use("/api/v1/memory", memoryRouter(container.workspace));
+  app.use("/api/v1/files", filesRouter(container.workspace, container.store));
+  app.use("/api/v1/activity", activityRouter(container.workspace));
+  app.use("/api/v1/executions", executionsRouter(container.store));
+  app.use("/api/v1/agents", agentsRouter(container.agentCatalog));
   app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store, container.paymentService));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
   // Keep document parsing isolated from the startup-critical API. If its dependencies cannot

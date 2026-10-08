@@ -3,7 +3,9 @@ import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
 import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
+import { explainOutcome } from "../tooling/explainOutcome.js";
 import { stableJson } from "../util/stableJson.js";
+import { previewInput } from "../tooling/executionRecord.js";
 import type { ConversationMessage as StoredConversationMessage, Store, TurnRecord } from "../store/store.js";
 import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
@@ -13,6 +15,9 @@ import { classifyIdentityQuestion, creatorIdentityForPrompt, identityResponse } 
 import { abortError } from "../ai/geminiErrors.js";
 import { logger } from "../security/redact.js";
 import { withModelCallLog, type ModelCallRecord } from "../ai/callTrace.js";
+import type { PipelineStage } from "../tooling/toolPipeline.js";
+import { findAgent } from "./agentProfiles.js";
+import { contextPrompt, loadTurnContext, type TurnContextText } from "./turnContext.js";
 
 export interface TurnRequest {
   accountId: string;
@@ -26,6 +31,15 @@ export interface TurnRequest {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   /** Durable server-side conversation id. */
   conversationId?: string;
+  /**
+   * The project a NEW conversation is created in. An existing conversation keeps its own project;
+   * an id that is not the account's project is ignored (the chat is simply not in a project).
+   */
+  projectId?: string;
+  /** Run the turn as one of the user-facing agents: the planner only sees that agent's skills. */
+  agentId?: string;
+  /** The task whose step this turn carries out, recorded on executions and confirmations. */
+  taskId?: string;
   /** Correlation id for this one user turn; generated when the caller has none. */
   turnId?: string;
   /**
@@ -81,10 +95,11 @@ const STALE_TURN_MS = 5 * 60 * 1000;
 
 /** Real progress of a turn, emitted only when the stage actually happens (no simulated steps). */
 export type TurnEvent =
-  | { type: "conversation"; conversationId: string }
+  | { type: "conversation"; conversationId: string; projectId?: string; agentId?: string }
   | { type: "thinking"; step: number }
-  | { type: "tool_started"; skillId: string; toolCallId: string }
-  | { type: "tool_finished"; skillId: string; toolCallId: string; status: StructuredToolResult["status"] };
+  | { type: "tool_started"; skillId: string; toolCallId: string; skillName?: string; riskLevel?: string; actionClass?: string; inputPreview?: Record<string, unknown> }
+  | { type: "tool_stage"; skillId: string; toolCallId: string; stage: PipelineStage; action?: string }
+  | { type: "tool_finished"; skillId: string; toolCallId: string; status: StructuredToolResult["status"]; summary?: string };
 
 interface TurnStats {
   modelCalls: number;
@@ -163,7 +178,7 @@ export class Orchestrator {
           // A re-sent turn that already finished (e.g. its stream dropped after the server
           // completed it): return what it produced. No model call, no tool, no charge.
           logger.info("Turn replayed from its stored result", { turnId, clientTurnId, originalTurnId: stored.turnId });
-          onEvent({ type: "conversation", conversationId: stored.conversationId });
+          onEvent({ type: "conversation", conversationId: stored.conversationId, ...(request.agentId ? { agentId: request.agentId } : {}) });
           return { ...stored, replayed: true };
         }
       }
@@ -234,10 +249,17 @@ export class Orchestrator {
     const conversation = conversationId
       ? await this.store.getConversation(request.accountId, conversationId)
       : undefined;
+    // A new chat starts in the project the user opened it from, but only if that project is theirs.
+    const requestedProject = !conversation && request.projectId
+      ? await this.store.getProject(request.accountId, request.projectId)
+      : undefined;
     const activeConversation = conversation ?? await this.store.createConversation(
       request.accountId,
       request.utterance.trim().slice(0, 80),
+      requestedProject?.id,
     );
+    const projectId = activeConversation.projectId;
+    const agent = findAgent(request.agentId);
     const persistedMessages = await this.store.listConversationMessages(
       request.accountId,
       activeConversation.id,
@@ -257,7 +279,7 @@ export class Orchestrator {
       persistedMessages.push(...seed);
     }
 
-    onEvent({ type: "conversation", conversationId: activeConversation.id });
+    onEvent({ type: "conversation", conversationId: activeConversation.id, ...(projectId ? { projectId } : {}), ...(agent ? { agentId: agent.id } : {}) });
     // The failed attempt being retried already stored this message: store it once.
     const userMessageStored = previousAttempt?.conversationId === activeConversation.id;
     if (userMessageStored) {
@@ -299,7 +321,9 @@ export class Orchestrator {
     const availableSkills = this.registry
       .all()
       .filter((skill) => !skill.executesOnDevice)
-      .filter((skill) => resolveEntitlement(snapshot, skill, now).allowed);
+      .filter((skill) => resolveEntitlement(snapshot, skill, now).allowed)
+      // "Ask Agent": the planner only sees the skills of the chosen agent's categories.
+      .filter((skill) => !agent || agent.categories.includes(skill.category));
 
     const tools = availableSkills
       // A previous developer result is context, not permission to repeat the same action.
@@ -314,10 +338,18 @@ export class Orchestrator {
 
     const context: SkillExecutionContext = {
       accountId: request.accountId,
-      taskId: undefined,
+      taskId: request.taskId,
       conversationId: activeConversation.id,
+      ...(projectId ? { projectId } : {}),
       locale: request.locale ?? "en",
     };
+    // Saved memory and the project's state, read now; a failure here must not stop the turn.
+    let turnContext: TurnContextText = {};
+    try {
+      turnContext = await loadTurnContext(this.store, request.accountId, projectId);
+    } catch (err) {
+      logger.warn("Could not load saved memory for the turn", { turnId, error: err instanceof Error ? err.message : String(err) });
+    }
 
     const results: TurnToolCall[] = [];
     const executedToolRequests = new Set<string>();
@@ -345,7 +377,7 @@ export class Orchestrator {
         aiResponse = await this.provider.generate({
           modelCallId: randomUUID(),
           purpose: "planner",
-          systemPrompt: buildSystemPrompt(request, step, results.length > 0),
+          systemPrompt: buildSystemPrompt(request, step, results.length > 0, { context: turnContext, agentFocus: agent?.focus }),
           messages,
           tools,
           modelConfig: this.modelConfig,
@@ -411,13 +443,22 @@ export class Orchestrator {
             input: { values: call.input },
           };
           stats.toolCalls.push({ toolCallId: toolCall.id, skillId: call.skillId });
-          onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: toolCall.id });
-          outcome = await this.pipeline.execute(toolCall, context);
-          const result = toStructuredResult(call.skillId, this.registry.find(call.skillId), outcome, explainOutcome(outcome));
+          const skill = this.registry.find(call.skillId);
+          onEvent({
+            type: "tool_started",
+            skillId: call.skillId,
+            toolCallId: toolCall.id,
+            ...(skill ? { skillName: skill.name, riskLevel: skill.riskLevel, actionClass: skill.actionClass } : {}),
+            inputPreview: previewInput(call.input),
+          });
+          outcome = await this.pipeline.execute(toolCall, context, {
+            onStage: ({ stage, action }) => onEvent({ type: "tool_stage", skillId: call.skillId, toolCallId: toolCall.id, stage, ...(action ? { action } : {}) }),
+          });
+          const result = toStructuredResult(call.skillId, skill, outcome, explainOutcome(outcome));
           const executed = { toolCallId: toolCall.id, skillId: call.skillId, outcome, result };
           results.push(executed);
           if (outcome.kind === "success") stats.completedTools.push({ requestKey, call: executed });
-          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status });
+          onEvent({ type: "tool_finished", skillId: call.skillId, toolCallId: toolCall.id, status: result.status, summary: result.userSafeMessage.replace(/\s+/g, " ").trim().slice(0, 240) });
         }
         executedAny = true;
 
@@ -545,7 +586,12 @@ function getSimpleGreetingResponse(utterance: string, locale?: string): string |
 }
 
 /** Exported for tests only. */
-export function buildSystemPrompt(request: TurnRequest, step: number, hasExecutedTools: boolean): string {
+export function buildSystemPrompt(
+  request: TurnRequest,
+  step: number,
+  hasExecutedTools: boolean,
+  extra: { context?: TurnContextText; agentFocus?: string } = {},
+): string {
   const replyLanguage = detectReplyLanguage(request.utterance, request.locale);
   let prompt =
     "You are ZARVIS, a general-purpose AI agent. Your job is to complete the user's goal, " +
@@ -573,6 +619,10 @@ export function buildSystemPrompt(request: TurnRequest, step: number, hasExecute
       "results as authoritative and use them to decide the next step.";
   }
 
+  if (extra.agentFocus) prompt += " " + extra.agentFocus;
+  const saved = extra.context ? contextPrompt(extra.context) : "";
+  if (saved) prompt += "\n\n" + saved + "\n\n";
+
   if (request.userName) {
     prompt +=
       ` The user's display name is ${request.userName}. Use it naturally only when appropriate; ` +
@@ -589,39 +639,4 @@ export function buildSystemPrompt(request: TurnRequest, step: number, hasExecute
   return prompt;
 }
 
-/** Maps every pipeline outcome to an honest, user-facing explanation. */
-export function explainOutcome(outcome: ToolExecutionOutcome): string {
-  switch (outcome.kind) {
-    case "success":
-      return outcome.result.summary;
-    case "skill_not_found":
-      return "I don't have a skill for that yet.";
-    case "validation_failed":
-      return `I'm missing some details before I can do that: ${outcome.missingFields.join(", ")}.`;
-    case "permission_denied":
-      return `This needs a permission that isn't granted yet: ${outcome.missing.join(", ")}.`;
-    case "entitlement_denied":
-      return explainEntitlementDenial(outcome.decision);
-    case "confirmation_required":
-      return `I need your confirmation before I do this: ${outcome.confirmation.action} — approve or decline it below. Nothing has been done yet.`;
-    case "confirmation_declined":
-      return "You declined this action, so it was not performed.";
-    case "execution_failed":
-      return outcome.result.userMessage;
-    case "verification_failed":
-      return "Something went wrong while I was verifying the result, so I did not complete this action.";
-  }
-}
-
-function explainEntitlementDenial(
-  decision: Extract<ToolExecutionOutcome, { kind: "entitlement_denied" }>[ "decision" ],
-): string {
-  switch (decision.reason) {
-    case "TRIAL_EXPIRED":
-      return `Your trial has ended — upgrade to ${decision.upgradeTo ?? "a paid plan"} to keep using this.`;
-    case "PLAN_TOO_LOW":
-      return `This needs the ${decision.upgradeTo ?? "next"} plan.`;
-    case "OUT_OF_CREDITS":
-      return "You're out of credits for this action right now.";
-  }
-}
+export { explainOutcome } from "../tooling/explainOutcome.js";

@@ -6,6 +6,7 @@ import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
+import { findAgent } from "../../agents/agentProfiles.js";
 
 /**
  * POST /api/v1/orchestrator/turn — one conversation turn (JSON).
@@ -14,7 +15,8 @@ import { rateLimit } from "../middleware/rateLimit.js";
  * step started, tool started/finished); the reply text is sent once when it exists. There is
  * no simulated token-by-token drip.
  *
- * Both accept an optional `clientTurnId` (8–100 of [A-Za-z0-9_-]): the client's idempotency key
+ * Both accept an optional `projectId` (the project a NEW chat starts in) and `agentId` (run the turn with one
+ * agent's skills only), and an optional `clientTurnId` (8–100 of [A-Za-z0-9_-]): the client's idempotency key
  * for one logical user turn, reused when it re-sends that turn. A completed turn is answered
  * from its stored result (`replayed: true`, nothing executed); a turn still running elsewhere
  * gets `turn_in_progress` (409 / SSE error); a failed one runs again.
@@ -51,7 +53,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
       };
       try {
         const result = await orchestrator.runTurn({ ...request, turnId, signal: cancel.signal }, (event: TurnEvent) => {
-          if (event.type === "conversation") send("meta", { conversationId: event.conversationId, turnId });
+          if (event.type === "conversation") send("meta", { conversationId: event.conversationId, turnId, ...(event.projectId ? { projectId: event.projectId } : {}), ...(event.agentId ? { agentId: event.agentId } : {}) });
           else send("progress", event);
         });
         send("delta", { text: result.message });
@@ -139,7 +141,7 @@ function abortOnClientGone(res: Response): { signal: AbortSignal; dispose(): voi
 const CLIENT_TURN_ID = /^[A-Za-z0-9_-]{8,100}$/;
 
 function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { error: string; code: string } } {
-  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId } = req.body ?? {};
+  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId, projectId, agentId } = req.body ?? {};
   if (typeof utterance !== "string" || utterance.trim().length === 0) {
     return { error: { error: "utterance is required", code: "invalid_request" } };
   }
@@ -148,8 +150,15 @@ function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { e
   if (clientTurnId !== undefined && clientTurnId !== null && (typeof clientTurnId !== "string" || !CLIENT_TURN_ID.test(clientTurnId))) {
     return { error: { error: "clientTurnId must be 8-100 characters of A-Z, a-z, 0-9, _ or -", code: "invalid_client_turn_id" } };
   }
+  // Unlike a malformed key, an unknown agent is named back to the client: running the turn with every
+  // skill instead would not be what the user asked for.
+  if (agentId !== undefined && agentId !== null && !findAgent(agentId)) {
+    return { error: { error: "Unknown agent.", code: "invalid_agent" } };
+  }
   return {
     clientTurnId: typeof clientTurnId === "string" ? clientTurnId : undefined,
+    projectId: typeof projectId === "string" && projectId.trim() ? projectId.trim().slice(0, 100) : undefined,
+    agentId: typeof agentId === "string" ? agentId : undefined,
     accountId: req.auth!.accountId,
     utterance: utterance.slice(0, 70_000),
     locale: typeof locale === "string" ? locale.slice(0, 16) : undefined,

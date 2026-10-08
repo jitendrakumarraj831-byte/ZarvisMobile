@@ -1,4 +1,5 @@
-import type { ActionClass, EntitlementLevel, PermissionType, RiskLevel, Task } from "../domain/types.js";
+import type { ActionClass, EntitlementLevel, PermissionType, RiskLevel, Task, TaskLifecycle } from "../domain/types.js";
+import type { Project, ProjectStatus, ToolExecutionRecord, WorkspaceFile, WorkspaceFileSummary, WorkspaceNote, WorkspaceNoteKind } from "../domain/workspace.js";
 
 export class InsufficientCreditsError extends Error {
   constructor(accountId: string) {
@@ -67,6 +68,8 @@ export interface ConfirmationRecord {
   riskLevel: RiskLevel;
   actionClass: ActionClass;
   conversationId?: string;
+  /** The task whose step asked for this approval, so the task can report what the approval did. */
+  taskId?: string;
   status: ConfirmationStatus;
   createdAt: Date;
   expiresAt: Date;
@@ -88,6 +91,8 @@ export interface Account {
   plan: EntitlementLevel;
   /** When a paid plan lapses (the account is then treated as FREE). Null/absent: no expiry. */
   planExpiresAt?: Date | null;
+  /** Whether saved memory is given to the model. Absent means on. The user can pause it. */
+  memoryEnabled?: boolean;
   createdAt: Date;
 }
 
@@ -143,6 +148,8 @@ export interface Conversation {
   id: string;
   accountId: string;
   title?: string;
+  /** The project the chat belongs to, if the user started it in one or moved it there. */
+  projectId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -267,10 +274,12 @@ export interface Store {
   fulfillPaymentOrder(orderId: string, paymentId: string, now: Date): Promise<FulfillmentResult>;
   listUsage(accountId: string): Promise<UsageEntry[]>;
 
-  createConversation(accountId: string, title?: string): Promise<Conversation>;
+  createConversation(accountId: string, title?: string, projectId?: string): Promise<Conversation>;
   getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined>;
   /** Newest first. `limit` caps the rows read (the list endpoint never needs an account's whole history). */
-  listConversations(accountId: string, limit?: number): Promise<Conversation[]>;
+  listConversations(accountId: string, limit?: number, filter?: { projectId?: string }): Promise<Conversation[]>;
+  /** Moves a chat into a project, or out of every project with `null`. Returns undefined for a chat that is not the account's. */
+  setConversationProject(accountId: string, conversationId: string, projectId: string | null): Promise<Conversation | undefined>;
   appendConversationMessages(messages: ConversationMessage[]): Promise<void>;
   listConversationMessages(accountId: string, conversationId: string, limit?: number): Promise<ConversationMessage[]>;
 
@@ -317,4 +326,44 @@ export interface Store {
   getTask(taskId: string): Promise<Task | undefined>;
   updateTask(task: Task): Promise<Task>;
   listTasksForAccount(accountId: string): Promise<Task[]>;
+  /**
+   * Atomically moves the account's task to `to` when it is in one of `from`, or when it is mid-run
+   * (RUNNING/EXECUTING/VERIFYING) and has not been touched since `staleBefore` (its request died).
+   * Returns the updated task, or undefined when it is missing, not the account's, or already
+   * running elsewhere. This is what keeps two Run clicks from executing the same step twice.
+   */
+  claimTaskRun(accountId: string, taskId: string, from: TaskLifecycle[], now: Date, staleBefore: Date): Promise<Task | undefined>;
+
+  createProject(project: Project): Promise<Project>;
+  getProject(accountId: string, projectId: string): Promise<Project | undefined>;
+  /** Newest activity first. */
+  listProjects(accountId: string, filter?: { status?: ProjectStatus }): Promise<Project[]>;
+  updateProject(project: Project): Promise<Project>;
+  /** Removes the project and its notes; its chats, tasks and files stay and become unassigned. */
+  deleteProject(accountId: string, projectId: string): Promise<boolean>;
+
+  createNote(note: WorkspaceNote): Promise<WorkspaceNote>;
+  getNote(accountId: string, noteId: string): Promise<WorkspaceNote | undefined>;
+  /** `projectId: null` lists the notes that belong to no project (personal memory, loose research). Oldest first. */
+  listNotes(accountId: string, filter?: { projectId?: string | null; kind?: WorkspaceNoteKind }): Promise<WorkspaceNote[]>;
+  updateNote(note: WorkspaceNote): Promise<WorkspaceNote>;
+  deleteNote(accountId: string, noteId: string): Promise<boolean>;
+  /** Deletes every personal-memory note of the account (the "forget everything" action). Returns how many. */
+  deletePersonalMemory(accountId: string): Promise<number>;
+  setMemoryEnabled(accountId: string, enabled: boolean): Promise<Account>;
+
+  createFile(file: WorkspaceFile): Promise<WorkspaceFile>;
+  getFile(accountId: string, fileId: string): Promise<WorkspaceFile | undefined>;
+  /** Newest first, without the text. `projectId: null` lists the files that belong to no project. */
+  listFiles(accountId: string, filter?: { projectId?: string | null; limit?: number }): Promise<WorkspaceFileSummary[]>;
+  updateFile(file: WorkspaceFile): Promise<WorkspaceFile>;
+  deleteFile(accountId: string, fileId: string): Promise<boolean>;
+
+  recordExecution(record: ToolExecutionRecord): Promise<void>;
+  getExecution(accountId: string, executionId: string): Promise<ToolExecutionRecord | undefined>;
+  /** Newest first. */
+  listExecutions(
+    accountId: string,
+    filter?: { conversationId?: string; projectId?: string; taskId?: string; skillIds?: string[]; limit?: number },
+  ): Promise<ToolExecutionRecord[]>;
 }

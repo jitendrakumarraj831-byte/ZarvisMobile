@@ -30,6 +30,12 @@ const server = http.createServer((req, res) => {
   if (rest === "/contents") return send(200, [{ name: "src", type: "dir" }]);
   if (rest.startsWith("/contents/")) return send(200, { content: Buffer.from("{}").toString("base64"), encoding: "base64", sha: "abc" });
   if (rest.startsWith("/git/ref/")) return send(200, { object: { sha: "base" } });
+  // Pull request 1 (the one the stub "creates"): open, with one passing and one failing check run. PR 2 has no CI at all.
+  const pr = rest.match(/^\/pulls\/(\d+)$/);
+  if (pr) return send(200, { number: Number(pr[1]), title: "ZARVIS Agent: stub change", html_url: `https://github.com/${owner}/${repo}/pull/${pr[1]}`, state: "open", merged: false, draft: false, head: { sha: "head" + pr[1], ref: "zarvis/agent-stub" }, base: { ref: "main" }, changed_files: 2, additions: 10, deletions: 1 });
+  if (rest === "/commits/head1/check-runs") return send(200, { check_runs: [{ name: "unit tests", status: "completed", conclusion: "success", html_url: "https://example.test/runs/1" }, { name: "lint", status: "completed", conclusion: "failure", html_url: null }] });
+  if (rest === "/commits/head1/status") return send(200, { statuses: [] });
+  if (rest.startsWith("/commits/head2/")) return send(200, rest.endsWith("/status") ? { statuses: [] } : { check_runs: [] });
   return send(404, { message: "Not Found" });
 });
 server.listen(Number(process.env.STUB_PORT || 3200), () => console.log("github stub listening"));

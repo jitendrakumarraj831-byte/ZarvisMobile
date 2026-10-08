@@ -10,6 +10,7 @@ import { toStructuredResult } from "../../tooling/toolResult.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
+import type { TaskRunner } from "../../tasks/taskRunner.js";
 
 /**
  * GET  /api/v1/confirmations/:id          — what a pending confirmation will do.
@@ -24,6 +25,7 @@ export function confirmationsRouter(
   pipeline: ToolPipeline,
   registry: SkillRegistry,
   store: Store,
+  taskRunner?: Pick<TaskRunner, "recordConfirmationOutcome">,
 ): Router {
   const router = Router();
   const limit = rateLimit({ name: "confirmations", windowMs: 60 * 1000, max: 30, keyBy: "account" });
@@ -66,12 +68,22 @@ export function confirmationsRouter(
         return;
       }
       const { record, grant } = approved;
+      // The run belongs to the chat (and so the project) and to the task that asked for the approval.
+      const conversation = record.conversationId ? await store.getConversation(accountId, record.conversationId) : undefined;
       const outcome = await pipeline.execute(
         { id: randomUUID(), skillId: record.skillId, input: { values: record.input } },
-        { accountId, conversationId: record.conversationId, confirmationGrant: grant },
+        {
+          accountId,
+          conversationId: record.conversationId,
+          ...(conversation?.projectId ? { projectId: conversation.projectId } : {}),
+          ...(record.taskId ? { taskId: record.taskId } : {}),
+          confirmationGrant: grant,
+        },
       );
       const message = explainOutcome(outcome);
       if (record.conversationId) await appendAssistant(store, accountId, record.conversationId, message);
+      // A task step that was waiting for this approval learns what it did (success, failure, or a changed action).
+      await taskRunner?.recordConfirmationOutcome(record, outcome);
       res.json({
         confirmationId: record.id,
         outcome,
@@ -95,6 +107,7 @@ export function confirmationsRouter(
       const outcome = { kind: "confirmation_declined" as const, skillId: record.skillId };
       const message = explainOutcome(outcome);
       if (record.conversationId) await appendAssistant(store, accountId, record.conversationId, message);
+      await taskRunner?.recordConfirmationOutcome(record, outcome);
       res.json({
         confirmationId: record.id,
         outcome,
