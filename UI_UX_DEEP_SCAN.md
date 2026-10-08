@@ -178,10 +178,13 @@ Before the fixes Plans was reached from 5 controls, Settings → Account from 2,
 
 | Check | Result |
 |---|---|
-| `node --test web/tests/*.test.js` | 32/32 (incl. link targets and moved addresses) |
-| `web/e2e/quality.e2e.cjs` (responsive 8×6, axe light/dark/Hindi, keyboard, offline) | 24/24 |
-| `web/e2e/phase1.e2e.cjs` | 31/33 on this machine; the 2 failures shell out to `psql` and fail identically on the untouched code (no Postgres here); CI runs them with Postgres. Two steps updated for the new structure (sidebar name in Hindi, removed pages) and two added (moved addresses, first-visit links) |
-| Browser flow script (stubbed API, 56 steps) | 56/56: every fix in §3.1 |
-| Link scan before → after | controls 332 → 344 (desktop), 287 → 301 (phone); dead 0; mismatches only keyword false positives |
+| `node --test web/tests/*.test.js` | 35/35 (link targets, moved addresses, `g t`, chat-list merge) |
+| Backend: `tsc --noEmit` and the full suite on Postgres | 462 passed, 2 skipped (the new `GET /conversations` tests run on both stores; the client-contract test checks every web `apiFetch` route) |
+| `web/e2e/phase1.e2e.cjs` against a real backend + Postgres | 36/36 — new steps: chat list follows the account across browsers, guest sign-out dialog, Tasks page (link, list, search, cancel, badge, Home and Activity rows, phone tab bar) |
+| `web/e2e/quality.e2e.cjs` (responsive, axe light/dark/Hindi, keyboard, offline) | 24/24 |
+| Browser flow script (stubbed API, 56 steps; run for the linking pass) | 56/56 |
+| Link scan of the pages this round touched (Tasks, Activity, Capabilities, Home; desktop and phone, fresh load per control) | dead 0; Capabilities → Tracked tasks and Home → Tasks open the Tasks page; the logo on Home is a correct no-op (now recognised by the tool) |
+
+The full-site scan numbers in §2 and §7 are from the linking pass; the pages touched since were re-scanned as above, not the whole site.
 
 **Re-running the scan:** `ZARVIS_URL=http://localhost:3100 node web/e2e/link-scan.cjs desktop` (or `phone`). It discovers pages from the app itself, prints the summary above and writes `link-scan-<size>.json`. Add `LINK_SCAN_SHOTS=<dir>` for screenshots.

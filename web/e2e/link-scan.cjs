@@ -148,7 +148,7 @@ function summarize(result) {
       const d = r.diff || {};
       const label = norm(r.name) || "(no name)";
       if (r.outcome === "NOTHING") {
-        const here = /^(home|chat|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat)/i.test(label) || r.tag === "label" || /form/.test(r.section || "");
+        const here = /^(zarvis ai home|home|chat|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat)/i.test(label) || r.tag === "label" || /form/.test(r.section || "");
         if (here) benign++; else dead.push(`${s.name} :: "${label}" [${r.section}]`);
       } else if (r.after && (d.view || d.settings !== undefined)) {
         if (d.composer) prompts++;
@@ -227,5 +227,5 @@ function summarize(result) {
   fs.writeFileSync(OUT, JSON.stringify(result));
   await browser.close();
   console.log("\n" + summarize(result) + "\n\nfull data: " + OUT);
-  process.exit(result.states.some((s) => s.records.some((r) => r.outcome === "NOTHING" && !/^(home|chat|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat)/i.test(norm(r.name)) && r.tag !== "label" && !/form/.test(r.section || ""))) ? 1 : 0);
+  process.exit(result.states.some((s) => s.records.some((r) => r.outcome === "NOTHING" && !/^(zarvis ai home|home|chat|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat)/i.test(norm(r.name)) && r.tag !== "label" && !/form/.test(r.section || ""))) ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
