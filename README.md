@@ -65,7 +65,7 @@ The responsive Web application should work across desktop, tablet and mobile bro
 
 Everything below is a real client-side behaviour (`web/chat-kit.js`; the pure rules are unit tested in `web/logic.js`):
 
-- **Chat history.** A side panel (and the sidebar, Home and Activity) lists the chats opened in this browser. Opening one loads its real messages from the server. The list is an index of ids, titles and times kept in `localStorage`; it is cleared on sign-out and never claims chats the browser has not opened.
+- **Chat history.** A side panel (and the sidebar, Home and Activity) lists your chats, newest first. The browser keeps an index of ids, titles and times in `localStorage` and tops it up from `GET /api/v1/conversations` (metadata only, the account's own chats), so history follows the account to another device or a cleared browser; if that request fails the list simply stays as it is. Opening a chat loads its real messages from the server. A chat you remove from the list stays hidden on that browser until you write in it again; the index and the hidden ids are cleared on sign-out.
 - **Composer.** A `/` command menu (prompts to edit, or real actions), drafts that survive a reload, drag-and-drop and paste of files and images.
 - **Messages.** Day dividers, Copy / Edit on your own messages, one-tap refine follow-ups under the newest reply, and export of a chat as Markdown or text.
 - **Navigation.** Breadcrumbs, `#/chat/<id>` links, remembered scroll position on Back, a collapsible sidebar, a skip link, scroll-to-top, and keyboard shortcuts (`?` lists them).

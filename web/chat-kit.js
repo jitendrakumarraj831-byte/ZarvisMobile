@@ -1,8 +1,8 @@
 /* ZARVIS MOBILE — Chat and navigation kit.
 
    Everything here is a real, client-side behaviour; nothing is simulated:
-   - the chat list (an index of the conversations this browser opened; opening one loads its real
-     messages from the server) with search, the side panel, the sidebar "Recent chats", the Home
+   - the chat list (this browser's index of conversations, topped up from the account's list on the server;
+     opening one loads its real messages from the server) with search, the side panel, the sidebar "Recent chats", the Home
      "Continue" row and the Activity "Recent chats" block,
    - the "/" command menu, one-tap refine follow-ups, edit-and-resend, day dividers,
    - export / copy of a conversation, drafts, drag-and-drop and paste of files,
@@ -14,7 +14,7 @@
   "use strict";
 
   const L = window.ZarvisLogic;
-  const KEYS = { chats: "zarvis.chats", draft: "zarvis.draft", textSize: "zarvis.chatText", rail: "zarvis.sidebarRail" };
+  const KEYS = { chats: "zarvis.chats", hidden: "zarvis.chatsHidden", draft: "zarvis.draft", textSize: "zarvis.chatText", rail: "zarvis.sidebarRail" };
   const SVG_NS = "http://www.w3.org/2000/svg";
   const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
@@ -24,6 +24,10 @@
   let lastUserText = ""; // what the user's newest message said, for naming a new chat
   let busy = false;
   let historyOpener = null;
+  let hidden = []; // chats the user removed from the list here; the server list must not bring them back
+  let syncing = false;
+  let lastSyncAt = 0;
+  let generation = 0; // bumped on sign-out so a list still in flight cannot reach the next person
 
   const $ = (id) => document.getElementById(id);
 
@@ -69,10 +73,11 @@
   const isTyping = (target) => !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
   const overlayOpen = () => !!document.querySelector(".modal-overlay:not([hidden]), .palette-overlay:not([hidden])");
 
-  // ---------- chat list (index of conversations opened in this browser) ----------
+  // ---------- chat list (this browser's index, topped up from the account's list on the server) ----------
 
   function loadChats() {
     chats = L.parseChatIndex(store("get", KEYS.chats) || "[]");
+    hidden = L.parseHiddenChats(store("get", KEYS.hidden) || "[]");
   }
 
   function saveChats() {
@@ -81,6 +86,11 @@
 
   function record(id, { title, at } = {}) {
     if (!id) return;
+    if (hidden.includes(id)) {
+      // A chat the user is writing in again belongs back in the list.
+      hidden = hidden.filter((other) => other !== id);
+      store("set", KEYS.hidden, JSON.stringify(hidden));
+    }
     chats = L.upsertChat(chats, { id, title, updatedAt: Number.isFinite(at) ? at : Date.now() });
     saveChats();
     renderAll();
@@ -88,14 +98,45 @@
 
   function removeFromList(id) {
     chats = L.removeChat(chats, id);
+    hidden = L.hideChat(hidden, id);
+    store("set", KEYS.hidden, JSON.stringify(hidden));
     saveChats();
     renderAll();
+  }
+
+  /**
+   * Pulls this account's conversations from the server and folds them into the list, so history follows the
+   * account to a new device or a cleared browser. Best effort: offline or failing leaves the list as it is.
+   * Throttled, because opening the history panel and finishing sign-in both ask for it.
+   */
+  async function sync({ force = false } = {}) {
+    if (!api?.fetchConversations || syncing) return;
+    if (!force && Date.now() - lastSyncAt < 20000) return;
+    syncing = true;
+    const started = generation;
+    try {
+      const server = await api.fetchConversations();
+      if (started !== generation || !Array.isArray(server)) return;
+      lastSyncAt = Date.now();
+      const merged = L.mergeServerChats(chats, server, hidden);
+      if (JSON.stringify(merged) === JSON.stringify(chats)) return;
+      chats = merged;
+      saveChats();
+      renderAll();
+    } catch {
+      /* the list already on screen is still right */
+    } finally {
+      syncing = false;
+    }
   }
 
   /** Signing out, switching account or deleting the account: the next person on this browser sees none of it. */
   function forgetAll() {
     chats = [];
-    for (const key of [KEYS.chats, KEYS.draft]) store("remove", key);
+    hidden = [];
+    generation += 1;
+    lastSyncAt = 0;
+    for (const key of [KEYS.chats, KEYS.hidden, KEYS.draft]) store("remove", key);
     if (api?.input) api.input.value = "";
     renderAll();
   }
@@ -239,6 +280,7 @@
     renderHistory();
     overlay.hidden = false;
     $("history-search").focus({ preventScroll: true });
+    void sync();
   }
 
   function closeHistory(restoreFocus = true) {
@@ -857,6 +899,7 @@
     init,
     record,
     remove: removeFromList,
+    sync,
     forgetAll,
     renderAll,
     daySeparator,

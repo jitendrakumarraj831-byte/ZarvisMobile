@@ -169,7 +169,7 @@ Before the fixes Plans was reached from 5 controls, Settings → Account from 2,
 | O3 | Phone bottom-bar slot 4: **Activity or Tasks** (needs O1) | Android parity | Trivial after O1 |
 | O4 | Drop the *AI Workspace* and *Tasks & Automation* capability pages | They describe Chat and Tasks | Trivial after O1 |
 | O5 | Guest sign-out dialog gets a **"Link an email"** button | A guest loses the account; the dialog says so but offers no way | Small (dialog has a fixed footer) |
-| O6 | Server `GET /conversations` so chat history spans devices | History is a per-browser index today | Backend + Postgres store |
+| O6 | Server `GET /conversations` so chat history spans devices | **Done** — metadata-only list, merged into the browser index | Backend + Postgres store |
 | O7 | Promote Work/Files/Research/Creative/Business to primary pages | Only when their data exists | Product + backend |
 | O8 | Android label parity (Activity/Tasks/Work) | Same product, one vocabulary | With O1 |
 

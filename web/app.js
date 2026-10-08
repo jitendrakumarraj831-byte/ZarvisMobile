@@ -437,6 +437,7 @@
         if (result === "missing") kit("remove", resumeId);
         kit("renderAll");
       });
+      void kit("sync", { force: true });
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
       if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
@@ -1874,6 +1875,12 @@
       activeView: () => state.activeView,
       setActiveView,
       conversationId: () => state.conversationId,
+      fetchConversations: async () => {
+        const res = await apiFetch("/conversations?limit=50");
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        return Array.isArray(data?.conversations) ? data.conversations : null;
+      },
       openConversation,
       newConversation: startNewConversation,
       submit: (text) => submitComposerInput(text),

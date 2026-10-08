@@ -146,6 +146,32 @@ async function send(page, text) {
     assert.ok(messages.includes("hello"));
   });
 
+  await step("chat list follows the account: a browser that never opened the chat lists it, a removed chat stays removed, and the other browser keeps it", async () => {
+    const conversationId = await ls(pageA, "zarvis.conversationId");
+    assert.ok(conversationId, "browser A has a conversation");
+    // B signed in a moment ago and never opened this chat: the server list alone must put it in the index.
+    await pageB.waitForFunction((id) => (localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
+    await nav(pageB, "chat");
+    await pageB.click("#chat-history-btn");
+    const rowB = pageB.locator("#history-list .chat-row", { hasText: "hello" });
+    await rowB.first().waitFor();
+    assert.equal(await rowB.count(), 1, "one row, not one per sync");
+    // Remove it here, reload: the next sync must not bring it back.
+    await rowB.first().locator(".chat-row-del").click();
+    await pageB.click("#confirm-modal-confirm");
+    await pageB.waitForFunction((id) => !(localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
+    await pageB.reload();
+    await pageB.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageB.waitForTimeout(1500);
+    assert.ok(!(await ls(pageB, "zarvis.chats")).includes(conversationId), "removed chat stays out after the sync on reload");
+    assert.ok((await ls(pageB, "zarvis.chatsHidden")).includes(conversationId));
+    // The list on the other browser, and the conversation itself, are untouched.
+    await pageA.reload();
+    await pageA.waitForFunction((id) => (localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
+    const stillThere = await pageB.evaluate(async (id) => (await fetch("/api/v1/conversations/" + id + "/messages", { headers: { authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") } })).status, conversationId);
+    assert.equal(stillThere, 200);
+  });
+
   await step("refresh failure from a network error keeps the same account (no silent replacement)", async () => {
     const refreshBefore = await ls(pageB, "zarvis.refreshToken");
     await pageB.evaluate(() => localStorage.setItem("zarvis.accessToken", "expired.invalid.token"));

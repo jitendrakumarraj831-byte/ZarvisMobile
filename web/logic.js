@@ -246,9 +246,9 @@
   }
 
   // ---- Chat page: chat list, day labels, slash commands, refine prompts, export, navigation ----
-  // The server stores conversations but has no "list my conversations" endpoint, so the chat list is an
-  // index of the conversations this browser has opened (id, title, last activity). Opening one loads its
-  // real messages from the server; nothing about a conversation is kept here beyond that index.
+  // The chat list is an index of the account's conversations as this browser knows them (id, title, last
+  // activity), topped up from GET /conversations. Opening one loads its real messages from the server;
+  // nothing about a conversation is kept here beyond that index.
 
   const CHAT_INDEX_MAX = 50;
   const NEW_CHAT_TITLE = "New chat";
@@ -297,6 +297,46 @@
 
   function removeChat(list, id) {
     return list.filter((chat) => chat.id !== id);
+  }
+
+  /** Ids of chats the user removed from the list on this browser, capped so the store cannot grow without bound. */
+  function parseHiddenChats(raw) {
+    try {
+      const data = JSON.parse(raw);
+      return Array.isArray(data) ? data.filter((id) => typeof id === "string" && /^[\w-]{1,80}$/.test(id)).slice(-200) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function hideChat(hidden, id) {
+    return [...hidden.filter((other) => other !== id), id].slice(-200);
+  }
+
+  /**
+   * Folds the server's list of this account's conversations into the list this browser already has.
+   * - a chat only the server knows about is added (this is how a second device or a cleared browser gets its history back),
+   * - a chat both know keeps the title already shown, unless that is still the placeholder, and takes the newer time,
+   * - a chat only this browser knows (just started, not saved yet) is kept,
+   * - a chat the user removed from the list stays out.
+   * Entries with bad ids or times are skipped; the result is capped like any other chat list.
+   */
+  function mergeServerChats(local, server, hidden = []) {
+    const skip = new Set(hidden);
+    const byId = new Map(local.map((chat) => [chat.id, chat]));
+    for (const item of Array.isArray(server) ? server : []) {
+      if (!item || typeof item.id !== "string" || !/^[\w-]{1,80}$/.test(item.id) || skip.has(item.id)) continue;
+      const updatedAt = Date.parse(item.updatedAt);
+      if (!Number.isFinite(updatedAt)) continue;
+      const known = byId.get(item.id);
+      if (!known) {
+        byId.set(item.id, { id: item.id, title: deriveChatTitle(item.title), updatedAt });
+      } else {
+        const title = known.title === NEW_CHAT_TITLE && item.title ? deriveChatTitle(item.title) : known.title;
+        byId.set(item.id, { id: item.id, title, updatedAt: Math.max(known.updatedAt, updatedAt) });
+      }
+    }
+    return sortChats([...byId.values()].filter((chat) => !skip.has(chat.id))).slice(0, CHAT_INDEX_MAX);
   }
 
   function filterChats(list, query) {
@@ -474,6 +514,9 @@
     parseChatIndex,
     upsertChat,
     removeChat,
+    parseHiddenChats,
+    hideChat,
+    mergeServerChats,
     filterChats,
     dayBucket,
     groupChatsByDay,

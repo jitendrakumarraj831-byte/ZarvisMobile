@@ -32,6 +32,7 @@ for other origins; a per-IP ceiling of 600/min on `/api/v1`; errors are
 | GET | `/api/v1/capabilities` | none | — | — | registry | no | yes | (bundled JSON) |
 | POST | `/api/v1/orchestrator/turn-stream` | Bearer | 30/min/account | `{utterance, locale?, isFirstTurn?, conversationId?, history?, userName?, clientTurnId?}` | SSE `meta`, `progress`, `delta`, `done{message, toolCalls, conversationId, turnId, replayed?}`, `error{error, code?/type?, retryable, retryAfterMs?, quotaType?, turnId}` | **yes** | yes | no |
 | POST | `/api/v1/orchestrator/turn` | Bearer | 30/min/account | same | `{message, toolCalls, conversationId, turnId, replayed?}`; 429/503 provider; 409 `turn_in_progress` / `client_turn_id_reused`; 400 `invalid_client_turn_id` / `invalid_json`; 413 `payload_too_large` | no | — | yes |
+| GET | `/api/v1/conversations` | Bearer, own conversations only | `?limit` 1–100, default 30 | — | `{conversations[]}`: `{id, title, createdAt, updatedAt}` newest first, never messages | no | yes | yes |
 | GET | `/api/v1/conversations/:id/messages` | Bearer, owner | — | — | `{messages[]}`; 404 | no | yes | yes |
 | GET | `/api/v1/confirmations/:id` | Bearer, owner | — | — | record | no | — | — |
 | POST | `/api/v1/confirmations/:id/approve` | Bearer, owner | 30/min | — | tool outcome; 409 `confirmation_already_used`; 404 | no | yes | yes |

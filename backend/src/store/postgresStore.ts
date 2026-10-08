@@ -698,11 +698,10 @@ export class PostgresStore implements Store {
     return rows[0] ? toConversation(rows[0]) : undefined;
   }
 
-  async listConversations(accountId: string): Promise<Conversation[]> {
-    const { rows } = await this.query<ConversationRow>(
-      "SELECT * FROM conversations WHERE account_id = $1 ORDER BY updated_at DESC",
-      [accountId],
-    );
+  async listConversations(accountId: string, limit?: number): Promise<Conversation[]> {
+    const { rows } = limit === undefined
+      ? await this.query<ConversationRow>("SELECT * FROM conversations WHERE account_id = $1 ORDER BY updated_at DESC", [accountId])
+      : await this.query<ConversationRow>("SELECT * FROM conversations WHERE account_id = $1 ORDER BY updated_at DESC LIMIT $2", [accountId, limit]);
     return rows.map(toConversation);
   }
 

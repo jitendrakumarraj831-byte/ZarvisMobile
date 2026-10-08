@@ -269,7 +269,8 @@ export interface Store {
 
   createConversation(accountId: string, title?: string): Promise<Conversation>;
   getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined>;
-  listConversations(accountId: string): Promise<Conversation[]>;
+  /** Newest first. `limit` caps the rows read (the list endpoint never needs an account's whole history). */
+  listConversations(accountId: string, limit?: number): Promise<Conversation[]>;
   appendConversationMessages(messages: ConversationMessage[]): Promise<void>;
   listConversationMessages(accountId: string, conversationId: string, limit?: number): Promise<ConversationMessage[]>;
 

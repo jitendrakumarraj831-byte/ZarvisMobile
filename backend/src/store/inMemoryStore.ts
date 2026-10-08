@@ -314,10 +314,11 @@ export class InMemoryStore implements Store {
     return conversation?.accountId === accountId ? conversation : undefined;
   }
 
-  async listConversations(accountId: string): Promise<Conversation[]> {
-    return [...this.conversations.values()]
+  async listConversations(accountId: string, limit?: number): Promise<Conversation[]> {
+    const newestFirst = [...this.conversations.values()]
       .filter((conversation) => conversation.accountId === accountId)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    return limit === undefined ? newestFirst : newestFirst.slice(0, limit);
   }
 
   async appendConversationMessages(messages: ConversationMessage[]): Promise<void> {

@@ -182,6 +182,53 @@ test("upsert keeps one entry per chat, newest first, and only retitles when give
   assert.deepEqual(L.removeChat(list, "missing").length, 2);
 });
 
+test("server chats are merged into the browser list without losing or resurrecting anything", () => {
+  const local = [
+    { id: "a", title: "Trip plan", updatedAt: 100 },
+    { id: "b", title: "New chat", updatedAt: 50 },
+    { id: "only-here", title: "Just started", updatedAt: 400 },
+  ];
+  const server = [
+    { id: "a", title: "something older the server named it", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(300).toISOString() },
+    { id: "b", title: "Tax questions", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(40).toISOString() },
+    { id: "new-device", title: "From my phone", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(200).toISOString() },
+    { id: "removed", title: "I deleted this", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(500).toISOString() },
+    { id: "bad time", title: "x", updatedAt: "not a date" },
+    { id: "../etc", title: "x", updatedAt: new Date(1).toISOString() },
+    null,
+  ];
+  const merged = L.mergeServerChats(local, server, ["removed"]);
+  assert.deepEqual(merged.map((chat) => chat.id), ["only-here", "a", "new-device", "b"]);
+  const byId = Object.fromEntries(merged.map((chat) => [chat.id, chat]));
+  assert.equal(byId.a.title, "Trip plan"); // a title already shown is not replaced…
+  assert.equal(byId.a.updatedAt, 300); // …but the newer time wins
+  assert.equal(byId.b.title, "Tax questions"); // the placeholder takes the server's name
+  assert.equal(byId.b.updatedAt, 50); // and the older server time does not move it back
+  assert.equal(byId["new-device"].title, "From my phone");
+  // A hidden chat the browser still has stays out too, and junk input is harmless.
+  assert.deepEqual(L.mergeServerChats(local, [], ["a"]).map((chat) => chat.id), ["only-here", "b"]);
+  assert.deepEqual(L.mergeServerChats(local, null).length, 3);
+  assert.deepEqual(L.mergeServerChats([], undefined), []);
+});
+
+test("server chats are capped like any other chat list", () => {
+  const server = Array.from({ length: L.CHAT_INDEX_MAX + 20 }, (_, i) => ({ id: "c" + i, title: "Chat " + i, updatedAt: new Date(1000 + i).toISOString() }));
+  const merged = L.mergeServerChats([], server);
+  assert.equal(merged.length, L.CHAT_INDEX_MAX);
+  assert.equal(merged[0].id, "c" + (L.CHAT_INDEX_MAX + 19)); // newest kept
+});
+
+test("hidden chat ids are validated, de-duplicated and bounded", () => {
+  assert.deepEqual(L.parseHiddenChats("not json"), []);
+  assert.deepEqual(L.parseHiddenChats('{"a":1}'), []);
+  assert.deepEqual(L.parseHiddenChats('["a",5,"b c","ok-1"]'), ["a", "ok-1"]);
+  assert.deepEqual(L.hideChat(["a", "b"], "a"), ["b", "a"]);
+  let hidden = [];
+  for (let i = 0; i < 300; i++) hidden = L.hideChat(hidden, "id" + i);
+  assert.equal(hidden.length, 200);
+  assert.equal(hidden[199], "id299");
+});
+
 test("chats are searchable by title", () => {
   const list = [{ id: "a", title: "Launch plan", updatedAt: 2 }, { id: "b", title: "Recipe ideas", updatedAt: 1 }];
   assert.deepEqual(L.filterChats(list, " LAUNCH ").map((chat) => chat.id), ["a"]);
