@@ -188,3 +188,29 @@ Before the fixes Plans was reached from 5 controls, Settings → Account from 2,
 The full-site scan numbers in §2 and §7 are from the linking pass; the pages touched since were re-scanned as above, not the whole site.
 
 **Re-running the scan:** `ZARVIS_URL=http://localhost:3100 node web/e2e/link-scan.cjs desktop` (or `phone`). It discovers pages from the app itself, prints the summary above and writes `link-scan-<size>.json`. Add `LINK_SCAN_SHOTS=<dir>` for screenshots.
+
+## Workspace phase: what running the new pages found
+
+Pages added: Work (Projects, Files, Research, Tasks, Outputs), Agents, a merged Activity feed, Settings → Memory, and
+execution cards in Chat. Everything below was found by loading the pages in Chromium, not by reading code, and fixed in
+the same change.
+
+| Found | Fix |
+|---|---|
+| A literal word "null" written next to a project/agent name and in a skill's badge row (`Node.append(null)`) | one `put()` helper that skips empty children |
+| Popover menus (file actions, ten rows) ran off the bottom of a phone, so the lower items could not be reached | menus open above the button when there is no room and scroll inside |
+| A long project name widened the whole page at 360 and 412px | such badges shorten with an ellipsis |
+| `role="switch"` together with `aria-pressed` (invalid ARIA, axe "critical") on three switches | plain toggle buttons with `aria-pressed` |
+| The CI panel reported its own rendering error as "Couldn't reach ZARVIS" | the real error is logged and the message says which it is |
+| "Save to Files" stayed disabled after saving (`event.currentTarget` read after an `await`) | the button is captured first |
+| No request timeout: a server that never answers left a page on its loading skeleton for ever | 25 s (130 s for a task step or an upload), a clear message and Try again |
+| A slow answer for an earlier file could overwrite the file shown now; a second viewer stacked listeners on the first | newest-wins token and one open viewer |
+| A finished execution stage still read "Running now" / "Checking…" | stages are worded for their state and a note is dropped when its stage moves on |
+| A declined or expired confirmation left both buttons disabled on "Running…" | the buttons are removed and the card says why |
+
+Verification of this phase (local, real backend + Postgres): phase 1 36/36, quality 24/24 (nine widths from 320 to 1920 on
+every page including a project's eight sections, axe in light/dark/Hindi, keyboard, offline shell), workspace 41/41
+(projects and Continue work, files, research and citations, tasks, agents, activity, memory, execution cards, pull-request
+evidence, composer files, navigation, offline, a stalled server, dialogs and focus, markup shown as text).
+
+Not checked by hand: screen readers (TalkBack, VoiceOver), real-device touch, live Gemini voices.

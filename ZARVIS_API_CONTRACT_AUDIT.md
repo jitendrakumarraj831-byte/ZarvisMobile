@@ -89,3 +89,22 @@ Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/gi
 | O2 | `/billing/webhook` is client-called, not a Play RTDN webhook | needs Play Billing integration |
 | O4 | Android sends no `clientTurnId` | Android has no Retry action, so every send is a new message by the user; add it when Retry is added |
 | O5 | SSE has no heartbeat while a long model call runs | progress events are sent at every real stage; idle proxies have not been observed to cut a turn. Watch the Vercel logs |
+
+## 5. Workspace endpoints (web phase)
+
+The workspace phase adds these routes; the web client calls all of them and `backend/test/api/clientContract.test.ts`
+now fails if any path called from **any** web file (`app.js`, `workspace.js`, `exec-cards.js`, `chat-kit.js`, `shell.js`,
+`feature-pages.js`) is not a served route.
+
+`/projects`, `/projects/:id`, `/notes`, `/notes/:id`, `/memory`, `/memory/settings`, `/memory/personal`, `/files`,
+`/files/:id`, `/files/text`, `/files/upload`, `/executions`, `/executions/:id`, `/conversations/:id/executions`,
+`/conversations/:id/project`, `/activity`, `/agents`, `/agents/:id`, `/usage/summary`, `/developer/pr-status`, and
+`/tasks/:id/run|retry|cancel`. See [WORKSPACE.md](WORKSPACE.md).
+
+- Compatibility: the Android `Task` model keeps working. `status` is unchanged on the wire; the new `lifecycle`,
+  `progress`, `steps`, `error` and `actions` fields are extra keys that Retrofit/kotlinx ignore (`ignoreUnknownKeys`).
+- Security (`backend/test/workspace/isolation.test.ts`, both stores): every route needs sign-in; one account cannot read,
+  change, attach to, move or cite another account's projects, files, notes, tasks, chats or tool runs; research
+  citations must be URLs the named search really returned; `/developer/pr-status` accepts only github.com URLs and a
+  positive pull request number.
+- Not changed: O2, O4 and O5 above remain open.
