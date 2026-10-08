@@ -459,7 +459,7 @@
   }
 
   /** "g" then a letter jumps to a page (like GitHub). Only pages that exist. */
-  const GO_SHORTCUTS = { h: "home", c: "chat", t: "tasks", a: "activity", k: "capabilities", p: "plans", s: "settings" };
+  const GO_SHORTCUTS = { h: "home", c: "chat", w: "work", e: "agents", t: "tasks", a: "activity", k: "capabilities", p: "plans", s: "settings" };
 
   function goShortcutTarget(key) {
     const target = GO_SHORTCUTS[String(key || "").toLowerCase()];
@@ -468,30 +468,36 @@
 
   /** Where an in-text link points: "plans", "activity", "settings:voice", "history". null for anything unknown,
    * so a typo in copy can never become a link that does nothing. */
-  const GO_VIEWS = ["home", "chat", "tasks", "activity", "capabilities", "plans", "settings", "developer", "metrics"];
+  const GO_VIEWS = ["home", "chat", "work", "agents", "activity", "capabilities", "plans", "settings", "developer", "metrics"];
+  const WORK_TABS = ["projects", "files", "research", "tasks", "outputs"];
 
   function parseGoTarget(target) {
     const [name, sub, extra] = String(target || "").split(":");
     if (extra !== undefined || !name) return null;
     if (name === "history") return sub === undefined ? { action: "history" } : null;
     if (name === "settings") return /^[a-z]+$/.test(sub || "x") ? { view: "settings", settingsPage: sub || null } : null;
+    // Tasks live inside Work now; the old name still works.
+    if (name === "tasks") return sub === undefined ? { view: "work", workTab: "tasks" } : null;
+    if (name === "work") return sub === undefined ? { view: "work" } : WORK_TABS.includes(sub) ? { view: "work", workTab: sub } : null;
+    if (name === "agents") return sub === undefined ? { view: "agents" } : /^[a-z]+$/.test(sub) ? { view: "agents", agentId: sub } : null;
     return GO_VIEWS.includes(name) && sub === undefined ? { view: name } : null;
   }
 
-  /** Old addresses that moved: #/settings/subscription is the Plans page, #/settings/data is Privacy & data. */
+  /** Old addresses that moved: #/settings/subscription is the Plans page, #/settings/data is Privacy & data, #/tasks is Work › Tasks. */
   function resolveLegacyRoute(view, sub) {
     if (view === "settings" && sub === "subscription") return { view: "plans", sub: undefined };
     if (view === "settings" && sub === "data") return { view: "settings", sub: "privacy" };
+    if (view === "tasks") return { view: "work", sub: "tasks" };
     return { view, sub };
   }
 
   const PAGE_LABELS = {
-    home: "Home", chat: "Chat", tasks: "Tasks", activity: "Activity", capabilities: "Capabilities", plans: "Plans",
+    home: "Home", chat: "Chat", work: "Work", agents: "Agents", tasks: "Tasks", activity: "Activity", capabilities: "Capabilities", plans: "Plans & Usage",
     settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities",
   };
 
   /** The trail above a page: Home › Settings › Voice. Every item but the last is a link (it has `view`). */
-  function breadcrumbs({ view, settingsTitle, featureTitle } = {}) {
+  function breadcrumbs({ view, settingsTitle, featureTitle, workTitle, agentTitle } = {}) {
     if (!view || view === "home") return [];
     const trail = [{ label: PAGE_LABELS.home, view: "home" }];
     if (view === "settings" && settingsTitle) {
@@ -499,10 +505,30 @@
     } else if (view === "feature") {
       trail.push({ label: PAGE_LABELS.capabilities, view: "capabilities" });
       if (featureTitle) trail.push({ label: featureTitle });
+    } else if (view === "work" && workTitle) {
+      trail.push({ label: PAGE_LABELS.work, view: "work" }, { label: workTitle });
+    } else if (view === "agents" && agentTitle) {
+      trail.push({ label: PAGE_LABELS.agents, view: "agents" }, { label: agentTitle });
     } else {
       trail.push({ label: PAGE_LABELS[view] || view });
     }
     return trail;
+  }
+
+  /** A task that has not ended. FAILED counts as ended (it needs a retry, not attention in a count). */
+  const OPEN_LIFECYCLES = ["QUEUED", "RUNNING", "EXECUTING", "VERIFYING", "WAITING", "CONFIRMATION_REQUIRED", "BLOCKED"];
+  function openTaskCount(tasks) {
+    return (Array.isArray(tasks) ? tasks : []).filter((task) => OPEN_LIFECYCLES.includes(task && task.lifecycle)).length;
+  }
+
+  /**
+   * The honest status words of the product, for a capability that is not a device permission.
+   * WORKING: connected and verified end to end. PARTIAL: part of it is real. PLANNED: designed, not active.
+   * UNSUPPORTED: no route on this platform. A feature never shows as active unless it is WORKING or PARTIAL.
+   */
+  const FEATURE_STATUSES = ["WORKING", "PARTIAL", "PLANNED", "UNSUPPORTED"];
+  function isFeatureStatus(status) {
+    return FEATURE_STATUSES.includes(status);
   }
 
   return {
@@ -531,6 +557,10 @@
     parseGoTarget,
     resolveLegacyRoute,
     breadcrumbs,
+    openTaskCount,
+    FEATURE_STATUSES,
+    isFeatureStatus,
+    WORK_TABS,
     SESSION_ENDED_CODES,
     classifyRefreshFailure,
     parseSseEvents,

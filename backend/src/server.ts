@@ -66,7 +66,7 @@ const jsonBody = express.json({
   },
 });
 
-const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|chat-kit\.js|feature-pages\.js|theme-init\.js|i18n\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
+const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|chat-kit\.js|exec-cards\.js|workspace\.js|feature-pages\.js|theme-init\.js|i18n\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
 
 /** `req.path` is still percent-encoded, while express.static decodes it: compare the decoded form. */
 function isWebAsset(path: string): boolean {
@@ -148,7 +148,7 @@ export function buildServer(container: Container): Express {
   app.use("/api/v1/orchestrator", orchestratorRouter(container.orchestrator));
   app.use("/api/v1/entitlements", entitlementsRouter(container.entitlementPort));
   app.use("/api/v1/tasks", tasksRouter(container.taskService, container.store));
-  app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
+  app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort, container.store));
   app.use("/api/v1/developer", developerRouter(container.pipeline, container.registry, container.githubAccess));
   app.use(
     "/api/v1/confirmations",

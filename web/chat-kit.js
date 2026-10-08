@@ -321,7 +321,7 @@
     });
     $("chat-history-btn").addEventListener("click", (event) => openHistory(event.currentTarget));
     $("chat-recent-all").addEventListener("click", (event) => openHistory(event.currentTarget));
-    $("activity-chats-all").addEventListener("click", (event) => openHistory(event.currentTarget));
+    $("activity-chats-all")?.addEventListener("click", (event) => openHistory(event.currentTarget));
     $("home-continue").addEventListener("click", () => {
       if (chats[0]) openChat(chats[0].id);
     });
@@ -385,7 +385,8 @@
       api.fill(text);
       api.toast("Edit it, then send. This adds a new message.");
     });
-    tools.append(copy, edit);
+    const remember = toolButton("Remember", "i-memory", () => void window.ZarvisWorkspace?.rememberDialog(text));
+    tools.append(copy, edit, remember);
     // The user bubble lays out bottom-up (column-reverse): first in the DOM is lowest on screen.
     bubble.prepend(tools);
   }
@@ -663,8 +664,10 @@
       event.preventDefault();
       depth = 0;
       overlay.hidden = true;
-      const file = event.dataTransfer.files?.[0];
-      if (file) api.attachFile(file);
+      const files = Array.from(event.dataTransfer.files || []);
+      // On the Files page a dropped file goes to Files; everywhere else it is attached to the chat.
+      if (files.length && window.ZarvisWorkspace?.handleDrop?.(files)) return;
+      if (files[0]) api.attachFile(files[0]);
     });
     api.input.addEventListener("paste", (event) => {
       const file = Array.from(event.clipboardData?.files || [])[0];

@@ -75,6 +75,8 @@ jobs:
           node --check web/feature-pages.js
           node --check web/shell.js
           node --check web/chat-kit.js
+          node --check web/exec-cards.js
+          node --check web/workspace.js
           node --check web/theme-init.js
           node --check web/i18n.js
           node --check web/sw.js

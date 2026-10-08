@@ -147,13 +147,13 @@ export class WorkspaceService {
     const openTasks = tasks.filter(isOpen);
 
     // An action is "pending" only while its confirmation is still pending and unexpired on the server.
-    const pendingActions: Array<{ executionId: string; skillName: string; action: string; confirmationId: string; expiresAt: string }> = [];
+    const pendingActions: Array<{ executionId: string; skillName: string; action: string; confirmationId: string; riskLevel: string; actionClass: string; expiresAt: string }> = [];
     for (const execution of executions) {
       if (pendingActions.length >= 5) break;
       if (execution.status !== "CONFIRMATION_REQUIRED" || !execution.confirmationId) continue;
       const confirmation = await this.store.getConfirmation(accountId, execution.confirmationId);
       if (confirmation && confirmation.status === "PENDING" && confirmation.expiresAt.getTime() > now.getTime()) {
-        pendingActions.push({ executionId: execution.id, skillName: execution.skillName, action: confirmation.action, confirmationId: confirmation.id, expiresAt: confirmation.expiresAt.toISOString() });
+        pendingActions.push({ executionId: execution.id, skillName: execution.skillName, action: confirmation.action, confirmationId: confirmation.id, riskLevel: confirmation.riskLevel, actionClass: confirmation.actionClass, expiresAt: confirmation.expiresAt.toISOString() });
       }
     }
 
