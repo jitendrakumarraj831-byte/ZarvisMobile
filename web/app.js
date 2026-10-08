@@ -47,6 +47,8 @@
     }
   }
   let refreshInFlight = null;
+  /** The first-visit guest bootstrap, started before any page can ask for data (see apiFetch). Never rejects. */
+  let sessionReady = null;
   let capabilityCache = null;
   const SESSION_GATE_COPY = {
     signed_out: ["You're signed out", "Sign in with your email, or start a new guest account on this browser."],
@@ -393,6 +395,8 @@
       clearPendingAttachment();
     });
 
+    sessionReady = ensureSession().catch(() => {}); // failures are handled where init() awaits ensureSession() below
+
     // Secondary UI initialization is isolated per feature. One optional browser API or
     // non-critical screen must never prevent the other buttons from receiving handlers.
     const optionalInitializers = [
@@ -401,6 +405,7 @@
       ["voice toggle", applyVoiceToggleState],
       ["speech recognition", setupSpeechRecognition],
       ["service worker", registerServiceWorker],
+      ["go links", setupGoLinks],
       ["navigation", setupBottomNav],
       ["chat kit", setupChatKit],
       ["home feature links", setupHomeFeatures],
@@ -428,16 +433,10 @@
     try {
       await ensureSession();
       const resumeId = state.conversationId;
-      if (pendingChatLink) {
-        const link = pendingChatLink;
-        pendingChatLink = null;
-        void openConversation(link);
-      } else {
-        void restoreConversation().then((result) => {
-          if (result === "missing") kit("remove", resumeId);
-          kit("renderAll");
-        });
-      }
+      void restoreConversation().then((result) => {
+        if (result === "missing") kit("remove", resumeId);
+        kit("renderAll");
+      });
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
       if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
@@ -559,7 +558,6 @@
   // Back / Forward (and the Android system Back button) move between pages instead of leaving
   // the app, a reload keeps the page, and #/settings/voice style links open that page.
   let applyingRoute = false;
-  let pendingChatLink = null; // a #/chat/<id> link opened before the session exists; opened once it does
   let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
   let featureOwnsEntry = false; // same for a capability detail page
 
@@ -603,8 +601,9 @@
 
   function applyRoute(hash) {
     const match = /^#\/([a-z]+)(?:\/([\w-]+))?$/.exec(hash || "");
-    const view = match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home";
-    const sub = match ? match[2] : undefined;
+    const known = Logic.resolveLegacyRoute(match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home", match ? match[2] : undefined);
+    const view = known.view;
+    const sub = known.sub;
     // A link to a page that doesn't exist lands on Home, and says so instead of silently showing the wrong thing.
     if (hash && hash !== "#" && hash !== "#/" && !(match && VIEWS[match[1]] && match[1] !== "feature")) showToast("That page doesn't exist. Opened Home.");
     applyingRoute = true;
@@ -621,11 +620,7 @@
       } else if (view === "chat" && sub) {
         // #/chat/<id> opens that chat (the address bar then goes back to plain #/chat).
         setActiveView("chat");
-        if (sub !== state.conversationId) {
-          // Without a session yet (a first visit) the request would look like a signed-out user: wait for init().
-          if (localStorage.getItem(STORAGE_KEYS.accessToken)) void openConversation(sub);
-          else pendingChatLink = sub;
-        }
+        if (sub !== state.conversationId) void openConversation(sub);
       } else {
         setActiveView(view);
       }
@@ -815,8 +810,11 @@
       showSessionGate(ended);
       throw new SessionEndedError(ended);
     }
-    await createGuestSession();
+    // Two callers (the early bootstrap and init) share one account creation: a second request would replace the first one's tokens.
+    if (!guestCreation) guestCreation = createGuestSession().finally(() => { guestCreation = null; });
+    await guestCreation;
   }
+  let guestCreation = null;
 
   async function createGuestSession() {
     const res = await fetch(`${API_BASE}/auth/guest`, { method: "POST" });
@@ -853,6 +851,9 @@
   }
 
   async function apiFetch(path, options = {}, retried = false) {
+    // A link straight to a page that loads data (#/plans, #/activity ...) is opened before a first-time visitor has a session.
+    // Without this wait that request goes out with no token, gets a 401, and shows the "session ended" gate to someone who never had one.
+    if (!localStorage.getItem(STORAGE_KEYS.accessToken) && sessionReady) await sessionReady;
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
     if (!accessToken) {
       const ended = localStorage.getItem(SESSION_KEYS.ended);
@@ -1337,7 +1338,9 @@
       if (!capabilityCache) {
         const res = await fetch(`${API_BASE}/capabilities`);
         if (!res.ok) throw new Error("HTTP " + res.status);
-        capabilityCache = (await res.json()).capabilities;
+        const body = await res.json();
+        if (!Array.isArray(body.capabilities)) throw new Error("Unexpected capability list");
+        capabilityCache = body.capabilities;
       }
     } catch (err) {
       console.error(err);
@@ -1839,6 +1842,28 @@
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
+  }
+
+  /** Anything with data-go="<page>" (or "settings:<sub-page>", or "history") is a link: static buttons, capability
+   * copy and tool rows all share this one handler, and a target that is not a real page is refused, not ignored. */
+  function setupGoLinks() {
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest?.("[data-go]");
+      if (!link) return;
+      const target = Logic.parseGoTarget(link.dataset.go);
+      if (!target) {
+        console.warn("Zarvis: unknown link target", link.dataset.go);
+        return;
+      }
+      event.preventDefault();
+      haptic();
+      if (target.action === "history") {
+        kit("openHistory", link);
+        return;
+      }
+      setActiveView(target.view);
+      if (target.settingsPage && document.querySelector(`[data-settings-page="${target.settingsPage}"]`)) openSettingsPage(target.settingsPage);
+    });
   }
 
   /** Hands the chat kit (chat-kit.js) the few things it needs from this file. */
@@ -2769,6 +2794,8 @@
     else if (planCatalogue.testMode) message = "Test mode: payments use Razorpay's test environment and no real money moves.";
     notice.hidden = !message;
     text.textContent = message;
+    const guestNote = document.getElementById("plans-guest-note");
+    if (guestNote) guestNote.hidden = localStorage.getItem(SESSION_KEYS.isGuest) === "false";
     if (box) box.hidden = !planCatalogue;
     const yearly = planCatalogue?.plans?.find((p) => p.period === "yearly");
     if (save) {
@@ -3282,7 +3309,12 @@
       more.appendChild(svgIcon("i-more"));
       more.addEventListener("click", () => {
         window.ZarvisShell?.menu(more, entry.title || "Activity", [
-          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat") },
+          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => {
+            const to = entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat";
+            setActiveView(to);
+            // Already on Activity: take the reader to the task list instead of doing nothing.
+            if (to === "activity") document.querySelector('[data-activity-block="task"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
+          } },
           { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
           { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
             const at = activityLog.indexOf(entry);
@@ -3323,11 +3355,13 @@
     }
     if (!res.ok) {
       latestTasks = null;
+      renderHomeTasks(0);
       return null;
     }
     const { tasks } = await res.json();
     const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
     for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
+    renderHomeTasks(activeCount);
     for (const item of el.navItems) {
       if (item.dataset.view !== "activity") continue;
       if (activeCount > 0) item.setAttribute("aria-label", "Activity, activity in progress");
@@ -3335,6 +3369,14 @@
     }
     latestTasks = tasks;
     return tasks;
+  }
+
+  /** Home shows the open tasks (not finished, failed or cancelled), linking to where they are tracked. Hidden at zero. */
+  function renderHomeTasks(count) {
+    const button = document.getElementById("home-tasks");
+    if (!button) return;
+    button.hidden = !count;
+    if (count) document.getElementById("home-tasks-text").textContent = count + (count === 1 ? " open task" : " open tasks");
   }
 
   /** Background refresh (Metrics page and its polling): keeps the Activity badge and Home list
@@ -3923,10 +3965,28 @@
       const message = call?.result?.userSafeMessage || "";
       note.textContent = String(message).replace(/\s+/g, " ").slice(0, 220);
       row.appendChild(note);
+      const where = toolDestination(call.skillId, statusCode);
+      if (where) {
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "inline-link tool-row-link";
+        link.dataset.go = where.target;
+        link.textContent = where.label;
+        row.appendChild(link);
+      }
       el.conversation.appendChild(row);
       recordActivity("ai", skillDisplayName(call.skillId), Logic.toolStatusLabel(statusCode), statusCode === "COMPLETED" ? "ok" : TOOL_TONES[statusCode] === "failed" ? "error" : "");
     }
     scrollConversationToBottom();
+  }
+
+  /** The page where a finished tool's result can be followed up: tasks live in Activity, repository work in the Developer Agent
+   * (only when Developer access is on, otherwise the link would bounce to Settings). */
+  function toolDestination(skillId, statusCode) {
+    if (statusCode !== "COMPLETED" || typeof skillId !== "string") return null;
+    if (skillId.startsWith("automation.")) return { target: "activity", label: "Open Activity" };
+    if (skillId.startsWith("developer.") && state.devAccess) return { target: "developer", label: "Open Developer Agent" };
+    return null;
   }
 
   function skillDisplayName(skillId) {

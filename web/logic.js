@@ -426,6 +426,25 @@
     return target || null;
   }
 
+  /** Where an in-text link points: "plans", "activity", "settings:voice", "history". null for anything unknown,
+   * so a typo in copy can never become a link that does nothing. */
+  const GO_VIEWS = ["home", "chat", "activity", "capabilities", "plans", "settings", "developer", "metrics"];
+
+  function parseGoTarget(target) {
+    const [name, sub, extra] = String(target || "").split(":");
+    if (extra !== undefined || !name) return null;
+    if (name === "history") return sub === undefined ? { action: "history" } : null;
+    if (name === "settings") return /^[a-z]+$/.test(sub || "x") ? { view: "settings", settingsPage: sub || null } : null;
+    return GO_VIEWS.includes(name) && sub === undefined ? { view: name } : null;
+  }
+
+  /** Old addresses that moved: #/settings/subscription is the Plans page, #/settings/data is Privacy & data. */
+  function resolveLegacyRoute(view, sub) {
+    if (view === "settings" && sub === "subscription") return { view: "plans", sub: undefined };
+    if (view === "settings" && sub === "data") return { view: "settings", sub: "privacy" };
+    return { view, sub };
+  }
+
   const PAGE_LABELS = {
     home: "Home", chat: "Chat", activity: "Activity", capabilities: "Capabilities", plans: "Plans",
     settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities",
@@ -466,6 +485,8 @@
     chatToText,
     exportFileName,
     goShortcutTarget,
+    parseGoTarget,
+    resolveLegacyRoute,
     breadcrumbs,
     SESSION_ENDED_CODES,
     classifyRefreshFailure,

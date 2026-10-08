@@ -551,7 +551,7 @@ async function send(page, text) {
     await pageH.click("#menu-btn");
     await pageH.waitForTimeout(350);
     const hindi = (await pageH.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(hindi, ["होम", "चैट", "गतिविधि", "क्षमताएँ", "डेवलपर एजेंट", "मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
+    assert.deepEqual(hindi, ["होम", "चैट", "गतिविधि", "क्षमताएँ", "डेवलपर एजेंट", "उपयोग और मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
     assert.equal(await pageH.getAttribute("#drawer-close", "aria-label"), "मेन्यू बंद करें");
     await ctxH.close();
   });
@@ -825,6 +825,38 @@ async function send(page, text) {
     await ctxN.close();
   });
 
+  await step("Moved pages: the old Subscription and Data addresses land on Plans and Privacy & data, and Profile opens the profile", async () => {
+    const ctxV = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageV = await pageOf(ctxV);
+    await pageV.goto(BASE + "/#/settings/subscription");
+    await pageV.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageV.waitForSelector("#view-plans:not([hidden])");
+    assert.equal(await pageV.evaluate(() => location.hash), "#/plans", "the address is corrected to the page that opened");
+    await pageV.goto(BASE + "/#/settings/data");
+    await pageV.waitForSelector('[data-settings-panel="privacy"]:not([hidden])');
+    assert.match(await pageV.innerText('[data-settings-panel="privacy"]'), /Stored on the server/);
+    assert.equal(await pageV.locator('[data-settings-page="subscription"], [data-settings-page="data"]').count(), 0, "no stub pages are listed");
+    await pageV.click(".sidebar .nav-profile");
+    assert.equal(await pageV.innerText("#settings-subpage-title"), "Profile", "Profile opens the profile, not the Settings list");
+    await ctxV.close();
+  });
+
+  await step("First visit: a link straight to a page that loads data (Plans, Activity, a Settings page) opens it, makes one guest account and never says 'session ended'", async () => {
+    for (const hash of ["#/plans", "#/activity", "#/settings/memory", "#/chat/00000000-0000-4000-8000-000000000999"]) {
+      const ctxF = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const pageF = await pageOf(ctxF);
+      let signups = 0;
+      pageF.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/auth/guest")) signups++; });
+      await pageF.goto(BASE + "/" + hash);
+      await pageF.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await pageF.waitForTimeout(1500); // the data requests that were waiting for the session have been answered by now
+      assert.equal(await pageF.locator("#session-gate").isHidden(), true, hash + ": the 'session ended' gate must not appear for someone who never had a session");
+      assert.equal(signups, 1, hash + ": one visit, one guest account");
+      assert.equal(await pageF.evaluate(() => localStorage.getItem("zarvis.sessionEnded")), null, hash);
+      await ctxF.close();
+    }
+  });
+
   await step("Dialogs: focus goes in and stays in, the page behind is locked, focus comes back; offline is shown, not hidden behind 'Online'", async () => {
     const ctxM = await browser.newContext({ viewport: { width: 390, height: 700 } }); // first visit: the sign-in card opens on Chat
     const pageM = await ctxM.newPage();
@@ -909,7 +941,7 @@ async function send(page, text) {
       await open(view);
       (await stray()).forEach((x) => problems.push(view + " " + x));
     }
-    for (const sub of ["account", "subscription", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "data", "developer"]) {
+    for (const sub of ["account", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "developer"]) {
       await open("settings");
       await pageH.evaluate((p) => document.querySelector(`[data-settings-page="${p}"]`).click(), sub);
       await pageH.waitForTimeout(300);

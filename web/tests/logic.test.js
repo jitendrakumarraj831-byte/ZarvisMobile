@@ -287,3 +287,21 @@ test("breadcrumbs: Home is the root, sub-pages link back through their parent", 
     { label: "Research" },
   ]);
 });
+
+test("in-text links only point at pages that exist", () => {
+  assert.deepEqual(L.parseGoTarget("plans"), { view: "plans" });
+  assert.deepEqual(L.parseGoTarget("activity"), { view: "activity" });
+  assert.deepEqual(L.parseGoTarget("settings"), { view: "settings", settingsPage: null });
+  assert.deepEqual(L.parseGoTarget("settings:permissions"), { view: "settings", settingsPage: "permissions" });
+  assert.deepEqual(L.parseGoTarget("history"), { action: "history" });
+  for (const bad of ["", null, undefined, "nowhere", "plans:extra", "settings:a:b", "settings:../x", "history:1", "feature", "Plans"]) {
+    assert.equal(L.parseGoTarget(bad), null, String(bad));
+  }
+});
+
+test("moved addresses still open the right page", () => {
+  assert.deepEqual(L.resolveLegacyRoute("settings", "subscription"), { view: "plans", sub: undefined });
+  assert.deepEqual(L.resolveLegacyRoute("settings", "data"), { view: "settings", sub: "privacy" });
+  assert.deepEqual(L.resolveLegacyRoute("settings", "voice"), { view: "settings", sub: "voice" });
+  assert.deepEqual(L.resolveLegacyRoute("plans", undefined), { view: "plans", sub: undefined });
+});

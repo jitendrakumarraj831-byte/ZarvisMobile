@@ -2114,7 +2114,6 @@ html:has(body[data-active-view="chat"]) { scroll-padding-bottom: 160px; }
 }
 
 /* Touch targets: the visible control keeps its size, the tappable area reaches 44px. */
-#capability-hub .cap-action::after { content: ""; position: absolute; inset: -5px; }
 .switch::after { content: ""; position: absolute; inset: -6px 0; }
 .disclosure > summary, .capability-item summary { min-height: 44px; }
 .topbar-brand { min-width: 44px; }
@@ -2451,7 +2450,7 @@ button.crumb:hover { color: var(--primary); background: var(--primary-soft); }
 .bubble-tool { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 8px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-3); }
 .bubble-tool:hover { color: var(--primary); background: var(--primary-soft); }
 .bubble-tool .ico { width: 14px; height: 14px; }
-@media (pointer: coarse) { .bubble-tool { min-height: 44px; padding: 0 12px; } }
+@media (max-width: 1099px), (pointer: coarse) { .bubble-tool { min-height: 44px; padding: 0 12px; } }
 
 .refine-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-self: stretch; margin-top: calc(-1 * var(--s1)); animation: rise-in var(--t-med) var(--ease) both; }
 .refine-chip {
@@ -2461,7 +2460,7 @@ button.crumb:hover { color: var(--primary); background: var(--primary-soft); }
 }
 .refine-chip:hover { background: var(--primary-soft); border-color: var(--primary); }
 .refine-chip:active { transform: scale(0.96); }
-@media (pointer: coarse) { .refine-chip { min-height: 44px; } }
+@media (max-width: 1099px), (pointer: coarse) { .refine-chip { min-height: 44px; } }
 
 .thread-loading { display: flex; flex-direction: column; gap: var(--s4); padding-top: var(--s4); }
 .skeleton-bubble { height: 72px; border-radius: 18px; background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%); background-size: 220% 100%; animation: skeleton-shimmer 1.4s linear infinite; }
@@ -2623,3 +2622,16 @@ body.chat-loading .chat-empty { display: none; }
 .history-search { flex: none; }
 /* The field already draws the focus ring (:focus-within); the input inside must not draw a second one. */
 .search-field input:focus-visible { box-shadow: none; }
+
+/* ---------- Page links: in-text buttons that go to another page ---------- */
+.inline-link {
+  display: inline; padding: 0 1px; min-height: 0; border-radius: 4px; font: inherit; font-weight: 600; text-align: left;
+  color: var(--primary); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px;
+}
+.inline-link:hover { background: var(--primary-soft); text-decoration-thickness: 2px; }
+.notice .inline-link { white-space: nowrap; }
+.tool-row-link { display: inline-block; margin-top: var(--s2); }
+.chat-all-caps { margin-top: var(--s4); }
+/* The way back on a phone is a real touch target, not a 32px text link. */
+@media (max-width: 1099px), (pointer: coarse) { .crumb { min-height: 44px; display: inline-flex; align-items: center; padding: 0 var(--s3); } }
+.home-tasks .home-continue-ico { background: var(--ok-soft); color: var(--ok); }

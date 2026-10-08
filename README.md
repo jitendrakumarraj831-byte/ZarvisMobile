@@ -260,6 +260,7 @@ All permanent Markdown documentation is kept in the repository root so the proje
 |---|---|
 | [ZARVIS_MASTER_PRODUCT_BLUEPRINT.md](./ZARVIS_MASTER_PRODUCT_BLUEPRINT.md) | **Authoritative A→Z product, UX, architecture and execution blueprint** |
 | [MASTER_SPEC.md](./MASTER_SPEC.md) | Master-spec navigation/compatibility entry point |
+| [UI_UX_DEEP_SCAN.md](./UI_UX_DEEP_SCAN.md) | Web UI/UX deep scan: page list, content placement, layout rules, link map, open decisions |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System and shared Brain architecture |
 | [SECURITY.md](./SECURITY.md) | Security, risk and authorization rules |
 | [PRIVACY.md](./PRIVACY.md) | Privacy and notification privacy rules |

@@ -28,13 +28,13 @@
       summary: "Speak a request. ZARVIS transcribes it, responds, and can read the reply aloud.",
       availability: "Available now",
       kind: "now",
-      what: "Voice is a way to start the same chat. Speech-to-text fills the request. A voice turn turns spoken replies on. You can turn them off in Settings.",
+      what: "Voice is a way to start the same chat. Speech-to-text fills the request. A voice turn turns spoken replies on. You can turn them off in {{Settings → Voice|settings:voice}}.",
       why: "You can start a task without typing, including in Hindi or English.",
       how: ["Speak", "Understand", "AI decides", "Action or answer", "Voice response"],
       canDo: ["Tap the orb or microphone to start", "Tap again to stop listening", "Cancel a reply in progress with Stop", "See the state: Ready, Listening, Understanding, Speaking, or Error"],
       start: "Open Chat and tap the orb or the microphone. Listening starts only from that tap.",
       permissions: "The browser asks for microphone access the first time you tap Speak. ZARVIS does not listen in the background.",
-      limits: ["There is no wake word and no continuous listening.", "Spoken replies must be turned on in Settings → Voice.", "Recognition quality depends on the device and browser."],
+      limits: ["There is no wake word and no continuous listening.", "Spoken replies must be turned on in {{Settings → Voice|settings:voice}}.", "Recognition quality depends on the device and browser."],
       examples: ["What's on my task list?", "Summarize this in Hindi", "Draft a short reply to a customer"],
       cta: "Try Voice",
       action: "voice",
@@ -154,7 +154,7 @@
       canDo: ["Read-only repository analysis", "Confirmation required before implementation", "Pull request creation when that action is confirmed"],
       start: "Open Developer Agent, paste a repository URL and run Analyze. Implement shows the exact pull request for your approval before anything is written.",
       permissions: "Implementation uses the protected developer workflow and your confirmation. Analysis does not change the repository.",
-      limits: ["Implement needs a PRO plan and your own connected GitHub account.", "Nothing is merged automatically.", "The Android Developer screen is read-only analysis."],
+      limits: ["Implement needs a {{PRO plan|plans}} and your own {{connected GitHub account|developer}}.", "Nothing is merged automatically.", "The Android Developer screen is read-only analysis."],
       examples: ["Analyze this repository and tell me what needs fixing: ", "What is the build system of this repo?"],
       cta: "Open Developer Agent",
       action: "developer",
@@ -167,11 +167,11 @@
       summary: "Create a trackable task, then pause, resume, cancel, or retry it.",
       availability: "Available now",
       kind: "now",
-      what: "You can create a workflow task, list tasks, and cancel one by describing it. Activity shows status and the pause, resume, cancel, and retry controls.",
+      what: "You can create a workflow task, list tasks, and cancel one by describing it. {{Activity|activity}} shows status and the pause, resume, cancel, and retry controls.",
       why: "A multi-step goal stays visible after you leave the chat.",
-      how: ["Describe the goal.", "ZARVIS creates a task you can open in Activity.", "Use Pause, Resume, Cancel, or Retry on that task.", "Creating a task does not mean each step has already run."],
+      how: ["Describe the goal.", "ZARVIS creates a task you can open in {{Activity|activity}}.", "Use Pause, Resume, Cancel, or Retry on that task.", "Creating a task does not mean each step has already run."],
       canDo: ["Create a tracked workflow", "List your tasks", "Cancel by describing the goal", "Pause, resume, and retry from Activity"],
-      start: "Create a task from Chat, then review it in Activity.",
+      start: "Create a task from Chat, then review it in {{Activity|activity}}.",
       permissions: "Uses your ZARVIS account. No extra device permission on the web.",
       limits: ["Creating a workflow stores and tracks the steps. It does not execute those steps.", "Reminders that fire on a schedule are an Android skill (personal.reminder), separate from workflow execution."],
       examples: ["Create a workflow for this goal and break it into clear steps: ", "Show my tasks", "Cancel my standup workflow"],
@@ -396,10 +396,26 @@
     page.appendChild(cols);
   }
 
+  /** Fills `node` with `text`, turning each {{label|target}} into a button that goes to that page. */
+  function rich(node, text) {
+    for (const part of String(text).split(/(\{\{[^}]+\}\})/)) {
+      const link = /^\{\{([^|}]+)\|([^}]+)\}\}$/.exec(part);
+      if (link) {
+        const button = el("button", "inline-link", link[1]);
+        button.type = "button";
+        button.dataset.go = link[2];
+        node.appendChild(button);
+      } else if (part) {
+        node.appendChild(document.createTextNode(part));
+      }
+    }
+    return node;
+  }
+
   function section(title, body) {
     const block = el("section", "feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
-    block.appendChild(el("p", "feature-block-body", body));
+    block.appendChild(rich(el("p", "feature-block-body"), body));
     return block;
   }
 
@@ -407,7 +423,7 @@
     const block = el("section", asPanel ? "panel feature-block" : "feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
     const list = el("ul", "feature-list");
-    for (const item of items) list.appendChild(el("li", null, item));
+    for (const item of items) list.appendChild(rich(el("li"), item));
     block.appendChild(list);
     return block;
   }
@@ -416,7 +432,7 @@
     const block = el("section", "feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
     const list = el("ol", "feature-steps");
-    for (const item of items) list.appendChild(el("li", null, item));
+    for (const item of items) list.appendChild(rich(el("li"), item));
     block.appendChild(list);
     return block;
   }
@@ -424,7 +440,7 @@
   function note(title, body) {
     const block = el("section", "panel feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
-    block.appendChild(el("p", "feature-block-body", body));
+    block.appendChild(rich(el("p", "feature-block-body"), body));
     return block;
   }
 

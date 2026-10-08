@@ -532,7 +532,23 @@
     "Step by step, in simple words": "चरण दर चरण, सरल शब्दों में",
     "Into Hindi, keeping the tone": "हिंदी में, लहजा बनाए रखते हुए",
     "A polite business reply": "विनम्र बिज़नेस जवाब",
-    "Use your voice instead of typing": "टाइप करने की जगह आवाज़ से बोलें"
+    "Use your voice instead of typing": "टाइप करने की जगह आवाज़ से बोलें",
+    "Preferences": "पसंद",
+    "AI & memory": "AI और मेमोरी",
+    "Privacy & devices": "गोपनीयता और डिवाइस",
+    "Plans & billing": "प्लान और बिलिंग",
+    "Plan, credits and payments": "प्लान, क्रेडिट और भुगतान",
+    "Privacy & data": "गोपनीयता और डेटा",
+    "Confirmations, stored data and account deletion": "पुष्टि, सहेजा गया डेटा और खाता हटाना",
+    "Your data": "आपका डेटा",
+    "Open Permissions": "अनुमतियाँ खोलें",
+    "Every chat opened in this browser, newest first.": "इस ब्राउज़र में खोली गई हर चैट, नई सबसे ऊपर।",
+    "What ZARVIS can do": "ZARVIS क्या कर सकता है",
+    "Every skill, with its real status.": "हर स्किल, उसकी असली स्थिति के साथ।",
+    "Open Capabilities": "क्षमताएँ खोलें",
+    "See everything ZARVIS can do": "देखें ZARVIS क्या-क्या कर सकता है",
+    "You're on a guest account. Link an email so your plan and credits stay with you.": "आप गेस्ट खाते पर हैं। ईमेल लिंक करें ताकि आपका प्लान और क्रेडिट आपके साथ रहें।",
+    "Open Developer Agent": "डेवलपर एजेंट खोलें"
   };
 
   /* Strings with a changing part (a date, a number, a name). */
@@ -546,6 +562,7 @@
     [new RegExp("^(\\d+)m ago$"), "$1 मिनट पहले"],
     [new RegExp("^(\\d+)h ago$"), "$1 घंटे पहले"],
     [new RegExp("^Remove from list: (.+)$"), "सूची से हटाएँ: $1"],
+    [new RegExp("^(\\d+) open tasks?$"), "$1 खुले कार्य"],
     [new RegExp("^“(.+)” stays on the ZARVIS server\\. It just won't be listed on this browser any more\\.$"), "“$1” ZARVIS सर्वर पर ही रहती है। बस इस ब्राउज़र की सूची में नहीं दिखेगी।"]
   ];
 
