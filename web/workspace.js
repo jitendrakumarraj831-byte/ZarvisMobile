@@ -106,16 +106,27 @@
 
   /* ---------- Talking to the server ---------- */
 
-  /** Never throws for an HTTP or network failure: the caller gets {ok, status, body, network, ended}. */
-  async function call(path, options) {
+  /** How long a request may take before the page stops waiting: a step of a task or a file read can take a while, a list should not. */
+  const LONG_CALL = /^\/(?:tasks\/[^/]+\/(?:run|retry)|files\/upload)(?:\?|$)/;
+  const SHORT_TIMEOUT_MS = 25000;
+  const LONG_TIMEOUT_MS = 130000;
+
+  /** Never throws for an HTTP or network failure: the caller gets {ok, status, body, network, timeout, ended}. */
+  async function call(path, options = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LONG_CALL.test(path) ? LONG_TIMEOUT_MS : SHORT_TIMEOUT_MS);
     try {
-      const res = await host.apiFetch(path, options);
+      const res = await host.apiFetch(path, { ...options, signal: controller.signal });
       const body = res.status === 204 ? null : await res.json().catch(() => null);
-      return { ok: res.ok, status: res.status, body, network: false, ended: false };
+      return { ok: res.ok, status: res.status, body, network: false, timeout: false, ended: false };
     } catch (err) {
-      if (err && err.name === "SessionEndedError") return { ok: false, status: 401, body: null, network: false, ended: true };
-      if (err && err.constructor && err.constructor.name === "SessionEndedError") return { ok: false, status: 401, body: null, network: false, ended: true };
-      return { ok: false, status: 0, body: null, network: true, ended: false };
+      if (err && err.name === "SessionEndedError") return { ok: false, status: 401, body: null, network: false, timeout: false, ended: true };
+      if (err && err.constructor && err.constructor.name === "SessionEndedError") return { ok: false, status: 401, body: null, network: false, timeout: false, ended: true };
+      // A request that never answers must not leave a page on its loading skeleton for ever.
+      if (err && err.name === "AbortError") return { ok: false, status: 0, body: null, network: false, timeout: true, ended: false };
+      return { ok: false, status: 0, body: null, network: true, timeout: false, ended: false };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -124,6 +135,7 @@
 
   /** The reason to show for a failed call: the server's own words when it gave any. */
   function reason(r, fallback) {
+    if (r.timeout) return "ZARVIS took too long to answer. Try again in a moment.";
     if (r.network) return "Couldn't reach ZARVIS. Check your connection and try again.";
     if (r.body && typeof r.body.error === "string" && r.body.error) return r.body.error;
     if (r.status === 429) return "Too many requests right now. Wait a moment and try again.";
@@ -317,10 +329,14 @@
   }
 
   /** The side panel used to read a file or one run's output. build(body) fills it; it is closed with Esc, the button or the backdrop. */
+  let closeOpenViewer = null;
+
   function openViewer({ title, build, userTitle = false }) {
     const overlay = $("viewer-overlay");
     const body = $("viewer-body");
     if (!overlay) return;
+    if (closeOpenViewer) closeOpenViewer(); // a second panel never stacks its listeners on the first one's
+    claim("viewer"); // every newly opened panel outdates the answers still on their way for an earlier one
     $("viewer-title").textContent = title;
     if (userTitle) $("viewer-title").dataset.userText = "";
     else delete $("viewer-title").dataset.userText;
@@ -333,7 +349,9 @@
       overlay.removeEventListener("keydown", onKey);
       overlay.removeEventListener("mousedown", onScrim);
       $("viewer-close").removeEventListener("click", close);
+      if (closeOpenViewer === close) closeOpenViewer = null;
     };
+    closeOpenViewer = close;
     const onKey = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1028,7 +1046,7 @@
   };
 
   const uploadReason = (r) => UPLOAD_ERRORS[(r.body && (r.body.error || r.body.code)) || ""] || reason(r, "The upload didn't work (" + r.status + ").");
-  const retryable = (r) => r.network || r.status >= 500 || r.status === 429 || (r.body && r.body.error === "ai_unavailable");
+  const retryable = (r) => r.network || r.timeout || r.status >= 500 || r.status === 429 || (r.body && r.body.error === "ai_unavailable");
 
   /** Uploads one file and returns { ok, message, retry }. Text is read here; everything else is read by the server. */
   async function uploadOne(file, projectId) {
@@ -1387,8 +1405,11 @@
   async function openFileViewer(file, onChanged) {
     const close = openViewer({ title: file.name, userTitle: true, build: (body) => body.appendChild(skeleton(2)) });
     void close;
+    const token = tokens.viewer;
     const r = await call("/files/" + encodeURIComponent(file.id));
     if (r.ended) return closeViewer();
+    // A slower answer for a file that was opened earlier must not overwrite the file shown now.
+    if (!isCurrent("viewer", token)) return;
     const body = $("viewer-body");
     if (!body) return;
     body.replaceChildren();
@@ -1503,7 +1524,7 @@
         body.lastChild.replaceWith(h("dl", "exec-kv", h("div", null, h("dt", null, "Status"), h("dd", null, run.status === "COMPLETED" ? "Completed" : run.status)), h("div", null, h("dt", null, "Recorded"), h("dd", null, new Date(run.createdAt).toLocaleString()))));
         if (run.inputPreview) {
           const asked = Object.values(run.inputPreview).find((v) => typeof v === "string" && v);
-          if (asked) body.appendChild(h("p", "exec-input", "“" + asked + "”"));
+          if (asked) body.appendChild(userText("p", "exec-input", "“" + asked + "”"));
         }
         const out = h("div", "exec-output");
         window.ZarvisExec?.renderOutput(out, run.skillId, run.output, { inputPreview: run.inputPreview });
@@ -1709,9 +1730,10 @@
           const rowEl = h("article", "ws-row");
           rowEl.append(h("div", "ws-row-copy", h("strong", null, run.skillName), userText("p", "ws-snippet", text.replace(/\s+/g, " ").slice(0, 160) + (text.length > 160 ? "…" : "")), h("div", "ws-meta", h("span", null, relative(run.createdAt)))),
             h("div", "ws-row-actions", button("View", "btn btn-ghost btn-sm", () => openRunViewer(run), { aria: "View: " + run.skillName }), button("Save to Files", "btn btn-secondary btn-sm", async (event) => {
-              event.currentTarget.disabled = true;
+              const saveButton = event.currentTarget; // currentTarget is cleared once the handler has awaited
+              saveButton.disabled = true;
               await saveOutput({ name: run.skillName + " – " + new Date(run.createdAt).toLocaleDateString() + ".md", text, projectId: run.projectId || undefined });
-              event.currentTarget.disabled = false;
+              saveButton.disabled = false;
             })));
           list.appendChild(rowEl);
         }
@@ -2441,6 +2463,7 @@
     }
     const p = r.body.projects[0];
     $("home-project-title").textContent = p.name;
+    $("home-project-title").dataset.userText = ""; // the project's own name
     $("home-project-label").textContent = "Continue a project · " + relative(p.updatedAt);
     row.hidden = false;
     row.onclick = () => {

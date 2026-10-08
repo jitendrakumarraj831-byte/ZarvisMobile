@@ -29,7 +29,7 @@
   }
 
   /** Text that came from the user, a website or the model, not from the interface: the Hindi translator leaves it as it is. */
-  function data(node) {
+  function userData(node) {
     node.dataset.userText = "";
     return node;
   }
@@ -101,8 +101,8 @@
   }
 
   function link(url, label) {
-    if (!isHttp(url)) return data(h("span", null, label || String(url)));
-    const a = data(h("a", "exec-link", label || url));
+    if (!isHttp(url)) return userData(h("span", null, label || String(url)));
+    const a = userData(h("a", "exec-link", label || url));
     a.href = url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
@@ -166,7 +166,7 @@
       const state = check.status !== "completed" || check.conclusion === null ? "pending" : ["success", "neutral", "skipped"].includes(check.conclusion) ? "pass" : "fail";
       li.dataset.state = state;
       li.appendChild(icon(state === "pass" ? "i-check" : state === "fail" ? "i-x" : "i-clock"));
-      const label = check.url && isHttp(check.url) ? link(check.url, check.name) : data(h("span", null, check.name));
+      const label = check.url && isHttp(check.url) ? link(check.url, check.name) : userData(h("span", null, check.name));
       li.appendChild(label);
       li.appendChild(h("small", null, state === "pending" ? (check.status === "completed" ? "no result" : check.status.replace(/_/g, " ")) : check.conclusion.replace(/_/g, " ")));
       ul.appendChild(li);
@@ -178,8 +178,10 @@
     if (button) button.disabled = true;
     root.replaceChildren(h("p", "muted", "Asking GitHub…"));
     root.setAttribute("aria-busy", "true");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
     try {
-      const res = await host.apiFetch("/developer/pr-status?repoUrl=" + encodeURIComponent(repoUrl) + "&number=" + encodeURIComponent(number));
+      const res = await host.apiFetch("/developer/pr-status?repoUrl=" + encodeURIComponent(repoUrl) + "&number=" + encodeURIComponent(number), { signal: controller.signal });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         root.replaceChildren(h("p", "alert alert-error", body.error || "GitHub didn't answer (" + res.status + ")."));
@@ -192,9 +194,16 @@
         button.textContent = "Check again";
       }
     } catch (err) {
-      if (!err || err.name !== "SessionEndedError") root.replaceChildren(h("p", "alert alert-error", "Couldn't reach ZARVIS. Check your connection and try again."));
+      if (!err || err.name !== "SessionEndedError") {
+        console.error(err);
+        // A network failure is a network failure; anything else is this page's own fault and must not be called one.
+        const timedOut = err && err.name === "AbortError";
+        const network = err instanceof TypeError && /fetch|network|load failed/i.test(err.message || "");
+        root.replaceChildren(h("p", "alert alert-error", timedOut ? "ZARVIS took too long to answer. Try again in a moment." : network ? "Couldn't reach ZARVIS. Check your connection and try again." : "ZARVIS got the answer but couldn't show it. Try again."));
+      }
       if (button) button.disabled = false;
     } finally {
+      clearTimeout(timer);
       root.removeAttribute("aria-busy");
     }
   }
@@ -211,13 +220,13 @@
     ]));
     if ((output.files || []).length) {
       const ul = h("ul", "exec-files");
-      for (const file of output.files) ul.appendChild(data(h("li", null, file)));
+      for (const file of output.files) ul.appendChild(userData(h("li", null, file)));
       box.appendChild(ul);
     }
     if ((output.suggestedTests || []).length) {
       box.appendChild(h("h5", "exec-sub", "Checks the change suggests (ZARVIS did not run them)"));
       const ul = h("ul");
-      for (const test of output.suggestedTests) ul.appendChild(data(h("li", null, test)));
+      for (const test of output.suggestedTests) ul.appendChild(userData(h("li", null, test)));
       box.appendChild(ul);
     }
     box.appendChild(h("p", "muted", "Tests: ZARVIS runs none. The only test evidence is what your repository's own checks report on GitHub."));
@@ -244,7 +253,7 @@
     const list = h("ul", "exec-source-list");
     list.hidden = true;
     for (const r of results) {
-      const li = data(h("li"));
+      const li = userData(h("li"));
       li.appendChild(link(r.url, r.title || hostOf(r.url)));
       li.appendChild(h("small", null, hostOf(r.url)));
       list.appendChild(li);
@@ -335,7 +344,7 @@
       this.chip = h("span", "z-badge exec-chip");
       this.chip.setAttribute("role", "status");
       this.head.append(this.ico, this.title, this.chip);
-      this.input = data(h("p", "exec-input"));
+      this.input = userData(h("p", "exec-input"));
       this.steps = h("ol", "exec-steps");
       this.steps.setAttribute("aria-label", "What happened, in order");
       this.message = h("p", "exec-message");

@@ -21,6 +21,8 @@ const BASE = process.env.ZARVIS_URL || "http://localhost:3100";
 const results = [];
 
 async function step(name, fn) {
+  // ONLY="text" runs just the steps whose name contains it (a step that needs an earlier one will fail on its own).
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return;
   try {
     await fn();
     results.push(["PASS", name]);
@@ -34,13 +36,15 @@ async function step(name, fn) {
 /** `page.expectRejections` lets a check deliberately provoke a 4xx; the browser logs those as console errors. */
 function watchErrors(page, sink) {
   page.expectRejections = 0;
+  page.expectConsole = [];
   page.on("pageerror", (err) => sink.push("pageerror: " + err.message));
   page.on("console", (msg) => {
     if (msg.type() !== "error") return;
-    if (/Failed to load resource: the server responded with a status of 4\d\d/.test(msg.text()) && page.expectRejections > 0) {
+    if (/Failed to load resource: the server responded with a status of [45]\d\d/.test(msg.text()) && page.expectRejections > 0) {
       page.expectRejections -= 1;
       return;
     }
+    if (page.expectConsole.some((re) => re.test(msg.text()))) return; // the app's own log of a failure the check provoked on purpose
     sink.push("console: " + msg.text());
   });
 }
@@ -102,13 +106,10 @@ async function send(page, text) {
   await page.click("#send-btn");
 }
 
-const overflowOf = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
   const { page, errors } = await newPage(browser);
   let project = null;
-  let chatId = null;
 
   /* ---------- Work: projects ---------- */
 
@@ -170,7 +171,6 @@ const overflowOf = (page) => page.evaluate(() => document.documentElement.scroll
     const chats = await api(page, "/conversations?limit=10");
     const mine = chats.body.conversations.find((c) => c.projectId === project.id);
     assert.ok(mine, "the conversation is stored with the project id");
-    chatId = mine.id;
   });
 
   await step("Continue work then offers that real chat and reopens its stored messages", async () => {
@@ -484,6 +484,120 @@ const overflowOf = (page) => page.evaluate(() => document.documentElement.scroll
     await page.waitForSelector(".ws-project-head .ws-h2 >> text=Website relaunch");
   });
 
+  /* ---------- Developer: pull request and the evidence for its tests ---------- */
+
+  const prCard = async (id, number, repoUrl) => {
+    await startTurn("open a pull request " + id);
+    await push("progress", { type: "tool_started", skillId: "developer.implement", skillName: "Implement Repository Change", toolCallId: id, riskLevel: "HIGH", actionClass: "EXTERNAL_COMMUNICATION", inputPreview: { repoUrl } });
+    await push("progress", { type: "tool_finished", skillId: "developer.implement", toolCallId: id, status: "COMPLETED" });
+    const output = { pullRequest: { number, url: `https://github.com/acme/demo/pull/${number}` }, branch: "zarvis/agent-stub", files: ["README.md", "docs/badge.md"], suggestedTests: ["npm test"] };
+    const toolCalls = [{ toolCallId: id, skillId: "developer.implement", outcome: { kind: "success", result: { output }, chargedCredits: 10 }, result: { success: true, status: "COMPLETED", userSafeMessage: "Opened a pull request.", verificationEvidence: { check: "non_empty_result", outputKeys: ["pullRequest", "branch", "files"], chargedCredits: 10 } } }];
+    await push("done", { message: "Opened pull request " + number + ".", toolCalls, conversationId: "00000000-0000-4000-8000-000000000001", turnId: "t" });
+    await mp.evaluate(() => window.__stream.end());
+    const card = mp.locator(`.exec-card[data-tool-call-id="${id}"]`);
+    await card.waitFor();
+    await mp.waitForSelector(`.exec-card[data-tool-call-id="${id}"][data-status="COMPLETED"]`);
+    return card;
+  };
+
+  await step("a pull request card lists its files and says ZARVIS runs no tests; CI evidence is read from GitHub, passes and failures both shown", async () => {
+    const card = await prCard("pr1", 1, "https://github.com/acme/demo");
+    const text = await card.innerText();
+    assert.match(text, /README\.md/);
+    assert.match(text, /ZARVIS did not run them/, "suggested checks are labelled as not run");
+    assert.match(text, /ZARVIS runs none/);
+    assert.ok(!/tests? passed/i.test(text), "no test result is claimed before GitHub reports one");
+    await card.locator('button:has-text("Check CI results on GitHub")').click();
+    await card.locator(".exec-checks").waitFor();
+    assert.match(await card.locator(".exec-ci-head").innerText(), /pull request #1/);
+    assert.match(await card.locator(".exec-ci-head").innerText(), /1 passed · 1 failed · 0 pending/);
+    assert.equal(await card.locator('.exec-checks li[data-state="pass"]').count(), 1);
+    assert.equal(await card.locator('.exec-checks li[data-state="fail"]').count(), 1);
+    assert.match(await card.locator(".exec-checks").innerText(), /unit tests[\s\S]*lint/);
+  });
+
+  await step("a pull request with no CI says there is no test result at all", async () => {
+    const card = await prCard("pr2", 2, "https://github.com/acme/demo");
+    await card.locator('button:has-text("Check CI results on GitHub")').click();
+    await card.locator(".exec-ci >> text=no checks").waitFor();
+    const text = await card.locator(".exec-ci").innerText();
+    assert.match(text, /ZARVIS has not run any tests, so there is no test result to show/);
+    assert.equal(await card.locator(".exec-checks").count(), 0);
+  });
+
+  await step("the PR status endpoint refuses a repository URL that is not GitHub and a bad number", async () => {
+    page.expectRejections += 2;
+    const notGithub = await api(page, "/developer/pr-status?repoUrl=" + encodeURIComponent("https://evil.example/acme/demo") + "&number=1");
+    assert.equal(notGithub.status, 400);
+    const badNumber = await api(page, "/developer/pr-status?repoUrl=" + encodeURIComponent("https://github.com/acme/demo") + "&number=abc");
+    assert.equal(badNumber.status, 400);
+  });
+
+  /* ---------- Composer: files ---------- */
+
+  const dropFile = (p, name, type, body) => p.evaluate(([n, t, b]) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([b], n, { type: t }));
+    document.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, [name, type, body]);
+
+  await step("composer: a failed PDF read says why and offers Retry; Retry reads it once more; a drop during the read is refused, not queued", async () => {
+    await go(page, "#/chat");
+    await page.waitForSelector("#view-chat:not([hidden])");
+    page.expectRejections += 1;
+    page.expectConsole.push(/File reading failed \(503\)/);
+    let calls = 0;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    await page.route("**/api/v1/documents/extract", async (route) => {
+      calls += 1;
+      if (calls === 1) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "upload_unavailable" }) });
+      await gate;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: "Extracted text of the PDF." }) });
+    });
+    await page.setInputFiles("#file-input", { name: "report.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 fake") });
+    await page.locator(".bubble.system .bubble-retry-btn").last().waitFor();
+    assert.equal(await page.locator("#attachment-chip").isVisible(), false, "a failed read leaves no attachment behind");
+    await page.locator(".bubble.system .bubble-retry-btn").last().click();
+    await page.waitForSelector("#attachment-chip.is-loading");
+    assert.match(await page.locator("#attachment-status").innerText(), /Reading|Extracting|Analy/i);
+    await dropFile(page, "second.pdf", "application/pdf", "%PDF-1.4 other");
+    await page.waitForSelector(".toast >> text=Still reading");
+    assert.equal(calls, 2, "no second read was started while the first was running");
+    release();
+    await page.waitForSelector("#attachment-chip:not(.is-loading):not([hidden])");
+    assert.match(await page.locator("#attachment-name").innerText(), /report\.pdf/);
+    assert.equal(calls, 2);
+    await page.unroute("**/api/v1/documents/extract");
+    await page.click("#attachment-remove");
+    await page.waitForSelector("#attachment-chip", { state: "hidden" });
+  });
+
+  await step("composer: pasting a file (with no text) and dropping a file each attach it once", async () => {
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(["hello pasted"], "pasted.txt", { type: "text/plain" }));
+      document.getElementById("text-input").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await page.waitForSelector("#attachment-chip:not([hidden])");
+    assert.match(await page.locator("#attachment-name").innerText(), /pasted\.txt/);
+    await page.click("#attachment-remove");
+    await dropFile(page, "dropped.txt", "text/plain", "hello dropped");
+    await page.waitForSelector("#attachment-chip:not([hidden])");
+    assert.match(await page.locator("#attachment-name").innerText(), /dropped\.txt/);
+    assert.equal(await page.locator("#drop-overlay").isVisible(), false, "the drop overlay is gone");
+    await page.click("#attachment-remove");
+  });
+
+  await step("composer: an unsupported or empty file is explained and attaches nothing", async () => {
+    await page.setInputFiles("#file-input", { name: "tool.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
+    await page.waitForSelector(".bubble.system >> text=can analyze");
+    assert.equal(await page.locator("#attachment-chip").isVisible(), false);
+    await page.setInputFiles("#file-input", { name: "empty.txt", mimeType: "text/plain", buffer: Buffer.from("   \n") });
+    await page.waitForSelector(".bubble.system >> text=looks empty");
+    assert.equal(await page.locator("#attachment-chip").isVisible(), false);
+  });
+
   /* ---------- Activity ---------- */
 
   await step("Activity merges real tool runs, tasks, files, notes, chats and projects; filters narrow it", async () => {
@@ -541,6 +655,139 @@ const overflowOf = (page) => page.evaluate(() => document.documentElement.scroll
     assert.ok(summary && typeof summary.runs === "number" && summary.runs >= 1, "usage summary: " + JSON.stringify(summary).slice(0, 120));
     const text = await page.locator("#usage-panel").innerText();
     assert.ok(!/\bnull\b|NaN|undefined/.test(text), "no broken values: " + text.slice(0, 200));
+  });
+
+  /* ---------- Navigation, offline and a stalled server ---------- */
+
+  await step("navigation: tabs are history entries, a reload keeps the tab, and a link to a deleted project says it is gone", async () => {
+    await go(page, "#/work/files");
+    await page.waitForSelector('#work-tab-files[aria-selected="true"]');
+    await page.click("#work-tab-research");
+    await page.waitForSelector('#work-tab-research[aria-selected="true"]');
+    assert.equal(await page.evaluate(() => location.hash), "#/work/research");
+    await page.goBack();
+    await page.waitForSelector('#work-tab-files[aria-selected="true"]');
+    await page.goForward();
+    await page.waitForSelector('#work-tab-research[aria-selected="true"]');
+    await page.reload();
+    await page.waitForSelector('#work-tab-research[aria-selected="true"]');
+    assert.equal(await page.locator("#work-panel-research").isVisible(), true, "the reloaded tab shows its panel");
+    const gone = await post(page, "/projects", { name: "Short lived" });
+    assert.equal(gone.status, 201);
+    assert.equal((await api(page, "/projects/" + gone.body.id, { method: "DELETE" })).status, 204);
+    page.expectRejections += 1;
+    await go(page, "#/work/project-" + gone.body.id);
+    await page.waitForSelector("#work-panel-projects .empty-state >> text=no longer exists");
+    page.expectRejections += 1;
+    await go(page, "#/work/project-zzzz");
+    await page.waitForSelector("#work-panel-projects .empty-state >> text=no longer exists");
+  });
+
+  await step("offline: a Work page says it can't reach ZARVIS, offers Try again, and loads once the connection is back", async () => {
+    await go(page, "#/work/outputs");
+    await page.waitForSelector('#work-tab-outputs[aria-selected="true"]');
+    page.expectConsole.push(/ERR_INTERNET_DISCONNECTED|Failed to load resource/);
+    await page.context().setOffline(true);
+    await page.click("#work-tab-files");
+    await page.waitForSelector("#files-list .ws-error");
+    assert.match(await page.locator("#files-list .ws-error").innerText(), /Couldn't reach ZARVIS/);
+    assert.equal(await page.locator("#files-list .ws-error").getAttribute("role"), "alert");
+    await page.context().setOffline(false);
+    await page.click('#files-list .ws-error button:has-text("Try again")');
+    await page.waitForSelector("#files-list .file-row");
+    assert.equal(await page.locator("#files-list .ws-error").count(), 0);
+  });
+
+  await step("a server that never answers: after 25 seconds the page stops waiting and offers Try again", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {} });
+    const slow = await ctx.newPage();
+    await slow.goto(BASE);
+    await slow.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await slow.clock.install();
+    await slow.route("**/api/v1/projects**", () => {}); // the request is held open and never answered
+    await slow.evaluate(() => { location.hash = "#/work/projects"; });
+    await slow.waitForSelector("#work-panel-projects .ws-skeleton");
+    await slow.clock.fastForward(26000);
+    await slow.waitForSelector("#work-panel-projects .ws-error");
+    assert.match(await slow.locator("#work-panel-projects .ws-error").innerText(), /took too long/);
+    assert.equal(await slow.locator("#work-panel-projects .ws-skeleton").count(), 0, "no loading skeleton is left behind");
+    await slow.unroute("**/api/v1/projects**");
+    await slow.click('#work-panel-projects .ws-error button:has-text("Try again")');
+    await slow.waitForSelector("#work-panel-projects .empty-state >> text=No active projects");
+    await ctx.close();
+  });
+
+  /* ---------- Dialogs: keyboard and focus ---------- */
+
+  await step("dialogs: the form dialog takes focus, keeps Tab inside, closes on Esc and gives focus back; the page behind is inert", async () => {
+    await workTab(page, "projects");
+    await page.waitForSelector('#work-panel-projects .section-head button:has-text("New project")');
+    const opener = page.locator('#work-panel-projects .section-head button:has-text("New project")');
+    await opener.focus();
+    await opener.press("Enter");
+    await page.waitForSelector("#form-modal:not([hidden])");
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), "form-field-0", "focus moves to the first field");
+    assert.equal(await page.evaluate(() => document.querySelector(".app").hasAttribute("inert")), true, "the page behind cannot be reached");
+    const inside = () => page.evaluate(() => !!document.activeElement && document.getElementById("form-modal").contains(document.activeElement));
+    for (let i = 0; i < 12; i += 1) {
+      await page.keyboard.press("Tab");
+      assert.equal(await inside(), true, "Tab stays in the dialog (press " + (i + 1) + ")");
+    }
+    for (let i = 0; i < 12; i += 1) {
+      await page.keyboard.press("Shift+Tab");
+      assert.equal(await inside(), true, "Shift+Tab stays in the dialog (press " + (i + 1) + ")");
+    }
+    // An empty required field is explained, and focus goes to it.
+    await page.click("#form-modal-submit");
+    assert.match(await page.locator("#form-modal-error").innerText(), /Name is required/);
+    assert.equal(await page.evaluate(() => document.activeElement.id), "form-field-0");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#form-modal", { state: "hidden" });
+    assert.equal(await page.evaluate(() => document.querySelector(".app").hasAttribute("inert")), false);
+    assert.match(await page.evaluate(() => document.activeElement.textContent), /New project/, "focus returns to the button that opened it");
+  });
+
+  await step("dialogs: a confirmation (delete) is an alert dialog that Esc dismisses without deleting", async () => {
+    await go(page, "#/work/project-" + project.id);
+    await page.waitForSelector(".ws-project-head");
+    await page.click('.ws-project-head button:has-text("Delete")');
+    await page.waitForSelector("#confirm-modal:not([hidden])");
+    assert.equal(await page.locator("#confirm-modal [role=alertdialog]").count(), 1);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#confirm-modal", { state: "hidden" });
+    assert.equal((await api(page, "/projects/" + project.id)).status, 200, "the project is still there");
+  });
+
+  /* ---------- Security: user text is text ---------- */
+
+  await step("security: markup in a project name, note, file name, task goal and chat is shown as text and never runs", async () => {
+    const html = '<img src=x onerror="window.__xss=1"><b>bold</b>';
+    const created = await post(page, "/projects", { name: html, goal: html, description: html });
+    assert.equal(created.status, 201);
+    const pid = created.body.id;
+    await post(page, "/notes", { kind: "decision", content: html, projectId: pid });
+    await post(page, "/notes", { kind: "memory", content: html });
+    await post(page, "/files/text", { name: html + ".txt", text: html, projectId: pid });
+    await post(page, "/tasks", { goal: html, projectId: pid });
+    const routes = ["#/work/projects", "#/work/project-" + pid, "#/work/files", "#/work/tasks", "#/work/outputs", "#/activity", "#/settings/memory", "#/home"];
+    for (const hash of routes) {
+      await go(page, hash);
+      await page.waitForTimeout(700);
+      if (hash.includes("project-")) {
+        for (const tab of ["chats", "files", "research", "tasks", "decisions", "memory", "activity"]) {
+          await page.evaluate((t) => document.getElementById("project-tab-" + t)?.click(), tab);
+          await page.waitForTimeout(200);
+        }
+      }
+    }
+    await page.click("#project-tab-decisions").catch(() => {});
+    assert.equal(await page.evaluate(() => window.__xss), undefined, "no handler from stored text ran");
+    assert.equal(await page.locator('img[src="x"]').count(), 0, "no element was created from stored text");
+    await go(page, "#/work/files");
+    await page.waitForSelector("#files-list .file-row");
+    assert.match(await page.locator("#files-list").innerText(), /<img src=x onerror="window\.__xss=1"><b>bold<\/b>\.txt/, "the file name is shown literally");
+    await api(page, "/projects/" + pid, { method: "DELETE" });
   });
 
   /* ---------- Report ---------- */

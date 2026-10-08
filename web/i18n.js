@@ -1121,6 +1121,8 @@
     "Declined": "मना किया",
     "Disconnect": "डिस्कनेक्ट करें",
     "Recent runs": "हाल के रन",
+    "ZARVIS took too long to answer. Try again in a moment.": "ZARVIS ने जवाब देने में बहुत देर लगाई। थोड़ी देर में फिर कोशिश करें।",
+    "ZARVIS got the answer but couldn't show it. Try again.": "ZARVIS को जवाब मिल गया पर वह उसे दिखा नहीं सका। फिर कोशिश करें।",
     "Checking permission and plan": "अनुमति और प्लान की जाँच",
     "Permission and plan checked": "अनुमति और प्लान जाँचे गए",
     "Permission or plan refused": "अनुमति या प्लान ने मना किया",

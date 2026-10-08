@@ -34,7 +34,7 @@ const AXE_SOURCE = require("node:fs").readFileSync(
 
 const BASE = process.env.ZARVIS_URL || "http://localhost:3100";
 const VIEWS = ["home", "chat", "work", "agents", "activity", "developer", "metrics", "plans", "settings"];
-const WIDTHS = [360, 412, 768, 1024, 1280, 1920];
+const WIDTHS = [320, 360, 390, 412, 768, 1024, 1280, 1440, 1920];
 const results = [];
 
 async function step(name, fn) {
@@ -111,38 +111,42 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   // ---- Responsive -------------------------------------------------------------------------
   await step(`responsive: no horizontal overflow, ${VIEWS.length} views and the Work, Agents and Memory pages × ${WIDTHS.length} widths`, async () => {
     const problems = [];
+    // One guest account for every width (the server allows 60 sign-ups an hour per address and all the suites share them):
+    // the window is resized in place, the way a phone is turned or a browser window is dragged.
+    const ctx = await browser.newContext({ viewport: { width: WIDTHS[0], height: 860 } });
+    const page = await pageOf(ctx);
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    try {
+      await ready(page);
+    } catch (err) {
+      await ctx.close();
+      throw err;
+    }
+    const projectId = await seedWorkspace(page);
+    const overflowNow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     for (const width of WIDTHS) {
-      const ctx = await browser.newContext({ viewport: { width, height: 860 } });
-      const page = await pageOf(ctx);
-      page.on("pageerror", (e) => errors.push(`pageerror@${width}: ${e.message}`));
-      try {
-        await ready(page);
-      } catch (err) {
-        problems.push(`${width}px: ${err.message}`); // report every width that fails, not just the first
-        await ctx.close();
-        continue;
-      }
+      await page.setViewportSize({ width, height: 860 });
+      await page.waitForTimeout(250);
       for (const view of VIEWS) {
         await openView(page, view);
-        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        const overflow = await overflowNow();
         if (overflow > 1) problems.push(`${view}@${width}px overflows by ${overflow}px`);
       }
-      const projectId = await seedWorkspace(page);
       for (const hash of workspaceRoutes(projectId)) {
         await openRoute(page, hash);
         if (hash.includes("project-")) {
           for (const tab of ["overview", "chats", "files", "research", "tasks", "decisions", "memory", "activity"]) {
             await page.evaluate((t) => document.getElementById("project-tab-" + t)?.click(), tab);
             await page.waitForTimeout(150);
-            const o = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+            const o = await overflowNow();
             if (o > 1) problems.push(`project/${tab}@${width}px overflows by ${o}px`);
           }
         }
-        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        const overflow = await overflowNow();
         if (overflow > 1) problems.push(`${hash.replace(/project-[\w-]+/, "project")}@${width}px overflows by ${overflow}px`);
       }
-      await ctx.close();
     }
+    await ctx.close();
     assert.deepEqual(problems, []);
   });
 
