@@ -46,8 +46,8 @@
   /* ---------- Search / command palette ---------- */
 
   const PAGES = [
-    ["home", "Home", "i-home"], ["chat", "Chat", "i-chat"], ["activity", "Activity", "i-activity"],
-    ["capabilities", "Capabilities", "i-grid"], ["developer", "Developer Agent", "i-code"],
+    ["home", "Home", "i-home"], ["chat", "Chat", "i-chat"], ["capabilities", "Capabilities", "i-grid"],
+    ["tasks", "Tasks", "i-task"], ["activity", "Activity", "i-activity"], ["developer", "Developer Agent", "i-code"],
     ["metrics", "Usage & Metrics", "i-chart"], ["plans", "Plans", "i-plan"], ["settings", "Settings", "i-settings"],
   ];
 
@@ -80,6 +80,7 @@
         run: () => { api.setActiveView("settings"); api.openSettingsPage(row.dataset.settingsPage); },
       });
     }
+    items.push(...(api.extraItems?.() || []));
     for (const entry of (api.getActivity() || []).slice(0, 12)) {
       items.push({ group: "Recent activity", label: entry.title || "Activity", hint: relative(entry.at), icon: "i-activity", run: () => api.setActiveView("activity") });
     }

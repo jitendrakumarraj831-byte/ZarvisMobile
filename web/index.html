@@ -69,8 +69,16 @@
       <symbol id="i-bug" viewBox="0 0 24 24"><rect x="8" y="8" width="8" height="11" rx="4"/><path d="M9 8a3 3 0 0 1 6 0M4 12h4M16 12h4M5 18l3-2M19 18l-3-2M5 6l3 2M19 6l-3 2"/></symbol>
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
       <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h4"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7M10 11v6M14 11v6"/></symbol>
+      <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4.5h6l-1 5 3 3.5H7l3-3.5zM12 13v7"/></symbol>
     </defs>
   </svg>
+
+  <button type="button" class="skip-link" id="skip-link">Skip to content</button>
 
   <div class="app">
     <!-- Desktop / tablet sidebar -->
@@ -83,19 +91,23 @@
       <div class="nav-group">
         <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
         <button type="button" class="nav-item" data-view="chat"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><span>Chat</span></button>
-        <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span><span class="nav-badge" id="activity-badge" hidden></span></button>
         <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
+        <button type="button" class="nav-item" data-view="tasks"><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg><span>Tasks</span><span class="nav-badge" id="tasks-badge" hidden></span></button>
+        <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></button>
       </div>
+      <p class="nav-label nav-recent-label" id="nav-recent-label" hidden>Recent chats</p>
+      <div class="nav-group nav-recent" id="nav-recent" aria-label="Recent chats" hidden></div>
       <p class="nav-label" data-dev-only hidden>Developer access</p>
       <div class="nav-group" data-dev-only hidden>
         <button type="button" class="nav-item" data-view="developer"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg><span>Developer Agent</span></button>
-        <button type="button" class="nav-item" data-view="metrics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Metrics</span></button>
+        <button type="button" class="nav-item" data-view="metrics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Usage &amp; Metrics</span></button>
       </div>
       <div class="nav-spacer"></div>
       <div class="nav-group">
         <button type="button" class="nav-item" data-view="plans"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg><span>Plans</span></button>
         <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
-        <button type="button" class="nav-item nav-profile" data-nav="settings"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>Profile</span></button>
+        <button type="button" class="nav-item nav-profile" data-go="settings:account"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>Profile</span></button>
+        <button type="button" class="nav-collapse" id="sidebar-collapse" aria-pressed="false" aria-label="Collapse sidebar" title="Collapse sidebar"><svg class="ico" aria-hidden="true"><use href="#i-sidebar"/></svg><span>Collapse</span></button>
       </div>
     </nav>
     <div class="drawer-scrim" id="drawer-scrim" hidden></div>
@@ -128,7 +140,10 @@
         </div>
       </div>
 
-      <main class="views" id="main-views">
+      <!-- Where you are, and the way back: Home › Settings › Voice. On phones it shows just the parent link. -->
+      <nav class="crumbs" id="crumbs" aria-label="Breadcrumb" hidden><ol id="crumbs-list"></ol></nav>
+
+      <main class="views" id="main-views" tabindex="-1">
         <!-- ============ HOME ============ -->
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
           <div class="home-hero">
@@ -151,6 +166,16 @@
               <button type="button" class="chip tone-blue" data-nav="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>All capabilities</button>
             </div>
           </section>
+          <button type="button" class="home-continue" id="home-continue" hidden>
+            <span class="home-continue-ico" aria-hidden="true"><svg class="ico"><use href="#i-memory"/></svg></span>
+            <span class="home-continue-copy"><small id="home-continue-label">Continue where you left off</small><strong id="home-continue-title" data-user-text></strong></span>
+            <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
+          </button>
+          <button type="button" class="home-continue home-tasks" id="home-tasks" data-go="tasks" hidden>
+            <span class="home-continue-ico" aria-hidden="true"><svg class="ico"><use href="#i-task"/></svg></span>
+            <span class="home-continue-copy"><small>Tracked tasks</small><strong id="home-tasks-text"></strong></span>
+            <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
+          </button>
           </div>
 
           <form class="home-card" id="home-prompt-form" autocomplete="off">
@@ -168,10 +193,14 @@
             <button type="button" class="icon-btn chat-back" id="chat-back-btn" aria-label="Back to Home"><svg class="ico" aria-hidden="true"><use href="#i-left"/></svg></button>
             <span class="chat-avatar" aria-hidden="true"><svg class="ico"><use href="#i-star4"/></svg></span>
             <div class="chat-title">
-              <strong>ZARVIS AI</strong>
+              <strong id="chat-title-text" data-user-text>ZARVIS AI</strong>
               <p class="status-pill" id="hero-status" data-state="IDLE"><span class="status-dot" aria-hidden="true"></span><span id="hero-status-label">Ready</span></p>
             </div>
-            <button type="button" class="icon-btn chat-new-btn" id="chat-new-btn" aria-label="New Chat" title="Start a new conversation"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span class="chat-new-label">New Chat</span></button>
+            <div class="chat-tools">
+              <button type="button" class="icon-btn chat-tool" id="chat-history-btn" aria-label="Chat history" title="Chat history" aria-haspopup="dialog"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></button>
+              <button type="button" class="icon-btn chat-tool" id="chat-more-btn" aria-label="More chat actions" title="More" aria-haspopup="dialog" aria-expanded="false"><svg class="ico" aria-hidden="true"><use href="#i-more"/></svg></button>
+              <button type="button" class="icon-btn chat-new-btn" id="chat-new-btn" aria-label="New Chat" title="Start a new conversation"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span class="chat-new-label">New Chat</span></button>
+            </div>
           </div>
           <section class="chat-empty" id="hero">
             <div class="orb-stage orb-stage-sm" id="orb" data-state="IDLE" role="button" tabindex="0" aria-pressed="false" aria-label="Speak to ZARVIS">
@@ -181,7 +210,12 @@
             <h1 class="chat-empty-title" id="hero-title">What should we work on?</h1>
             <p class="chat-empty-sub" id="hero-subtitle">Type, speak, or attach a file.</p>
             <p class="sr-only" id="quick-actions-lead">Suggestions</p>
-            <div class="chip-row chip-row-center" id="categories" aria-label="Suggestions"></div>
+            <div class="starter-grid" id="categories" aria-label="Suggestions"></div>
+            <button type="button" class="link-btn chat-all-caps" data-go="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>See everything ZARVIS can do</button>
+            <div class="chat-recent" id="chat-recent" hidden>
+              <div class="section-head"><h2 class="section-title">Recent chats</h2><button type="button" class="link-btn" id="chat-recent-all">See all</button></div>
+              <div class="list" id="chat-recent-list"></div>
+            </div>
           </section>
           <div id="chat-announcer" class="sr-only" aria-live="polite"></div>
           <section class="conversation" id="conversation" aria-live="off" aria-label="Conversation"></section>
@@ -192,7 +226,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="activity-title">Activity</h1>
-              <p class="page-sub">Your recent conversations &amp; tasks.</p>
+              <p class="page-sub">Your recent chats and what you did this session.</p>
             </div>
             <button type="button" class="btn btn-ghost" id="activity-refresh-btn"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Refresh</span></button>
           </header>
@@ -205,25 +239,50 @@
             <div class="segmented" id="activity-filters" role="group" aria-label="Filter activity">
               <button type="button" class="seg active" data-filter="all" aria-pressed="true">All</button>
               <button type="button" class="seg" data-filter="conversation" aria-pressed="false">Chats</button>
-              <button type="button" class="seg" data-filter="task" aria-pressed="false">Tasks</button>
               <button type="button" class="seg" data-filter="file" aria-pressed="false">Files</button>
               <button type="button" class="seg" data-filter="image" aria-pressed="false">Images</button>
               <button type="button" class="seg" data-filter="voice" aria-pressed="false">Voice</button>
               <button type="button" class="seg" data-filter="developer" aria-pressed="false" data-dev-only hidden>Developer</button>
             </div>
           </div>
+          <button type="button" class="home-continue home-tasks" id="activity-tasks" data-go="tasks" hidden>
+            <span class="home-continue-ico" aria-hidden="true"><svg class="ico"><use href="#i-task"/></svg></span>
+            <span class="home-continue-copy"><small>Tracked tasks</small><strong id="activity-tasks-text"></strong></span>
+            <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
+          </button>
+          <section class="activity-block" data-activity-block="chats" id="activity-chats-block" hidden>
+            <div class="section-head">
+              <h2 class="section-title">Recent chats</h2>
+              <button type="button" class="link-btn" id="activity-chats-all"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg>All chats</button>
+            </div>
+            <div class="list" id="activity-chat-list"></div>
+          </section>
           <section class="activity-block" data-activity-block="timeline">
             <h2 class="section-title">This session</h2>
             <ol class="timeline" id="activity-timeline" aria-live="polite"></ol>
           </section>
-          <section class="activity-block" data-activity-block="task">
-            <div class="section-head">
-              <h2 class="section-title">Tracked tasks</h2>
-              <button type="button" class="link-btn" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg>New task</button>
+        </section>
+
+        <!-- ============ TASKS ============ -->
+        <section class="view" id="view-tasks" hidden aria-labelledby="tasks-title">
+          <header class="page-head">
+            <div>
+              <h1 class="page-title" id="tasks-title">Tasks</h1>
+              <p class="page-sub">Goals ZARVIS is tracking for you.</p>
             </div>
-            <p class="hint">Tasks record steps and status. Pause, resume and cancel change the status; they don't run the steps.</p>
-            <div class="list" id="activity-task-list"></div>
-          </section>
+            <button type="button" class="btn btn-ghost" id="tasks-refresh-btn"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Refresh</span></button>
+          </header>
+          <div class="toolbar">
+            <label class="search-field">
+              <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+              <span class="sr-only">Search tasks</span>
+              <input type="search" id="tasks-search" aria-label="Search tasks" placeholder="Search tasks" autocomplete="off" />
+            </label>
+            <button type="button" class="btn btn-secondary" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New task</span></button>
+          </div>
+          <p class="hint">Tasks record steps and status. Pause, resume and cancel change the status; they don't run the steps.</p>
+          <div class="list" id="task-list"></div>
+          <div class="empty-state" id="tasks-no-match" hidden><strong>No tasks match</strong><span>Try a different word.</span></div>
         </section>
 
         <!-- ============ CAPABILITIES ============ -->
@@ -340,6 +399,7 @@
             </div>
           </header>
           <div id="plans-current" class="stat-grid"></div>
+          <p class="notice" id="plans-guest-note" hidden><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>You're on a guest account. Link an email so your plan and credits stay with you. <button type="button" class="inline-link" data-go="settings:account">Link an email</button></span></p>
           <p class="notice" id="plans-notice" hidden><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span id="plans-notice-text"></span></p>
           <div class="section-head">
             <h2 class="section-title">Choose your plan</h2>
@@ -367,6 +427,7 @@
               <h1 class="page-title" id="metrics-title">Usage &amp; Metrics</h1>
               <p class="page-sub">Track your AI usage and performance on this device.</p>
             </div>
+            <button type="button" class="btn btn-ghost" data-go="plans"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg><span>Plans &amp; credits</span></button>
           </header>
           <div class="stat-grid" id="metrics-usage"></div>
           <section class="panel" aria-labelledby="trend-title">
@@ -408,27 +469,30 @@
             <div class="settings-list">
               <p class="group-label">Account</p>
               <div class="settings-group">
-                <button type="button" class="settings-row" data-settings-page="subscription"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg></span><span class="row-copy"><strong>Subscription</strong><small>Plan and credits</small></span><span class="row-value" data-setting-value="subscription"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-nav="plans"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-plan"/></svg></span><span class="row-copy"><strong>Plans &amp; billing</strong><small>Plan, credits and payments</small></span><span class="row-value" data-setting-value="subscription"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="security"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></span><span class="row-copy"><strong>Security</strong><small>Session and sign out</small></span><span class="row-value" data-setting-value="security"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
-              <p class="group-label">Assistant</p>
+              <p class="group-label">Preferences</p>
               <div class="settings-group">
                 <button type="button" class="settings-row" data-settings-page="voice"><span class="row-ico tone-violet"><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg></span><span class="row-copy"><strong>Voice</strong><small>Spoken replies and voice</small></span><span class="row-value" data-setting-value="voice"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="language"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-lang"/></svg></span><span class="row-copy"><strong>Language</strong><small>Interface and request language</small></span><span class="row-value" data-setting-value="language"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="appearance"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-palette"/></svg></span><span class="row-copy"><strong>Appearance</strong><small>Dark or light</small></span><span class="row-value" data-setting-value="appearance"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="ai"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span class="row-copy"><strong>AI</strong><small>Model provider and behaviour</small></span><span class="row-value" data-setting-value="ai"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="memory"><span class="row-ico tone-green"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></span><span class="row-copy"><strong>Memory</strong><small>Saved conversation</small></span><span class="row-value" data-setting-value="memory"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="notifications"><span class="row-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg></span><span class="row-copy"><strong>Notifications</strong><small>Alerts and reminders</small></span><span class="row-value" data-setting-value="notifications">Android app</span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
-              <p class="group-label">Privacy &amp; security</p>
+              <p class="group-label">AI &amp; memory</p>
+              <div class="settings-group">
+                <button type="button" class="settings-row" data-settings-page="ai"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span><span class="row-copy"><strong>AI</strong><small>Model provider and behaviour</small></span><span class="row-value" data-setting-value="ai"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="memory"><span class="row-ico tone-green"><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg></span><span class="row-copy"><strong>Memory</strong><small>Saved conversation</small></span><span class="row-value" data-setting-value="memory"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+              </div>
+              <p class="group-label">Privacy &amp; devices</p>
               <div class="settings-group">
                 <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-coral"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="privacy"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="row-copy"><strong>Privacy</strong><small>Confirmations and account deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="security"><span class="row-ico tone-blue"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></span><span class="row-copy"><strong>Security</strong><small>Session and sign out</small></span><span class="row-value" data-setting-value="security"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
-                <button type="button" class="settings-row" data-settings-page="data"><span class="row-ico tone-amber"><svg class="ico" aria-hidden="true"><use href="#i-database"/></svg></span><span class="row-copy"><strong>Data</strong><small>Stored data and deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="privacy"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="row-copy"><strong>Privacy &amp; data</strong><small>Confirmations, stored data and account deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Advanced</p>
               <div class="settings-group">
                 <button type="button" class="settings-row" data-settings-page="developer"><span class="row-ico tone-cyan"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span><span class="row-copy"><strong>Developer access</strong><small>Developer Agent, GitHub and Metrics</small></span><span class="row-value" data-setting-value="developer"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-open-shortcuts><span class="row-ico tone-green"><svg class="ico" aria-hidden="true"><use href="#i-keyboard"/></svg></span><span class="row-copy"><strong>Keyboard shortcuts</strong><small>Move around without the mouse</small></span><span class="row-value kbd-value"><kbd>?</kbd></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
             </div>
           </div>
@@ -503,6 +567,17 @@
                   <button type="button" class="theme-option" id="appearance-dim-btn" data-appearance="dim"><span class="theme-swatch swatch-dim" aria-hidden="true"></span><span>Dark</span></button>
                 </div>
               </div>
+              <div class="panel">
+                <div class="control-row control-row-stack">
+                  <div class="row-copy"><strong>Chat text size</strong><small>Size of the messages in Chat. Saved on this device.</small></div>
+                  <div class="segmented" id="chat-text-size" role="group" aria-label="Chat text size">
+                    <button type="button" class="seg" data-size="sm" aria-pressed="false">Small</button>
+                    <button type="button" class="seg active" data-size="md" aria-pressed="true">Default</button>
+                    <button type="button" class="seg" data-size="lg" aria-pressed="false">Large</button>
+                  </div>
+                </div>
+                <p class="chat-text-sample" id="chat-text-sample" data-user-text>The quick brown fox jumps over the lazy dog.</p>
+              </div>
             </section>
 
             <section class="settings-panel" data-settings-panel="ai" hidden>
@@ -510,6 +585,10 @@
                 <div class="control-row"><div class="row-copy"><strong>Provider</strong><small id="settings-ai-provider">Checking…</small></div></div>
                 <div class="control-row"><div class="row-copy"><strong>Tools</strong><small>ZARVIS picks a skill when one fits — search, documents, writing, tasks or developer work — and shows the result in the chat.</small></div></div>
                 <div class="control-row"><div class="row-copy"><strong>Confirmations</strong><small>Higher-risk actions return a one-time confirmation for that exact action. Nothing runs until you approve it.</small></div></div>
+                <div class="control-row">
+                  <div class="row-copy"><strong>What ZARVIS can do</strong><small>Every skill, with its real status.</small></div>
+                  <button type="button" class="btn btn-secondary" data-go="capabilities">Open Capabilities</button>
+                </div>
               </div>
             </section>
 
@@ -520,14 +599,24 @@
                   <div class="row-copy"><strong>Start fresh</strong><small>Begins a new conversation. The previous one stays on the server.</small></div>
                   <button type="button" class="btn btn-secondary" id="settings-new-conversation">New conversation</button>
                 </div>
+                <div class="control-row">
+                  <div class="row-copy"><strong>Chat history</strong><small>Your chats, newest first, from every device on this account.</small></div>
+                  <button type="button" class="btn btn-secondary" data-go="history">Open chat history</button>
+                </div>
                 <div class="control-row"><div class="row-copy"><strong>Long-term memory</strong><small>ZARVIS doesn't keep a separate long-term memory profile in this version.</small></div></div>
               </div>
             </section>
 
             <section class="settings-panel" data-settings-panel="notifications" hidden>
               <div class="panel">
-                <div class="control-row"><div class="row-copy"><strong>On the web</strong><small>Web notifications aren't used. Task status stays in Activity.</small></div></div>
-                <div class="control-row"><div class="row-copy"><strong>On Android</strong><small>Reminders are delivered by Android. Reading or speaking your notifications needs Notification access, which you control in Permissions.</small></div></div>
+                <div class="control-row">
+                  <div class="row-copy"><strong>On the web</strong><small>Web notifications aren't used. Task status stays on the Tasks page.</small></div>
+                  <button type="button" class="btn btn-secondary" data-go="tasks">Open Tasks</button>
+                </div>
+                <div class="control-row">
+                  <div class="row-copy"><strong>On Android</strong><small>Reminders are delivered by Android. Reading or speaking your notifications needs Notification access, which you control in Permissions.</small></div>
+                  <button type="button" class="btn btn-secondary" data-go="settings:permissions">Open Permissions</button>
+                </div>
               </div>
             </section>
 
@@ -539,6 +628,11 @@
             </section>
 
             <section class="settings-panel" data-settings-panel="privacy" hidden>
+              <div class="panel">
+                <h2 class="panel-title">Your data</h2>
+                <div class="control-row"><div class="row-copy"><strong>Stored on the server</strong><small>Account, conversation, tasks, credits and, if connected, your encrypted GitHub token.</small></div></div>
+                <div class="control-row"><div class="row-copy"><strong>Export</strong><small>Not available in this version.</small></div></div>
+              </div>
               <div class="panel">
                 <h2 class="panel-title">Protections that are enforced</h2>
                 <ul class="check-list">
@@ -566,17 +660,6 @@
               </div>
             </section>
 
-            <section class="settings-panel" data-settings-panel="data" hidden>
-              <div class="panel">
-                <div class="control-row"><div class="row-copy"><strong>Stored on the server</strong><small>Account, conversation, tasks, credits and, if connected, your encrypted GitHub token.</small></div></div>
-                <div class="control-row"><div class="row-copy"><strong>Export</strong><small>Not available in this version.</small></div></div>
-                <div class="control-row">
-                  <div class="row-copy"><strong>Delete</strong><small>Removes the account and its data.</small></div>
-                  <button type="button" class="btn btn-danger-ghost" data-settings-open-privacy>Delete account</button>
-                </div>
-              </div>
-            </section>
-
             <section class="settings-panel" data-settings-panel="developer" hidden>
               <div class="panel">
                 <div class="control-row">
@@ -593,24 +676,18 @@
                 </div>
               </div>
             </section>
-
-            <section class="settings-panel" data-settings-panel="subscription" hidden>
-              <div class="panel">
-                <div class="control-row">
-                  <div class="row-copy"><strong>Plan and credits</strong><small>See your plan, credits and what each plan includes. Checkout isn't connected yet.</small></div>
-                  <button type="button" class="btn btn-secondary" data-nav="plans">Open Plans</button>
-                </div>
-              </div>
-            </section>
           </div>
         </section>
       </main>
 
       <button type="button" class="scroll-latest" id="scroll-latest" hidden aria-label="Scroll to the latest message"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg></button>
+      <button type="button" class="scroll-top" id="scroll-top" hidden aria-label="Back to top" title="Back to top"><svg class="ico" aria-hidden="true"><use href="#i-up"/></svg></button>
+      <div class="drop-overlay" id="drop-overlay" hidden aria-hidden="true"><div class="drop-card"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg><strong>Drop to attach</strong><small>Documents, text files and images</small></div></div>
 
       <!-- Chat composer -->
       <footer class="composer" id="composer" hidden>
         <div class="composer-inner">
+          <div class="slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
           <div class="attachment-chip" id="attachment-chip" hidden>
             <span class="attachment-ico" aria-hidden="true"><svg class="ico"><use href="#i-file"/></svg></span>
             <span class="attachment-text">
@@ -636,6 +713,7 @@
               </button>
             </div>
           </div>
+          <p class="composer-hint" id="composer-hint"><span><kbd>Enter</kbd> to send</span><span><kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span><span><kbd>/</kbd> for commands</span></p>
         </div>
       </footer>
     </div>
@@ -645,7 +723,7 @@
       <button type="button" class="nav-item active" data-view="home"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></button>
       <button type="button" class="nav-item" data-view="capabilities"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg><span>Capabilities</span></button>
       <button type="button" class="nav-item nav-fab" data-view="chat" aria-label="Chat"><span class="fab-orb"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><span class="fab-label">Chat</span></button>
-      <button type="button" class="nav-item" data-view="activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span></button>
+      <button type="button" class="nav-item" data-view="tasks"><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg><span>Tasks</span><span class="nav-badge" id="tasks-badge-bottom" hidden></span></button>
       <button type="button" class="nav-item" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
     </nav>
   </div>
@@ -656,8 +734,60 @@
       <p id="confirm-modal-body"></p>
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" id="confirm-modal-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirm-modal-secondary" hidden></button>
         <button type="button" class="btn btn-danger" id="confirm-modal-confirm">Confirm</button>
       </div>
+    </div>
+  </div>
+  <!-- Chat history: a side panel, built on .modal-overlay so the page behind is inert and focus is trapped. -->
+  <div class="modal-overlay history-overlay" id="history-overlay" hidden>
+    <aside class="history-panel" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <div class="history-head">
+        <h2 id="history-title">Chat history</h2>
+        <button type="button" class="icon-btn" id="history-close" aria-label="Close chat history"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <button type="button" class="btn btn-primary history-new" id="history-new"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New chat</span></button>
+      <label class="search-field history-search">
+        <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+        <span class="sr-only">Search chats</span>
+        <input type="search" id="history-search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" />
+      </label>
+      <div class="history-list" id="history-list" aria-live="polite"></div>
+      <p class="history-note">Lists your chats, newest first, including ones started on another device. Messages stay on the ZARVIS server with your account; removing a chat here only hides it from this list on this browser.</p>
+    </aside>
+  </div>
+  <div class="modal-overlay" id="shortcuts-modal" hidden>
+    <div class="modal-card shortcuts-card" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+      <div class="history-head">
+        <h3 id="shortcuts-title">Keyboard shortcuts</h3>
+        <button type="button" class="icon-btn" id="shortcuts-close" aria-label="Close shortcuts"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <p class="shortcuts-group">Anywhere</p>
+      <dl class="shortcuts-list">
+        <div><dt><kbd class="kbd-mod">Ctrl</kbd> <kbd>K</kbd></dt><dd>Search pages, features and chats</dd></div>
+        <div><dt><kbd>/</kbd></dt><dd>Jump to the message box</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Show this list</dd></div>
+        <div><dt><kbd>N</kbd></dt><dd>Start a new chat</dd></div>
+        <div><dt><kbd>H</kbd></dt><dd>Open chat history</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Close a panel or stop a reply</dd></div>
+      </dl>
+      <p class="shortcuts-group">Go to a page <span>press <kbd>G</kbd>, then</span></p>
+      <dl class="shortcuts-list">
+        <div><dt><kbd>H</kbd></dt><dd>Home</dd></div>
+        <div><dt><kbd>C</kbd></dt><dd>Chat</dd></div>
+        <div><dt><kbd>K</kbd></dt><dd>Capabilities</dd></div>
+        <div><dt><kbd>T</kbd></dt><dd>Tasks</dd></div>
+        <div><dt><kbd>A</kbd></dt><dd>Activity</dd></div>
+        <div><dt><kbd>P</kbd></dt><dd>Plans</dd></div>
+        <div><dt><kbd>S</kbd></dt><dd>Settings</dd></div>
+      </dl>
+      <p class="shortcuts-group">In the message box</p>
+      <dl class="shortcuts-list">
+        <div><dt><kbd>Enter</kbd></dt><dd>Send</dd></div>
+        <div><dt><kbd>Shift</kbd> <kbd>Enter</kbd></dt><dd>New line</dd></div>
+        <div><dt><kbd>/</kbd></dt><dd>Commands: research, write, plan, translate and more</dd></div>
+        <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move through commands</dd></div>
+      </dl>
     </div>
   </div>
   <div class="modal-overlay" id="session-gate" hidden>
@@ -705,6 +835,7 @@
   <script src="./logic.js"></script>
   <script src="./feature-pages.js"></script>
   <script src="./shell.js"></script>
+  <script src="./chat-kit.js"></script>
   <script src="./i18n.js"></script>
   <script src="./app.js"></script>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

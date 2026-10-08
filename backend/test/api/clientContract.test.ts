@@ -64,7 +64,7 @@ describe("client ↔ backend API contract", () => {
 
   it("every web apiFetch path exists", async () => {
     const source = readFileSync(join(repo, "web/app.js"), "utf8");
-    const paths = [...new Set([...source.matchAll(/apiFetch\(\s*["'`]([^"'`]+)["'`]/g)].map((m) => "/api/v1" + (m[1] ?? "").replace(/\$\{[^}]+\}/g, VAR)))];
+    const paths = [...new Set([...source.matchAll(/apiFetch\(\s*["'`]([^"'`]+)["'`]/g)].map((m) => "/api/v1" + (m[1] ?? "").split("?")[0]!.replace(/\$\{[^}]+\}/g, VAR)))];
     expect(paths.length).toBeGreaterThan(10);
     const missing: string[] = [];
     for (const path of paths) {

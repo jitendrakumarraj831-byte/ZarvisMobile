@@ -9,7 +9,7 @@ const app = () => buildServer(buildContainer(new InMemoryStore()));
 
 describe("web client delivery and response headers", () => {
   it("serves the shipped client files with the security headers", async () => {
-    for (const path of ["/", "/app.js", "/logic.js", "/shell.js", "/feature-pages.js", "/styles.css", "/sw.js", "/manifest.webmanifest", "/icons/icon-192.png"]) {
+    for (const path of ["/", "/app.js", "/logic.js", "/shell.js", "/chat-kit.js", "/feature-pages.js", "/styles.css", "/sw.js", "/manifest.webmanifest", "/icons/icon-192.png"]) {
       const res = await request(app()).get(path);
       expect(res.status, path).toBe(200);
       expect(res.headers["content-security-policy"], path).toBe(CONTENT_SECURITY_POLICY);

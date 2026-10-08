@@ -1,0 +1,190 @@
+# ZARVIS Web — UI/UX deep scan: pages, content placement, layout, linking
+
+> Scan date: 2026-10-08 · Branch: `claude/determined-ptolemy-2tfwkg` (PR #90) · Client: `web/`
+> Reference: [ZARVIS_MASTER_PRODUCT_BLUEPRINT.md](./ZARVIS_MASTER_PRODUCT_BLUEPRINT.md) §3 (web navigation), §6 (page-by-page IA), §7 (agent page standard), §8 (settings IA), and the Android navigation graph (`android/app/.../navigation/NavGraph.kt`).
+> Every number below was measured in a real browser against the real backend, not estimated.
+
+## सार (Hindi summary)
+
+- **कितने पेज हैं:** आज 9 मुख्य + 7 capability + 11 settings = **27 पेज** (स्कैन के समय 30 थे: Subscription/Data के दो खाली stub हटे, *AI Workspace* और *Tasks & Automation* capability पेज हटे, और **Tasks** अपना अलग पेज बना)।
+- **कितने चाहिए:** अभी के असली features के लिए **26 पेज** काफ़ी हैं: 8 मुख्य + 7 capability + 11 settings। 9वाँ मुख्य पेज *Usage & Metrics* (सिर्फ़ Developer access ऑन होने पर दिखता है) है; उसे Plans/Developer में मिलाना बाक़ी है। blueprint के बाक़ी पेज (Work, Files, Research, Creative, Business) तब बनें जब उनके पीछे असली backend हो; वरना वे नक़ली पेज होंगे, जो product के नियम के ख़िलाफ़ है।
+- **लिंकिंग:** हर पेज के हर बटन/link को असली क्लिक से जाँचा (desktop 344, phone 301)। **सच में dead control: 0।** पर 12 असली खामियाँ मिलीं और इसी PR में ठीक हुईं; सबसे बड़ी: नया visitor जब सीधे `…/#/plans` या `…/#/activity` खोलता था तो उसे "आपका session समाप्त हो गया" दिखता था।
+- **आपके "जैसा अच्छा लगे" पर मैंने किया (§8):** Tasks अलग पेज (phone की bottom bar में चौथा slot), Plans/Credits की दोहराई tiles Metrics से हटीं, guest sign-out में "Link an email" बटन, और server पर `GET /conversations` ताकि chat history दूसरे device पर भी दिखे। **अब भी बाक़ी:** Usage & Metrics को पूरी तरह मिलाना, और Work/Files/Research/Creative/Business पेज (backend आने तक नहीं)।
+
+## 1. How it was scanned
+
+| Step | What | Result |
+|---|---|---|
+| Read | `index.html`, `app.js`, `feature-pages.js`, `shell.js`, `chat-kit.js`, blueprint §3/§6/§7/§8, Android `NavGraph.kt` | Page inventory, intended IA |
+| Click-through | `web/e2e/link-scan.cjs`: for every state (page, sub-page, menu, panel) it lists every clickable control, then on a **fresh load with identical starting preferences** clicks one control and records what changed (page, sub-page, overlay, text in the message box, toast, API request, file picker, popup, download) | Phone 390×844 and desktop 1366×820 |
+| Look | A screenshot of every state at both sizes was reviewed | Layout and content notes in §4–§5 |
+| Repo checks | Existing `quality.e2e` (responsive, axe in light/dark/Hindi, keyboard, offline), `phase1.e2e`, backend tests | §9 |
+
+**Limits, stated plainly.** The backend used the mock AI provider, no payments and no GitHub, so those screens were scanned in their honest "not configured" state. Android was read, not run. Tablet width was checked visually only. No usability test with people was done. Seeded chat ids in the scan do not exist on the server, which is why the scan log contains 404s: the app handled them as designed (a message, and the entry is dropped).
+
+## 2. What exists (after this PR)
+
+| Kind | Count | Pages |
+|---|---|---|
+| Primary pages | 9 | Home, Chat, Capabilities, **Tasks**, Activity, Plans, Settings, and, with Developer access on, Developer Agent and Usage & Metrics |
+| Capability pages | 7 | Voice, Phone Agent, Web & Research, Documents & Files, Creative Studio, Business, Developer Agent (*AI Workspace* and *Tasks & Automation* were removed: they described Chat and the Tasks page) |
+| Settings pages | 11 | Account (Profile), Voice, Language, Appearance, AI, Memory, Notifications, Permissions & Device Access, Privacy & data, Security, Developer access |
+| Menus, panels, dialogs | 9 | Search, notifications menu, account menu, chat history panel, chat "more" menu, keyboard shortcuts, confirm dialog, welcome/sign-in, session-ended |
+| **Screens you can link to** | **27** | (30 at scan time: Settings → Subscription and Data were stubs, two capability pages duplicated Chat and Tasks, and Tasks became a page) |
+
+Controls measured: **344 on desktop, 301 on phone** (before the fixes: 332 and 287).
+
+## 3. Findings
+
+### 3.1 Defects found — all fixed in this PR
+
+| # | Finding | Evidence | Fix |
+|---|---|---|---|
+| D1 | **A new visitor opening a direct link to a data page saw "Your session has ended".** `#/plans`, `#/activity`, `#/settings/memory` asked the API before the first guest session existed → 401 → session gate. Pre-existing (reproduced on the previous commit). | First-visit probe: gate shown for 3 of 7 links on the old commit, 0 of 11 now; exactly one guest account per visit | Every API call waits for the first-visit session; guest creation is single-flight. New `phase1.e2e` step. |
+| D2 | Every Capabilities card showed an **empty circle** instead of its action arrow. | Computed `::after` content was empty; `styles.css:2117` (hit-area) overwrote the arrow set at `:1422` | Removed the colliding rule (the `::before` rule already gives the 46px hit area). |
+| D3 | The sidebar item **"Profile" opened the Settings list**, not the profile. | Crawl: `Profile → settings` | Opens Settings → Account. |
+| D4 | Sidebar said "Metrics", the page says "Usage & Metrics". | Screenshot + crawl | One name everywhere. |
+| D5 | **Two stub pages**: Settings → Subscription only said "Open Plans"; Settings → Data only led to Privacy. Each cost an extra tap. | Crawl: each had one useful control | Row goes straight to Plans; Data merged into **Privacy & data**. Old addresses (`#/settings/subscription`, `#/settings/data`) redirect. |
+| D6 | **Sentences naming another page were plain text**: Notifications ("stays in Activity", "control in Permissions"), Voice ("Settings → Voice"), Tasks (three mentions of Activity), Developer (PRO plan, GitHub account). | Text search of all copy | Buttons or inline links to the page named. |
+| D7 | A finished task or repository tool in Chat did not say **where to follow it up**. | Reading `renderToolActivity` | "Open Activity" / "Open Developer Agent" on the tool row (completed tools only). |
+| D8 | Activity timeline → "Open" on a task went to the page you were already on. | Code path | Scrolls to Tracked tasks. |
+| D9 | Home had no path to your open tasks; Plans did not warn a guest that the plan stays only with a kept account. | Blueprint §3.2 ("active work"); product copy | Home row ("1 open task", real count from `/tasks`); guest note with a link to Account. |
+| D10 | Settings had a one-item group ("Account → Subscription") and odd rows leaving holes in the two-column grid. | Screenshots | Five groups of two: Account, Preferences, AI & memory, Privacy & devices, Advanced. |
+| D11 | The phone's only way back (breadcrumb) was **32px**; new touch rules keyed on `pointer: coarse` alone. | Crawl sizes | 44px under 1100px or on a coarse pointer, the project's own rule. |
+| D12 | A malformed `/capabilities` reply threw an unhandled error on the Permissions page. | Test stub | Treated as "couldn't load", with the message. |
+
+### 3.2 Checked and **not** defects
+
+- No control is truly dead. The controls the scan flags as "did nothing" are correct: the page you are already on (Home on Home, "All", "Monthly", "Default"), an empty form submitted (Sign in, Link email, Connect GitHub) and labels that only focus their input.
+- Every control is reachable (nothing covered by another element) and has an accessible name.
+- Sidebar items drawn in boxes in some screenshots were a capture artifact; measured in the live page only the current item has a border.
+- `h1` count 2 on Settings is the list heading and the sub-page heading; only one is visible at a time.
+
+### 3.3 Reported at scan time, since decided (§8)
+
+Tasks lived inside Activity (blueprint wants them apart; Android already calls the tab "Tasks"); Usage & Metrics repeated Plan/Credits from Plans; "AI Workspace" and "Tasks & Automation" capability pages described Chat and Tasks; a guest signing out could not reach "Link an email" from the dialog that warns about it. All four are done (the Metrics page itself stays; see O2); the notes in §3.1 D7/D8 describe the state at scan time, where "Open Activity" is now "Open Tasks".
+
+## 4. Recommended information architecture
+
+**Rules (from the blueprint, §6 and the core product rules):** one purpose per page; a setting lives in one place; no page, button, number or progress without a real backend behind it; the label says where it goes.
+
+### 4.1 Navigation model
+
+| Size | Navigation | Where the rest lives |
+|---|---|---|
+| ≥ 1100px | Sidebar 256px (collapsible to an 88px rail): Home, Chat, Capabilities, Tasks, Activity · Recent chats · Developer (opt-in) · Plans, Settings, Profile | Top bar: search (Ctrl K), notifications menu, account menu |
+| 700–1099px | 88px rail, same items | same |
+| < 700px | Top bar (menu, logo, search, bell, avatar) + **5-slot bottom bar**: Home · Capabilities · Chat (centre) · **Tasks** · Settings; the menu drawer holds everything else | Activity, Plans and Developer via the drawer (Activity also from the bell menu and Home → Continue) |
+
+### 4.2 Pages, in the order a person needs them
+
+**Primary pages — 9 today, target 8** (Usage & Metrics folds into Plans & Usage and Developer → Diagnostics)
+
+| Page | One purpose | Content, top to bottom | Links out |
+|---|---|---|---|
+| Home | Start in one tap, resume | Greeting → voice orb → "What can I help with today?" → ≤7 quick actions → **Continue** (last chat) → **open tasks** (only if any) → message card (file, image, ask) | Chat (prefilled), Capabilities, Activity, Developer (opt-in) |
+| Chat | Conversation + agent execution + confirmations + results | Header (back on phone, title, status, history, more, new) → thread, or welcome (orb → starters → recent chats → "See everything ZARVIS can do") → composer (`/` commands) | History panel, Capabilities, Activity and Developer from tool rows |
+| **Tasks** | Durable tasks: status, pause/cancel/retry | Search + "New task" → note that tasks record steps and do not run them → task cards (status, steps, actions) | Chat (New task prefills a request) |
+| Capabilities | Discover what ZARVIS really does | Status tally → filters → cards with real status → "All skills on this account" | Capability pages, Chat, Settings (voice) |
+| Activity | What happened | Open-tasks row (only if any) → recent chats → this-session log (files, images, voice, tool runs) → filters and search | Chat, Tasks, Developer |
+| **Plans & Usage** | Plan, credits, billing, usage | Plan/credits/trial tiles → guest note → plan cards → payment methods → **usage counters** (moved from Metrics) | Account (link an email) |
+| Settings | All configuration | Profile card → 5 pair-groups (§4.4) | Every sub-page |
+| Developer (opt-in) | Repository work | Quick starts → Task (repo, analyze, implement) → Pipeline → GitHub → recent analysis → **Diagnostics** (latency, service health; moved from Metrics) | Chat, Plans (PRO) |
+
+**Capability pages — target 7** (blueprint §7 "agent page"): Voice, Phone Agent (Android-only, honest), Web & Research, Documents & Files, Creative Studio, Business, Developer Agent. *AI Workspace* (it is Chat) and *Tasks & Automation* (it is the Tasks page) are removed; their hub cards open Chat and the Tasks page. Each keeps: what it does → start → try asking → how it works → permissions → limitations, with every named page a link.
+
+### 4.3 Settings — target 11 (this PR delivers them)
+
+| Group | Pages |
+|---|---|
+| Account | Plans & billing (a link to Plans), Security |
+| Preferences | Voice, Language, Appearance (incl. chat text size), Notifications |
+| AI & memory | AI, Memory (incl. chat history) |
+| Privacy & devices | Permissions & Device Access, Privacy & data |
+| Advanced | Developer access, Keyboard shortcuts |
+
+Account/Profile opens from the profile card, the account menu and the sidebar's Profile.
+
+### 4.4 Page count
+
+| | Primary | Capability | Settings | **Total** |
+|---|---|---|---|---|
+| At scan time | 8 | 9 | 13 | **30** |
+| After the linking pass | 8 | 9 | 11 | **28** |
+| **Now** (Tasks page, two capability pages removed) | 9 | 7 | 11 | **27** |
+| **Target for today's real features** (Metrics folded) | 8 | 7 | 11 | **26** |
+| Blueprint long-term | up to 13 | one per agent | 11 | grows only as features become real |
+
+**Pages the blueprint lists that should not exist yet:** *Work/Projects* (no project store), *Files* (no file store), *Research* workspace (no sources/citations store), *Creative* (no image generation), *Business* workspace. Today each is a skill reached through Chat and described on a capability page with its real status. Promote one to a primary page only when its data exists on the server.
+
+## 5. Layout system
+
+| Area | Rule |
+|---|---|
+| Shell | Content max 1040px; Chat reading column 760px; page gutters 16px (phone), 40px (desktop); fixed composer above the bottom bar |
+| Page types | **List page** (breadcrumb → H1 + subtitle + one action on the right → toolbar → sections). **Focus page** (breadcrumb → back + title → reading column). **Workspace** (Chat: sticky header, thread, fixed composer; Developer: main + 320px side). **Settings** (pairs list → sub-page with back, title, value badge, panels) |
+| Wayfinding | One H1 per page; desktop breadcrumb *Home › Settings › Voice*; phone shows only "‹ parent" (44px); the tab title names the page; a skip link; Home and Chat have no breadcrumb |
+| Touch and focus | ≥ 44px targets below 1100px or on a coarse pointer; visible focus; reduced-motion respected |
+| States | Every list has a loading, empty (with a next step) and error state that says what is true; nothing animates unless something is happening |
+| Languages and themes | New visible strings get Hindi (the e2e checks the main pages for English left over); light is the default, dark by choice |
+
+## 6. Where each piece of content lives
+
+| Information | Lives on (one place) | Offered elsewhere as a link |
+|---|---|---|
+| Plan, credits, trial/renewal, payment state | Plans & Usage | Account menu, Settings → Plans & billing, Plans guest note |
+| Usage counters (requests, voice, files) | Plans & Usage (today: Usage & Metrics) | — |
+| Latency, service health | Developer → Diagnostics (today: Usage & Metrics) | — |
+| Account, email link, sign-in | Settings → Account (Profile) | Sidebar Profile, account menu, Plans guest note |
+| Chat history | Chat history panel | Sidebar recents, Home *Continue*, Chat welcome, Activity, Settings → Memory |
+| Open tasks | Tasks | Home and Activity rows (with the count), the nav badge, tool rows, the Tracked-tasks capability card |
+| Voice, language, appearance, text size | Settings | Voice page, Capabilities cards |
+| Device permissions | Settings → Permissions & Device Access | Phone page, Notifications page |
+| Developer mode | Settings → Developer access | Developer page prompt |
+| GitHub connection | Developer page | Developer capability page |
+| Stored data, export, delete account | Settings → Privacy & data | Sign-out dialog |
+| Keyboard shortcuts | Shortcuts dialog (`?`) | Settings, search, Chat menu |
+
+## 7. Link map after this PR (desktop, measured)
+
+Pages reaching each destination, from distinct pages / by controls:
+
+| Destination | From pages | Controls | Destination | From pages | Controls |
+|---|---|---|---|---|---|
+| Home | 9 | 29 | Plans | 7 | 7 |
+| Chat | 6 | 26 | Settings → Account | 6 | 6 |
+| Activity | 6 | 7 | Settings → Permissions | 3 | 6 |
+| Capabilities | 5 | 24 | Settings → Voice | 3 | 4 |
+| Developer | 7 | 10 | Usage & Metrics | 4 | 4 |
+
+Before the fixes Plans was reached from 5 controls, Settings → Account from 2, Activity from 4. Page links 133 → 143 (desktop), 104 → 115 (phone). Each Settings sub-page and capability page has one parent; that is normal, and each has a way back (breadcrumb, back button) and sideways links where its copy names another page.
+
+**Linking rules the scan enforces:** every page is reachable within two taps from Home; every sub-page has a parent link; a sentence that names a page links to it (text → `data-go`); a link whose target is not a real page is refused; a label never promises a page it does not open.
+
+## 8. Open decisions (and how each was settled)
+
+| # | Decision | Why | Effort / risk |
+|---|---|---|---|
+| O1 | **Done** — Tasks is its own page (`#/tasks`, nav slot, `g` then `t`, search, open-task badge); Activity keeps the chat list, an open-tasks row and the session log | Blueprint §3.5 and §6 keep them apart; Android's tab is already "Tasks"; Activity's session log is in-memory while tasks are server data | Small–medium; touched nav, palette, i18n and the e2e view lists |
+| O2 | **Fold Usage & Metrics** (the full fold is not done): **done** — the repeated Plan/Credits tiles are gone and the page links to Plans & credits; the page itself stays, because its session usage and response-time chart have no other home yet. Still open — usage → Plans & Usage, latency/health → Developer → Diagnostics | Blueprint §6 "Plans & Usage"; today one number appears on 3 pages | Small |
+| O3 | **Done** — phone bottom-bar slot 4 is **Tasks**; Activity is in the menu drawer and the bell menu | Android parity | Trivial after O1 |
+| O4 | **Done** — the *AI Workspace* and *Tasks & Automation* capability pages are gone (their hub cards open Chat and Tasks) | They describe Chat and Tasks | Trivial after O1 |
+| O5 | **Done** — guest sign-out dialog gets a **"Link an email"** button (Settings → Account) | A guest loses the account; the dialog says so but offers no way | Small (dialog has a fixed footer) |
+| O6 | Server `GET /conversations` so chat history spans devices | **Done** — metadata-only list, merged into the browser index | Backend + Postgres store |
+| O7 | Promote Work/Files/Research/Creative/Business to primary pages | Only when their data exists | Product + backend |
+| O8 | **Done for Tasks** — the web tab is called "Tasks" like Android's; Work stays unbuilt (O7) | Same product, one vocabulary | With O1 |
+
+## 9. Verification
+
+| Check | Result |
+|---|---|
+| `node --test web/tests/*.test.js` | 35/35 (link targets, moved addresses, `g t`, chat-list merge) |
+| Backend: `tsc --noEmit` and the full suite on Postgres | 462 passed, 2 skipped (the new `GET /conversations` tests run on both stores; the client-contract test checks every web `apiFetch` route) |
+| `web/e2e/phase1.e2e.cjs` against a real backend + Postgres | 36/36 — new steps: chat list follows the account across browsers, guest sign-out dialog, Tasks page (link, list, search, cancel, badge, Home and Activity rows, phone tab bar) |
+| `web/e2e/quality.e2e.cjs` (responsive, axe light/dark/Hindi, keyboard, offline) | 24/24 |
+| Browser flow script (stubbed API, 56 steps; run for the linking pass) | 56/56 |
+| Link scan of the pages this round touched (Tasks, Activity, Capabilities, Home; desktop and phone, fresh load per control) | dead 0; Capabilities → Tracked tasks and Home → Tasks open the Tasks page; the logo on Home is a correct no-op (now recognised by the tool) |
+
+The full-site scan numbers in §2 and §7 are from the linking pass; the pages touched since were re-scanned as above, not the whole site.
+
+**Re-running the scan:** `ZARVIS_URL=http://localhost:3100 node web/e2e/link-scan.cjs desktop` (or `phone`). It discovers pages from the app itself, prints the summary above and writes `link-scan-<size>.json`. Add `LINK_SCAN_SHOTS=<dir>` for screenshots.

@@ -146,6 +146,32 @@ async function send(page, text) {
     assert.ok(messages.includes("hello"));
   });
 
+  await step("chat list follows the account: a browser that never opened the chat lists it, a removed chat stays removed, and the other browser keeps it", async () => {
+    const conversationId = await ls(pageA, "zarvis.conversationId");
+    assert.ok(conversationId, "browser A has a conversation");
+    // B signed in a moment ago and never opened this chat: the server list alone must put it in the index.
+    await pageB.waitForFunction((id) => (localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
+    await nav(pageB, "chat");
+    await pageB.click("#chat-history-btn");
+    const rowB = pageB.locator("#history-list .chat-row", { hasText: "hello" });
+    await rowB.first().waitFor();
+    assert.equal(await rowB.count(), 1, "one row, not one per sync");
+    // Remove it here, reload: the next sync must not bring it back.
+    await rowB.first().locator(".chat-row-del").click();
+    await pageB.click("#confirm-modal-confirm");
+    await pageB.waitForFunction((id) => !(localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
+    await pageB.reload();
+    await pageB.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageB.waitForTimeout(1500);
+    assert.ok(!(await ls(pageB, "zarvis.chats")).includes(conversationId), "removed chat stays out after the sync on reload");
+    assert.ok((await ls(pageB, "zarvis.chatsHidden")).includes(conversationId));
+    // The list on the other browser, and the conversation itself, are untouched.
+    await pageA.reload();
+    await pageA.waitForFunction((id) => (localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
+    const stillThere = await pageB.evaluate(async (id) => (await fetch("/api/v1/conversations/" + id + "/messages", { headers: { authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") } })).status, conversationId);
+    assert.equal(stillThere, 200);
+  });
+
   await step("refresh failure from a network error keeps the same account (no silent replacement)", async () => {
     const refreshBefore = await ls(pageB, "zarvis.refreshToken");
     await pageB.evaluate(() => localStorage.setItem("zarvis.accessToken", "expired.invalid.token"));
@@ -416,7 +442,7 @@ async function send(page, text) {
     assert.match(await pageH.getAttribute("#file-input", "accept"), /\.pdf/);
     // The app bar's right edge is the page content's right edge on every list page.
     const avatarRight = () => pageH.evaluate(() => Math.round(document.getElementById("desk-avatar").getBoundingClientRect().right));
-    for (const view of ["activity", "capabilities", "plans", "settings"]) {
+    for (const view of ["tasks", "activity", "capabilities", "plans", "settings"]) {
       await nav(pageH, view);
       await pageH.waitForTimeout(450); // the page's entrance animation
       const edge = await pageH.evaluate((v) => Math.round(document.querySelector(`#view-${v} .page-head`).getBoundingClientRect().right), view);
@@ -448,7 +474,8 @@ async function send(page, text) {
       assert.equal(await pageD.evaluate(() => document.body.dataset.devAccess), "off", label + ": off by default");
       assert.equal(await visible('[data-view="developer"]') + (await visible('[data-view="metrics"]')), 0, label + ": no Developer/Metrics nav");
       assert.equal(await visible('#home-quick [data-nav="developer"]'), 0, label + ": no Analyze-a-repo chip");
-      assert.ok((await visible('[data-view="activity"]')) >= 1, label + ": Activity is a primary page");
+      assert.ok((await pageD.locator('[data-view="activity"]').count()) >= 1, label + ": Activity is still in the navigation (the phone keeps it in the menu)");
+      assert.ok((await visible('[data-view="tasks"]')) >= 1, label + ": Tasks is a primary page");
       // Any route to a hidden page lands on the switch instead of the page.
       await pageD.evaluate(() => document.querySelector('[data-nav="developer"]').click());
       await pageD.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
@@ -498,7 +525,7 @@ async function send(page, text) {
     assert.equal(await pageM.evaluate(() => getComputedStyle(document.body).overflow), "hidden", "the page behind cannot scroll");
     // The whole navigation (no developer pages while that switch is off).
     const labels = (await pageM.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(labels, ["Home", "Chat", "Activity", "Capabilities", "Plans", "Settings", "Profile"]);
+    assert.deepEqual(labels, ["Home", "Chat", "Capabilities", "Tasks", "Activity", "Plans", "Settings", "Profile"]);
     // Tab never leaves the drawer.
     for (let i = 0; i < 12; i++) {
       await pageM.keyboard.press("Tab");
@@ -551,7 +578,7 @@ async function send(page, text) {
     await pageH.click("#menu-btn");
     await pageH.waitForTimeout(350);
     const hindi = (await pageH.locator("#sidebar-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
-    assert.deepEqual(hindi, ["होम", "चैट", "गतिविधि", "क्षमताएँ", "डेवलपर एजेंट", "मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
+    assert.deepEqual(hindi, ["होम", "चैट", "क्षमताएँ", "कार्य", "गतिविधि", "डेवलपर एजेंट", "उपयोग और मेट्रिक्स", "प्लान", "सेटिंग्स", "प्रोफ़ाइल"]);
     assert.equal(await pageH.getAttribute("#drawer-close", "aria-label"), "मेन्यू बंद करें");
     await ctxH.close();
   });
@@ -798,16 +825,20 @@ async function send(page, text) {
     const view = () => pageN.evaluate(() => document.body.dataset.activeView);
     const homeTitle = await pageN.title();
     await nav(pageN, "chat");
-    await nav(pageN, "activity");
-    assert.match(await pageN.title(), /^Activity · /, "each page sets its own tab title");
+    await nav(pageN, "tasks");
+    assert.match(await pageN.title(), /^Tasks · /, "each page sets its own tab title");
     assert.notEqual(await pageN.title(), homeTitle);
     await pageN.goBack();
     await pageN.waitForFunction(() => document.body.dataset.activeView === "chat");
     await pageN.goForward();
-    await pageN.waitForFunction(() => document.body.dataset.activeView === "activity");
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "tasks");
     await pageN.reload();
     await pageN.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
-    assert.equal(await view(), "activity", "a reload keeps the page");
+    assert.equal(await view(), "tasks", "a reload keeps the page");
+    // Activity has no tab on the phone, but its address still opens it with its own title.
+    await pageN.goto(BASE + "/#/activity");
+    await pageN.waitForFunction(() => document.body.dataset.activeView === "activity");
+    assert.match(await pageN.title(), /^Activity · /);
     // A Settings sub-page is an entry too; the in-app back button behaves like the browser's.
     await pageN.goto(BASE + "/#/settings/voice");
     await pageN.waitForSelector('[data-settings-panel="voice"]:not([hidden])');
@@ -823,6 +854,159 @@ async function send(page, text) {
     await pageN.waitForSelector('[data-settings-panel="developer"]:not([hidden])');
     assert.equal(await pageN.evaluate(() => location.hash), "#/settings/developer");
     await ctxN.close();
+  });
+
+  await step("Moved pages: the old Subscription and Data addresses land on Plans and Privacy & data, and Profile opens the profile", async () => {
+    const ctxV = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageV = await pageOf(ctxV);
+    await pageV.goto(BASE + "/#/settings/subscription");
+    await pageV.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageV.waitForSelector("#view-plans:not([hidden])");
+    assert.equal(await pageV.evaluate(() => location.hash), "#/plans", "the address is corrected to the page that opened");
+    await pageV.goto(BASE + "/#/settings/data");
+    await pageV.waitForSelector('[data-settings-panel="privacy"]:not([hidden])');
+    assert.match(await pageV.innerText('[data-settings-panel="privacy"]'), /Stored on the server/);
+    assert.equal(await pageV.locator('[data-settings-page="subscription"], [data-settings-page="data"]').count(), 0, "no stub pages are listed");
+    await pageV.click(".sidebar .nav-profile");
+    assert.equal(await pageV.innerText("#settings-subpage-title"), "Profile", "Profile opens the profile, not the Settings list");
+    await ctxV.close();
+  });
+
+  await step("Guest sign-out offers 'Link an email' (focus stays inside three buttons, linking opens Account and keeps the session); a signed-in account gets no extra button; Metrics no longer repeats Plan and Credits", async () => {
+    const ctxG = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageG = await pageOf(ctxG, { devAccess: true });
+    await pageG.goto(BASE + "/#/settings/security");
+    await pageG.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageG.waitForFunction(() => localStorage.getItem("zarvis.isGuest") !== "false");
+    const token = await ls(pageG, "zarvis.accessToken");
+    await pageG.click("#settings-clear-session-btn");
+    await pageG.waitForSelector("#confirm-modal:not([hidden])");
+    const secondary = pageG.locator("#confirm-modal-secondary");
+    assert.equal(await secondary.isVisible(), true);
+    assert.equal(await secondary.innerText(), "Link an email");
+    assert.match(await pageG.innerText("#confirm-modal-body"), /can't get back into it/);
+    // Tab order: Cancel → Link an email → Sign out → back to Cancel; Shift+Tab goes the other way round.
+    const focused = () => pageG.evaluate(() => document.activeElement && document.activeElement.id);
+    assert.equal(await focused(), "confirm-modal-cancel");
+    await pageG.keyboard.press("Tab");
+    assert.equal(await focused(), "confirm-modal-secondary");
+    await pageG.keyboard.press("Tab");
+    assert.equal(await focused(), "confirm-modal-confirm");
+    await pageG.keyboard.press("Tab");
+    assert.equal(await focused(), "confirm-modal-cancel");
+    await pageG.keyboard.press("Shift+Tab");
+    assert.equal(await focused(), "confirm-modal-confirm");
+    await pageG.click("#confirm-modal-secondary");
+    await pageG.waitForSelector('[data-settings-panel="account"]:not([hidden])');
+    assert.equal(await pageG.locator("#confirm-modal").isHidden(), true, "the dialog closed");
+    assert.equal(await ls(pageG, "zarvis.accessToken"), token, "the session was not touched");
+    // Escape and Cancel still leave everything as it was, and the button is gone for the next dialog.
+    await pageG.goto(BASE + "/#/settings/security");
+    await pageG.click("#settings-clear-session-btn");
+    await pageG.keyboard.press("Escape");
+    assert.equal(await pageG.locator("#confirm-modal").isHidden(), true);
+    assert.equal(await ls(pageG, "zarvis.accessToken"), token);
+    await pageG.evaluate(() => localStorage.setItem("zarvis.isGuest", "false")); // what a linked, signed-in account looks like to this dialog
+    await pageG.click("#settings-clear-session-btn");
+    await pageG.waitForSelector("#confirm-modal:not([hidden])");
+    assert.equal(await pageG.locator("#confirm-modal-secondary").isHidden(), true, "no extra button when there is nothing to link");
+    await pageG.keyboard.press("Escape");
+    // Metrics: no Plan / Credits tiles, one link to Plans & credits.
+    await pageG.goto(BASE + "/#/metrics");
+    await pageG.waitForSelector("#view-metrics:not([hidden]) #metrics-usage .stat-tile");
+    const tiles = await pageG.locator("#metrics-usage .stat-tile-label").allInnerTexts();
+    assert.ok(tiles.length >= 6 && !tiles.includes("Plan") && !tiles.includes("Credits"), "tiles: " + tiles.join(", "));
+    await pageG.click('#view-metrics [data-go="plans"]');
+    await pageG.waitForSelector("#view-plans:not([hidden])");
+    await ctxG.close();
+  });
+
+  await step("Tasks is its own page: a link opens it, tasks are listed, searched and cancelled there, the badge and the Home and Activity rows count open ones, Activity no longer holds tasks, and the phone tab bar has Tasks in place of Activity", async () => {
+    const ctxT = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageT = await pageOf(ctxT);
+    await pageT.goto(BASE + "/#/tasks");
+    await pageT.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    assert.equal(await pageT.innerText("#view-tasks h1"), "Tasks");
+    assert.match(await pageT.title(), /^Tasks · /);
+    await pageT.waitForSelector("#task-list .empty-state");
+    assert.match(await pageT.innerText("#task-list"), /No tracked tasks/);
+    assert.equal(await pageT.locator('.sidebar [data-view="tasks"]').getAttribute("aria-current"), "page");
+    // Two tasks on the server; Refresh lists them and the nav says how many are open.
+    await pageT.evaluate(async () => {
+      for (const goal of ["Plan the launch day", "Renew the domain"]) {
+        await fetch("/api/v1/tasks", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify({ goal }) });
+      }
+    });
+    await pageT.click("#tasks-refresh-btn");
+    await pageT.waitForSelector("#task-list .task-card");
+    assert.equal(await pageT.locator("#task-list .task-card").count(), 2);
+    assert.equal(await pageT.locator('.sidebar [data-view="tasks"]').getAttribute("aria-label"), "Tasks, 2 open");
+    assert.equal(await pageT.locator("#tasks-badge").isVisible(), true);
+    // Search narrows the cards and says so when nothing fits.
+    await pageT.fill("#tasks-search", "launch");
+    assert.equal(await pageT.locator("#task-list .task-card:visible").count(), 1);
+    await pageT.fill("#tasks-search", "zzz");
+    assert.equal(await pageT.locator("#task-list .task-card:visible").count(), 0);
+    assert.equal(await pageT.locator("#tasks-no-match").isVisible(), true);
+    await pageT.fill("#tasks-search", "");
+    assert.equal(await pageT.locator("#tasks-no-match").isVisible(), false);
+    // Cancelling changes the status and the count.
+    await pageT.locator('#task-list .task-card:has-text("Renew the domain") .task-action-btn.danger').click();
+    await pageT.waitForFunction(() => document.querySelector('.sidebar [data-view="tasks"]').getAttribute("aria-label") === "Tasks, 1 open");
+    assert.equal(await pageT.locator('#task-list .task-card[data-status="CANCELLED"]').count(), 1);
+    // Home and Activity point at the Tasks page; Activity holds no tasks of its own.
+    await nav(pageT, "home");
+    assert.match(await pageT.innerText("#home-tasks"), /1 open task/);
+    await pageT.click("#home-tasks");
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await nav(pageT, "activity");
+    await pageT.waitForSelector("#activity-tasks:not([hidden])");
+    assert.match(await pageT.innerText("#activity-tasks"), /1 open task/);
+    assert.equal(await pageT.locator('#view-activity [data-filter="task"], #view-activity #task-list').count(), 0, "no Tasks filter or list on Activity");
+    await pageT.click("#activity-tasks");
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    // The "g then t" shortcut and the capability card both lead here too.
+    await nav(pageT, "home");
+    await pageT.keyboard.press("g");
+    await pageT.keyboard.press("t");
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    await pageT.goto(BASE + "/#/capabilities");
+    await pageT.waitForSelector("#view-capabilities:not([hidden]) #capability-hub .cap-item");
+    await pageT.locator('#capability-hub .cap-item:has-text("Tracked tasks") .cap-action').click();
+    await pageT.waitForSelector("#view-tasks:not([hidden])");
+    assert.equal(await pageT.locator("#capability-hub").count(), 1);
+    assert.equal(await pageT.locator('[data-feature-page="workspace"], [data-feature-page="tasks"]').count(), 0, "the AI Workspace and Tasks & Automation pages are gone");
+    await ctxT.close();
+    // Phone: the tab bar is Home, Capabilities, Chat, Tasks, Settings; Activity stays reachable from the menu.
+    const ctxQ = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const pageQ = await pageOf(ctxQ);
+    await pageQ.goto(BASE + "/#/home");
+    await pageQ.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const tabs = (await pageQ.locator("#bottom-nav .nav-item:visible").allInnerTexts()).map((t) => t.trim());
+    assert.deepEqual(tabs, ["Home", "Capabilities", "Chat", "Tasks", "Settings"]);
+    await pageQ.click('#bottom-nav [data-view="tasks"]');
+    await pageQ.waitForSelector("#view-tasks:not([hidden])");
+    assert.equal(await pageQ.locator('#bottom-nav [data-view="tasks"]').getAttribute("aria-current"), "page");
+    await pageQ.click("#menu-btn");
+    await pageQ.waitForSelector('#sidebar-nav [data-view="activity"]:visible');
+    await ctxQ.close();
+  });
+
+  await step("First visit: a link straight to a page that loads data (Plans, Activity, a Settings page) opens it, makes one guest account and never says 'session ended'", async () => {
+    for (const hash of ["#/plans", "#/activity", "#/settings/memory", "#/chat/00000000-0000-4000-8000-000000000999"]) {
+      const ctxF = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const pageF = await pageOf(ctxF);
+      let signups = 0;
+      pageF.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/auth/guest")) signups++; });
+      await pageF.goto(BASE + "/" + hash);
+      await pageF.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await pageF.waitForTimeout(1500); // the data requests that were waiting for the session have been answered by now
+      assert.equal(await pageF.locator("#session-gate").isHidden(), true, hash + ": the 'session ended' gate must not appear for someone who never had a session");
+      assert.equal(signups, 1, hash + ": one visit, one guest account");
+      assert.equal(await pageF.evaluate(() => localStorage.getItem("zarvis.sessionEnded")), null, hash);
+      await ctxF.close();
+    }
   });
 
   await step("Dialogs: focus goes in and stays in, the page behind is locked, focus comes back; offline is shown, not hidden behind 'Online'", async () => {
@@ -905,11 +1089,11 @@ async function send(page, text) {
     });
     const problems = [];
     const open = async (view) => { await pageH.evaluate((v) => document.querySelector(`[data-view="${v}"]`).click(), view); await pageH.waitForTimeout(400); };
-    for (const view of ["home", "chat", "activity", "capabilities", "plans", "settings", "developer", "metrics"]) {
+    for (const view of ["home", "chat", "tasks", "activity", "capabilities", "plans", "settings", "developer", "metrics"]) {
       await open(view);
       (await stray()).forEach((x) => problems.push(view + " " + x));
     }
-    for (const sub of ["account", "subscription", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "data", "developer"]) {
+    for (const sub of ["account", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "developer"]) {
       await open("settings");
       await pageH.evaluate((p) => document.querySelector(`[data-settings-page="${p}"]`).click(), sub);
       await pageH.waitForTimeout(300);

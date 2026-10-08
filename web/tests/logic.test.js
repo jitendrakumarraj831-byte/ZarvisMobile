@@ -137,3 +137,222 @@ test("?api= can only point at this origin: tokens are never sent to a host from 
   assert.equal(L.resolveApiBase("?api=https://zarvismobile.com.attacker.example/api", o), o + "/api/v1");
   assert.equal(L.resolveApiBase("?api=javascript:alert(1)", o), o + "/api/v1");
 });
+
+// ---- Chat page: chat list, day labels, slash commands, refine prompts, export, navigation ----
+
+test("a chat title is the first line of the first message, tidy and bounded", () => {
+  assert.equal(L.deriveChatTitle("  Plan my launch week\nwith details"), "Plan my launch week");
+  assert.equal(L.deriveChatTitle("## **Bold** `code` heading"), "Bold code heading");
+  assert.equal(L.deriveChatTitle(""), "New chat");
+  assert.equal(L.deriveChatTitle(null), "New chat");
+  const long = L.deriveChatTitle("x".repeat(200));
+  assert.equal(Array.from(long).length, 48);
+  assert.ok(long.endsWith("…"));
+  assert.equal(L.deriveChatTitle(long), long, "a derived title stays the same when derived again");
+  // Devanagari and emoji are cut on whole characters, never in the middle of one.
+  assert.doesNotMatch(L.deriveChatTitle("😀".repeat(60)), /[\ud800-\udbff](?![\udc00-\udfff])/);
+});
+
+test("the stored chat list is read defensively", () => {
+  assert.deepEqual(L.parseChatIndex("not json"), []);
+  assert.deepEqual(L.parseChatIndex('{"a":1}'), []);
+  const parsed = L.parseChatIndex(JSON.stringify([
+    { id: "a", title: "Older", updatedAt: 1 },
+    { id: "b", title: "Newer", updatedAt: 2 },
+    { id: "b", title: "Duplicate", updatedAt: 3 },
+    { id: "bad id!", title: "x", updatedAt: 4 },
+    { id: "c", title: "No time" },
+    null,
+  ]));
+  assert.deepEqual(parsed.map((chat) => chat.id), ["b", "a"]);
+  const many = Array.from({ length: 80 }, (_, i) => ({ id: "c" + i, title: "t", updatedAt: i }));
+  assert.equal(L.parseChatIndex(JSON.stringify(many)).length, L.CHAT_INDEX_MAX);
+});
+
+test("upsert keeps one entry per chat, newest first, and only retitles when given a title", () => {
+  let list = L.upsertChat([], { id: "a", title: "First chat", updatedAt: 10 });
+  list = L.upsertChat(list, { id: "b", title: "Second chat", updatedAt: 20 });
+  assert.deepEqual(list.map((chat) => chat.id), ["b", "a"]);
+  list = L.upsertChat(list, { id: "a", updatedAt: 30 });
+  assert.deepEqual(list.map((chat) => [chat.id, chat.title]), [["a", "First chat"], ["b", "Second chat"]]);
+  list = L.upsertChat(list, { id: "a", title: "Renamed", updatedAt: 31 });
+  assert.equal(list[0].title, "Renamed");
+  assert.equal(L.upsertChat([], { id: "z", updatedAt: 1 })[0].title, "New chat");
+  assert.deepEqual(L.removeChat(list, "a").map((chat) => chat.id), ["b"]);
+  assert.deepEqual(L.removeChat(list, "missing").length, 2);
+});
+
+test("server chats are merged into the browser list without losing or resurrecting anything", () => {
+  const local = [
+    { id: "a", title: "Trip plan", updatedAt: 100 },
+    { id: "b", title: "New chat", updatedAt: 50 },
+    { id: "only-here", title: "Just started", updatedAt: 400 },
+  ];
+  const server = [
+    { id: "a", title: "something older the server named it", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(300).toISOString() },
+    { id: "b", title: "Tax questions", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(40).toISOString() },
+    { id: "new-device", title: "From my phone", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(200).toISOString() },
+    { id: "removed", title: "I deleted this", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: new Date(500).toISOString() },
+    { id: "bad time", title: "x", updatedAt: "not a date" },
+    { id: "../etc", title: "x", updatedAt: new Date(1).toISOString() },
+    null,
+  ];
+  const merged = L.mergeServerChats(local, server, ["removed"]);
+  assert.deepEqual(merged.map((chat) => chat.id), ["only-here", "a", "new-device", "b"]);
+  const byId = Object.fromEntries(merged.map((chat) => [chat.id, chat]));
+  assert.equal(byId.a.title, "Trip plan"); // a title already shown is not replaced…
+  assert.equal(byId.a.updatedAt, 300); // …but the newer time wins
+  assert.equal(byId.b.title, "Tax questions"); // the placeholder takes the server's name
+  assert.equal(byId.b.updatedAt, 50); // and the older server time does not move it back
+  assert.equal(byId["new-device"].title, "From my phone");
+  // A hidden chat the browser still has stays out too, and junk input is harmless.
+  assert.deepEqual(L.mergeServerChats(local, [], ["a"]).map((chat) => chat.id), ["only-here", "b"]);
+  assert.deepEqual(L.mergeServerChats(local, null).length, 3);
+  assert.deepEqual(L.mergeServerChats([], undefined), []);
+});
+
+test("server chats are capped like any other chat list", () => {
+  const server = Array.from({ length: L.CHAT_INDEX_MAX + 20 }, (_, i) => ({ id: "c" + i, title: "Chat " + i, updatedAt: new Date(1000 + i).toISOString() }));
+  const merged = L.mergeServerChats([], server);
+  assert.equal(merged.length, L.CHAT_INDEX_MAX);
+  assert.equal(merged[0].id, "c" + (L.CHAT_INDEX_MAX + 19)); // newest kept
+});
+
+test("hidden chat ids are validated, de-duplicated and bounded", () => {
+  assert.deepEqual(L.parseHiddenChats("not json"), []);
+  assert.deepEqual(L.parseHiddenChats('{"a":1}'), []);
+  assert.deepEqual(L.parseHiddenChats('["a",5,"b c","ok-1"]'), ["a", "ok-1"]);
+  assert.deepEqual(L.hideChat(["a", "b"], "a"), ["b", "a"]);
+  let hidden = [];
+  for (let i = 0; i < 300; i++) hidden = L.hideChat(hidden, "id" + i);
+  assert.equal(hidden.length, 200);
+  assert.equal(hidden[199], "id299");
+});
+
+test("chats are searchable by title", () => {
+  const list = [{ id: "a", title: "Launch plan", updatedAt: 2 }, { id: "b", title: "Recipe ideas", updatedAt: 1 }];
+  assert.deepEqual(L.filterChats(list, " LAUNCH ").map((chat) => chat.id), ["a"]);
+  assert.equal(L.filterChats(list, "").length, 2);
+  assert.equal(L.filterChats(list, "zzz").length, 0);
+});
+
+test("days are calendar days: today, yesterday, this week, older", () => {
+  const now = new Date(2026, 9, 8, 0, 30).getTime(); // 8 Oct 2026, half past midnight
+  const at = (day, hour = 12) => new Date(2026, 9, day, hour).getTime();
+  assert.equal(L.dayBucket(at(8, 0), now), "today");
+  assert.equal(L.dayBucket(at(7, 23), now), "yesterday"); // an hour and a half ago, but yesterday
+  assert.equal(L.dayBucket(at(3), now), "week");
+  assert.equal(L.dayBucket(at(1), now), "older");
+  assert.equal(L.dayLabel(at(8), now), "Today");
+  assert.equal(L.dayLabel(at(7), now), "Yesterday");
+  assert.match(L.dayLabel(at(1), now, "en-IN"), /2026/);
+  assert.notEqual(L.dayKey(at(7)), L.dayKey(at(8)));
+  assert.equal(L.dayKey(at(8, 1)), L.dayKey(at(8, 23)));
+  const groups = L.groupChatsByDay([
+    { id: "o", title: "o", updatedAt: at(1) },
+    { id: "t", title: "t", updatedAt: at(8, 0) },
+    { id: "y", title: "y", updatedAt: at(7) },
+    { id: "t2", title: "t2", updatedAt: at(8, 0) - 1000 * 60 * 60 * 24 + 1000 * 60 * 60 * 23 },
+  ], now);
+  assert.deepEqual(groups.map((group) => group.label), ["Today", "Yesterday", "Older"]);
+  assert.deepEqual(groups[0].items.map((chat) => chat.id), ["t"]);
+});
+
+test("the slash menu appears only for '/' plus a command-name prefix", () => {
+  assert.equal(L.matchSlashCommands("/").length, L.SLASH_COMMANDS.length);
+  assert.deepEqual(L.matchSlashCommands("/res").map((command) => command.name), ["research"]);
+  assert.equal(L.matchSlashCommands("/RES")[0].name, "research");
+  assert.equal(L.matchSlashCommands("hello /res").length, 0);
+  assert.equal(L.matchSlashCommands("/research something").length, 0, "typing past the command closes the menu");
+  assert.equal(L.matchSlashCommands("").length, 0);
+  assert.equal(L.matchSlashCommands("/zzzz").length, 0);
+  // Names that merely contain the text come after the ones that start with it.
+  const names = L.matchSlashCommands("/e").map((command) => command.name);
+  assert.ok(names.indexOf("explain") < names.indexOf("research"));
+});
+
+test("every slash command is either a prompt to edit or a known action", () => {
+  const actions = new Set(["attach", "voice", "new", "history", "export", "shortcuts"]);
+  const names = new Set();
+  for (const command of L.SLASH_COMMANDS) {
+    assert.match(command.name, /^[a-z]+$/);
+    assert.ok(!names.has(command.name), "duplicate command " + command.name);
+    names.add(command.name);
+    if (command.kind === "prompt") assert.ok(command.prompt.endsWith(" ") || command.prompt.endsWith(":"), command.name);
+    else assert.ok(actions.has(command.action), "unknown action for " + command.name);
+    assert.ok(command.label && command.hint && command.icon);
+  }
+});
+
+test("refine actions: five follow-ups, with the last one switching to the other language", () => {
+  const en = L.refineActions("en");
+  const hi = L.refineActions("hi");
+  assert.equal(en.length, 5);
+  assert.equal(en[4].id, "hindi");
+  assert.equal(hi[4].id, "english");
+  assert.deepEqual(en.slice(0, 4), hi.slice(0, 4));
+  for (const action of en) assert.match(action.prompt, /last answer/);
+});
+
+test("export keeps the whole conversation, in order, and names a safe file", () => {
+  const messages = [
+    { role: "user", text: "Plan my week", time: "9:30 am" },
+    { role: "assistant", text: "## Monday\n- Write\n\n\n\n- Review", time: "9:31 am" },
+  ];
+  const md = L.chatToMarkdown(messages, { title: "Weekly plan", exportedAt: "8 Oct 2026" });
+  assert.ok(md.startsWith("# Weekly plan\n\n_Exported 8 Oct 2026_\n\n**You** · 9:30 am\n\nPlan my week\n\n**ZARVIS** · 9:31 am\n\n## Monday"));
+  assert.ok(!/\n{3,}/.test(md), "no runs of blank lines");
+  assert.ok(md.endsWith("\n") && !md.endsWith("\n\n"));
+  const text = L.chatToText(messages, { title: "Weekly plan" });
+  assert.ok(text.startsWith("Weekly plan\n\nYou (9:30 am):\nPlan my week\n\nZARVIS (9:31 am):\n"));
+  assert.equal(L.chatToMarkdown([], {}).trim(), "# ZARVIS chat");
+  assert.equal(L.exportFileName("Plan: my/launch week?!"), "plan-my-launch-week.md");
+  assert.equal(L.exportFileName("???"), "zarvis-chat.md");
+  assert.equal(L.exportFileName("नमस्ते दुनिया", "txt"), "नमस्ते-दुनिया.txt");
+  assert.ok(L.exportFileName("a".repeat(200)).length <= 43);
+});
+
+test("go-to shortcuts only point at real pages", () => {
+  for (const key of Object.keys(L.GO_SHORTCUTS)) assert.ok(L.breadcrumbs({ view: L.goShortcutTarget(key) }) !== undefined);
+  assert.equal(L.goShortcutTarget("C"), "chat");
+  assert.equal(L.goShortcutTarget("t"), "tasks");
+  assert.equal(L.goShortcutTarget("a"), "activity");
+  assert.equal(L.goShortcutTarget("z"), null);
+  assert.equal(L.goShortcutTarget(undefined), null);
+});
+
+test("breadcrumbs: Home is the root, sub-pages link back through their parent", () => {
+  assert.deepEqual(L.breadcrumbs({ view: "home" }), []);
+  assert.deepEqual(L.breadcrumbs({ view: "activity" }), [{ label: "Home", view: "home" }, { label: "Activity" }]);
+  assert.deepEqual(L.breadcrumbs({ view: "tasks" }), [{ label: "Home", view: "home" }, { label: "Tasks" }]);
+  assert.deepEqual(L.breadcrumbs({ view: "settings", settingsTitle: "Voice" }), [
+    { label: "Home", view: "home" },
+    { label: "Settings", view: "settings", closeSubpage: true },
+    { label: "Voice" },
+  ]);
+  assert.deepEqual(L.breadcrumbs({ view: "settings" }), [{ label: "Home", view: "home" }, { label: "Settings" }]);
+  assert.deepEqual(L.breadcrumbs({ view: "feature", featureTitle: "Research" }), [
+    { label: "Home", view: "home" },
+    { label: "Capabilities", view: "capabilities" },
+    { label: "Research" },
+  ]);
+});
+
+test("in-text links only point at pages that exist", () => {
+  assert.deepEqual(L.parseGoTarget("plans"), { view: "plans" });
+  assert.deepEqual(L.parseGoTarget("activity"), { view: "activity" });
+  assert.deepEqual(L.parseGoTarget("tasks"), { view: "tasks" });
+  assert.deepEqual(L.parseGoTarget("settings"), { view: "settings", settingsPage: null });
+  assert.deepEqual(L.parseGoTarget("settings:permissions"), { view: "settings", settingsPage: "permissions" });
+  assert.deepEqual(L.parseGoTarget("history"), { action: "history" });
+  for (const bad of ["", null, undefined, "nowhere", "plans:extra", "settings:a:b", "settings:../x", "history:1", "feature", "Plans"]) {
+    assert.equal(L.parseGoTarget(bad), null, String(bad));
+  }
+});
+
+test("moved addresses still open the right page", () => {
+  assert.deepEqual(L.resolveLegacyRoute("settings", "subscription"), { view: "plans", sub: undefined });
+  assert.deepEqual(L.resolveLegacyRoute("settings", "data"), { view: "settings", sub: "privacy" });
+  assert.deepEqual(L.resolveLegacyRoute("settings", "voice"), { view: "settings", sub: "voice" });
+  assert.deepEqual(L.resolveLegacyRoute("plans", undefined), { view: "plans", sub: undefined });
+});

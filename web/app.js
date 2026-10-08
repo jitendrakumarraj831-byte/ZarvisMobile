@@ -47,6 +47,8 @@
     }
   }
   let refreshInFlight = null;
+  /** The first-visit guest bootstrap, started before any page can ask for data (see apiFetch). Never rejects. */
+  let sessionReady = null;
   let capabilityCache = null;
   const SESSION_GATE_COPY = {
     signed_out: ["You're signed out", "Sign in with your email, or start a new guest account on this browser."],
@@ -121,6 +123,14 @@
         analyze: "Analyze",
         plan: "Plan",
       },
+      quickHints: {
+        ask: "Chat about anything",
+        write: "Messages, posts and poems",
+        research: "Search the web, with sources",
+        code: "Generate and explain code",
+        analyze: "Documents and images",
+        plan: "Break a goal into steps",
+      },
     },
     hi: {
       greeting: "ZARVIS",
@@ -182,6 +192,14 @@
         analyze: "एनालाइज़",
         plan: "प्लान",
       },
+      quickHints: {
+        ask: "किसी भी विषय पर बात करें",
+        write: "संदेश, पोस्ट और कविता",
+        research: "वेब पर खोजें, स्रोतों के साथ",
+        code: "कोड बनाएँ और समझें",
+        analyze: "डॉक्यूमेंट और इमेज",
+        plan: "लक्ष्य को चरणों में बाँटें",
+      },
     },
   };
 
@@ -193,6 +211,17 @@
       if (navigator.vibrate) navigator.vibrate(ms);
     } catch {
       /* unsupported — ignore */
+    }
+  }
+
+  /** Calls into the chat kit (chat-kit.js). It adds conveniences around the thread, so a problem in it
+   * is logged and never allowed to break sending or showing a message. */
+  function kit(method, ...args) {
+    try {
+      return window.ZarvisChatKit?.[method]?.(...args);
+    } catch (err) {
+      console.warn("Zarvis chat kit:", method, err);
+      return undefined;
     }
   }
 
@@ -227,6 +256,7 @@
     viewPlans: document.getElementById("view-plans"),
     viewMetrics: document.getElementById("view-metrics"),
     viewActivity: document.getElementById("view-activity"),
+    viewTasks: document.getElementById("view-tasks"),
     viewDeveloper: document.getElementById("view-developer"),
     viewSettings: document.getElementById("view-settings"),
     viewFeature: document.getElementById("view-feature"),
@@ -254,7 +284,11 @@
     settingsOpenDeveloper: document.getElementById("settings-open-developer"),
     settingsOpenMetrics: document.getElementById("settings-open-metrics"),
     settingsDevToggle: document.getElementById("settings-dev-toggle"),
-    activityTaskList: document.getElementById("activity-task-list"),
+    taskList: document.getElementById("task-list"),
+    tasksSearch: document.getElementById("tasks-search"),
+    tasksNoMatch: document.getElementById("tasks-no-match"),
+    tasksRefreshBtn: document.getElementById("tasks-refresh-btn"),
+    activityTasks: document.getElementById("activity-tasks"),
     activityRefreshBtn: document.getElementById("activity-refresh-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
     developerRepoInput: document.getElementById("developer-repo-input"),
@@ -266,6 +300,7 @@
     confirmModalTitle: document.getElementById("confirm-modal-title"),
     confirmModalBody: document.getElementById("confirm-modal-body"),
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
+    confirmModalSecondary: document.getElementById("confirm-modal-secondary"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
     homeOrb: document.getElementById("home-orb"),
@@ -366,6 +401,8 @@
       clearPendingAttachment();
     });
 
+    sessionReady = ensureSession().catch(() => {}); // failures are handled where init() awaits ensureSession() below
+
     // Secondary UI initialization is isolated per feature. One optional browser API or
     // non-critical screen must never prevent the other buttons from receiving handlers.
     const optionalInitializers = [
@@ -374,7 +411,9 @@
       ["voice toggle", applyVoiceToggleState],
       ["speech recognition", setupSpeechRecognition],
       ["service worker", registerServiceWorker],
+      ["go links", setupGoLinks],
       ["navigation", setupBottomNav],
+      ["chat kit", setupChatKit],
       ["home feature links", setupHomeFeatures],
       ["capability pages", setupCapabilityPages],
       ["plans", setupPlans],
@@ -399,7 +438,12 @@
 
     try {
       await ensureSession();
-      void restoreConversation();
+      const resumeId = state.conversationId;
+      void restoreConversation().then((result) => {
+        if (result === "missing") kit("remove", resumeId);
+        kit("renderAll");
+      });
+      void kit("sync", { force: true });
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
       if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
@@ -524,7 +568,7 @@
   let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
   let featureOwnsEntry = false; // same for a capability detail page
 
-  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", capabilities: "Capabilities", plans: "Plans", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
+  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", tasks: "Tasks", capabilities: "Capabilities", plans: "Plans", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
 
   function currentRoute() {
     if (state.activeView === "settings" && state.settingsPage) return "#/settings/" + state.settingsPage;
@@ -546,7 +590,12 @@
 
   function syncRoute() {
     const title = pageTitle();
-    document.title = title;
+    document.title = kit("decorateTitle", title) || title;
+    kit("updateCrumbs", {
+      view: state.activeView,
+      settingsTitle: state.settingsPage ? el.settingsSubpageTitle?.textContent || "" : "",
+      featureTitle: state.activeView === "feature" ? document.querySelector("#view-feature h1")?.textContent || "" : "",
+    });
     const announcer = document.getElementById("route-announcer");
     if (announcer) announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
     if (applyingRoute) return;
@@ -559,8 +608,11 @@
 
   function applyRoute(hash) {
     const match = /^#\/([a-z]+)(?:\/([\w-]+))?$/.exec(hash || "");
-    const view = match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home";
-    const sub = match ? match[2] : undefined;
+    const known = Logic.resolveLegacyRoute(match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home", match ? match[2] : undefined);
+    const view = known.view;
+    const sub = known.sub;
+    // A link to a page that doesn't exist lands on Home, and says so instead of silently showing the wrong thing.
+    if (hash && hash !== "#" && hash !== "#/" && !(match && VIEWS[match[1]] && match[1] !== "feature")) showToast("That page doesn't exist. Opened Home.");
     applyingRoute = true;
     subpageOwnsEntry = false;
     featureOwnsEntry = false;
@@ -572,6 +624,10 @@
         } else if (state.settingsPage) closeSettingsPage();
       } else if (view === "capabilities" && sub && document.querySelector(`[data-feature-page="${sub}"]`)) {
         openFeature(sub);
+      } else if (view === "chat" && sub) {
+        // #/chat/<id> opens that chat (the address bar then goes back to plain #/chat).
+        setActiveView("chat");
+        if (sub !== state.conversationId) void openConversation(sub);
       } else {
         setActiveView(view);
       }
@@ -761,8 +817,11 @@
       showSessionGate(ended);
       throw new SessionEndedError(ended);
     }
-    await createGuestSession();
+    // Two callers (the early bootstrap and init) share one account creation: a second request would replace the first one's tokens.
+    if (!guestCreation) guestCreation = createGuestSession().finally(() => { guestCreation = null; });
+    await guestCreation;
   }
+  let guestCreation = null;
 
   async function createGuestSession() {
     const res = await fetch(`${API_BASE}/auth/guest`, { method: "POST" });
@@ -788,6 +847,7 @@
     }
     state.conversationId = null;
     state.history = [];
+    kit("forgetAll");
   }
 
   /** Ends the session locally (tokens are useless now) and asks the user what to do next. */
@@ -798,6 +858,9 @@
   }
 
   async function apiFetch(path, options = {}, retried = false) {
+    // A link straight to a page that loads data (#/plans, #/activity ...) is opened before a first-time visitor has a session.
+    // Without this wait that request goes out with no token, gets a 401, and shows the "session ended" gate to someone who never had one.
+    if (!localStorage.getItem(STORAGE_KEYS.accessToken) && sessionReady) await sessionReady;
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
     if (!accessToken) {
       const ended = localStorage.getItem(SESSION_KEYS.ended);
@@ -1184,26 +1247,82 @@
   // After a reload (or on another browser signed into the same account) only real,
   // server-persisted messages are shown — nothing is reconstructed or invented.
 
-  async function restoreConversation() {
-    if (!state.conversationId || el.conversation.children.length > 0) return;
+  /** One load per conversation at a time: the start-up restore and a deep link must not both fill the thread. */
+  let restoreInFlight = null;
+
+  /** Returns "loaded", "missing" (the server no longer has it), "error" or "skipped". */
+  function restoreConversation() {
+    if (!state.conversationId || el.conversation.children.length > 0) return Promise.resolve("skipped");
+    if (restoreInFlight && restoreInFlight.id === state.conversationId) return restoreInFlight.promise;
+    const id = state.conversationId;
+    const promise = loadConversationMessages(id).finally(() => {
+      if (restoreInFlight?.promise === promise) restoreInFlight = null;
+    });
+    restoreInFlight = { id, promise };
+    return promise;
+  }
+
+  async function loadConversationMessages(wanted) {
+    kit("setThreadLoading", true);
     try {
-      const res = await apiFetch(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
+      const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`);
+      if (state.conversationId !== wanted) return "skipped"; // another chat was opened while this one loaded
       if (res.status === 404) {
         state.conversationId = null;
         localStorage.removeItem(STORAGE_KEYS.conversationId);
-        return;
+        return "missing";
       }
-      if (!res.ok) return;
+      if (!res.ok) return "error";
       const body = await res.json();
-      for (const message of body.messages || []) {
+      if (state.conversationId !== wanted) return "skipped";
+      const messages = body.messages || [];
+      for (const message of messages) {
         addBubble(message.role === "user" ? "user" : "assistant", message.content, undefined, message.createdAt ? new Date(message.createdAt) : null);
         state.history.push({ role: message.role, content: message.content });
       }
       state.history = state.history.slice(-12);
-      if ((body.messages || []).length) state.firstTurn = false;
+      if (messages.length) {
+        state.firstTurn = false;
+        const firstUser = messages.find((message) => message.role === "user");
+        const last = messages[messages.length - 1];
+        const lastAt = last?.createdAt ? Date.parse(last.createdAt) : NaN;
+        kit("record", wanted, { title: body.title || firstUser?.content, at: lastAt });
+      }
+      return "loaded";
     } catch (err) {
       if (!(err instanceof SessionEndedError)) console.warn("Conversation restore failed:", err);
+      return "error";
+    } finally {
+      if (state.conversationId === wanted || !state.conversationId) kit("setThreadLoading", false);
     }
+  }
+
+  /** Opens one of the user's earlier chats: its real messages are loaded from the server. */
+  async function openConversation(id) {
+    if (!id) return false;
+    if (id === state.conversationId && el.conversation.children.length > 0) {
+      setActiveView("chat");
+      return true;
+    }
+    if (currentTurnController) cancelCurrentTurn();
+    state.conversationId = id;
+    localStorage.setItem(STORAGE_KEYS.conversationId, id);
+    state.history = [];
+    state.firstTurn = true;
+    el.conversation.replaceChildren();
+    kit("threadReset");
+    syncChatConversationLayout();
+    setActiveView("chat");
+    const result = await restoreConversation();
+    if (result === "missing") {
+      kit("remove", id);
+      showToast("That chat is no longer available");
+    } else if (result === "error") {
+      showToast("Couldn't load that chat. Check your connection.");
+    }
+    updateSettingsValues();
+    kit("renderAll");
+    return result === "loaded";
   }
 
   // ---- Permissions & Device Access (Phase 1 capability registry) -------------------------
@@ -1226,7 +1345,9 @@
       if (!capabilityCache) {
         const res = await fetch(`${API_BASE}/capabilities`);
         if (!res.ok) throw new Error("HTTP " + res.status);
-        capabilityCache = (await res.json()).capabilities;
+        const body = await res.json();
+        if (!Array.isArray(body.capabilities)) throw new Error("Unexpected capability list");
+        capabilityCache = body.capabilities;
       }
     } catch (err) {
       console.error(err);
@@ -1510,6 +1631,8 @@
     plan: CATEGORY_ICON_PATHS.AUTOMATION,
   };
 
+  const QUICK_ACTION_TONES = { ask: "blue", write: "pink", research: "cyan", code: "violet", analyze: "amber", plan: "green" };
+
   function quickActionIconSvg(key) {
     return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${QUICK_ACTION_ICON_PATHS[key]}</svg>`;
   }
@@ -1525,11 +1648,13 @@
 
       const card = document.createElement("button");
       card.type = "button";
-      card.className = "chip";
-      card.innerHTML = `${quickActionIconSvg(group.key)}<span>${labels[group.key]}</span>`;
+      card.className = "starter-card tone-" + (QUICK_ACTION_TONES[group.key] || "blue");
+      const hint = COPY[state.lang].quickHints?.[group.key] || "";
+      card.innerHTML = `<span class="starter-ico">${quickActionIconSvg(group.key)}</span><span class="starter-copy"><strong>${labels[group.key]}</strong><small>${hint}</small></span>`;
       card.addEventListener("click", () => {
         haptic();
         el.input.value = example;
+        resizeComposer();
         el.input.focus();
       });
       el.categories.appendChild(card);
@@ -1633,6 +1758,7 @@
     plans: el.viewPlans,
     metrics: el.viewMetrics,
     activity: el.viewActivity,
+    tasks: el.viewTasks,
     settings: el.viewSettings,
     feature: el.viewFeature,
     developer: el.viewDeveloper,
@@ -1652,6 +1778,8 @@
     }
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
+    el.tasksRefreshBtn?.addEventListener("click", () => void refreshTasksPage());
+    el.tasksSearch?.addEventListener("input", applyTaskFilter);
     for (const btn of document.querySelectorAll("[data-nav]")) {
       btn.addEventListener("click", () => {
         haptic();
@@ -1715,6 +1843,7 @@
       startListening,
       pickFile: () => openFilePicker(),
       devAccess: () => state.devAccess,
+      extraItems: () => kit("paletteItems") || [],
       account: () => {
         const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
         return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
@@ -1723,6 +1852,74 @@
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
+  }
+
+  /** Anything with data-go="<page>" (or "settings:<sub-page>", or "history") is a link: static buttons, capability
+   * copy and tool rows all share this one handler, and a target that is not a real page is refused, not ignored. */
+  function setupGoLinks() {
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest?.("[data-go]");
+      if (!link) return;
+      const target = Logic.parseGoTarget(link.dataset.go);
+      if (!target) {
+        console.warn("Zarvis: unknown link target", link.dataset.go);
+        return;
+      }
+      event.preventDefault();
+      haptic();
+      if (target.action === "history") {
+        kit("openHistory", link);
+        return;
+      }
+      setActiveView(target.view);
+      if (target.settingsPage && document.querySelector(`[data-settings-page="${target.settingsPage}"]`)) openSettingsPage(target.settingsPage);
+    });
+  }
+
+  /** Hands the chat kit (chat-kit.js) the few things it needs from this file. */
+  function setupChatKit() {
+    window.ZarvisChatKit?.init({
+      input: el.input,
+      lang: () => state.lang,
+      activeView: () => state.activeView,
+      setActiveView,
+      conversationId: () => state.conversationId,
+      fetchConversations: async () => {
+        const res = await apiFetch("/conversations?limit=50");
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        return Array.isArray(data?.conversations) ? data.conversations : null;
+      },
+      openConversation,
+      newConversation: startNewConversation,
+      submit: (text) => submitComposerInput(text),
+      fill: (text) => {
+        setActiveView("chat");
+        el.input.value = text;
+        resizeComposer();
+        el.input.focus();
+        el.input.setSelectionRange(text.length, text.length);
+      },
+      resizeInput: resizeComposer,
+      pickFile: () => {
+        setActiveView("chat");
+        openFilePicker();
+      },
+      attachFile: (file) => {
+        setActiveView("chat");
+        void handleFileSelected({ target: { files: [file], value: "" } });
+      },
+      startListening: () => {
+        setActiveView("chat");
+        startListening();
+      },
+      isBusy,
+      scrollToNewest: () => scrollConversationToBottom(),
+      bubbleText: bubblePlainText,
+      toast: showToast,
+      confirm: showConfirmModal,
+      closeSubpage: leaveSettingsSubpage,
+    });
   }
 
   /**
@@ -1848,6 +2045,7 @@
     state.history = [];
     state.firstTurn = true;
     el.conversation.replaceChildren();
+    kit("threadReset");
     syncChatConversationLayout();
     recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
     updateSettingsValues();
@@ -1888,6 +2086,8 @@
           openSettingsPage(button.dataset.capSettings || "voice");
         } else if (action === "feature") {
           openFeature(button.dataset.featurePage);
+        } else if (action === "page") {
+          setActiveView(button.dataset.capPage);
         } else {
           setActiveView("chat");
           el.input.value = button.dataset.capPrompt || "";
@@ -1984,12 +2184,12 @@
   }
 
   function setActiveView(view) {
-    if (view === "tasks") view = "activity";
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
     if (view === "developer" && !requireDevAccess("Developer Agent")) return;
     if (view === "metrics" && !requireDevAccess("Usage & Metrics")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
     if (state.activeView === "settings" && view !== "settings") closeSettingsPage();
+    kit("rememberScroll", state.activeView);
 
     state.activeView = view;
     document.body.dataset.activeView = view;
@@ -2005,7 +2205,7 @@
     }
     el.composer.hidden = view !== "chat";
     document.body.classList.remove("keyboard-open");
-    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+    window.scrollTo({ top: kit("scrollTargetFor", view, applyingRoute) || 0, behavior: "instant" in window ? "instant" : "auto" });
 
     if (view === "chat") maybeShowWelcomeGate();
     if (view === "capabilities") renderCapabilities();
@@ -2018,9 +2218,11 @@
       startMetricsPolling();
     }
     if (view === "activity") refreshActivity();
+    if (view === "tasks") void refreshTasksPage();
     if (view === "home") {
       renderHomeGreeting();
     }
+    kit("renderAll"); // the open chat is highlighted in the sidebar only while Chat is showing
     if (view === "developer") void refreshGithubStatus();
     if (view === "settings") {
       updateSettingsValues();
@@ -2080,22 +2282,28 @@
 
   // ---- Confirmation modal ----------------------------------------------------------------
   // One generic instance (mirrors Android's RiskConfirmationDialog/AlertDialog pattern)
-  // rather than a one-off dialog per caller — currently used only by Settings' "Delete
-  // account", but written to take any title/body/confirm label.
+  // rather than a one-off dialog per caller: Sign out, Delete account and Remove from list all take
+  // a title/body/confirm label. An optional second action (secondaryLabel + onSecondary) sits between
+  // Cancel and the confirm button, for a safer way out than the one being confirmed.
 
-  function showConfirmModal({ title, body, confirmLabel = "Confirm", destructive = false, onConfirm }) {
+  function showConfirmModal({ title, body, confirmLabel = "Confirm", destructive = false, onConfirm, secondaryLabel, onSecondary }) {
     const opener = document.activeElement;
+    const hasSecondary = !!secondaryLabel && typeof onSecondary === "function";
     el.confirmModalTitle.textContent = title;
     el.confirmModalBody.textContent = body;
     el.confirmModalConfirm.textContent = confirmLabel;
     el.confirmModalConfirm.classList.toggle("btn-danger", destructive);
     el.confirmModalConfirm.classList.toggle("btn-primary", !destructive);
+    el.confirmModalSecondary.hidden = !hasSecondary;
+    el.confirmModalSecondary.textContent = hasSecondary ? secondaryLabel : "";
     el.confirmModal.hidden = false;
     el.confirmModalCancel.focus();
 
     const close = () => {
       el.confirmModal.hidden = true;
+      el.confirmModalSecondary.hidden = true;
       el.confirmModalConfirm.removeEventListener("click", handleConfirm);
+      el.confirmModalSecondary.removeEventListener("click", handleSecondary);
       el.confirmModalCancel.removeEventListener("click", close);
       el.confirmModal.removeEventListener("keydown", onKey);
       el.confirmModal.removeEventListener("click", onScrim);
@@ -2105,6 +2313,10 @@
       close();
       onConfirm();
     };
+    const handleSecondary = () => {
+      close();
+      onSecondary?.();
+    };
     const onKey = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -2112,9 +2324,9 @@
         return;
       }
       if (event.key !== "Tab") return;
-      const nodes = [el.confirmModalCancel, el.confirmModalConfirm];
+      const nodes = [el.confirmModalCancel, ...(hasSecondary ? [el.confirmModalSecondary] : []), el.confirmModalConfirm];
       const first = nodes[0];
-      const last = nodes[1];
+      const last = nodes[nodes.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -2127,6 +2339,7 @@
       if (event.target === el.confirmModal) close();
     };
     el.confirmModalConfirm.addEventListener("click", handleConfirm);
+    el.confirmModalSecondary.addEventListener("click", handleSecondary);
     el.confirmModalCancel.addEventListener("click", close);
     el.confirmModal.addEventListener("keydown", onKey);
     el.confirmModal.addEventListener("click", onScrim);
@@ -2176,11 +2389,21 @@
       showConfirmModal({
         title: "Sign out?",
         body: isGuest
-          ? "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email in Account first if you want to keep it."
+          ? "This is a guest account with no sign-in email, so after signing out you can't get back into it. Link an email first to keep it."
           : "This ends the session on this browser. Sign in again with your email to continue.",
         confirmLabel: "Sign out",
         destructive: isGuest,
         onConfirm: () => void signOut(),
+        // The one thing that makes a guest sign-out safe is one tap away, not a trip through the menus.
+        ...(isGuest
+          ? {
+              secondaryLabel: "Link an email",
+              onSecondary: () => {
+                setActiveView("settings");
+                openSettingsPage("account");
+              },
+            }
+          : {}),
       });
     });
     el.settingsDeleteBtn.addEventListener("click", () => {
@@ -2338,17 +2561,23 @@
     }
   }
 
-  async function refreshActivity() {
-    if (!el.activityTaskList) return;
-    const refreshBtn = el.activityRefreshBtn;
+  /** Activity is this session's log plus the chat list; Refresh pulls the account's chats again and re-counts open tasks. */
+  function refreshActivity() {
+    applyActivityFilter();
+    void kit("sync", { force: true });
+    void refreshTasks();
+  }
+
+  async function refreshTasksPage() {
+    if (!el.taskList) return;
+    const refreshBtn = el.tasksRefreshBtn;
     if (refreshBtn) refreshBtn.disabled = true;
-    el.activityTaskList.setAttribute("aria-busy", "true");
-    renderActivityTimeline();
-    if (!el.activityTaskList.children.length) {
+    el.taskList.setAttribute("aria-busy", "true");
+    if (!el.taskList.children.length) {
       const skeleton = document.createElement("div");
       skeleton.className = "skeleton skeleton-row";
       skeleton.setAttribute("aria-hidden", "true");
-      el.activityTaskList.appendChild(skeleton);
+      el.taskList.appendChild(skeleton);
     }
     let tasks = null;
     try {
@@ -2357,22 +2586,36 @@
       console.error(err);
       tasks = null;
     }
-    el.activityTaskList.innerHTML = "";
+    el.taskList.innerHTML = "";
     if (refreshBtn) refreshBtn.disabled = false;
-    el.activityTaskList.removeAttribute("aria-busy");
+    el.taskList.removeAttribute("aria-busy");
     if (!tasks) {
-      el.activityTaskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
+      el.taskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
+      applyTaskFilter();
       return;
     }
     if (!tasks.length) {
-      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here.", {
+      el.taskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here.", {
         icon: "i-task",
         action: { label: "Plan a task", onClick: () => document.querySelector('[data-workspace-prompt^="Create a workflow"]')?.click() },
       }));
+      applyTaskFilter();
       return;
     }
-    for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
-    applyActivityFilter();
+    for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
+    applyTaskFilter();
+  }
+
+  /** The search box narrows the task cards; "No tasks match" shows only when cards exist but none fit. */
+  function applyTaskFilter() {
+    const query = (el.tasksSearch?.value || "").trim().toLowerCase();
+    const cards = el.taskList ? Array.from(el.taskList.querySelectorAll(".task-card")) : [];
+    let shown = 0;
+    for (const card of cards) {
+      card.hidden = !!query && !card.textContent.toLowerCase().includes(query);
+      if (!card.hidden) shown += 1;
+    }
+    if (el.tasksNoMatch) el.tasksNoMatch.hidden = !cards.length || shown > 0;
   }
 
   async function deleteAccount() {
@@ -2610,6 +2853,8 @@
     else if (planCatalogue.testMode) message = "Test mode: payments use Razorpay's test environment and no real money moves.";
     notice.hidden = !message;
     text.textContent = message;
+    const guestNote = document.getElementById("plans-guest-note");
+    if (guestNote) guestNote.hidden = localStorage.getItem(SESSION_KEYS.isGuest) === "false";
     if (box) box.hidden = !planCatalogue;
     const yearly = planCatalogue?.plans?.find((p) => p.period === "yearly");
     if (save) {
@@ -2910,8 +3155,8 @@
     el.metricsTrend.setAttribute("aria-label", `Response time for the last ${entries.length} requests, longest ${max} ms`);
   }
 
-  /** Usage for this session (measured here) plus the account's live credit balance. */
-  async function renderMetricsUsage() {
+  /** Usage for this session, measured here. Plan and credits live on the Plans page (linked from this page's header). */
+  function renderMetricsUsage() {
     if (!el.metricsUsage) return;
     const count = (type) => activityLog.filter((entry) => entry.type === type).length;
     const conversations = state.history.filter((message) => message.role === "user").length;
@@ -2922,28 +3167,8 @@
       { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-amber" },
       { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
       { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-green" },
-      { label: "Credits", value: "…", id: "metrics-credits", icon: "i-bolt", tone: "tone-pink" },
-      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan", icon: "i-plan", tone: "tone-cyan" },
     ];
-    el.metricsUsage.replaceChildren(...tiles.map((tile) => {
-      const node = renderStatTile(tile);
-      if (tile.id) node.id = tile.id;
-      return node;
-    }));
-    try {
-      const res = await apiFetch("/entitlements/me");
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const snapshot = await res.json();
-      currentPlanName = snapshot.plan;
-      const credits = document.querySelector("#metrics-credits .stat-tile-value");
-      const plan = document.querySelector("#metrics-plan .stat-tile-value");
-      if (credits) credits.textContent = String(snapshot.creditBalance);
-      if (plan) plan.textContent = formatPlanName(snapshot.plan);
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-      const credits = document.querySelector("#metrics-credits .stat-tile-value");
-      if (credits) credits.textContent = "—";
-    }
+    el.metricsUsage.replaceChildren(...tiles.map(renderStatTile));
   }
 
   /** "TRIAL" → "Trial": the same spelling everywhere (Settings, Plans, Metrics). */
@@ -3123,7 +3348,11 @@
       more.appendChild(svgIcon("i-more"));
       more.addEventListener("click", () => {
         window.ZarvisShell?.menu(more, entry.title || "Activity", [
-          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => setActiveView(entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" || entry.type === "developer" ? "activity" : "chat") },
+          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => {
+            // A developer entry without Developer access has nowhere of its own to open, so it goes to Chat rather than doing nothing.
+            const to = entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" ? "tasks" : "chat";
+            setActiveView(to);
+          } },
           { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
           { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
             const at = activityLog.indexOf(entry);
@@ -3138,19 +3367,11 @@
     });
   }
 
-  /** Shows/hides the timeline and task blocks for the chosen filter, and filters tasks by text. */
+  /** Applies the chosen filter and search to the chat list, the open-tasks row and this session's timeline. */
   function applyActivityFilter() {
-    const type = activityFilter.type;
-    const timelineBlock = document.querySelector('[data-activity-block="timeline"]');
-    const taskBlock = document.querySelector('[data-activity-block="task"]');
-    if (timelineBlock) timelineBlock.hidden = type === "task";
-    if (taskBlock) taskBlock.hidden = type !== "all" && type !== "task";
+    kit("syncActivityChats", activityFilter.type, activityFilter.query);
+    if (el.activityTasks) el.activityTasks.hidden = !(activityFilter.type === "all" && openTaskCount > 0);
     renderActivityTimeline();
-    if (el.activityTaskList) {
-      for (const card of el.activityTaskList.querySelectorAll(".task-card")) {
-        card.hidden = !matchesQuery(card.textContent);
-      }
-    }
   }
 
   async function fetchTasks() {
@@ -3163,18 +3384,37 @@
     }
     if (!res.ok) {
       latestTasks = null;
+      renderOpenTasks(0);
       return null;
     }
     const { tasks } = await res.json();
     const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
     for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
+    renderOpenTasks(activeCount);
     for (const item of el.navItems) {
-      if (item.dataset.view !== "activity") continue;
-      if (activeCount > 0) item.setAttribute("aria-label", "Activity, activity in progress");
+      if (item.dataset.view !== "tasks") continue;
+      if (activeCount > 0) item.setAttribute("aria-label", "Tasks, " + activeCount + " open");
       else item.removeAttribute("aria-label");
     }
     latestTasks = tasks;
     return tasks;
+  }
+
+  let openTaskCount = 0;
+
+  /** Home and Activity show the open tasks (not finished, failed or cancelled), linking to the Tasks page. Hidden at zero. */
+  function renderOpenTasks(count) {
+    openTaskCount = count;
+    const text = count + (count === 1 ? " open task" : " open tasks");
+    const home = document.getElementById("home-tasks");
+    if (home) {
+      home.hidden = !count;
+      if (count) document.getElementById("home-tasks-text").textContent = text;
+    }
+    if (el.activityTasks) {
+      if (count) document.getElementById("activity-tasks-text").textContent = text;
+      el.activityTasks.hidden = !(count && activityFilter.type === "all");
+    }
   }
 
   /** Background refresh (Metrics page and its polling): keeps the Activity badge and Home list
@@ -3283,7 +3523,7 @@
       showToast("Couldn't reach ZARVIS. Check your connection.");
       return;
     }
-    void refreshActivity();
+    void refreshTasksPage();
   }
 
   function formatRelativeTime(dateInput) {
@@ -3314,6 +3554,8 @@
     const utterance = rawText.trim();
     if (!utterance) return;
     el.input.value = "";
+    kit("clearDraft");
+    kit("noteUserMessage", displayText ?? utterance);
     resizeComposer(); // a long, multi-line message must not leave the composer tall once it is sent
     addBubble("user", displayText ?? utterance);
     await runTurn(utterance, isVoice, { clientTurnId: Logic.createClientTurnId() });
@@ -3442,6 +3684,7 @@
         if (event === "meta" && data?.conversationId) {
           state.conversationId = String(data.conversationId);
           localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
+          kit("record", state.conversationId, { title: isFirstTurn ? kit("pendingTitle") : undefined });
           return;
         }
         // Real backend stages only (model step / tool started / tool finished) — no simulated steps.
@@ -3505,6 +3748,7 @@
           renderToolActivity(data?.toolCalls);
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
+          if (fullMessage.trim()) kit("afterTurn", { isFirstTurn });
           drainTts();
           await waitForTtsPlayback(controller.signal);
           if (!controller.signal.aborted) setOrbState("IDLE");
@@ -3590,13 +3834,20 @@
 
   function updateLatestButton() {
     const button = document.getElementById("scroll-latest");
-    if (button) button.hidden = state.activeView !== "chat" || distanceFromBottom() < 240;
+    // Only a conversation has a "latest" to jump to; the welcome screen is read from the top.
+    if (button) button.hidden = state.activeView !== "chat" || el.conversation.children.length === 0 || distanceFromBottom() < 240;
   }
 
   /** `force` is for the reader's own actions (sending, opening Chat, the jump button); streamed text, tool
    * rows and the thinking bubble only scroll when the reader is already at the bottom. */
   function scrollConversationToBottom(force = false) {
     if (!el.conversation || state.activeView !== "chat") return;
+    // Nothing said yet: the page is the welcome (starters, recent chats), which is read from the top.
+    if (!el.conversation.children.length) {
+      if (force) window.scrollTo({ top: 0, behavior: "auto" });
+      updateLatestButton();
+      return;
+    }
     if (force) followNewest = true;
     if (followNewest) {
       const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
@@ -3702,6 +3953,11 @@
       actions.appendChild(download);
       bubble.appendChild(actions);
     }
+    if (role === "user" || role === "assistant") {
+      const divider = kit("daySeparator", at);
+      if (divider) el.conversation.appendChild(divider);
+    }
+    kit("decorateBubble", bubble, role, text);
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
     scrollConversationToBottom(role === "user");
@@ -3747,10 +4003,28 @@
       const message = call?.result?.userSafeMessage || "";
       note.textContent = String(message).replace(/\s+/g, " ").slice(0, 220);
       row.appendChild(note);
+      const where = toolDestination(call.skillId, statusCode);
+      if (where) {
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "inline-link tool-row-link";
+        link.dataset.go = where.target;
+        link.textContent = where.label;
+        row.appendChild(link);
+      }
       el.conversation.appendChild(row);
       recordActivity("ai", skillDisplayName(call.skillId), Logic.toolStatusLabel(statusCode), statusCode === "COMPLETED" ? "ok" : TOOL_TONES[statusCode] === "failed" ? "error" : "");
     }
     scrollConversationToBottom();
+  }
+
+  /** The page where a finished tool's result can be followed up: tasks live on the Tasks page, repository work in the Developer Agent
+   * (only when Developer access is on, otherwise the link would bounce to Settings). */
+  function toolDestination(skillId, statusCode) {
+    if (statusCode !== "COMPLETED" || typeof skillId !== "string") return null;
+    if (skillId.startsWith("automation.")) return { target: "tasks", label: "Open Tasks" };
+    if (skillId.startsWith("developer.") && state.devAccess) return { target: "developer", label: "Open Developer Agent" };
+    return null;
   }
 
   function skillDisplayName(skillId) {
@@ -3777,12 +4051,15 @@
   /** Render a safe subset of Markdown (all input escaped first — see web/logic.js, tested). */
   /** A reply's readable text, without the code blocks' Copy buttons. */
   function bubblePlainText(body) {
+    // The reply as it was written (Markdown): copying the rendered, detached DOM would lose its line breaks.
+    if (typeof body.__zarvisSource === "string") return body.__zarvisSource;
     const clone = body.cloneNode(true);
     for (const button of clone.querySelectorAll(".code-copy")) button.remove();
     return clone.innerText || clone.textContent || "";
   }
 
   function renderFormattedText(container, text) {
+    container.__zarvisSource = text;
     container.innerHTML = Logic.formatReplyHtml(text);
     for (const pre of container.querySelectorAll("pre.reply-code")) {
       const copy = document.createElement("button");
@@ -4158,6 +4435,7 @@
     el.sendBtn.title = busy ? copy.stop : copy.send;
     el.sendBtn.setAttribute("aria-label", busy ? copy.stop : copy.send);
     el.sendLabel.textContent = busy ? copy.stop : copy.send;
+    kit("setBusy", busy);
   }
 
   // A turn is "in flight" for every state between UNDERSTANDING and the SPEAKING reply —

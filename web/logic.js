@@ -245,7 +245,292 @@
     return { LOW: "Low risk", MEDIUM: "Medium risk", HIGH: "High risk", VERY_HIGH: "Very high risk" }[risk] || risk;
   }
 
+  // ---- Chat page: chat list, day labels, slash commands, refine prompts, export, navigation ----
+  // The chat list is an index of the account's conversations as this browser knows them (id, title, last
+  // activity), topped up from GET /conversations. Opening one loads its real messages from the server;
+  // nothing about a conversation is kept here beyond that index.
+
+  const CHAT_INDEX_MAX = 50;
+  const NEW_CHAT_TITLE = "New chat";
+
+  /** A one-line chat title from the first thing the user wrote: first non-empty line, markdown markers dropped. */
+  function deriveChatTitle(text, max = 48) {
+    const first = String(text ?? "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+    const plain = first.replace(/^[#>*\-\s]+/, "").replace(/[*_`]+/g, "").replace(/\s+/g, " ").trim();
+    if (!plain) return NEW_CHAT_TITLE;
+    const chars = Array.from(plain);
+    return chars.length > max ? chars.slice(0, max - 1).join("").trimEnd() + "…" : plain;
+  }
+
+  function sortChats(list) {
+    return [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** Reads the stored chat list defensively: anything malformed is dropped, never trusted. */
+  function parseChatIndex(raw) {
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(data)) return [];
+    const seen = new Set();
+    const chats = [];
+    for (const item of data) {
+      if (!item || typeof item.id !== "string" || !/^[\w-]{1,80}$/.test(item.id) || seen.has(item.id)) continue;
+      const updatedAt = Number(item.updatedAt);
+      if (!Number.isFinite(updatedAt)) continue;
+      seen.add(item.id);
+      chats.push({ id: item.id, title: deriveChatTitle(item.title), updatedAt });
+    }
+    return sortChats(chats).slice(0, CHAT_INDEX_MAX);
+  }
+
+  /** Adds or refreshes one chat. A title is only replaced when the caller passes one. */
+  function upsertChat(list, entry) {
+    const previous = list.find((chat) => chat.id === entry.id);
+    const title = entry.title ? deriveChatTitle(entry.title) : previous ? previous.title : NEW_CHAT_TITLE;
+    const updatedAt = Number.isFinite(entry.updatedAt) ? entry.updatedAt : previous ? previous.updatedAt : Date.now();
+    return sortChats([{ id: entry.id, title, updatedAt }, ...list.filter((chat) => chat.id !== entry.id)]).slice(0, CHAT_INDEX_MAX);
+  }
+
+  function removeChat(list, id) {
+    return list.filter((chat) => chat.id !== id);
+  }
+
+  /** Ids of chats the user removed from the list on this browser, capped so the store cannot grow without bound. */
+  function parseHiddenChats(raw) {
+    try {
+      const data = JSON.parse(raw);
+      return Array.isArray(data) ? data.filter((id) => typeof id === "string" && /^[\w-]{1,80}$/.test(id)).slice(-200) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function hideChat(hidden, id) {
+    return [...hidden.filter((other) => other !== id), id].slice(-200);
+  }
+
+  /**
+   * Folds the server's list of this account's conversations into the list this browser already has.
+   * - a chat only the server knows about is added (this is how a second device or a cleared browser gets its history back),
+   * - a chat both know keeps the title already shown, unless that is still the placeholder, and takes the newer time,
+   * - a chat only this browser knows (just started, not saved yet) is kept,
+   * - a chat the user removed from the list stays out.
+   * Entries with bad ids or times are skipped; the result is capped like any other chat list.
+   */
+  function mergeServerChats(local, server, hidden = []) {
+    const skip = new Set(hidden);
+    const byId = new Map(local.map((chat) => [chat.id, chat]));
+    for (const item of Array.isArray(server) ? server : []) {
+      if (!item || typeof item.id !== "string" || !/^[\w-]{1,80}$/.test(item.id) || skip.has(item.id)) continue;
+      const updatedAt = Date.parse(item.updatedAt);
+      if (!Number.isFinite(updatedAt)) continue;
+      const known = byId.get(item.id);
+      if (!known) {
+        byId.set(item.id, { id: item.id, title: deriveChatTitle(item.title), updatedAt });
+      } else {
+        const title = known.title === NEW_CHAT_TITLE && item.title ? deriveChatTitle(item.title) : known.title;
+        byId.set(item.id, { id: item.id, title, updatedAt: Math.max(known.updatedAt, updatedAt) });
+      }
+    }
+    return sortChats([...byId.values()].filter((chat) => !skip.has(chat.id))).slice(0, CHAT_INDEX_MAX);
+  }
+
+  function filterChats(list, query) {
+    const q = String(query || "").trim().toLowerCase();
+    return q ? list.filter((chat) => chat.title.toLowerCase().includes(q)) : list;
+  }
+
+  const startOfDay = (ms) => {
+    const day = new Date(ms);
+    day.setHours(0, 0, 0, 0);
+    return day.getTime();
+  };
+
+  /** today | yesterday | week (the 5 days before that) | older. Calendar days, not 24-hour blocks. */
+  function dayBucket(ms, now = Date.now()) {
+    const days = Math.round((startOfDay(now) - startOfDay(ms)) / 86400000);
+    if (days <= 0) return "today";
+    if (days === 1) return "yesterday";
+    return days < 7 ? "week" : "older";
+  }
+
+  const DAY_BUCKET_LABELS = { today: "Today", yesterday: "Yesterday", week: "Previous 7 days", older: "Older" };
+
+  /** The chat list grouped under Today / Yesterday / Previous 7 days / Older, newest first. */
+  function groupChatsByDay(list, now = Date.now()) {
+    const groups = [];
+    for (const chat of sortChats(list)) {
+      const key = dayBucket(chat.updatedAt, now);
+      let group = groups[groups.length - 1];
+      if (!group || group.key !== key) {
+        group = { key, label: DAY_BUCKET_LABELS[key], items: [] };
+        groups.push(group);
+      }
+      group.items.push(chat);
+    }
+    return groups;
+  }
+
+  function dayKey(ms) {
+    const day = new Date(ms);
+    return day.getFullYear() + "-" + (day.getMonth() + 1) + "-" + day.getDate();
+  }
+
+  /** The label on a day divider inside a thread: Today, Yesterday, or the date. */
+  function dayLabel(ms, now = Date.now(), locale) {
+    const bucket = dayBucket(ms, now);
+    if (bucket === "today") return "Today";
+    if (bucket === "yesterday") return "Yesterday";
+    return new Date(ms).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  /** Commands in the composer's "/" menu. `prompt` ones fill the box so the wording stays editable;
+   * `action` ones run something the app really does. */
+  const SLASH_COMMANDS = [
+    { name: "research", label: "Research a topic", hint: "Search the web and cite sources", kind: "prompt", icon: "i-globe", prompt: "Search the web and cite the sources you use: " },
+    { name: "write", label: "Write a message", hint: "A warm, concise message", kind: "prompt", icon: "i-pen", prompt: "Write a warm, concise message about: " },
+    { name: "summarize", label: "Summarize a file", hint: "Attach a document or an image", kind: "action", icon: "i-file", action: "attach" },
+    { name: "plan", label: "Plan a task", hint: "Break a goal into clear steps", kind: "prompt", icon: "i-task", prompt: "Create a workflow for this goal and break it into clear steps: " },
+    { name: "explain", label: "Explain simply", hint: "Step by step, in simple words", kind: "prompt", icon: "i-sparkle", prompt: "Explain this in simple words, step by step: " },
+    { name: "code", label: "Generate code", hint: "Apps, websites, scripts", kind: "prompt", icon: "i-code", prompt: "Generate code for: " },
+    { name: "translate", label: "Translate", hint: "Into Hindi, keeping the tone", kind: "prompt", icon: "i-lang", prompt: "Translate this into Hindi and keep the tone: " },
+    { name: "reply", label: "Customer reply", hint: "A polite business reply", kind: "prompt", icon: "i-briefcase", prompt: "Draft a polite customer reply to: " },
+    { name: "voice", label: "Speak", hint: "Use your voice instead of typing", kind: "action", icon: "i-mic", action: "voice" },
+    { name: "new", label: "New chat", hint: "Start a fresh conversation", kind: "action", icon: "i-plus", action: "new" },
+    { name: "history", label: "Chat history", hint: "Open an earlier chat", kind: "action", icon: "i-memory", action: "history" },
+    { name: "export", label: "Export this chat", hint: "Save it as a Markdown file", kind: "action", icon: "i-download", action: "export" },
+    { name: "shortcuts", label: "Keyboard shortcuts", hint: "Every shortcut in one list", kind: "action", icon: "i-bolt", action: "shortcuts" },
+  ];
+
+  /** The menu shows only while the whole box is "/" plus the start of a command name. */
+  function matchSlashCommands(text, commands = SLASH_COMMANDS) {
+    const match = /^\/([a-z-]*)$/i.exec(String(text ?? ""));
+    if (!match) return [];
+    const q = match[1].toLowerCase();
+    if (!q) return commands;
+    const starts = commands.filter((command) => command.name.startsWith(q));
+    const rest = commands.filter((command) => !command.name.startsWith(q) && (command.name.includes(q) || command.label.toLowerCase().includes(q)));
+    return [...starts, ...rest];
+  }
+
+  /** One-tap follow-ups under the latest reply. Each is an ordinary message about "your last answer";
+   * the conversation history sent with every turn is what gives it meaning. */
+  function refineActions(lang) {
+    const last = lang === "hi"
+      ? { id: "english", label: "In English", prompt: "Say your last answer again in English." }
+      : { id: "hindi", label: "In Hindi", prompt: "Say your last answer again in Hindi." };
+    return [
+      { id: "shorter", label: "Shorter", prompt: "Make your last answer shorter, keeping only the key points." },
+      { id: "simpler", label: "Simpler", prompt: "Explain your last answer in simpler words." },
+      { id: "detail", label: "More detail", prompt: "Go into more detail on your last answer." },
+      { id: "checklist", label: "As a checklist", prompt: "Turn your last answer into a clear checklist." },
+      last,
+    ];
+  }
+
+  /** messages: [{ role: "user" | "assistant", text, time? }]. `time` is whatever the caller already formatted. */
+  function chatToMarkdown(messages, { title, exportedAt } = {}) {
+    const lines = ["# " + (title || "ZARVIS chat"), ""];
+    if (exportedAt) lines.push("_Exported " + exportedAt + "_", "");
+    for (const message of messages) {
+      const who = message.role === "user" ? "You" : "ZARVIS";
+      lines.push("**" + who + "**" + (message.time ? " · " + message.time : ""), "", String(message.text ?? "").trim(), "");
+    }
+    return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+  }
+
+  function chatToText(messages, { title } = {}) {
+    const lines = [title || "ZARVIS chat", ""];
+    for (const message of messages) {
+      const who = message.role === "user" ? "You" : "ZARVIS";
+      lines.push(who + (message.time ? " (" + message.time + ")" : "") + ":", String(message.text ?? "").trim(), "");
+    }
+    return lines.join("\n").trimEnd() + "\n";
+  }
+
+  /** A file name that is safe on every OS, from the chat title. */
+  function exportFileName(title, ext = "md") {
+    const base = String(title || "zarvis-chat").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    return (base || "zarvis-chat") + "." + ext;
+  }
+
+  /** "g" then a letter jumps to a page (like GitHub). Only pages that exist. */
+  const GO_SHORTCUTS = { h: "home", c: "chat", t: "tasks", a: "activity", k: "capabilities", p: "plans", s: "settings" };
+
+  function goShortcutTarget(key) {
+    const target = GO_SHORTCUTS[String(key || "").toLowerCase()];
+    return target || null;
+  }
+
+  /** Where an in-text link points: "plans", "activity", "settings:voice", "history". null for anything unknown,
+   * so a typo in copy can never become a link that does nothing. */
+  const GO_VIEWS = ["home", "chat", "tasks", "activity", "capabilities", "plans", "settings", "developer", "metrics"];
+
+  function parseGoTarget(target) {
+    const [name, sub, extra] = String(target || "").split(":");
+    if (extra !== undefined || !name) return null;
+    if (name === "history") return sub === undefined ? { action: "history" } : null;
+    if (name === "settings") return /^[a-z]+$/.test(sub || "x") ? { view: "settings", settingsPage: sub || null } : null;
+    return GO_VIEWS.includes(name) && sub === undefined ? { view: name } : null;
+  }
+
+  /** Old addresses that moved: #/settings/subscription is the Plans page, #/settings/data is Privacy & data. */
+  function resolveLegacyRoute(view, sub) {
+    if (view === "settings" && sub === "subscription") return { view: "plans", sub: undefined };
+    if (view === "settings" && sub === "data") return { view: "settings", sub: "privacy" };
+    return { view, sub };
+  }
+
+  const PAGE_LABELS = {
+    home: "Home", chat: "Chat", tasks: "Tasks", activity: "Activity", capabilities: "Capabilities", plans: "Plans",
+    settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities",
+  };
+
+  /** The trail above a page: Home › Settings › Voice. Every item but the last is a link (it has `view`). */
+  function breadcrumbs({ view, settingsTitle, featureTitle } = {}) {
+    if (!view || view === "home") return [];
+    const trail = [{ label: PAGE_LABELS.home, view: "home" }];
+    if (view === "settings" && settingsTitle) {
+      trail.push({ label: PAGE_LABELS.settings, view: "settings", closeSubpage: true }, { label: settingsTitle });
+    } else if (view === "feature") {
+      trail.push({ label: PAGE_LABELS.capabilities, view: "capabilities" });
+      if (featureTitle) trail.push({ label: featureTitle });
+    } else {
+      trail.push({ label: PAGE_LABELS[view] || view });
+    }
+    return trail;
+  }
+
   return {
+    CHAT_INDEX_MAX,
+    NEW_CHAT_TITLE,
+    SLASH_COMMANDS,
+    GO_SHORTCUTS,
+    deriveChatTitle,
+    parseChatIndex,
+    upsertChat,
+    removeChat,
+    parseHiddenChats,
+    hideChat,
+    mergeServerChats,
+    filterChats,
+    dayBucket,
+    groupChatsByDay,
+    dayKey,
+    dayLabel,
+    matchSlashCommands,
+    refineActions,
+    chatToMarkdown,
+    chatToText,
+    exportFileName,
+    goShortcutTarget,
+    parseGoTarget,
+    resolveLegacyRoute,
+    breadcrumbs,
     SESSION_ENDED_CODES,
     classifyRefreshFailure,
     parseSseEvents,
