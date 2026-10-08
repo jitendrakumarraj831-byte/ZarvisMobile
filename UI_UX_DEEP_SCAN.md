@@ -165,10 +165,10 @@ Before the fixes Plans was reached from 5 controls, Settings → Account from 2,
 | # | Decision | Why | Effort / risk |
 |---|---|---|---|
 | O1 | **Split Tasks out of Activity** (new page, nav slot, `#/tasks`) | Blueprint §3.5 and §6 keep them apart; Android's tab is already "Tasks"; Activity's session log is in-memory while tasks are server data | Small–medium; touches nav, palette, i18n and the e2e view lists |
-| O2 | **Fold Usage & Metrics**: usage → Plans & Usage, latency/health → Developer → Diagnostics, drop the repeated Plan/Credits tiles | Blueprint §6 "Plans & Usage"; today one number appears on 3 pages | Small |
+| O2 | **Fold Usage & Metrics** (the full fold is not done): **done** — the repeated Plan/Credits tiles are gone and the page links to Plans & credits; the page itself stays, because its session usage and response-time chart have no other home yet. Still open — usage → Plans & Usage, latency/health → Developer → Diagnostics | Blueprint §6 "Plans & Usage"; today one number appears on 3 pages | Small |
 | O3 | Phone bottom-bar slot 4: **Activity or Tasks** (needs O1) | Android parity | Trivial after O1 |
 | O4 | Drop the *AI Workspace* and *Tasks & Automation* capability pages | They describe Chat and Tasks | Trivial after O1 |
-| O5 | Guest sign-out dialog gets a **"Link an email"** button | A guest loses the account; the dialog says so but offers no way | Small (dialog has a fixed footer) |
+| O5 | **Done** — guest sign-out dialog gets a **"Link an email"** button (Settings → Account) | A guest loses the account; the dialog says so but offers no way | Small (dialog has a fixed footer) |
 | O6 | Server `GET /conversations` so chat history spans devices | **Done** — metadata-only list, merged into the browser index | Backend + Postgres store |
 | O7 | Promote Work/Files/Research/Creative/Business to primary pages | Only when their data exists | Product + backend |
 | O8 | Android label parity (Activity/Tasks/Work) | Same product, one vocabulary | With O1 |

@@ -867,6 +867,55 @@ async function send(page, text) {
     await ctxV.close();
   });
 
+  await step("Guest sign-out offers 'Link an email' (focus stays inside three buttons, linking opens Account and keeps the session); a signed-in account gets no extra button; Metrics no longer repeats Plan and Credits", async () => {
+    const ctxG = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pageG = await pageOf(ctxG, { devAccess: true });
+    await pageG.goto(BASE + "/#/settings/security");
+    await pageG.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageG.waitForFunction(() => localStorage.getItem("zarvis.isGuest") !== "false");
+    const token = await ls(pageG, "zarvis.accessToken");
+    await pageG.click("#settings-clear-session-btn");
+    await pageG.waitForSelector("#confirm-modal:not([hidden])");
+    const secondary = pageG.locator("#confirm-modal-secondary");
+    assert.equal(await secondary.isVisible(), true);
+    assert.equal(await secondary.innerText(), "Link an email");
+    assert.match(await pageG.innerText("#confirm-modal-body"), /can't get back into it/);
+    // Tab order: Cancel → Link an email → Sign out → back to Cancel; Shift+Tab goes the other way round.
+    const focused = () => pageG.evaluate(() => document.activeElement && document.activeElement.id);
+    assert.equal(await focused(), "confirm-modal-cancel");
+    await pageG.keyboard.press("Tab");
+    assert.equal(await focused(), "confirm-modal-secondary");
+    await pageG.keyboard.press("Tab");
+    assert.equal(await focused(), "confirm-modal-confirm");
+    await pageG.keyboard.press("Tab");
+    assert.equal(await focused(), "confirm-modal-cancel");
+    await pageG.keyboard.press("Shift+Tab");
+    assert.equal(await focused(), "confirm-modal-confirm");
+    await pageG.click("#confirm-modal-secondary");
+    await pageG.waitForSelector('[data-settings-panel="account"]:not([hidden])');
+    assert.equal(await pageG.locator("#confirm-modal").isHidden(), true, "the dialog closed");
+    assert.equal(await ls(pageG, "zarvis.accessToken"), token, "the session was not touched");
+    // Escape and Cancel still leave everything as it was, and the button is gone for the next dialog.
+    await pageG.goto(BASE + "/#/settings/security");
+    await pageG.click("#settings-clear-session-btn");
+    await pageG.keyboard.press("Escape");
+    assert.equal(await pageG.locator("#confirm-modal").isHidden(), true);
+    assert.equal(await ls(pageG, "zarvis.accessToken"), token);
+    await pageG.evaluate(() => localStorage.setItem("zarvis.isGuest", "false")); // what a linked, signed-in account looks like to this dialog
+    await pageG.click("#settings-clear-session-btn");
+    await pageG.waitForSelector("#confirm-modal:not([hidden])");
+    assert.equal(await pageG.locator("#confirm-modal-secondary").isHidden(), true, "no extra button when there is nothing to link");
+    await pageG.keyboard.press("Escape");
+    // Metrics: no Plan / Credits tiles, one link to Plans & credits.
+    await pageG.goto(BASE + "/#/metrics");
+    await pageG.waitForSelector("#view-metrics:not([hidden]) #metrics-usage .stat-tile");
+    const tiles = await pageG.locator("#metrics-usage .stat-tile-label").allInnerTexts();
+    assert.ok(tiles.length >= 6 && !tiles.includes("Plan") && !tiles.includes("Credits"), "tiles: " + tiles.join(", "));
+    await pageG.click('#view-metrics [data-go="plans"]');
+    await pageG.waitForSelector("#view-plans:not([hidden])");
+    await ctxG.close();
+  });
+
   await step("First visit: a link straight to a page that loads data (Plans, Activity, a Settings page) opens it, makes one guest account and never says 'session ended'", async () => {
     for (const hash of ["#/plans", "#/activity", "#/settings/memory", "#/chat/00000000-0000-4000-8000-000000000999"]) {
       const ctxF = await browser.newContext({ viewport: { width: 1280, height: 800 } });

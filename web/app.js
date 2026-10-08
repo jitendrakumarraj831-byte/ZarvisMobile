@@ -295,6 +295,7 @@
     confirmModalTitle: document.getElementById("confirm-modal-title"),
     confirmModalBody: document.getElementById("confirm-modal-body"),
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
+    confirmModalSecondary: document.getElementById("confirm-modal-secondary"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
     homeOrb: document.getElementById("home-orb"),
@@ -2271,22 +2272,28 @@
 
   // ---- Confirmation modal ----------------------------------------------------------------
   // One generic instance (mirrors Android's RiskConfirmationDialog/AlertDialog pattern)
-  // rather than a one-off dialog per caller — currently used only by Settings' "Delete
-  // account", but written to take any title/body/confirm label.
+  // rather than a one-off dialog per caller: Sign out, Delete account and Remove from list all take
+  // a title/body/confirm label. An optional second action (secondaryLabel + onSecondary) sits between
+  // Cancel and the confirm button, for a safer way out than the one being confirmed.
 
-  function showConfirmModal({ title, body, confirmLabel = "Confirm", destructive = false, onConfirm }) {
+  function showConfirmModal({ title, body, confirmLabel = "Confirm", destructive = false, onConfirm, secondaryLabel, onSecondary }) {
     const opener = document.activeElement;
+    const hasSecondary = !!secondaryLabel && typeof onSecondary === "function";
     el.confirmModalTitle.textContent = title;
     el.confirmModalBody.textContent = body;
     el.confirmModalConfirm.textContent = confirmLabel;
     el.confirmModalConfirm.classList.toggle("btn-danger", destructive);
     el.confirmModalConfirm.classList.toggle("btn-primary", !destructive);
+    el.confirmModalSecondary.hidden = !hasSecondary;
+    el.confirmModalSecondary.textContent = hasSecondary ? secondaryLabel : "";
     el.confirmModal.hidden = false;
     el.confirmModalCancel.focus();
 
     const close = () => {
       el.confirmModal.hidden = true;
+      el.confirmModalSecondary.hidden = true;
       el.confirmModalConfirm.removeEventListener("click", handleConfirm);
+      el.confirmModalSecondary.removeEventListener("click", handleSecondary);
       el.confirmModalCancel.removeEventListener("click", close);
       el.confirmModal.removeEventListener("keydown", onKey);
       el.confirmModal.removeEventListener("click", onScrim);
@@ -2296,6 +2303,10 @@
       close();
       onConfirm();
     };
+    const handleSecondary = () => {
+      close();
+      onSecondary?.();
+    };
     const onKey = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -2303,9 +2314,9 @@
         return;
       }
       if (event.key !== "Tab") return;
-      const nodes = [el.confirmModalCancel, el.confirmModalConfirm];
+      const nodes = [el.confirmModalCancel, ...(hasSecondary ? [el.confirmModalSecondary] : []), el.confirmModalConfirm];
       const first = nodes[0];
-      const last = nodes[1];
+      const last = nodes[nodes.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -2318,6 +2329,7 @@
       if (event.target === el.confirmModal) close();
     };
     el.confirmModalConfirm.addEventListener("click", handleConfirm);
+    el.confirmModalSecondary.addEventListener("click", handleSecondary);
     el.confirmModalCancel.addEventListener("click", close);
     el.confirmModal.addEventListener("keydown", onKey);
     el.confirmModal.addEventListener("click", onScrim);
@@ -2367,11 +2379,21 @@
       showConfirmModal({
         title: "Sign out?",
         body: isGuest
-          ? "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email in Account first if you want to keep it."
+          ? "This is a guest account with no sign-in email, so after signing out you can't get back into it. Link an email first to keep it."
           : "This ends the session on this browser. Sign in again with your email to continue.",
         confirmLabel: "Sign out",
         destructive: isGuest,
         onConfirm: () => void signOut(),
+        // The one thing that makes a guest sign-out safe is one tap away, not a trip through the menus.
+        ...(isGuest
+          ? {
+              secondaryLabel: "Link an email",
+              onSecondary: () => {
+                setActiveView("settings");
+                openSettingsPage("account");
+              },
+            }
+          : {}),
       });
     });
     el.settingsDeleteBtn.addEventListener("click", () => {
@@ -3103,8 +3125,8 @@
     el.metricsTrend.setAttribute("aria-label", `Response time for the last ${entries.length} requests, longest ${max} ms`);
   }
 
-  /** Usage for this session (measured here) plus the account's live credit balance. */
-  async function renderMetricsUsage() {
+  /** Usage for this session, measured here. Plan and credits live on the Plans page (linked from this page's header). */
+  function renderMetricsUsage() {
     if (!el.metricsUsage) return;
     const count = (type) => activityLog.filter((entry) => entry.type === type).length;
     const conversations = state.history.filter((message) => message.role === "user").length;
@@ -3115,28 +3137,8 @@
       { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-amber" },
       { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
       { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-green" },
-      { label: "Credits", value: "…", id: "metrics-credits", icon: "i-bolt", tone: "tone-pink" },
-      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan", icon: "i-plan", tone: "tone-cyan" },
     ];
-    el.metricsUsage.replaceChildren(...tiles.map((tile) => {
-      const node = renderStatTile(tile);
-      if (tile.id) node.id = tile.id;
-      return node;
-    }));
-    try {
-      const res = await apiFetch("/entitlements/me");
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const snapshot = await res.json();
-      currentPlanName = snapshot.plan;
-      const credits = document.querySelector("#metrics-credits .stat-tile-value");
-      const plan = document.querySelector("#metrics-plan .stat-tile-value");
-      if (credits) credits.textContent = String(snapshot.creditBalance);
-      if (plan) plan.textContent = formatPlanName(snapshot.plan);
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-      const credits = document.querySelector("#metrics-credits .stat-tile-value");
-      if (credits) credits.textContent = "—";
-    }
+    el.metricsUsage.replaceChildren(...tiles.map(renderStatTile));
   }
 
   /** "TRIAL" → "Trial": the same spelling everywhere (Settings, Plans, Metrics). */
