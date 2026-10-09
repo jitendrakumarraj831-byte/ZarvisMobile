@@ -942,6 +942,177 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await ctx.close();
   });
 
+  // ---- Small layout bugs found by looking at every page at phone and tablet widths ------------------------
+  for (const lang of ["en", "hi"]) {
+    await step(`Chat composer (${lang === "hi" ? "Hindi" : "English"}): the placeholder is one line that fits at 320-412px, and keeps the full wording where there is room`, async () => {
+      const ctx = await browser.newContext({ viewport: { width: 320, height: 700 }, hasTouch: true, isMobile: true });
+      await ctx.addInitScript((l) => { try { localStorage.setItem("zarvis.lang", l); } catch {} }, lang);
+      const page = await pageOf(ctx);
+      await ready(page);
+      await openView(page, "chat");
+      const problems = [];
+      for (const width of [320, 340, 360, 390, 412, 600]) {
+        await page.setViewportSize({ width, height: 700 });
+        await page.waitForTimeout(400);
+        const m = await page.evaluate(() => {
+          const field = document.getElementById("text-input");
+          // A single-line field with the field's own styles: if its text is wider than the field, scrollWidth says so.
+          const probe = document.createElement("input");
+          probe.className = "composer-input";
+          probe.tabIndex = -1;
+          probe.setAttribute("aria-hidden", "true");
+          probe.style.cssText = `position:absolute;visibility:hidden;width:${field.clientWidth}px;`;
+          probe.value = field.placeholder;
+          field.parentElement.appendChild(probe);
+          const fits = probe.scrollWidth <= probe.clientWidth;
+          probe.remove();
+          return { fits, placeholder: field.placeholder, wrap: getComputedStyle(field, "::placeholder").whiteSpace, height: field.getBoundingClientRect().height };
+        });
+        if (!m.fits) problems.push(`${width}px: "${m.placeholder}" is wider than the message field`);
+        if (m.wrap !== "nowrap") problems.push(`${width}px: the placeholder may wrap (white-space ${m.wrap})`);
+        if (m.height > 60) problems.push(`${width}px: the message field is ${Math.round(m.height)}px tall while empty`);
+        if (width === 600 && !/Message ZARVIS|संदेश/.test(m.placeholder)) problems.push(`600px: the full wording was not kept ("${m.placeholder}")`);
+      }
+      await ctx.close();
+      assert.deepEqual(problems, []);
+    });
+  }
+
+  await step("Language: switching it renames the browser tab too, in both directions", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 } });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/settings/language"; });
+    await page.waitForSelector('[data-lang="hi"]');
+    const titles = [await page.title()];
+    await page.click('[data-lang="hi"]');
+    await page.waitForTimeout(300);
+    titles.push(await page.title());
+    await page.click('[data-lang="en"]');
+    await page.waitForTimeout(300);
+    titles.push(await page.title());
+    await ctx.close();
+    assert.deepEqual(titles, ["Language · ZARVIS AI", "भाषा · ZARVIS AI", "Language · ZARVIS AI"]);
+  });
+
+  await step("Home prompt: the card draws the one focus ring; the field inside does not draw a second, square one", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 } });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.focus("#home-prompt-input");
+    const m = await page.evaluate(() => ({ field: getComputedStyle(document.getElementById("home-prompt-input")).boxShadow, card: getComputedStyle(document.getElementById("home-prompt-form")).boxShadow }));
+    await ctx.close();
+    assert.equal(m.field, "none", "the field inside the card has its own ring");
+    assert.notEqual(m.card, "none", "the card shows no focus ring");
+  });
+
+  await step("Plans and Usage: no word in a figure tile breaks in the middle at 560-1280px, in English and Hindi", async () => {
+    const problems = [];
+    for (const lang of ["en", "hi"]) {
+      const ctx = await browser.newContext({ viewport: { width: 560, height: 800 } });
+      await ctx.addInitScript((l) => { try { localStorage.setItem("zarvis.lang", l); } catch {} }, lang);
+      const page = await pageOf(ctx);
+      await ready(page);
+      for (const view of ["plans", "metrics"]) {
+        await openView(page, view);
+        await page.waitForTimeout(900);
+        for (const width of [560, 720, 768, 800, 860, 900, 1024, 1100, 1280]) {
+          await page.setViewportSize({ width, height: 800 });
+          await page.waitForTimeout(250);
+          const split = await page.evaluate(() => {
+            const out = [];
+            const range = document.createRange();
+            for (const n of document.querySelectorAll("#plans-current .stat-tile-value, #plans-current .stat-tile-label, #metrics-usage .stat-tile-value, #metrics-usage .stat-tile-label")) {
+              if (!n.getClientRects().length) continue;
+              for (const node of n.childNodes) {
+                if (node.nodeType !== 3) continue;
+                for (const m of node.textContent.matchAll(/[\p{L}\p{M}\p{N}]{4,}/gu)) {
+                  range.setStart(node, m.index);
+                  range.setEnd(node, m.index + m[0].length);
+                  if (new Set([...range.getClientRects()].filter((q) => q.width > 0.5).map((q) => Math.round(q.top / 4))).size > 1) out.push(m[0]);
+                }
+              }
+            }
+            return out;
+          });
+          if (split.length) problems.push(`${view}@${width}px (${lang}): ${split.join(", ")}`);
+        }
+      }
+      await ctx.close();
+    }
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Toast: a long message wraps instead of ending in an ellipsis, and in Chat it sits above the message field", async () => {
+    const problems = [];
+    // No Developer access (the default): opening Usage & Metrics says so in a long toast and goes to Settings.
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true });
+    await ctx.addInitScript(() => { try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {} });
+    const page = await ctx.newPage();
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/metrics"; });
+    await page.waitForSelector("#toast:not([hidden])");
+    const long = await page.evaluate(() => { const t = document.getElementById("toast"); const r = t.getBoundingClientRect(); return { text: t.textContent, clipped: t.scrollWidth > t.clientWidth + 1, lines: Math.round(r.height / parseFloat(getComputedStyle(t).lineHeight)), left: r.left, right: r.right, screen: innerWidth }; });
+    if (long.clipped) problems.push(`the long toast is cut off: "${long.text}"`);
+    if (long.lines < 2) problems.push(`the long toast did not wrap (${long.lines} line)`);
+    if (long.left < 0 || long.right > long.screen) problems.push(`the long toast leaves the screen (${long.left}..${long.right} of ${long.screen})`);
+    await page.waitForTimeout(2300);
+    // Chat: a chat that no longer exists is reported in a toast; it must not cover the message field.
+    for (const [width, height] of [[360, 740], [1280, 800]]) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate(() => { location.hash = "#/home"; });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => { location.hash = "#/chat/00000000-0000-4000-8000-0000000000aa"; });
+      await page.waitForSelector("#toast:not([hidden])");
+      await page.waitForTimeout(400); // the entrance animation
+      const over = await page.evaluate(() => { const t = document.getElementById("toast").getBoundingClientRect(); const c = document.getElementById("command-bar").getBoundingClientRect(); return { toastBottom: t.bottom, barTop: c.top, text: document.getElementById("toast").textContent }; });
+      if (over.toastBottom > over.barTop + 1) problems.push(`${width}px: the toast "${over.text}" covers the message field (toast ends at ${Math.round(over.toastBottom)}, field starts at ${Math.round(over.barTop)})`);
+      await page.waitForTimeout(2300);
+      // Home: an unknown address opens Home with a toast, whether it is typed on Home or on another page (the toast opens first and
+      // the page changes under it); the message card must stay uncovered either way.
+      for (const from of ["#/settings", "#/home"]) {
+        await page.evaluate((h) => { location.hash = h; }, from);
+        await page.waitForTimeout(300);
+        await page.evaluate(() => { location.hash = "#/nonsense"; });
+        await page.waitForSelector("#toast:not([hidden])");
+        await page.waitForTimeout(400);
+        const home = await page.evaluate(() => { const t = document.getElementById("toast").getBoundingClientRect(); const c = document.getElementById("home-prompt-form").getBoundingClientRect(); return { toastBottom: t.bottom, cardTop: c.top, text: document.getElementById("toast").textContent }; });
+        if (home.toastBottom > home.cardTop + 1) problems.push(`${width}px: opened from ${from}, the toast "${home.text}" covers the Home message card (toast ends at ${Math.round(home.toastBottom)}, card starts at ${Math.round(home.cardTop)})`);
+        await page.waitForTimeout(2300);
+      }
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Offline: the banner never covers the app bar or the chat header, on a phone or a desktop, scrolled or not", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 640 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await ctx.setOffline(true);
+    await page.waitForSelector("#offline-banner:not([hidden])");
+    for (const [width, height] of [[360, 640], [1280, 700]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(300);
+      const appBar = width < 700 ? ".topbar" : ".desk-top";
+      for (const [route, bar, scrolled] of [["#/settings", appBar, 0], ["#/settings", appBar, 400], ["#/chat", ".chat-header", 300]]) {
+        await page.evaluate((h) => { location.hash = h; }, route);
+        await page.waitForTimeout(500);
+        await page.evaluate((y) => window.scrollTo(0, y), scrolled);
+        await page.waitForTimeout(200);
+        const m = await page.evaluate((selector) => ({ banner: document.getElementById("offline-banner").getBoundingClientRect().bottom, bar: document.querySelector(selector).getBoundingClientRect().top, scrollY: Math.round(window.scrollY) }), bar);
+        if (m.bar < m.banner - 1) problems.push(`${width}px ${route} (scrolled ${m.scrollY}px): ${bar} starts at ${Math.round(m.bar)}, under the banner that ends at ${Math.round(m.banner)}`);
+      }
+    }
+    await ctx.setOffline(false);
+    await page.waitForSelector("#offline-banner", { state: "hidden" });
+    const after = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--banner-h").trim());
+    if (after !== "0px") problems.push(`back online the bars are still offset by ${after}`);
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
   await step("no uncaught page errors", async () => {
     assert.deepEqual(errors, []);
   });

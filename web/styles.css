@@ -383,6 +383,7 @@ button:disabled { cursor: not-allowed; }
   border-radius: var(--r-md);
   background: var(--surface); border: 1px solid var(--line-2);
   color: var(--text);
+  text-overflow: ellipsis; /* a placeholder or value that does not fit ends in an ellipsis, not a cut-off letter */
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
@@ -458,7 +459,7 @@ textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
   flex: 1 1 240px;
 }
 .search-field .ico { width: 18px; height: 18px; color: var(--text-3); }
-.search-field input { flex: 1; min-width: 0; border: 0; background: none; outline: none; min-height: 42px; }
+.search-field input { flex: 1; min-width: 0; border: 0; background: none; outline: none; min-height: 42px; text-overflow: ellipsis; }
 .search-field:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
 
 .switch {
@@ -902,7 +903,8 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
 .stat-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stat-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s4); }
-@media (min-width: 720px) { #metrics-usage, #plans-current { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Four across only when each tile keeps room for its icon and a whole word: below 900px (with the 72px rail beside the page) a tile is under 175px and "enabled" or "Payments" broke in the middle. */
+@media (min-width: 900px) { #metrics-usage, #plans-current { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .stat-tile {
   display: flex; flex-direction: column; gap: 4px; min-width: 0;
   padding: var(--s4); border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-1);
@@ -970,6 +972,7 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 .detail-head-copy .muted { margin-top: 2px; }
 .detail-head-copy .muted:empty { display: none; }
 .detail-head-value { flex: none; margin-top: 10px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.z-badge.detail-head-value { background: var(--card-bg); box-shadow: inset 0 0 0 1px var(--line-2); }
 .settings-panel .panel { padding: var(--s2) var(--s5); }
 .settings-panel .panel.form, .settings-panel .panel-danger, .settings-panel .panel:has(.panel-title) { padding: var(--s5); }
 .control-row { display: flex; align-items: center; gap: var(--s4); padding: var(--s4) 0; }
@@ -1213,9 +1216,9 @@ pre.reply-code code { display: block; padding: 0; border: 0; background: none; c
 .toast {
   position: fixed; z-index: 60; left: 50%; bottom: calc(var(--nav-h) + var(--safe-b) + 16px);
   transform: translateX(-50%);
-  max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: var(--r-pill);
-  background: var(--text); color: var(--bg); font-size: 14px; font-weight: 600;
-  box-shadow: var(--shadow-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: max-content; max-width: min(calc(100vw - 32px), 460px); padding: 10px 16px; border-radius: var(--r-lg);
+  background: var(--text); color: var(--bg); font-size: 14px; font-weight: 600; line-height: 1.35; text-align: center;
+  box-shadow: var(--shadow-3); overflow-wrap: anywhere;
   animation: toast-in var(--t-med) var(--ease) both;
 }
 .toast.is-leaving { animation: toast-out 200ms var(--ease) both; }
@@ -1379,6 +1382,8 @@ body::before {
 .command-bar { display: flex; align-items: flex-end; gap: 2px; padding: 6px 6px 6px var(--s2); border-radius: 30px; background: var(--input-bg); border: 1px solid var(--line-2); box-shadow: var(--shadow-3); }
 .command-bar .composer-row, .command-bar .composer-tools { display: contents; }
 .command-bar .composer-input { order: 3; flex: 1; min-width: 0; margin: 0; padding: 12px 6px; align-self: center; }
+.composer-input::placeholder { white-space: nowrap; }
+@media (max-width: 340px) { .command-bar { gap: 0; padding-left: var(--s1); } .command-bar .composer-input { padding-left: 2px; padding-right: 2px; } }
 .command-bar #upload-btn { order: 1; }
 .command-bar #image-btn { order: 2; }
 .command-bar #mic-btn { order: 4; }
@@ -1639,7 +1644,7 @@ body.page-hidden .chat-avatar { animation-play-state: paused; }
 .palette { width: min(640px, 100%); max-height: min(70dvh, 560px); display: flex; flex-direction: column; border-radius: 22px; background: var(--surface); border: 1px solid var(--card-border); box-shadow: var(--shadow-3); overflow: hidden; animation: modal-in 260ms var(--ease) both; }
 .palette-input { display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s4); min-height: 58px; border-bottom: 1px solid var(--line); }
 .palette-input .ico { color: var(--text-3); }
-.palette-input input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 16px; min-height: 56px; }
+.palette-input input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 16px; min-height: 56px; text-overflow: ellipsis; }
 .palette-input input:focus-visible { box-shadow: none; }
 .palette-close { min-height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-2); color: var(--text-3); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
 #palette-list { list-style: none; margin: 0; padding: var(--s2); overflow-y: auto; overscroll-behavior: contain; }
@@ -2036,6 +2041,11 @@ body.modal-open, body.drawer-open { overflow: hidden; }
 @media (max-width: 699px) { .views { padding-left: max(var(--s4), env(safe-area-inset-left, 0px)); padding-right: max(var(--s4), env(safe-area-inset-right, 0px)); } }
 .composer { padding-left: max(var(--s3), env(safe-area-inset-left, 0px)); padding-right: max(var(--s3), env(safe-area-inset-right, 0px)); }
 .offline-banner { padding-top: calc(var(--s2) + env(safe-area-inset-top, 0px)); }
+/* The banner sticks to the top, so whatever else sticks there sits below it (--banner-h is its height, set by the page; 0 while online).
+   Without this the banner covered the app bar when scrolling, and in Chat it was printed over the chat header. */
+.topbar { top: var(--banner-h, 0px); }
+@media (max-width: 699px) { body[data-active-view="chat"] .chat-header { top: var(--banner-h, 0px); } }
+@media (min-width: 700px) { .desk-top { top: var(--banner-h, 0px); } .chat-header { top: calc(var(--banner-h, 0px) + var(--appbar-h)); } }
 
 /* A focused control scrolls to a spot the fixed bars do not cover (keyboard, switch and screen-reader users). */
 html { scroll-padding-top: calc(var(--topbar-h) + var(--s4)); scroll-padding-bottom: calc(var(--nav-h) + var(--safe-b) + var(--s6)); }
@@ -2196,8 +2206,9 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
 .home-card:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
 .home-card .icon-btn { width: 44px; height: 44px; flex: none; border-radius: 50%; background: var(--tone-soft); }
 .home-card .icon-btn .ico { width: 21px; height: 21px; color: var(--tone); }
-.home-card input { flex: 1; min-width: 0; min-height: 44px; margin: 0 var(--s1); border: 0; outline: none; background: none; font-size: 16px; color: var(--text); }
+.home-card input { flex: 1; min-width: 0; min-height: 44px; margin: 0 var(--s1); border: 0; outline: none; background: none; font-size: 16px; color: var(--text); text-overflow: ellipsis; }
 .home-card input::placeholder { color: var(--text-3); }
+.home-card input:focus-visible { box-shadow: none; }
 .home-prompt-go { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--grad); color: #fff; }
 .home-prompt-go .ico { width: 20px; height: 20px; stroke-width: 2; }
 body.keyboard-open .home-card { bottom: var(--s3); }

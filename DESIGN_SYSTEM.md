@@ -60,7 +60,8 @@ with no download. Per-element tone variables (`--tone`, `--tone-a`, `--tone-b`, 
 | Execution card | `.exec-card` and its stages | a stage is drawn only after its real event |
 | Message | `.bubble`, `.reply-*` (headings, lists, tables, quotes, code), `.tok-*` | tables scroll in `.reply-table-wrap` (focusable, named); code colours are fixed classes |
 | Dialog, drawer | `#form-modal`, `#confirm-modal`, `#viewer-overlay`, the phone menu | focus moves in and is trapped, Esc closes, focus returns, the page behind is inert |
-| Toast | `#toast` (`role=status`) | for acknowledgements only; anything about money or data loss stays on the page |
+| Toast | `#toast` (`role=status`) | for acknowledgements only; anything about money or data loss stays on the page; a long message wraps (never an ellipsis) and `placeToast()` keeps it above the Chat message box or the Home message card |
+| Offline banner | `#offline-banner` (`role=status`, sticky) | the app bar and the chat header stick below it through `--banner-h` (its height, set by the page, 0 while online) |
 | Loading | `.skeleton`, `.ws-skeleton`, `aria-busy` | |
 | Empty / error | `.empty-state`, `.ws-error` | always a sentence of what is true and, when there is one, the next step |
 | Breadcrumb | `.crumbs` / `.crumb` | one trail per page; on a phone only "‹ parent" (44px) |
