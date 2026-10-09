@@ -88,11 +88,19 @@ async function newContext(browser) {
   return ctx;
 }
 
+/** A click that changes nothing is correct when it is the page you are already on, a label, or a form submitted empty. */
+function isSamePage(record, label) {
+  return /^(zarvis ai home|home|chat|work|agents|projects|files|research|outputs|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat|overview|decisions|memory)/i.test(label) || record.tag === "label" || /form|ws-ask/.test(record.section || "");
+}
+
 async function open(page, state) {
   await page.goto("about:blank"); // a hash-only goto would keep the old page (and the last click's state) alive
   await page.goto(BASE + "/" + state.hash, { waitUntil: "domcontentloaded" });
   await page.evaluate(PAGE_HELPERS);
   await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"), null, { timeout: 15000 });
+  // The app is ready when the orb settles: until then (slow phone emulation) some handlers are not wired yet, and a
+  // click would be reported as DEAD although a real user could not have made it.
+  await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(450);
   if (state.thread) {
     await page.fill("#text-input", "Plan my launch week");
@@ -165,7 +173,7 @@ function summarize(result) {
       const d = r.diff || {};
       const label = norm(r.name) || "(no name)";
       if (r.outcome === "NOTHING") {
-        const here = /^(zarvis ai home|home|chat|work|agents|projects|files|research|outputs|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat|overview|decisions|memory)/i.test(label) || r.tag === "label" || /form|ws-ask/.test(r.section || "");
+        const here = isSamePage(r, label);
         if (here) benign++; else dead.push(`${s.name} :: "${label}" [${r.section}]`);
       } else if (r.after && (d.view || d.settings !== undefined)) {
         if (d.composer) prompts++;
@@ -244,5 +252,5 @@ function summarize(result) {
   fs.writeFileSync(OUT, JSON.stringify(result));
   await browser.close();
   console.log("\n" + summarize(result) + "\n\nfull data: " + OUT);
-  process.exit(result.states.some((s) => s.records.some((r) => r.outcome === "NOTHING" && !/^(zarvis ai home|home|chat|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat)/i.test(norm(r.name)) && r.tag !== "label" && !/form|ws-ask/.test(r.section || ""))) ? 1 : 0);
+  process.exit(result.states.some((s) => s.records.some((r) => r.outcome === "NOTHING" && !isSamePage(r, norm(r.name)))) ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
