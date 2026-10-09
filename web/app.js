@@ -1420,18 +1420,110 @@
     }
   }
 
+  /** The capability registry from the server, read once (Permissions and Integrations both draw from it). Throws when it cannot be read. */
+  async function loadCapabilityList() {
+    if (capabilityCache) return capabilityCache;
+    const res = await fetch(`${API_BASE}/capabilities`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.json();
+    if (!Array.isArray(body.capabilities)) throw new Error("Unexpected capability list");
+    capabilityCache = body.capabilities;
+    return capabilityCache;
+  }
+
+  /** One row of the Integrations page: a name, an honest status badge, what it is for, and an optional action. */
+  function integrationItem({ name, status, tone, text, action }) {
+    const item = document.createElement("article");
+    item.className = "capability-item";
+    const header = document.createElement("header");
+    const title = document.createElement("strong");
+    title.textContent = name;
+    const badge = document.createElement("span");
+    badge.className = "z-badge" + (tone ? " z-badge-" + tone : "");
+    badge.textContent = status;
+    header.append(title, badge);
+    const body = document.createElement("p");
+    body.className = "capability-access";
+    body.textContent = text;
+    item.append(header, body);
+    if (action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-secondary btn-sm";
+      button.textContent = action.label;
+      button.addEventListener("click", action.run);
+      item.appendChild(button);
+    }
+    return item;
+  }
+
+  /** Settings → Integrations: GitHub from the server's own connection status, Calendar from the capability registry, and a plain line about what does not exist. */
+  async function renderIntegrations() {
+    const list = document.getElementById("integrations-list");
+    if (!list) return;
+    list.textContent = "Loading…";
+    const [github, capabilities] = await Promise.all([
+      apiFetch("/integrations/github", { timeoutMs: READ_TIMEOUT_MS }).then((res) => (res.ok ? res.json() : null)).catch((err) => (err instanceof SessionEndedError ? undefined : null)),
+      loadCapabilityList().catch(() => null),
+    ]);
+    if (github === undefined) return; // the session ended; the gate is showing
+    list.textContent = "";
+    const manage = { label: "Manage in Developer Agent", run: () => { if (requireDevAccess("The Developer Agent")) setActiveView("developer"); } };
+    if (github === null) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Unknown", text: "Couldn't check the GitHub connection. Open this page again in a moment." }));
+    } else if (!github.available) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Not set up on this server", tone: "off", text: "Connecting a GitHub account isn't configured on this server. Public repositories can still be analyzed without one." }));
+    } else if (github.connected) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Connected as " + github.login, tone: "ok", text: "Used by the Developer Agent to read repositories and, only after you confirm the exact change, open a pull request. ZARVIS never merges. The token is stored encrypted and is never shown.", action: manage }));
+    } else {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Not connected", tone: "off", text: "Public repositories can be analyzed without an account. Private repositories and pull requests need your own token.", action: manage }));
+    }
+    const calendar = capabilities && capabilities.find((c) => c.id === "calendar");
+    if (calendar) {
+      list.appendChild(integrationItem({ name: "Calendar", status: Logic.capabilityStatusLabel(calendar.platforms.web.status), tone: "off", text: calendar.platforms.web.note }));
+    }
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "There is no integration with Gmail, Google Drive or Slack. ZARVIS does not read them and shows nothing from them.";
+    list.appendChild(note);
+    const value = document.querySelector('[data-setting-value="integrations"]');
+    if (value) value.textContent = github && github.connected ? "GitHub connected" : "";
+    renderSettingsSubpageValue();
+  }
+
+  /** Settings → Voice → "What this browser can do": only things the browser can really be asked, each with what to do about a "no". */
+  async function renderVoiceCheck() {
+    const box = document.getElementById("voice-check-rows");
+    if (!box) return;
+    const mic = await microphonePermissionState();
+    const rows = [
+      ["Secure connection", window.isSecureContext ? "Yes. Browsers only allow the microphone on https or localhost." : "No. Browsers only allow the microphone on https or localhost, so voice input will not work here."],
+      ["Speech recognition", window.SpeechRecognition || window.webkitSpeechRecognition ? "Available in this browser." : "Not available in this browser. Type your request, or open ZARVIS in Chrome."],
+      ["Microphone", mic === "granted" ? "Allowed in this browser." : mic === "denied" ? "Blocked. Allow the microphone for this site in your browser's site settings, then tap the orb again." : mic === "prompt" ? "The browser will ask the first time you tap the orb or microphone." : "The browser decides when you tap the orb; this browser does not say in advance."],
+      ["Audio playback", window.AudioContext || window.webkitAudioContext ? "Available. A browser may keep sound off until you have tapped the page once." : "Not available in this browser, so spoken replies cannot play."],
+    ];
+    box.replaceChildren();
+    for (const [name, text] of rows) {
+      const row = document.createElement("div");
+      row.className = "control-row";
+      const copy = document.createElement("div");
+      copy.className = "row-copy";
+      const title = document.createElement("strong");
+      title.textContent = name;
+      const small = document.createElement("small");
+      small.textContent = text;
+      copy.append(title, small);
+      row.appendChild(copy);
+      box.appendChild(row);
+    }
+  }
+
   async function renderPermissionCenter() {
     const list = document.getElementById("permission-center-list");
     if (!list) return;
     list.textContent = "Loading…";
     try {
-      if (!capabilityCache) {
-        const res = await fetch(`${API_BASE}/capabilities`);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const body = await res.json();
-        if (!Array.isArray(body.capabilities)) throw new Error("Unexpected capability list");
-        capabilityCache = body.capabilities;
-      }
+      await loadCapabilityList();
     } catch (err) {
       console.error(err);
       list.textContent = "Couldn't load the capability list. Check your connection.";
@@ -1686,6 +1778,14 @@
     const { skills } = await res.json();
     state.skills = skills;
     renderQuickActions(skills);
+    applyHomeQuickActions(skills);
+  }
+
+  /** Home's prompts are offered only when this build has a skill of that kind (the Chat starters follow the same rule). */
+  function applyHomeQuickActions(skills) {
+    for (const chip of document.querySelectorAll("#home-quick .chip[data-skill-categories]")) {
+      chip.hidden = !Logic.entryAvailable(chip.dataset.skillCategories.split(" "), skills);
+    }
   }
 
   function groupByCategory(skills) {
@@ -2598,6 +2698,7 @@
   // its exact backend call (DELETE /api/v1/account, already wired server-side).
 
   function setupSettings() {
+    document.getElementById("voice-check-again")?.addEventListener("click", () => void renderVoiceCheck());
     for (const btn of document.querySelectorAll("[data-settings-page]")) {
       btn.addEventListener("click", () => openSettingsPage(btn.dataset.settingsPage));
     }
@@ -2682,6 +2783,8 @@
     }
     if (page === "account") void refreshAccountPanel();
     if (page === "permissions") void renderPermissionCenter();
+    if (page === "integrations") void renderIntegrations();
+    if (page === "voice") void renderVoiceCheck();
     if (page === "ai") void renderAiProvider();
     if (page === "memory") void workspace()?.renderMemory();
     el.settingsPanelBack?.focus?.();

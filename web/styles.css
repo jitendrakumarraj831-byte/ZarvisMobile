@@ -376,7 +376,6 @@ button:disabled { cursor: not-allowed; }
 .chip:hover { border-color: var(--line-2); background: var(--surface-2); }
 .chip:active { transform: scale(0.97); }
 .chip-row { display: flex; flex-wrap: wrap; gap: var(--s2); }
-.chip-row-center { justify-content: center; }
 
 .input, .select {
   width: 100%; min-height: 46px;
@@ -593,21 +592,6 @@ body.page-hidden .orb, body.page-hidden .orb::before, body.page-hidden .orb-ring
 .home-section .chip-row { gap: var(--s2); }
 
 /* List rows (Home recent, activity) */
-.list-row {
-  display: flex; align-items: center; gap: var(--s3);
-  width: 100%; min-height: 60px; padding: var(--s3) var(--s4);
-  border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line);
-  text-align: left; box-shadow: var(--shadow-1);
-  transition: border-color var(--t-fast), transform var(--t-fast) var(--ease);
-  animation: rise-in var(--t-slow) var(--ease) both;
-}
-button.list-row:hover { border-color: var(--line-2); }
-button.list-row:active { transform: scale(0.99); }
-.list-row .row-ico { width: 36px; height: 36px; border-radius: 12px; box-shadow: none; background: var(--surface-2); border: 0; }
-.list-row .row-ico .ico { width: 18px; height: 18px; }
-.list-row-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.list-row-copy strong { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.list-row-copy small { color: var(--text-3); font-size: 12px; }
 
 /* ---------- Chat ---------- */
 .view-chat { max-width: var(--chat-w); margin: 0 auto; padding-bottom: 150px; }
@@ -696,17 +680,6 @@ body.chat-has-messages .chat-empty { display: none; }
 .bubble-retry-btn:hover { background: var(--surface-2); }
 
 /* Tool activity rows */
-.tool-row {
-  margin-left: 36px; padding: var(--s3) var(--s4);
-  border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line);
-  animation: rise-in var(--t-med) var(--ease) both;
-}
-.tool-row-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
-.tool-row-top strong { font-family: var(--font-body); font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
-.tool-row .stage-note { margin-top: 4px; font-size: 13px; color: var(--text-2); }
-.tool-row[data-tone="success"] .z-badge { background: var(--ok-soft); color: var(--ok); }
-.tool-row[data-tone="confirm"] .z-badge { background: var(--warn-soft); color: var(--warn); }
-.tool-row[data-tone="failed"] .z-badge { background: var(--err-soft); color: var(--err); }
 
 /* Confirmation card */
 .confirm-card {
@@ -1118,7 +1091,7 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 
 /* Suggestion chips built from skill catalogue SVG strings */
 .chip svg:not(.ico) { width: 16px; height: 16px; flex: none; color: var(--primary); }
-.list-row .row-chev { margin-left: auto; }
+
 .skill-row + .group-label { margin-top: var(--s4); }
 #capabilities-list .group-label:first-child { margin-top: var(--s2); }
 button.cap-copy { display: block; text-align: left; border-radius: var(--r-sm); padding: 2px 4px; margin: -2px -4px; }
@@ -1282,7 +1255,6 @@ body::before {
     radial-gradient(64vmax 44vmax at 40% 112%, var(--aurora-3), transparent 62%);
 }
 .panel,
-.list-row,
 .settings-row,
 .stat-tile,
 .plan-card,
@@ -1291,7 +1263,6 @@ body::before {
 .timeline-dot,
 .cap-item,
 .disclosure,
-.tool-row,
 .result-widget,
 .confirm-card,
 .capability-item,
@@ -1379,9 +1350,6 @@ body::before {
 
 /* ---------- Home ---------- */
 .home-section { max-width: 760px; }
-.list-row .row-ico { background: linear-gradient(145deg, var(--tone-a, #38bdf8), var(--tone-b, #4f6bff)); }
-.list-row-copy strong { font-size: 14.5px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.list-row-copy small { color: var(--text-3); }
 
 /* ---------- Chat ---------- */
 .chat-header { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; align-items: center; gap: var(--s3); }
@@ -1403,7 +1371,8 @@ body::before {
 .bubble.assistant .bubble-body .reply-heading { color: var(--bubble-ai-text); }
 .bubble.assistant .bubble-role { margin-bottom: 4px; }
 .bubble.thinking { padding-left: 0; }
-.tool-row, .confirm-card, .result-widget { margin-left: 0; }
+.confirm-card,
+.result-widget { margin-left: 0; }
 .bubble-actions { flex-wrap: wrap; gap: var(--s2); margin-left: 0; margin-top: var(--s3); opacity: 1; }
 .bubble-actions button { min-height: 36px; padding: 0 var(--s3); border-radius: var(--r-pill); background: var(--card-bg); border: 1px solid var(--line-2); color: var(--text-2); }
 .bubble-actions button:hover { background: var(--surface-2); color: var(--text); }
@@ -1504,9 +1473,15 @@ body::before {
 .dev-tab:hover { color: var(--text); }
 
 /* v3 fixes after visual review */
-.cap-item .row-ico, .settings-row .row-ico, .list-row .row-ico, .feature-hero .row-ico, .dev-quick-card .row-ico,
+.cap-item .row-ico,
+.settings-row .row-ico,
+.feature-hero .row-ico,
+.dev-quick-card .row-ico,
 #capability-hub .cap-item .row-ico { background: linear-gradient(145deg, var(--tone-a, #38bdf8), var(--tone-b, #4f6bff)); border: 0; box-shadow: 0 8px 18px -8px var(--tone-b, #4f6bff); }
-.cap-item .row-ico .ico, .settings-row .row-ico .ico, .list-row .row-ico .ico, .feature-hero .row-ico .ico, .dev-quick-card .row-ico .ico { color: #fff; }
+.cap-item .row-ico .ico,
+.settings-row .row-ico .ico,
+.feature-hero .row-ico .ico,
+.dev-quick-card .row-ico .ico { color: #fff; }
 #capability-hub .cap-item.is-off .row-ico { background: var(--surface-3); box-shadow: none; }
 #capability-hub .cap-item.is-off .row-ico .ico { color: var(--text-3); }
 .chat-empty .orb-stage { cursor: pointer; }
@@ -1593,7 +1568,6 @@ body::before {
 .cap-item,
 .settings-row,
 .stat-tile,
-.list-row,
 .plan-card,
 .cap-pill,
 .chip,
@@ -1601,7 +1575,7 @@ body::before {
   transition: transform 260ms var(--ease), box-shadow 260ms var(--ease), background 260ms var(--ease), border-color 260ms var(--ease), color 200ms;
 }
 @media (hover: hover) {
-  .cap-item:hover, .settings-row:hover, .stat-tile:hover, .plan-card:hover, .list-row:hover { transform: translateY(-3px); box-shadow: var(--shadow-3), 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent); }
+  .cap-item:hover, .settings-row:hover, .stat-tile:hover, .plan-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-3), 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent); }
   .dev-quick-card:hover { box-shadow: var(--shadow-3), 0 0 0 1px color-mix(in srgb, var(--primary) 40%, transparent); }
 }
 .dev-quick-card:active,
@@ -1858,7 +1832,6 @@ body.palette-open { overflow: hidden; }
    No structure changes: this block only restyles what is above.
    ===================================================================== */
 
-
 /* Type: tighter display, calmer labels, numerals that line up. */
 body { text-rendering: optimizeLegibility; font-variant-numeric: tabular-nums; }
 h1, h2, h3, h4 { text-wrap: balance; }
@@ -1870,14 +1843,12 @@ h1, h2, h3, h4 { text-wrap: balance; }
 
 /* Surfaces: one hairline, one highlight, one soft shadow. */
 .panel,
-.list-row,
 .settings-row,
 .stat-tile,
 .plan-card,
 .task-card,
 .cap-item,
 .disclosure,
-.tool-row,
 .result-widget,
 .confirm-card,
 .capability-item,
@@ -1888,7 +1859,6 @@ h1, h2, h3, h4 { text-wrap: balance; }
 .modal-card { background: var(--surface); box-shadow: var(--shadow-3), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
 
 /* Places you can go: a hover that lifts a hair, a press that settles. */
-.list-row,
 .settings-row,
 .cap-item,
 .chip,
@@ -1903,8 +1873,7 @@ h1, h2, h3, h4 { text-wrap: balance; }
   .settings-row:hover,
 .cap-item:hover,
 .dev-quick-card:hover,
-.plan-card:hover,
-.list-row:hover { transform: translateY(-2px); border-color: var(--line-2); }
+.plan-card:hover { transform: translateY(-2px); border-color: var(--line-2); }
   .cap-item:hover,
 .settings-row:hover { box-shadow: var(--card-shadow), 0 20px 40px -26px var(--glow); }
 }
@@ -1941,8 +1910,7 @@ h1, h2, h3, h4 { text-wrap: balance; }
 .command-bar { box-shadow: var(--card-shadow); }
 
 @media (prefers-reduced-motion: reduce) {
-  .list-row,
-.settings-row,
+  .settings-row,
 .cap-item,
 .chip,
 .cap-pill,
@@ -1954,7 +1922,6 @@ h1, h2, h3, h4 { text-wrap: balance; }
 .cap-item:hover,
 .dev-quick-card:hover,
 .plan-card:hover,
-.list-row:hover,
 .settings-row:active,
 .cap-item:active,
 .dev-quick-card:active,
@@ -2204,10 +2171,6 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
 .thinking-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--text-2); }
 
 /* Tool activity: a compact card with a status rail, in the reply's column. */
-.tool-row { max-width: min(92%, 640px); padding: 10px 14px; border-radius: 14px; border-left: 3px solid var(--line-2); }
-.tool-row[data-tone="success"] { border-left-color: var(--ok); }
-.tool-row[data-tone="confirm"] { border-left-color: var(--warn); }
-.tool-row[data-tone="failed"] { border-left-color: var(--err); }
 
 /* =====================================================================
    Home: the glowing orb in the middle, one question under it, a row of quick
@@ -2334,7 +2297,6 @@ body.page-hidden .orb-waves i, body.page-hidden .orb-sparks b { animation-play-s
 .stat-tile-ico,
 .cap-item .row-ico,
 .settings-row .row-ico,
-.list-row .row-ico,
 .feature-hero .row-ico,
 .dev-quick-card .row-ico,
 #capability-hub .cap-item .row-ico { box-shadow: none; }
@@ -2661,7 +2623,7 @@ body.chat-loading .chat-empty { display: none; }
 /* Small button + shared bits */
 .btn-sm { min-height: 36px; padding: 0 var(--s3); border-radius: var(--r-sm); font-size: 13px; }
 .btn-sm .ico { width: 16px; height: 16px; }
-.btn-xs { min-height: 30px; padding: 0 var(--s2); border-radius: var(--r-sm); font-size: 12.5px; }
+
 .ws-danger { color: var(--err); }
 .ws-danger:hover:not(:disabled) { background: var(--err-soft); color: var(--err); }
 .z-badge-warn { background: var(--warn-soft); color: var(--warn); }
@@ -2963,7 +2925,7 @@ body.chat-loading .chat-empty { display: none; }
 
 /* Small screens: wider touch targets, stacked key/value rows */
 @media (max-width: 1099px), (pointer: coarse) {
-  .btn-sm, .btn-xs, .exec-sources-toggle, .exec-details > summary, .ws-task-history summary, .exec-where .tool-row-link { min-height: 44px; }
+  .btn-sm, .exec-sources-toggle, .exec-details > summary, .ws-task-history summary, .exec-where .tool-row-link { min-height: 44px; }
   .btn-sm { padding: 0 var(--s4); }
   .ws-step-result summary { display: inline-flex; align-items: center; min-height: 44px; }
 }

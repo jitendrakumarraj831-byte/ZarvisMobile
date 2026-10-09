@@ -2289,7 +2289,7 @@
     const r = await call("/agents/" + encodeURIComponent(id));
     if (r.ended || !isCurrent("agents", token)) return;
     root.replaceChildren();
-    root.appendChild(button("Agents", "btn btn-ghost ws-back", () => openAgent(""), { icon: "i-left" }));
+    // No second "‹ Agents" button here: the breadcrumb above the page is the way back (and the 44px one on a phone).
     if (!r.ok) {
       root.appendChild(r.status === 404 ? emptyBox("That agent doesn't exist", "", { label: "Back to agents", onClick: () => openAgent("") }) : errorBox("Couldn't load this agent", r, () => void renderAgents()));
       return;

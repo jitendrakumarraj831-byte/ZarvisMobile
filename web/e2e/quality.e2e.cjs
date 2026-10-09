@@ -502,6 +502,55 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await ctx.close();
   });
 
+  // The Voice page says what this browser can really do, and what to do about a "no".
+  await step("Voice check: a blocked microphone and a browser with no speech recognition are described as such, with what to do; 'Check again' re-reads the browser", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true });
+    await ctx.addInitScript(() => {
+      window.__mic = "denied";
+      Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => ({ state: window.__mic }) } });
+      window.SpeechRecognition = undefined;
+      window.webkitSpeechRecognition = undefined;
+    });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/settings/voice"; });
+    await page.waitForSelector("#voice-check-rows .control-row");
+    const rows = async () => Object.fromEntries(await page.$$eval("#voice-check-rows .control-row", (list) => list.map((r) => [r.querySelector("strong").textContent, r.querySelector("small").textContent])));
+    let r = await rows();
+    assert.deepEqual(Object.keys(r), ["Secure connection", "Speech recognition", "Microphone", "Audio playback"]);
+    assert.match(r["Speech recognition"], /^Not available in this browser\. Type your request/);
+    assert.match(r["Microphone"], /^Blocked\. Allow the microphone for this site in your browser's site settings, then tap the orb again\./);
+    assert.match(r["Secure connection"], /^Yes\./, "localhost counts as secure");
+    await page.evaluate(() => { window.__mic = "granted"; });
+    await page.click("#voice-check-again");
+    await page.waitForFunction(() => /^Allowed in this browser/.test(document.querySelector("#voice-check-rows .control-row:nth-child(3) small").textContent));
+    await page.evaluate(() => { window.__mic = "prompt"; });
+    await page.click("#voice-check-again");
+    await page.waitForFunction(() => /will ask the first time/.test(document.querySelector("#voice-check-rows .control-row:nth-child(3) small").textContent));
+    await ctx.close();
+  });
+
+  // Home's prompts follow the skills this build really has (the Chat starters already did).
+  await step("Home prompts: only those with a skill behind them are offered; with the real catalogue every one is", async () => {
+    // "Analyze a repo" is governed by Developer access, not by skills, so it is left out of this comparison.
+    const labels = async (page) => (await page.$$eval("#home-quick .chip:not([hidden])", (chips) => chips.map((c) => c.textContent.trim()))).filter((t) => t !== "Analyze a repo");
+    // The real catalogue first: everything is there.
+    let ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    let page = await pageOf(ctx);
+    await ready(page);
+    await page.waitForFunction(() => document.querySelectorAll("#home-quick .chip:not([hidden])").length >= 7 && !document.querySelector("#home-quick .chip[data-skill-categories][hidden]"));
+    assert.deepEqual(await labels(page), ["Research a topic", "Write a message", "Summarize a file", "Plan a task", "Business draft", "Open Work", "Agents"]);
+    await ctx.close();
+    // A build that only has web skills: only the prompts that need other skills go away; pages stay.
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    page = await pageOf(ctx);
+    await page.route("**/api/v1/skills", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ skills: [{ id: "web.search", name: "Web Search", description: "d", category: "WEB", riskLevel: "LOW", usageCost: 2, requiredEntitlement: "FREE", executesOnDevice: false, actionClass: "READ", asksConfirmation: false, requiredPermissions: [], upgradeRequired: false }] }) }));
+    await ready(page);
+    await page.waitForFunction(() => document.querySelector('#home-quick .chip[data-skill-categories="CREATIVE BUSINESS"]')?.hidden === true);
+    assert.deepEqual(await labels(page), ["Research a topic", "Open Work", "Agents"]);
+    await ctx.close();
+  });
+
   // Chat with real content: a formatted reply (list, code), an action row, a finished tool and a waiting "Thinking" card.
   // One guest account for all four looks: the server allows 60 sign-ups an hour per address and the suites share them.
   await step("accessibility: Chat with a rich reply, a tool row and Thinking has no serious/critical axe violation (phone and desktop, both themes)", async () => {

@@ -167,11 +167,11 @@
           <h1 class="home-title" id="home-title">What can I help with today?</h1>
           <section class="home-section home-quick" id="home-quick" aria-label="Quick actions">
             <div class="chip-row">
-              <button type="button" class="chip tone-cyan" data-workspace-prompt="Search the web and cite the sources you use: "><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
-              <button type="button" class="chip tone-pink" data-workspace-prompt="Write a warm, concise message about: "><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
-              <button type="button" class="chip tone-amber" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
-              <button type="button" class="chip tone-green" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
-              <button type="button" class="chip tone-coral" data-workspace-prompt="Draft a polite customer reply to: "><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
+              <button type="button" class="chip tone-cyan" data-workspace-prompt="Search the web and cite the sources you use: " data-skill-categories="WEB RESEARCH"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
+              <button type="button" class="chip tone-pink" data-workspace-prompt="Write a warm, concise message about: " data-skill-categories="CREATIVE BUSINESS"><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
+              <button type="button" class="chip tone-amber" data-home-action="upload" data-skill-categories="DOCUMENTS"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
+              <button type="button" class="chip tone-green" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: " data-skill-categories="AUTOMATION"><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
+              <button type="button" class="chip tone-coral" data-workspace-prompt="Draft a polite customer reply to: " data-skill-categories="BUSINESS"><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
               <button type="button" class="chip tone-violet" data-nav="developer" data-dev-only hidden><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
               <button type="button" class="chip tone-blue" data-go="work"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg>Open Work</button>
               <button type="button" class="chip tone-cyan" data-go="agents"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg>Agents</button>
@@ -557,6 +557,7 @@
               <p class="group-label">Privacy &amp; devices</p>
               <div class="settings-group">
                 <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-coral"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="integrations"><span class="row-ico tone-green"><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg></span><span class="row-copy"><strong>Integrations</strong><small>Connected services and what is planned</small></span><span class="row-value" data-setting-value="integrations"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="privacy"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="row-copy"><strong>Privacy &amp; data</strong><small>Confirmations, stored data and account deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Advanced</p>
@@ -616,6 +617,13 @@
                 <div class="control-row">
                   <div class="row-copy"><strong>Listening</strong><small>Starts only when you tap the orb or microphone. There is no wake word.</small></div>
                 </div>
+              </div>
+              <div class="panel" id="voice-check" aria-labelledby="voice-check-title">
+                <div class="section-head">
+                  <h2 class="panel-title" id="voice-check-title">What this browser can do</h2>
+                  <button type="button" class="btn btn-ghost btn-sm" id="voice-check-again">Check again</button>
+                </div>
+                <div id="voice-check-rows" aria-live="polite"></div>
               </div>
             </section>
 
@@ -684,6 +692,13 @@
                 <p class="muted">Every capability, what it really does on the web and on Android, and what this browser currently allows. Allowing access never authorizes an action by itself — sensitive actions still ask you each time.</p>
               </div>
               <div class="capability-list" id="permission-center-list" aria-live="polite"></div>
+            </section>
+
+            <section class="settings-panel" data-settings-panel="integrations" hidden>
+              <div class="panel">
+                <p class="muted">A service shows as connected only when the server holds a real, working connection for your account. Nothing below is guessed.</p>
+              </div>
+              <div class="capability-list" id="integrations-list" aria-live="polite"></div>
             </section>
 
             <section class="settings-panel" data-settings-panel="privacy" hidden>

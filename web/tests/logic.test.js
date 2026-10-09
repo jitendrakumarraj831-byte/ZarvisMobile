@@ -605,3 +605,15 @@ test("Home dashboard: slices real lists, never pads them, and only calls an acco
   assert.equal(L.homeDashboard().empty, false, "nothing read at all is not 'empty'");
   assert.equal(L.homeDashboard({ limit: 1, chats: [{ id: "a" }, { id: "b" }], projects: [], files: [], tasks: [], tools: [] }).chats.length, 1);
 });
+
+test("an entry point is offered only when the build has a skill behind it; unread skills hide nothing", () => {
+  const skills = [{ category: "WEB" }, { category: "CREATIVE" }, { category: "DOCUMENTS", upgradeRequired: true }];
+  assert.equal(L.entryAvailable(["WEB", "RESEARCH"], skills), true, "one of the categories is enough");
+  assert.equal(L.entryAvailable(["BUSINESS"], skills), false);
+  assert.equal(L.entryAvailable(["DEVELOPER"], skills), false);
+  assert.equal(L.entryAvailable(["DOCUMENTS"], skills), true, "needing an upgrade is still listed");
+  assert.equal(L.entryAvailable([], skills), true, "a page link has no skill behind it");
+  assert.equal(L.entryAvailable(undefined, skills), true);
+  assert.equal(L.entryAvailable(["WEB"], null), true, "skills not read yet: nothing is hidden on a guess");
+  assert.equal(L.entryAvailable(["WEB"], []), false, "an empty catalogue offers nothing that needs a skill");
+});

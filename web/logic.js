@@ -593,6 +593,16 @@
     };
   }
 
+  /**
+   * Whether an entry point may be offered: some skill of one of its categories exists in this build's /skills answer.
+   * An entry with no categories (a page link, or "ask") is always offered. A skill that needs a plan upgrade still counts:
+   * it is listed, and the server says so when it is used. `null` skills (not read yet) offers everything, never hides on a guess.
+   */
+  function entryAvailable(categories, skills) {
+    if (!Array.isArray(categories) || !categories.length || !Array.isArray(skills)) return true;
+    return skills.some((skill) => categories.includes(skill.category));
+  }
+
   /** The sorts the Projects list offers, in the order they are shown: [key, label]. */
   const PROJECT_SORTS = [["recent", "Most recent"], ["name", "Name"], ["tasks", "Open tasks"]];
 
@@ -946,6 +956,7 @@
     riskLabel,
     paymentVerifyOutcome,
     homeDashboard,
+    entryAvailable,
     TASK_GROUPS,
     TASK_FILTERS,
     TASK_SORTS,

@@ -1138,7 +1138,7 @@ async function send(page, text) {
       await pageH.waitForTimeout(250);
       (await stray()).forEach((x) => problems.push("project/" + tab + " " + x));
     }
-    for (const sub of ["account", "voice", "language", "appearance", "ai", "memory", "notifications", "privacy", "security", "developer"]) {
+    for (const sub of ["account", "voice", "language", "appearance", "ai", "memory", "notifications", "integrations", "privacy", "security", "developer"]) {
       await open("settings");
       await pageH.evaluate((p) => document.querySelector(`[data-settings-page="${p}"]`).click(), sub);
       await pageH.waitForTimeout(300);

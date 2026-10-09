@@ -855,6 +855,44 @@ async function send(page, text) {
     await fresh.ctx.close();
   });
 
+  await step("Settings → Integrations: GitHub shows the server's real status, Calendar its registry status, and nothing else is shown as connected", async () => {
+    const item = (name) => page.locator("#integrations-list .capability-item", { has: page.locator("header strong", { hasText: new RegExp("^" + name + "$") }) });
+    const badge = async (name) => (await item(name).locator(".z-badge").innerText()).trim();
+    const open = async () => { await go(page, "#/settings"); await go(page, "#/settings/integrations"); await page.waitForSelector("#integrations-list .capability-item"); };
+    // What the server really says (this backend may or may not have GitHub connections switched on).
+    const real = (await api(page, "/integrations/github")).body;
+    await open();
+    const expectedReal = !real.available ? "Not set up on this server" : real.connected ? "Connected as " + real.login : "Not connected";
+    assert.equal(await badge("GitHub"), expectedReal);
+    const registry = (await (await page.request.get(BASE + "/api/v1/capabilities")).json()).capabilities.find((c) => c.id === "calendar");
+    assert.equal(await badge("Calendar"), { WORKING: "Working", PARTIAL: "Partial", PLANNED: "Planned", UNSUPPORTED: "Unsupported" }[registry.platforms.web.status]);
+    assert.match(await item("Calendar").innerText(), new RegExp(registry.platforms.web.note.slice(0, 30)));
+    const text = await page.locator("#integrations-list").innerText();
+    assert.match(text, /no integration with Gmail, Google Drive or Slack/);
+    assert.equal(await page.locator("#integrations-list .capability-item").count(), 2, "only integrations that exist are listed");
+    assert.doesNotMatch(await page.locator("#integrations-list .capability-item:has(strong:text-is('Calendar'))").innerText(), /Connected/i);
+    // Each real GitHub state is worded as itself, and the token is never part of the page.
+    for (const [reply, status, expected] of [
+      [{ status: 200, body: { available: true, connected: true, login: "octo-cat" } }, 200, "Connected as octo-cat"],
+      [{ status: 200, body: { available: true, connected: false } }, 200, "Not connected"],
+      [{ status: 200, body: { available: false, connected: false } }, 200, "Not set up on this server"],
+      [{ status: 500, body: { error: "boom" } }, 500, "Unknown"],
+    ]) {
+      if (status >= 400) page.expectRejections += 1;
+      await page.route("**/api/v1/integrations/github", (r) => r.fulfill({ status: reply.status, contentType: "application/json", body: JSON.stringify(reply.body) }));
+      await open();
+      assert.equal(await badge("GitHub"), expected);
+      assert.doesNotMatch(await page.locator("#integrations-list").innerText(), /ghp_|token":/i);
+      await page.unroute("**/api/v1/integrations/github");
+    }
+    // "Manage" goes to the Developer Agent, which needs Developer access: without it the app says so instead of opening a hidden page.
+    await page.route("**/api/v1/integrations/github", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ available: true, connected: false }) }));
+    await open();
+    await item("GitHub").locator('button:has-text("Manage in Developer Agent")').click();
+    await page.waitForSelector("#settings-subpage-title:has-text('Developer access')");
+    await page.unroute("**/api/v1/integrations/github");
+  });
+
   await step("Work: projects can be searched and sorted, each section says what it is, and a row that scrolls fades its edge", async () => {
     const extra = [];
     for (const [name, goal] of [["Tax filing", "File returns before the deadline"], ["apple pie", "Bake for the fair"]]) {
