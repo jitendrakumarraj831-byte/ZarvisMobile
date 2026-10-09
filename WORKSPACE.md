@@ -91,6 +91,18 @@ planner prompt.
   quick actions are translated.
 - **Hindi:** the interface strings of the new pages are translated; the Developer result area, the Permission Center rows
   and the Metrics page keep their previous coverage.
+- **A task cut off by a server restart is not noticed at once.** ZARVIS has no background executor, so nothing is
+  running it; but a task left `RUNNING`/`EXECUTING`/`VERIFYING` by a crash keeps that state, with only Cancel offered,
+  until it has not been touched for 3 minutes. Then it is marked `stale` and Retry takes it over (exactly one of two
+  simultaneous retries wins). Tested against a real database after a `SIGKILL` and restart.
+- **Task writes are conditional.** A step that finishes at the same moment as a Cancel can no longer overwrite it (or
+  be erased by it): the loser re-reads what actually happened. If a Cancel keeps losing, it says so instead of
+  claiming success.
+- **Tasks per account are not capped** (as before this phase); every chat turn lists the account's tasks to find the
+  open ones. Projects, notes and files are capped (`workspace/limits.ts`).
+- **Outbound calls are bounded** (model calls 90 s, or 120 s when streaming; image analysis and web search 60 s; text to
+  speech 120 s; GitHub 15 s; the Google sign-in key fetch 8 s). The Razorpay and Google Play verifier calls in
+  `billing/` predate this phase and have no explicit timeout; they run inside the platform's function limit.
 - **Rate limits are per server process** (in-process counters), as before.
 
 ## Tests
