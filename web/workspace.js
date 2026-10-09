@@ -2656,6 +2656,7 @@
   function paintHome() {
     const data = home.data;
     if (!data) return;
+    $("home-dash")?.setAttribute("data-loaded", "1"); // set in the same tick the cards are drawn; tests wait for it
     const row = $("home-project");
     const projectList = data.projects.ok && data.projects.body && Array.isArray(data.projects.body.projects) ? data.projects.body.projects : null;
     // "Continue a project" above the fold: the newest active project.

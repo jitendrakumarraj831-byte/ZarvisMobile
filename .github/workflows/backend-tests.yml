@@ -137,17 +137,31 @@ jobs:
           NODE_PATH: /usr/local/lib/node_modules
         run: node web/e2e/phase1.e2e.cjs
 
+      # Guest sign-ups are limited per server process (60 an hour) and every browser context in a suite signs up its own
+      # guest, so each browser suite gets its own process instead of sharing one budget (Phase 1 + quality on one process
+      # ran out of sign-ups and the last quality steps failed with HTTP 429).
+      - name: Start a second backend for the quality E2E
+        run: |
+          cd backend
+          PORT=3102 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/zarvis_e2e \
+            CORS_ORIGINS=http://localhost:3102 GITHUB_API_BASE_URL=http://localhost:3200 \
+            nohup npx tsx src/index.ts > /tmp/backend-quality.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf --max-time 2 http://localhost:3102/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/backend-quality.log; exit 1
+
       # Responsive (9 views and the Work/Agents/Memory pages x 9 widths), axe accessibility (light + dim), keyboard, service
       # worker offline shell, voice/TTS never causing an extra turn, duplicate submissions.
       - name: Run web quality E2E
         env:
-          ZARVIS_URL: http://localhost:3100
+          ZARVIS_URL: http://localhost:3102
           NODE_PATH: /usr/local/lib/node_modules
         run: node web/e2e/quality.e2e.cjs
 
-      # Work, Files, Research, Tasks, Agents, Memory, execution cards, composer files. Guest sign-ups are limited per
-      # server process (60 an hour), and the two suites above use most of them, so this suite gets its own process.
-      - name: Start a second backend for the workspace E2E
+      # Work, Files, Research, Tasks, Agents, Memory, execution cards, composer files (a third process, see above).
+      - name: Start a third backend for the workspace E2E
         run: |
           cd backend
           PORT=3101 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/zarvis_e2e \
@@ -169,4 +183,5 @@ jobs:
         if: failure()
         run: |
           cat /tmp/backend.log || true
+          cat /tmp/backend-quality.log || true
           cat /tmp/backend-workspace.log || true

@@ -74,9 +74,12 @@ test("every class the stylesheet styles is rendered by some page, or is built fr
   const classes = new Set([...css.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)].map((m) => m[1]));
   // Names assembled at run time: reply-h1..3 (logic.js formatReplyHtml) and the syntax colours tok-<kind>.
   const assembled = (name) => /^reply-h[123]$/.test(name) || /^tok-(com|str|num|kw|lit|tag|attr)$/.test(name);
+  // A class name is made of [\w-] only, so "appears with a non-[\w-] character on both sides" is the same as "is one whole
+  // [\w-]+ token of the sources". A token set says that without building a regular expression from the name.
+  const tokens = new Set(sources.match(/[\w-]+/g));
   const dead = [...classes].filter((name) => {
     if (assembled(name)) return false;
-    if (new RegExp("(^|[^\\w-])" + name.replace(/-/g, "\\-") + "([^\\w-]|$)").test(sources)) return false;
+    if (tokens.has(name)) return false;
     const parts = name.split("-");
     for (let i = 1; i < parts.length; i += 1) {
       const prefix = parts.slice(0, i).join("-") + "-";
