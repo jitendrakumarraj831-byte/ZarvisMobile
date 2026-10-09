@@ -90,7 +90,7 @@ async function newContext(browser) {
 
 /** A click that changes nothing is correct when it is the page you are already on, a label, or a form submitted empty. */
 function isSamePage(record, label) {
-  return /^(zarvis ai home|home|chat|work|agents|projects|files|research|outputs|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat|overview|decisions|memory)/i.test(label) || record.tag === "label" || /form|ws-ask/.test(record.section || "");
+  return /^(zarvis ai home|home|chat|work|agents|projects|files|research|outputs|tasks|activity|capabilities|plans|settings|developer|metrics|all|list|monthly|default|repository|send|new chat|overview|decisions|memory)/i.test(label) || record.tag === "label" || /form|ws-ask/.test(record.section || "");
 }
 
 async function open(page, state) {

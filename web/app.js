@@ -115,6 +115,7 @@
         SPEAKING: "Speaking",
         ERROR: "Something went wrong",
       },
+      pausedLabel: "Paused",
       quickActions: {
         ask: "Ask anything",
         write: "Write",
@@ -184,6 +185,7 @@
         SPEAKING: "बोल रहा हूँ",
         ERROR: "समस्या हुई",
       },
+      pausedLabel: "रुका हुआ",
       quickActions: {
         ask: "कुछ भी पूछें",
         write: "लिखें",
@@ -224,6 +226,11 @@
       return undefined;
     }
   }
+
+  /** True while the user has paused a spoken reply (the orb stays SPEAKING; Resume carries on from the same spot). */
+  let speechPaused = false;
+  /** Bumped whenever speech is stopped or a new playback starts. A turn that finishes later must not set the orb idle over speech that is not its own. */
+  let speechEpoch = 0;
 
   const el = {
     orb: document.getElementById("orb"),
@@ -408,6 +415,7 @@
     // non-critical screen must never prevent the other buttons from receiving handlers.
     const optionalInitializers = [
       ["speech synthesis", setupSpeechSynthesis],
+      ["speech bar", setupSpeechBar],
       ["language UI", applyLanguage],
       ["voice toggle", applyVoiceToggleState],
       ["speech recognition", setupSpeechRecognition],
@@ -816,7 +824,7 @@
     if (!el.heroStatusLabel) return;
     const copy = COPY[state.lang];
     const key = el.orb?.dataset.state;
-    el.heroStatusLabel.textContent = navigator.onLine === false && (!key || key === "IDLE") ? copy.offlineLabel : copy.stateLabels[key] || copy.stateLabels.IDLE;
+    el.heroStatusLabel.textContent = key === "SPEAKING" && speechPaused ? copy.pausedLabel : navigator.onLine === false && (!key || key === "IDLE") ? copy.offlineLabel : copy.stateLabels[key] || copy.stateLabels.IDLE;
   }
 
   function setupConnectionState() {
@@ -1492,7 +1500,7 @@
   }
 
   /** Settings → Voice → "What this browser can do": only things the browser can really be asked, each with what to do about a "no". */
-  async function renderVoiceCheck() {
+  async function renderVoiceCheck({ announce = false } = {}) {
     const box = document.getElementById("voice-check-rows");
     if (!box) return;
     const mic = await microphonePermissionState();
@@ -1516,6 +1524,10 @@
       row.appendChild(copy);
       box.appendChild(row);
     }
+    // The result is the browser's answer right now: say when it was read, so "Check again" visibly did something even when nothing changed.
+    const time = document.getElementById("voice-check-time");
+    if (time) time.textContent = "Checked at " + new Date().toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (announce) showToast("Checked again");
   }
 
   async function renderPermissionCenter() {
@@ -2698,7 +2710,7 @@
   // its exact backend call (DELETE /api/v1/account, already wired server-side).
 
   function setupSettings() {
-    document.getElementById("voice-check-again")?.addEventListener("click", () => void renderVoiceCheck());
+    document.getElementById("voice-check-again")?.addEventListener("click", () => void renderVoiceCheck({ announce: true }));
     for (const btn of document.querySelectorAll("[data-settings-page]")) {
       btn.addEventListener("click", () => openSettingsPage(btn.dataset.settingsPage));
     }
@@ -4085,9 +4097,18 @@
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           if (fullMessage.trim()) kit("afterTurn", { isFirstTurn });
+          const speechOwner = speechEpoch;
           drainTts();
+          // The last (often the only) segment is requested only now, so nothing is scheduled yet: wait for every segment to be on the
+          // player before waiting for playback, or the turn ends "idle" and the audio then starts and leaves the UI on "Speaking" for good.
+          while (!controller.signal.aborted) {
+            drainTts();
+            if (!ttsTasks.size) break;
+            await Promise.allSettled([...ttsTasks]);
+            await delay(0); // lets each finished task leave the set
+          }
           await waitForTtsPlayback(controller.signal);
-          if (!controller.signal.aborted) setOrbState("IDLE");
+          if (!controller.signal.aborted && speechOwner === speechEpoch) setOrbState("IDLE");
         }
       };
 
@@ -4704,6 +4725,7 @@
   // sub-second rule): this runs synchronously the moment a turn starts, well before the
   // network call resolves, so the pulse appears the same frame as the tap/Enter.
   function setOrbState(newState) {
+    if (newState !== "SPEAKING") speechPaused = false; // a pause only means something while a reply is being spoken
     el.orb.dataset.state = newState;
     el.heroStatus.dataset.state = newState;
     document.body.dataset.orbState = newState;
@@ -4713,6 +4735,43 @@
     // `dataset.state` above (unchanged) is what CSS/animations key off of.
     renderHeroStatus();
     updateComposerMode();
+    syncSpeechBar();
+  }
+
+  /** The bar above the composer while a reply is spoken: its own state words, Pause / Resume and Stop. */
+  function syncSpeechBar() {
+    const bar = document.getElementById("speech-bar");
+    if (!bar) return;
+    const speaking = el.orb.dataset.state === "SPEAKING";
+    bar.hidden = !speaking;
+    bar.dataset.paused = String(speechPaused);
+    document.getElementById("speech-bar-label").textContent = speechPaused ? "Paused" : "Speaking";
+    const pause = document.getElementById("speech-pause");
+    pause.textContent = speechPaused ? "Resume" : "Pause";
+    pause.setAttribute("aria-pressed", String(speechPaused));
+  }
+
+  /**
+   * Pause or resume the reply being spoken, on whichever path is playing it: a streamed reply is scheduled on the AudioContext, which
+   * can be suspended and resumed where it stopped; a "Listen" reply is one audio element. Nothing is cancelled, so the turn is untouched.
+   */
+  function setSpeechPaused(on) {
+    if (on === speechPaused || (on && el.orb.dataset.state !== "SPEAKING")) return;
+    speechPaused = on;
+    if (activeAudio) {
+      if (on) activeAudio.pause();
+      else void activeAudio.play().catch(() => {});
+    } else if (activeAudioContext) {
+      void (on ? activeAudioContext.suspend() : activeAudioContext.resume());
+    }
+    renderHeroStatus();
+    syncSpeechBar();
+    announceChat(on ? "Paused" : "Speaking");
+  }
+
+  function setupSpeechBar() {
+    document.getElementById("speech-pause")?.addEventListener("click", () => setSpeechPaused(!speechPaused));
+    document.getElementById("speech-stop")?.addEventListener("click", () => { haptic(); stopSpeaking(); });
   }
 
   /** Swaps the Send button into a Stop button for the whole busy span (UNDERSTANDING through
@@ -4890,6 +4949,7 @@
   // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node, force = false) {
     if ((!state.speak && !force) || !text) return;
+    speechEpoch += 1; // this playback now owns the orb state
     if (node) attachWaveform(node);
     try {
       await speakWithGemini(text);
@@ -4935,7 +4995,7 @@
           // "Speaking" only once the browser reports audio is actually playing.
           audio.addEventListener("playing", () => setOrbState("SPEAKING"), { once: true });
           audio.addEventListener("ended", resolve, { once: true });
-          audio.addEventListener("pause", resolve, { once: true });
+          audio.addEventListener("pause", () => { if (!speechPaused) resolve(); });
           audio.addEventListener("error", () => reject(new Error("Gemini audio playback failed")), { once: true });
           audio.play().catch(reject);
         });
@@ -5091,6 +5151,9 @@
   }
 
   function stopSpeaking() {
+    speechEpoch += 1;
+    speechPaused = false;
+    if (activeAudioContext && activeAudioContext.state === "suspended") void activeAudioContext.resume(); // the next reply must be able to play
     for (const controller of activeTtsControllers) controller.abort();
     activeTtsControllers.clear();
     if (activeAudio) activeAudio.pause();

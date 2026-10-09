@@ -12,18 +12,20 @@ This document says what the workspace is, what it stores, which endpoints it add
 
 | Page | What it is | Source of truth |
 | --- | --- | --- |
-| Home | Prompt box, quick prompts, "continue" row, open-task count | `/conversations`, `/tasks` |
+| Home | Prompt box and quick prompts (a prompt is offered only if the build has a skill of that kind), "continue" rows, and below the first screen **Your workspace**: recent chats, projects, files, open tasks, recent tool runs, plan and credits | this browser's chat list, `/projects`, `/files`, `/tasks`, `/activity`, `/entitlements/me`, `/skills` |
 | Chat | The conversation, with an execution card for every tool run | SSE events of the turn; after a reload the stored ledger |
 | Work → Projects | Name, goal, description, chats, files, research, tasks, decisions, memory, activity, **Continue work** | `/projects/:id` (one read) |
 | Work → Files | Upload, search, filter, preview, summarize, explain, extract, compare, create output, rename, move, delete | `/files` |
 | Work → Research | Web searches with sources, key facts and notes with citations, comparisons/reports/outlines, Markdown export | `/executions`, `/notes?kind=research` |
-| Work → Tasks | Tracked tasks with a truthful lifecycle | `/tasks` |
+| Work → Tasks | Tracked tasks with a truthful lifecycle; List or Board, filters with counts, sort, search | `/tasks` |
 | Work → Outputs | Replies saved as files, recent results that can be saved | `/files` (generated ones), `/executions` |
 | Agents | Personal, Research, Documents, Creative, Business, Developer: skills, permissions, limits, current work, recent results | `/agents`, `/agents/:id` (views over the SkillRegistry) |
 | Activity | One merged feed of tool runs, tasks, files, notes, chats and projects | `/activity` |
 | Plans & Usage | Plan, credits, real usage by skill | `/usage/summary` |
 | Settings → Memory | What ZARVIS remembers: only what the user saved | `/memory`, `/notes` |
 | Capabilities | Every capability with WORKING / PARTIAL / PLANNED / UNSUPPORTED | `web/feature-pages.js` (unit tested) |
+| Settings → Integrations | GitHub from the server's own connection status, Calendar from the capability registry (Planned); there is no Gmail, Drive or Slack integration and the page says so | `/integrations/github`, `/capabilities` |
+| Settings → Voice | Spoken replies and voice, plus **What this browser can do**: secure context, speech recognition, microphone permission, audio playback, read from the browser | the browser's own APIs |
 
 Phone tab bar: Home, Work, Chat, Agents, Settings. Plans & Usage, Activity and Profile are in the menu drawer.
 
@@ -50,6 +52,17 @@ Phone tab bar: Home, Work, Chat, Agents, Settings. Plans & Usage, Activity and P
 - **Developer tests are GitHub's, not ZARVIS's.** ZARVIS runs no tests. The only test evidence shown is the pull
   request's own check-runs read from GitHub (`GET /developer/pr-status`); with no checks the UI says there is no test
   result.
+- **Home says only what the server returned.** "Your workspace" is drawn from one read of the account per visit (kept for 8
+  seconds, forgotten the moment this page writes something or a chat turn ends). A list that could not be read is named
+  ("Some of this is missing: files could not be loaded") and is never drawn as empty; an account counts as new, and gets the
+  "Start here" guide, only when every list was read and all of them are empty. The guide can be hidden for good.
+- **The task board is a view, not a second lifecycle.** Columns are Not started, In progress, Waiting for you, Stopped and
+  Finished; every backend lifecycle value lands in exactly one (a run that stopped answering is Stopped, an unknown value
+  gets an "Other" column). Cards are the list's own task cards, so Run, Retry, Cancel and confirmations are one implementation.
+- **Money outcomes follow the server.** After Checkout the page says "Pro is active" only when the server granted it. A
+  refused verification says the plan was not changed, an unanswered one says the payment is unconfirmed and keeps checking, and
+  if the plan still is not active after about 30 seconds it says so. The result stays on the Plans page with the payment id.
+- **Integrations are only what exists.** GitHub is "Connected as X" only when the server holds a stored connection.
 - **Android-only actions are not pretended.** Calls, contacts and notification access are UNSUPPORTED on the web and
   say so.
 
@@ -98,8 +111,14 @@ planner prompt.
 - **Task writes are conditional.** A step that finishes at the same moment as a Cancel can no longer overwrite it (or
   be erased by it): the loser re-reads what actually happened. If a Cancel keeps losing, it says so instead of
   claiming success.
+- **Chats cannot be renamed, pinned, archived or deleted.** The server has no endpoint for any of those (only list, read, run
+  history and move-into-project), so the web offers none; "Remove from list" only hides a chat on this browser.
+- **Agent pages show each skill's risk, cost, plan availability and confirmation rule**, which the server returns. They do not
+  show a per-skill WORKING / PARTIAL status (the registry has none per skill); that lives on the Capabilities page.
 - **Tasks per account are not capped** (as before this phase); every chat turn lists the account's tasks to find the
   open ones. Projects, notes and files are capped (`workspace/limits.ts`).
+- **Page reads are bounded too:** the client gives up on a list, plan, task list or chat history after 25 seconds and shows its
+  unavailable state (`apiFetch` `timeoutMs`); streams, uploads and speech are not cut short.
 - **Outbound calls are bounded** (model calls 90 s, or 120 s when streaming; image analysis and web search 60 s; text to
   speech 120 s; GitHub 15 s; the Google sign-in key fetch 8 s). The Razorpay and Google Play verifier calls in
   `billing/` predate this phase and have no explicit timeout; they run inside the platform's function limit.
@@ -115,6 +134,7 @@ planner prompt.
   - `web/e2e/phase1.e2e.cjs`: auth, sessions, chat, developer, navigation, Hindi.
   - `web/e2e/quality.e2e.cjs`: nine widths from 320 to 1920 on every page, axe in light, dark and Hindi, keyboard,
     offline shell, voice, duplicate submission.
+  - `web/tests/css.test.js`: the design system guards (see [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)).
   - `web/e2e/workspace.e2e.cjs`: projects and Continue work, files, research and citations, tasks, agents, activity,
     memory, execution cards (live stages, confirmation, failure, stored), pull-request evidence, composer files,
     navigation, offline and a stalled server.

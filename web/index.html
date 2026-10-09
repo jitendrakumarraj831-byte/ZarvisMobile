@@ -624,6 +624,7 @@
                   <button type="button" class="btn btn-ghost btn-sm" id="voice-check-again">Check again</button>
                 </div>
                 <div id="voice-check-rows" aria-live="polite"></div>
+                <p class="hint" id="voice-check-time" role="status"></p>
               </div>
             </section>
 
@@ -762,6 +763,12 @@
       <footer class="composer" id="composer" hidden>
         <div class="composer-inner">
           <div class="slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
+          <div class="speech-bar" id="speech-bar" role="group" aria-label="Spoken reply" data-paused="false" hidden>
+            <span class="speech-bar-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span class="speech-bar-label" id="speech-bar-label">Speaking</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="speech-pause" aria-pressed="false">Pause</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="speech-stop">Stop</button>
+          </div>
           <div class="attachment-chip" id="attachment-chip" hidden>
             <span class="attachment-ico" aria-hidden="true"><svg class="ico"><use href="#i-file"/></svg></span>
             <span class="attachment-text">

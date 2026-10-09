@@ -551,6 +551,73 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await ctx.close();
   });
 
+  // The pages this release added or reshaped, with real data on the account: accessibility (axe) in light, dark and Hindi, and no horizontal
+  // overflow at every width in the brief (320, 360, 390, 412, 768, 1024, 1280, 1440).
+  await step("New pages with data: no serious/critical axe violation (phone and desktop, light, dark, Hindi) and no overflow at 320-1440 (Home dashboard, projects, task list and board, Integrations, Voice, an agent)", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
+    const page = await pageOf(ctx);
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    await ready(page);
+    await seedWorkspace(page);
+    await page.evaluate(async () => {
+      const call = (path, body) => fetch("/api/v1" + path, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify(body) }).then((r) => r.json());
+      await call("/projects", { name: "Tax filing", goal: "File returns before the deadline" });
+      const t = await call("/tasks", { goal: "Review the draft", steps: ["hello", "hello again"] });
+      await call("/tasks/" + t.id + "/run", {});
+    });
+    const ROUTES = ["#/home", "#/work/projects", "#/work/tasks", "#/work/tasks:board", "#/settings/integrations", "#/settings/voice", "#/agents/research", "#/plans"];
+    const go = async (route) => {
+      const [hash, mode] = route.split(":");
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForTimeout(650);
+      if (route.startsWith("#/work/tasks")) {
+        await page.waitForSelector("#tasks-view [data-view]");
+        await page.click(`#tasks-view [data-view=${mode === "board" ? "board" : "list"}]`);
+        await page.waitForTimeout(150);
+      }
+      if (hash === "#/home") await page.waitForSelector("#home-dash:not([hidden]) .dash-card");
+    };
+    const found = [];
+    for (const [label, viewport, appearance, lang] of [["phone light", { width: 390, height: 860 }, "aurora", "en"], ["phone dark", { width: 390, height: 860 }, "dim", "en"], ["desktop light", { width: 1280, height: 860 }, "aurora", "en"], ["desktop dark", { width: 1280, height: 860 }, "dim", "en"], ["phone Hindi", { width: 390, height: 860 }, "aurora", "hi"]]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
+      await page.reload();
+      await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await page.addScriptTag({ content: AXE_SOURCE });
+      for (const route of ROUTES) {
+        await go(route);
+        const violations = await page.evaluate(async () => {
+          // eslint-disable-next-line no-undef
+          const r = await axe.run(document, { resultTypes: ["violations"] });
+          return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 2).map((n) => n.target.join(" ")).join(" | ")}`);
+        });
+        for (const v of violations) found.push(`${label} ${route}: ${v}`);
+      }
+    }
+    assert.deepEqual(found, [], "axe");
+    // Overflow at every width from the brief, light theme, English.
+    await page.evaluate(() => { localStorage.setItem("zarvis.appearance", "aurora"); localStorage.setItem("zarvis.lang", "en"); });
+    await page.reload();
+    await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const over = [];
+    for (const width of [320, 360, 390, 412, 768, 1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 860 });
+      await page.waitForTimeout(200);
+      for (const route of ROUTES) {
+        await go(route);
+        const extra = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+        if (extra > 1) over.push(`${route} @${width}px: ${extra}px wider than the screen`);
+        // Nothing the user needs may be clipped by the screen edge: every visible button and card stays inside the viewport's width.
+        const cut = await page.evaluate(() => [...document.querySelectorAll("#view-home .dash-card, #view-work .ws-card, #view-work .task-card, .settings-panel:not([hidden]) .capability-item, .settings-panel:not([hidden]) .control-row")].filter((n) => n.getClientRects().length && !n.closest(".task-board")).filter((n) => { const r = n.getBoundingClientRect(); return r.left < -1 || r.right > innerWidth + 1; }).map((n) => n.className.split(" ")[0]));
+        if (cut.length) over.push(`${route} @${width}px: cut off by the screen edge: ${[...new Set(cut)].join(", ")}`);
+      }
+    }
+    assert.deepEqual(over, [], "overflow");
+    assert.deepEqual(errs, [], "no uncaught page errors");
+    await ctx.close();
+  });
+
   // Chat with real content: a formatted reply (list, code), an action row, a finished tool and a waiting "Thinking" card.
   // One guest account for all four looks: the server allows 60 sign-ups an hour per address and the suites share them.
   await step("accessibility: Chat with a rich reply, a tool row and Thinking has no serious/critical axe violation (phone and desktop, both themes)", async () => {
@@ -735,6 +802,94 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await page.waitForTimeout(800);
     assert.equal(turns, 1, "a result while speaking was ignored");
     assert.equal(await page.evaluate(() => window.__recognitionStarts), 1, "the mic never restarted on its own");
+    await ctx.close();
+  });
+
+  // Pause and Resume hold a spoken reply where it is on both playback paths (a streamed reply and "Listen"); Stop ends it and leaves audio ready for the next one.
+  await step("voice: a spoken reply returns to idle when it ends (it used to stay on Speaking); Pause holds it, Resume carries on, Stop ends it, and the next reply still plays", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, permissions: ["microphone"] });
+    await ctx.addInitScript(() => {
+      localStorage.setItem("zarvis.speak", "on");
+      class FakeRecognition extends EventTarget {
+        start() { window.__recognition = this; }
+        stop() { this.dispatchEvent(new Event("end")); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = FakeRecognition;
+      window.webkitSpeechRecognition = FakeRecognition;
+      window.__say = (text) => { const ev = new Event("result"); ev.results = [[{ transcript: text }]]; window.__recognition.dispatchEvent(ev); window.__recognition.dispatchEvent(new Event("end")); };
+    });
+    const page = await pageOf(ctx);
+    const seconds = 3;
+    const pcm = Buffer.alloc(24000 * 2 * seconds); // 3 s of 24 kHz 16-bit silence
+    const wav = Buffer.concat([Buffer.from("RIFF"), Buffer.from(new Uint32Array([36 + pcm.length]).buffer), Buffer.from("WAVEfmt "), Buffer.from(new Uint32Array([16]).buffer), Buffer.from(new Uint16Array([1, 1]).buffer), Buffer.from(new Uint32Array([24000, 48000]).buffer), Buffer.from(new Uint16Array([2, 16]).buffer), Buffer.from("data"), Buffer.from(new Uint32Array([pcm.length]).buffer), pcm]);
+    let streamed = 0;
+    let listened = 0;
+    await page.route("**/api/v1/orchestrator/turn-stream", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("Namaste. Main ZARVIS hoon.") }));
+    await page.route("**/api/v1/tts/synthesize-stream", (route) => { streamed += 1; return route.fulfill({ status: 200, contentType: "audio/pcm", body: pcm }); });
+    await page.route("**/api/v1/tts/synthesize", (route) => { listened += 1; return route.fulfill({ status: 200, contentType: "audio/wav", body: wav }); });
+    await ready(page);
+    await openView(page, "chat");
+    const bar = () => page.evaluate(() => ({ hidden: document.getElementById("speech-bar").hidden, label: document.getElementById("speech-bar-label").textContent, button: document.getElementById("speech-pause").textContent, pressed: document.getElementById("speech-pause").getAttribute("aria-pressed"), hero: document.getElementById("hero-status-label").textContent, state: document.getElementById("orb").dataset.state }));
+    const say = async () => { await page.click("#mic-btn"); await page.evaluate(() => window.__say("namaste zarvis")); };
+    let stage = "start";
+    try {
+
+    stage = "streamed reply: pause";
+    // A streamed reply: pause holds it.
+    await say();
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    let b = await bar();
+    assert.deepEqual([b.label, b.button, b.pressed, b.state], ["Speaking", "Pause", "false", "SPEAKING"]);
+    await page.click("#speech-pause");
+    b = await bar();
+    assert.deepEqual([b.label, b.button, b.pressed, b.hero, b.state], ["Paused", "Resume", "true", "Paused", "SPEAKING"]);
+    await page.waitForTimeout((seconds + 1) * 1000); // longer than the whole reply: if Pause did not hold it, it would be over
+    b = await bar();
+    assert.equal(b.hidden, false, "still held after longer than the reply lasts");
+    assert.equal(b.state, "SPEAKING");
+    await page.click("#speech-pause");
+    b = await bar();
+    assert.deepEqual([b.label, b.button, b.pressed], ["Speaking", "Pause", "false"]);
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden && document.getElementById("orb").dataset.state === "IDLE", null, { timeout: 15000 });
+
+    stage = "paused then stop";
+    // Paused, then Stop: it ends, and the next reply plays (the audio was not left suspended).
+    await say();
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    await page.click("#speech-pause");
+    await page.click("#speech-stop");
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden && document.getElementById("orb").dataset.state === "IDLE");
+    b = await bar();
+    assert.equal(b.pressed, "false", "Stop clears the pause");
+    stage = "next reply plays";
+    const before = streamed;
+    await say();
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    assert.ok(streamed > before, "the next reply was spoken");
+    assert.equal((await bar()).label, "Speaking");
+    await page.click("#speech-stop");
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden);
+
+    stage = "listen";
+    // "Listen" on a message (one audio element): Pause holds it, Resume lets it finish.
+    await page.click(".bubble.assistant .bubble-actions button[aria-label=Listen]");
+    stage = "listen: waiting for the bar";
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    assert.equal(listened, 1);
+    stage = "listen: pause click";
+    await page.click("#speech-pause", { timeout: 4000 });
+    assert.equal((await bar()).label, "Paused");
+    stage = "listen: held";
+    await page.waitForTimeout((seconds + 1) * 1000);
+    assert.equal((await bar()).hidden, false, "Listen is held too");
+    stage = "listen: resume click";
+    await page.click("#speech-pause", { timeout: 4000 });
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden && document.getElementById("orb").dataset.state === "IDLE", null, { timeout: 15000 });
+    } catch (err) {
+      err.message = `[${stage}] bar=` + JSON.stringify(await bar().catch(() => null)) + " listened=" + listened + " streamed=" + streamed + " :: " + err.message;
+      throw err;
+    }
     await ctx.close();
   });
 

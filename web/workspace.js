@@ -194,8 +194,13 @@
       row.dataset.fade = edges.join(" ");
     };
     row.addEventListener("scroll", update, { passive: true });
-    if (typeof ResizeObserver === "function") new ResizeObserver(update).observe(row);
-    window.addEventListener("resize", update);
+    // Tied to the element (nothing on window), so a row that is rebuilt and dropped, like the task board on every repaint, leaves
+    // nothing behind. The children are watched too: their width changes with the language, while the row's own box does not.
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(update);
+      observer.observe(row);
+      for (const child of row.children) observer.observe(child);
+    }
     update();
     row.__updateFade = update;
   }

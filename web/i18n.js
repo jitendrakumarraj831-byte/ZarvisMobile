@@ -1268,7 +1268,12 @@
     "The browser will ask the first time you tap the orb or microphone.": "पहली बार ऑर्ब या माइक्रोफ़ोन दबाने पर ब्राउज़र पूछेगा।",
     "The browser decides when you tap the orb; this browser does not say in advance.": "ऑर्ब दबाने पर ब्राउज़र तय करता है; यह ब्राउज़र पहले से नहीं बताता।",
     "Available. A browser may keep sound off until you have tapped the page once.": "उपलब्ध है। ब्राउज़र पेज को एक बार दबाने तक आवाज़ बंद रख सकता है।",
-    "Not available in this browser, so spoken replies cannot play.": "इस ब्राउज़र में उपलब्ध नहीं है, इसलिए बोलकर जवाब नहीं चल सकते।"
+    "Not available in this browser, so spoken replies cannot play.": "इस ब्राउज़र में उपलब्ध नहीं है, इसलिए बोलकर जवाब नहीं चल सकते।",
+    "Spoken reply": "बोला जा रहा जवाब",
+    "Speaking": "बोल रहा हूँ",
+    "Stop": "बंद करें",
+    "Checked again": "फिर जाँच लिया",
+    "Microphone": "माइक्रोफ़ोन"
   };
   for (var extra in HI_WORKSPACE) if (Object.prototype.hasOwnProperty.call(HI_WORKSPACE, extra) && !Object.prototype.hasOwnProperty.call(HI, extra)) HI[extra] = HI_WORKSPACE[extra];
 
@@ -1359,6 +1364,7 @@
     [new RegExp("^(\\d+) personal memory items?$"), "$1 निजी मेमोरी आइटम"],
     [new RegExp("^(\\d+) items?$"), "$1 आइटम"],
     [new RegExp("^(\\d+) searche?s?$"), "$1 खोज"],
+    [new RegExp("^Checked at (.+)$"), "जाँच का समय: $1"],
     [new RegExp("^Connected as (.+)$"), "$1 के रूप में जुड़ा"],
     [new RegExp("^(\\d+) open$"), "$1 खुले"],
     [new RegExp("^(\\d+) stopped$"), "$1 रुके"],
