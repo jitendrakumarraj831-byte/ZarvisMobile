@@ -67,9 +67,11 @@ describe.each(STORES)("task writes that race (%s)", (_label, makeStore) => {
   it("a cancel that lands between a step's read and its write stays cancelled", async () => {
     const task = await service.create(accountId, "Goal", "LOW", ["Slow", "Next"]);
     let release!: () => void;
-    turn = () => new Promise((resolve) => { release = () => resolve(reply("late")); });
+    let turnStarted!: () => void;
+    const started = new Promise<void>((resolve) => { turnStarted = resolve; });
+    turn = () => new Promise((resolve) => { release = () => resolve(reply("late")); turnStarted(); });
     const running = service.resume(task.id);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await started; // the step really is mid-turn (no guessing with a timer: a loaded database is slow to get here)
     // The cancel arrives exactly when the runner is about to write its result.
     beforeNextConditionalWrite(store, () => service.cancel(task.id));
     release();
