@@ -102,17 +102,21 @@ interface GitHubTree {
   tree?: Array<{ path: string; type: string }>;
 }
 
+/** How long one GitHub API call may take before it is given up as unreachable. */
+export const GITHUB_TIMEOUT_MS = 15_000;
+
 export class RealGitHubClient implements GitHubClient {
   constructor(
     private readonly token?: string,
     private readonly baseUrl = "https://api.github.com",
+    private readonly timeoutMs = GITHUB_TIMEOUT_MS,
   ) {}
 
   async getAuthenticatedUser(): Promise<GitHubUser> {
     if (!this.token) throw new GitHubApiError(401, "No GitHub token");
-    const response = await fetch(`${this.baseUrl}/user`, { headers: this.headers() });
+    const response = await this.send("/user", { headers: this.headers() });
     if (!response.ok) throw new GitHubApiError(response.status, `GitHub /user failed (${response.status})`);
-    const body = (await response.json()) as { login?: string };
+    const body = await this.readJson<{ login?: string }>(response);
     if (!body.login) throw new GitHubApiError(502, "GitHub /user returned no login");
     return { login: body.login, scopes: response.headers.get("x-oauth-scopes") ?? "" };
   }
@@ -288,9 +292,29 @@ export class RealGitHubClient implements GitHubClient {
     return headers;
   }
 
+  /** One GitHub call, bounded in time (the signal also covers reading the body), so a stalled GitHub cannot hang a request. */
+  private async send(path: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(`${this.baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+    } catch (err) {
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) throw new GitHubApiError(504, "GitHub did not answer in time.");
+      throw err;
+    }
+  }
+
+  /** The body of a GitHub answer; a body that stalls past the same limit is reported like a call that never answered. */
+  private async readJson<T>(response: Response): Promise<T> {
+    try {
+      return (await response.json()) as T;
+    } catch (err) {
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) throw new GitHubApiError(504, "GitHub did not answer in time.");
+      throw err;
+    }
+  }
+
   private async requestRaw<T>(path: string, method: string, body?: unknown): Promise<T> {
     const headers = this.headers(true);
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await this.send(path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -299,11 +323,11 @@ export class RealGitHubClient implements GitHubClient {
       const detail = await response.text().catch(() => "");
       throw new GitHubApiError(response.status, `GitHub write failed (${response.status}) ${detail.slice(0, 200)}`.trim());
     }
-    return (await response.json()) as T;
+    return this.readJson<T>(response);
   }
 
   private async request<T>(path: string): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
+    const response = await this.send(path, { headers: this.headers() });
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       const hint =
@@ -314,7 +338,7 @@ export class RealGitHubClient implements GitHubClient {
             : "GitHub API request failed.";
       throw new GitHubApiError(response.status, `${hint} (${response.status}) ${detail.slice(0, 200)}`.trim());
     }
-    return (await response.json()) as T;
+    return this.readJson<T>(response);
   }
 }
 
