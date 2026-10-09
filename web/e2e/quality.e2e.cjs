@@ -1006,17 +1006,23 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     assert.notEqual(m.card, "none", "the card shows no focus ring");
   });
 
-  await step("Plans and Usage: no word in a figure tile breaks in the middle at 560-1280px, in English and Hindi", async () => {
+  await step("Plans and Usage: no word in a figure tile breaks in the middle at 560-1440px, in English and Hindi, in the widest common fallback font", async () => {
     const problems = [];
     for (const lang of ["en", "hi"]) {
       const ctx = await browser.newContext({ viewport: { width: 560, height: 800 } });
       await ctx.addInitScript((l) => { try { localStorage.setItem("zarvis.lang", l); } catch {} }, lang);
+      // Which font "system-ui" resolves to differs between machines (a designer's laptop has Inter, a bare CI runner has DejaVu Sans, which is
+      // much wider), and a figure that fits in one breaks in the other. The check always runs in the wide one.
+      await ctx.route("**/styles.css", async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, body: (await response.text()).replace(/--font-body:\s*/, '--font-body: "DejaVu Sans", ') });
+      });
       const page = await pageOf(ctx);
       await ready(page);
       for (const view of ["plans", "metrics"]) {
         await openView(page, view);
         await page.waitForTimeout(900);
-        for (const width of [560, 720, 768, 800, 860, 900, 1024, 1100, 1280]) {
+        for (const width of [560, 720, 768, 800, 860, 900, 960, 1009, 1010, 1024, 1060, 1099, 1100, 1150, 1199, 1200, 1280, 1440]) {
           await page.setViewportSize({ width, height: 800 });
           await page.waitForTimeout(250);
           const split = await page.evaluate(() => {

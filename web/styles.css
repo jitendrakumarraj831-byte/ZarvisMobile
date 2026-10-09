@@ -903,8 +903,9 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
 .stat-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stat-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s4); }
-/* Four across only when each tile keeps room for its icon and a whole word: below 900px (with the 72px rail beside the page) a tile is under 175px and "enabled" or "Payments" broke in the middle. */
-@media (min-width: 900px) { #metrics-usage, #plans-current { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Four across only when a tile keeps room for its icon and a whole word, also in the widest fallback font (DejaVu Sans on a bare
+   machine): about 205px. The page is 72px of rail narrower up to 1099px and 260px of sidebar narrower from 1100px, so that is 1010px and 1200px. */
+@media (min-width: 1010px) and (max-width: 1099px), (min-width: 1200px) { #metrics-usage, #plans-current { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .stat-tile {
   display: flex; flex-direction: column; gap: 4px; min-width: 0;
   padding: var(--s4); border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-1);
