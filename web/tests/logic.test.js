@@ -75,7 +75,11 @@ test("reply formatting: headings, numbered lists, fenced code and safe links", (
   const html = L.formatReplyHtml("## Plan\n1. first\n2. second\n```js\nconst a = \"<b>\";\n```\nSee [docs](https://ex.com/a?b=1&c=2) or https://x.org/p.\n[bad](javascript:alert(1))");
   assert.ok(html.includes('<div class="reply-heading reply-h2">Plan</div>'));
   assert.ok(html.includes('<ol class="reply-list reply-ol"><li>first</li><li>second</li></ol>'));
-  assert.ok(html.includes('<pre class="reply-code" data-lang="js"><code>const a = &quot;&lt;b&gt;&quot;;</code></pre>'));
+  // The code is coloured now; what must never change is the text and that it stays escaped.
+  const block = html.match(/<pre class="reply-code" data-lang="js"><code>([\s\S]*?)<\/code><\/pre>/);
+  assert.ok(block, "a js code block");
+  assert.equal(block[1].replace(/<\/?span[^>]*>/g, ""), "const a = &quot;&lt;b&gt;&quot;;");
+  assert.ok(!block[1].includes("<b>"));
   assert.ok(html.includes('<a href="https://ex.com/a?b=1&amp;c=2" target="_blank" rel="noopener noreferrer">docs</a>'));
   assert.ok(html.includes('<a href="https://x.org/p" target="_blank" rel="noopener noreferrer">https://x.org/p</a>.'));
   assert.ok(!html.includes('href="javascript'));
@@ -390,4 +394,226 @@ test("feature status words are the four honest ones", () => {
   assert.equal(L.isFeatureStatus("WORKING"), true);
   assert.equal(L.isFeatureStatus("ACTIVE"), false);
   assert.equal(L.isFeatureStatus("working"), false);
+});
+
+test("reply formatting: pipe tables become a scrollable, labelled table with alignment, escaped cells and inline markdown", () => {
+  const html = L.formatReplyHtml("Prices:\n\n| Item | Qty | Note |\n|:--|:-:|--:|\n| **Tea** | 2 | a \\| b |\n| <b>x</b> | 3 |\n\nDone");
+  assert.match(html, /<div class="reply-table-wrap" role="region" tabindex="0" aria-label="Table"><table class="reply-table">/);
+  assert.match(html, /<th scope="col">Item<\/th><th scope="col" class="al-c">Qty<\/th><th scope="col" class="al-r">Note<\/th>/);
+  assert.match(html, /<td><strong>Tea<\/strong><\/td><td class="al-c">2<\/td><td class="al-r">a \| b<\/td>/);
+  // A short row is padded to the header width; HTML in a cell is escaped.
+  assert.match(html, /<td>&lt;b&gt;x&lt;\/b&gt;<\/td><td class="al-c">3<\/td><td class="al-r"><\/td>/);
+  assert.ok(!html.includes("<b>x"));
+  assert.match(html, /<div class="reply-line">Done<\/div>$/);
+});
+
+test("reply formatting: a table needs its delimiter row, so a header seen mid-stream is plain text and 'a | b' prose is not a table", () => {
+  assert.doesNotMatch(L.formatReplyHtml("| Item | Qty |"), /<table/);
+  assert.doesNotMatch(L.formatReplyHtml("Use a | b to choose.\n---"), /<table/);
+  // Different cell counts are not a table either.
+  assert.doesNotMatch(L.formatReplyHtml("| a | b |\n|---|"), /<table/);
+  assert.match(L.formatReplyHtml("| a | b |\n|---|---|"), /<table[^>]*><thead>.*<\/thead><tbody><\/tbody><\/table>/);
+});
+
+test("reply formatting: block quotes, deeper headings and strikethrough", () => {
+  const html = L.formatReplyHtml("> Note **this**\n>\n> and that\nplain\n#### Small heading\n~~old~~ new, 2 ~ 3 ~ 4");
+  assert.match(html, /<blockquote class="reply-quote"><div class="reply-line">Note <strong>this<\/strong><\/div><div class="reply-spacer" aria-hidden="true"><\/div><div class="reply-line">and that<\/div><\/blockquote><div class="reply-line">plain<\/div>/);
+  assert.match(html, /<div class="reply-heading reply-h3">Small heading<\/div>/);
+  assert.match(html, /<del>old<\/del> new, 2 ~ 3 ~ 4/);
+  // A ">" inside a code fence is code, not a quote.
+  assert.doesNotMatch(L.formatReplyHtml("```\n> not a quote\n```"), /blockquote/);
+  // An unclosed quote at the end of a streaming reply is closed.
+  assert.ok(L.formatReplyHtml("> still typing").endsWith("</blockquote>"));
+});
+
+test("syntax highlighting colours comments, strings, numbers, keywords and literals, and escapes everything it emits", () => {
+  const js = L.highlightCode('const n = 42; // answer\nlet s = "<img onerror=x>"; return null', "ts");
+  assert.match(js, /<span class="tok-kw">const<\/span> n = <span class="tok-num">42<\/span>; <span class="tok-com">\/\/ answer<\/span>/);
+  assert.match(js, /<span class="tok-str">&quot;&lt;img onerror=x&gt;&quot;<\/span>/);
+  assert.match(js, /<span class="tok-lit">null<\/span>/);
+  assert.ok(!js.includes("<img"));
+  // Identifiers that merely contain a keyword are left alone.
+  assert.doesNotMatch(L.highlightCode("constant forEach iffy", "js"), /tok-kw/);
+  const py = L.highlightCode('def f(x):\n    """doc"""\n    return None  # done', "python");
+  assert.match(py, /<span class="tok-kw">def<\/span> f/);
+  assert.match(py, /<span class="tok-str">&quot;&quot;&quot;doc&quot;&quot;&quot;<\/span>/);
+  assert.match(py, /<span class="tok-lit">None<\/span>/);
+  assert.match(py, /<span class="tok-com"># done<\/span>/);
+  const json = L.highlightCode('{"name": "zarvis", "n": -1.5e3, "ok": true}', "json");
+  assert.match(json, /<span class="tok-attr">&quot;name&quot;<\/span>: <span class="tok-str">&quot;zarvis&quot;<\/span>/);
+  assert.match(json, /<span class="tok-num">-1\.5e3<\/span>/);
+  assert.match(json, /<span class="tok-lit">true<\/span>/);
+  const sh = L.highlightCode('export PATH="$HOME/bin:$PATH" # set', "bash");
+  assert.match(sh, /<span class="tok-kw">export<\/span> PATH=<span class="tok-str">&quot;\$HOME\/bin:\$PATH&quot;<\/span> <span class="tok-com"># set<\/span>/);
+  assert.match(L.highlightCode("SELECT id FROM t WHERE x = 'a''b' -- c", "sql"), /<span class="tok-kw">SELECT<\/span> id <span class="tok-kw">FROM<\/span> t <span class="tok-kw">WHERE<\/span> x = <span class="tok-str">&#39;a&#39;&#39;b&#39;<\/span> <span class="tok-com">-- c<\/span>/);
+  const css = L.highlightCode("@media (min-width: 700px) { a:hover { color: #fff; margin: 0 8px } }", "css");
+  assert.match(css, /<span class="tok-kw">@media<\/span>/);
+  assert.match(css, /<span class="tok-attr">color<\/span>: <span class="tok-num">#fff<\/span>/);
+  assert.match(css, /<span class="tok-num">8px<\/span>/);
+  const html = L.highlightCode('<a href="x" data-a=\'b\'>hi</a><!-- c -->', "html");
+  assert.match(html, /<span class="tok-tag">&lt;a<\/span> <span class="tok-attr">href<\/span>=<span class="tok-str">&quot;x&quot;<\/span>/);
+  assert.match(html, /<span class="tok-tag">&gt;<\/span>hi<span class="tok-tag">&lt;\/a<\/span><span class="tok-tag">&gt;<\/span>/);
+  assert.match(html, /<span class="tok-com">&lt;!-- c --&gt;<\/span>/);
+});
+
+test("syntax highlighting never changes the text, only wraps it; unknown languages and huge blocks stay plain", () => {
+  const samples = [
+    ["js", "const a = `x ${y}`; /* unclosed"],
+    ["python", "s = 'unterminated\nx = 1"],
+    ["json", '{"a": [1, 2, {"b": null}], "c": "unterminated'],
+    ["html", "<div class=\"a\"><p>text &amp; more</p><!-- open"],
+    ["css", "a { b: c; } /* open"],
+    ["sql", "select * from t; -- c"],
+    ["shell", "echo $HOME ${X} 'q"],
+  ];
+  const textOf = (html) => html.replace(/<\/?span[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+  for (const [lang, code] of samples) assert.equal(textOf(L.highlightCode(code, lang)), code, lang);
+  assert.equal(L.highlightCode("const a = 1 < 2", "cobol"), "const a = 1 &lt; 2");
+  assert.equal(L.highlightCode("const a = 1", ""), "const a = 1");
+  const big = "const a = 1;\n".repeat(4000);
+  assert.ok(!L.highlightCode(big, "js").includes("<span"));
+  assert.equal(L.highlightLanguage("TypeScript"), "js");
+  assert.equal(L.highlightLanguage("zsh"), "shell");
+  assert.equal(L.highlightLanguage("brainfuck"), null);
+});
+
+test("a fenced block in a reply is coloured, keeps its language label and its copy text, and an unknown language stays plain", () => {
+  const html = L.formatReplyHtml("```python\nprint(\"hi\")  # greet\n```\n```unknownlang\nprint(\"hi\")\n```");
+  assert.match(html, /<pre class="reply-code" data-lang="python"><code>print\(<span class="tok-str">&quot;hi&quot;<\/span>\)  <span class="tok-com"># greet<\/span><\/code><\/pre>/);
+  assert.match(html, /<pre class="reply-code" data-lang="unknownlang"><code>print\(&quot;hi&quot;\)<\/code><\/pre>/);
+});
+
+test("a refused or unanswered payment confirmation never reads as 'payment received'", () => {
+  const rejected = L.paymentVerifyOutcome(400, "invalid_signature");
+  assert.equal(rejected.kind, "rejected");
+  assert.equal(rejected.tone, "err");
+  assert.match(rejected.message, /plan was not changed/);
+  assert.equal(L.paymentVerifyOutcome(400, "payment_mismatch").kind, "rejected");
+  assert.equal(L.paymentVerifyOutcome(404, "order_not_found").kind, "rejected");
+  const pending = L.paymentVerifyOutcome(402, "payment_not_captured");
+  assert.equal(pending.kind, "pending");
+  assert.equal(pending.tone, "warn");
+  assert.ok(pending.polls > rejected.polls, "a bank still processing is worth waiting for; a rejection is not");
+  for (const [status, code] of [[0, undefined], [502, "gateway_error"], [504, "gateway_error"], [503, "payments_unavailable"], [500, undefined], [429, undefined]]) {
+    const o = L.paymentVerifyOutcome(status, code);
+    assert.equal(o.kind, "unreachable", `${status} ${code}`);
+    assert.match(o.message, /If you were charged/);
+  }
+  for (const o of [rejected, pending, L.paymentVerifyOutcome(0)]) assert.doesNotMatch(o.message, /received|successful|thank/i);
+});
+
+test("projects: search covers name, goal and description; sorts are stable and never invent a project", () => {
+  const mk = (name, goal, openTasks, updatedAt, description = "") => ({ id: name, name, goal, description, counts: { openTasks }, updatedAt });
+  const list = [mk("Website relaunch", "Ship the marketing site", 1, "2026-10-01T10:00:00Z"), mk("apple pie", "Bake", 0, "2026-10-03T10:00:00Z", "Grandma's recipe"), mk("Tax filing", "File returns", 3, "2026-10-02T10:00:00Z"), mk("Project 10", "", 0, "2026-09-01T10:00:00Z"), mk("Project 2", "", 0, "2026-09-02T10:00:00Z")];
+  assert.deepEqual(L.filterProjects(list).map((p) => p.name), ["apple pie", "Tax filing", "Website relaunch", "Project 2", "Project 10"]);
+  assert.deepEqual(L.filterProjects(list, { sort: "name" }).map((p) => p.name), ["apple pie", "Project 2", "Project 10", "Tax filing", "Website relaunch"], "case-insensitive, numbers in order");
+  assert.deepEqual(L.filterProjects(list, { sort: "tasks" }).map((p) => p.name).slice(0, 2), ["Tax filing", "Website relaunch"]);
+  assert.deepEqual(L.filterProjects(list, { query: "  MARKETING " }).map((p) => p.name), ["Website relaunch"], "goal");
+  assert.deepEqual(L.filterProjects(list, { query: "grandma" }).map((p) => p.name), ["apple pie"], "description");
+  assert.deepEqual(L.filterProjects(list, { query: "zzz" }), []);
+  assert.deepEqual(L.filterProjects(list, { sort: "nonsense" }).map((p) => p.name), L.filterProjects(list).map((p) => p.name), "an unknown sort falls back to most recent");
+  assert.equal(list[0].name, "Website relaunch", "the input is not reordered");
+  assert.deepEqual(L.filterProjects(null), []);
+  assert.deepEqual(L.PROJECT_SORTS.map(([key]) => key), ["recent", "name", "tasks"]);
+});
+
+test("tasks: every real lifecycle belongs to exactly one board column, and nothing is flattened or invented", () => {
+  const LIFECYCLES = ["QUEUED", "RUNNING", "WAITING", "CONFIRMATION_REQUIRED", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "CANCELLED", "BLOCKED"]; // backend TaskLifecycle
+  const keys = L.TASK_GROUPS.map(([key]) => key);
+  for (const lifecycle of LIFECYCLES) assert.ok(keys.includes(L.taskGroup({ lifecycle })), lifecycle + " has a column");
+  assert.deepEqual(Object.fromEntries(LIFECYCLES.map((l) => [l, L.taskGroup({ lifecycle: l })])), {
+    QUEUED: "queued", RUNNING: "running", WAITING: "waiting", CONFIRMATION_REQUIRED: "waiting", EXECUTING: "running", VERIFYING: "running", COMPLETED: "finished", FAILED: "stopped", CANCELLED: "finished", BLOCKED: "stopped",
+  });
+  // A run that stopped answering is stopped, not "in progress"; a stale state that is not a run stays where it is.
+  assert.equal(L.taskGroup({ lifecycle: "EXECUTING", stale: true }), "stopped");
+  assert.equal(L.taskGroup({ lifecycle: "QUEUED", stale: true }), "queued");
+  // A lifecycle this client has never heard of is shown as such rather than as one of the known states.
+  assert.equal(L.taskGroup({ lifecycle: "SOMETHING_NEW" }), "unknown");
+  assert.equal(L.taskGroup(null), "unknown");
+  const tasks = [...LIFECYCLES.map((lifecycle, i) => ({ id: lifecycle, lifecycle, goal: "task " + lifecycle, createdAt: "2026-10-0" + (i % 9 + 1) + "T00:00:00Z", steps: [] })), { id: "x", lifecycle: "SOMETHING_NEW", goal: "mystery", steps: [] }];
+  const board = L.taskBoard(tasks);
+  assert.deepEqual(board.map((c) => c.key), [...keys, "unknown"]);
+  assert.equal(board.reduce((n, c) => n + c.tasks.length, 0), tasks.length, "every task is on the board once");
+  assert.deepEqual(board.find((c) => c.key === "unknown").tasks.map((t) => t.id), ["x"]);
+  assert.equal(L.taskBoard(tasks.slice(0, 10)).length, keys.length, "no Other column when there is nothing unknown");
+  assert.deepEqual(L.taskBoard([]).map((c) => c.tasks.length), [0, 0, 0, 0, 0], "an empty board still has its columns");
+});
+
+test("tasks: filters, search and sort work on the server's own words; counts match what each filter shows", () => {
+  const mk = (id, lifecycle, goal, createdAt, extra = {}) => ({ id, lifecycle, goal, createdAt, updatedAt: createdAt, steps: [], ...extra });
+  const tasks = [
+    mk("a", "QUEUED", "Prepare the weekly report", "2026-10-01T00:00:00Z", { projectId: "p1", steps: [{ description: "Collect the numbers" }] }),
+    mk("b", "EXECUTING", "Renew the domain", "2026-10-02T00:00:00Z"),
+    mk("c", "FAILED", "Send invoices", "2026-10-03T00:00:00Z", { error: { message: "SMTP refused the message" } }),
+    mk("d", "COMPLETED", "Plan the launch", "2026-10-04T00:00:00Z", { result: { summary: "Launch plan written" } }),
+    mk("e", "CANCELLED", "Old idea", "2026-10-05T00:00:00Z"),
+    mk("f", "WAITING", "Write the summary", "2026-10-06T00:00:00Z"),
+    mk("g", "RUNNING", "Hung run", "2026-10-07T00:00:00Z", { stale: true }),
+  ];
+  const ids = (list) => list.map((t) => t.id);
+  assert.deepEqual(ids(L.filterTasks(tasks)), ["g", "f", "e", "d", "c", "b", "a"], "recently updated first");
+  assert.deepEqual(ids(L.filterTasks(tasks, { sort: "oldest" })), ["a", "b", "c", "d", "e", "f", "g"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { sort: "newest" })), ["g", "f", "e", "d", "c", "b", "a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "open", sort: "oldest" })), ["a", "b", "f"], "open = not started, in progress, waiting for you");
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "stopped", sort: "oldest" })), ["c", "g"], "a stale run is stopped");
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "finished", sort: "oldest" })), ["d", "e"], "completed and cancelled are history");
+  assert.deepEqual(L.taskCounts(tasks), { all: 7, open: 3, stopped: 2, finished: 2 });
+  for (const filter of ["all", "open", "stopped", "finished"]) assert.equal(L.filterTasks(tasks, { filter }).length, L.taskCounts(tasks)[filter], filter);
+  // Search covers the goal, the steps, the result, the error, the project name and the status wording.
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "COLLECT" })), ["a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "smtp" })), ["c"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "launch plan written" })), ["d"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "website", projectName: (id) => (id === "p1" ? "Website relaunch" : "") })), ["a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "queued", label: (l) => (l === "QUEUED" ? "Queued · not started" : l) })), ["a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "zzz" })), []);
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "open", query: "report" })), ["a"], "filter and search combine");
+  assert.equal(tasks[0].id, "a", "the input is not reordered");
+  assert.deepEqual(L.filterTasks(undefined), []);
+  assert.deepEqual(L.TASK_FILTERS.map(([k]) => k), ["all", "open", "stopped", "finished"]);
+});
+
+test("Home dashboard: slices real lists, never pads them, and only calls an account new when everything was read and is empty", () => {
+  const project = (id, updatedAt, status = "ACTIVE") => ({ id, name: id, status, updatedAt, counts: {} });
+  const file = (id, createdAt) => ({ id, name: id, createdAt });
+  const task = (id, lifecycle, updatedAt) => ({ id, goal: id, lifecycle, updatedAt, createdAt: updatedAt, steps: [] });
+  const tool = (id, at, type = "tool") => ({ id, type, title: id, at });
+  const d = L.homeDashboard({
+    chats: [{ id: "c1" }, { id: "c2" }, { id: "c3" }, { id: "c4" }],
+    projects: [project("old", "2026-09-01T00:00:00Z"), project("new", "2026-10-05T00:00:00Z"), project("gone", "2026-10-09T00:00:00Z", "ARCHIVED"), project("mid", "2026-10-01T00:00:00Z"), project("older", "2026-08-01T00:00:00Z")],
+    files: [file("f1", "2026-10-01T00:00:00Z"), file("f2", "2026-10-03T00:00:00Z")],
+    tasks: [task("t1", "QUEUED", "2026-10-01T00:00:00Z"), task("t2", "COMPLETED", "2026-10-02T00:00:00Z"), task("t3", "FAILED", "2026-10-03T00:00:00Z"), task("t4", "WAITING", "2026-10-04T00:00:00Z")],
+    tools: [tool("a", "2026-10-01T00:00:00Z"), tool("note", "2026-10-09T00:00:00Z", "note"), tool("b", "2026-10-02T00:00:00Z")],
+  });
+  assert.deepEqual(d.chats.map((c) => c.id), ["c1", "c2", "c3"], "three chats, in the order given");
+  assert.deepEqual(d.projects.map((p) => p.id), ["new", "mid", "old"], "recent first; archived and the fourth are left out");
+  assert.deepEqual(d.files.map((f) => f.id), ["f2", "f1"], "two files are two files, not padded to three");
+  assert.deepEqual(d.tasks.open.map((t) => t.id), ["t4", "t1"], "open tasks only: finished and stopped ones are not offered as work to continue");
+  assert.deepEqual(d.tasks.counts, { all: 4, open: 2, stopped: 1, finished: 1 });
+  assert.deepEqual(d.tools.map((t) => t.id), ["b", "a"], "tool runs only, newest first");
+  assert.equal(d.allKnown, true);
+  assert.equal(d.empty, false);
+
+  const none = L.homeDashboard({ chats: [], projects: [], files: [], tasks: [], tools: [] });
+  assert.equal(none.empty, true, "everything read and nothing there: a new account");
+  assert.equal(L.homeDashboard({ chats: [{ id: "c" }], projects: [], files: [], tasks: [], tools: [] }).empty, false, "one chat is enough to not be new");
+  assert.equal(L.homeDashboard({ chats: [], projects: [project("p", "2026-10-01T00:00:00Z", "ARCHIVED")], files: [], tasks: [], tools: [] }).empty, true, "only an archived project: nothing active to show");
+  // A source that failed to load is unknown, and unknown is never "empty".
+  const partial = L.homeDashboard({ chats: [], projects: [], files: null, tasks: [], tools: [] });
+  assert.equal(partial.files, null);
+  assert.equal(partial.allKnown, false);
+  assert.equal(partial.empty, false, "a failed read must not make the account look new");
+  assert.equal(L.homeDashboard().empty, false, "nothing read at all is not 'empty'");
+  assert.equal(L.homeDashboard({ limit: 1, chats: [{ id: "a" }, { id: "b" }], projects: [], files: [], tasks: [], tools: [] }).chats.length, 1);
+});
+
+test("an entry point is offered only when the build has a skill behind it; unread skills hide nothing", () => {
+  const skills = [{ category: "WEB" }, { category: "CREATIVE" }, { category: "DOCUMENTS", upgradeRequired: true }];
+  assert.equal(L.entryAvailable(["WEB", "RESEARCH"], skills), true, "one of the categories is enough");
+  assert.equal(L.entryAvailable(["BUSINESS"], skills), false);
+  assert.equal(L.entryAvailable(["DEVELOPER"], skills), false);
+  assert.equal(L.entryAvailable(["DOCUMENTS"], skills), true, "needing an upgrade is still listed");
+  assert.equal(L.entryAvailable([], skills), true, "a page link has no skill behind it");
+  assert.equal(L.entryAvailable(undefined, skills), true);
+  assert.equal(L.entryAvailable(["WEB"], null), true, "skills not read yet: nothing is hidden on a guess");
+  assert.equal(L.entryAvailable(["WEB"], []), false, "an empty catalogue offers nothing that needs a skill");
 });

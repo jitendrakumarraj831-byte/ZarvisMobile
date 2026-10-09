@@ -155,6 +155,7 @@
       <main class="views" id="main-views" tabindex="-1">
         <!-- ============ HOME ============ -->
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
+          <div class="home-first">
           <div class="home-hero">
             <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span></p>
             <button type="button" class="orb-stage" id="home-orb" aria-label="ZARVIS AI — talk by voice">
@@ -166,11 +167,11 @@
           <h1 class="home-title" id="home-title">What can I help with today?</h1>
           <section class="home-section home-quick" id="home-quick" aria-label="Quick actions">
             <div class="chip-row">
-              <button type="button" class="chip tone-cyan" data-workspace-prompt="Search the web and cite the sources you use: "><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
-              <button type="button" class="chip tone-pink" data-workspace-prompt="Write a warm, concise message about: "><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
-              <button type="button" class="chip tone-amber" data-home-action="upload"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
-              <button type="button" class="chip tone-green" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: "><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
-              <button type="button" class="chip tone-coral" data-workspace-prompt="Draft a polite customer reply to: "><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
+              <button type="button" class="chip tone-cyan" data-workspace-prompt="Search the web and cite the sources you use: " data-skill-categories="WEB RESEARCH"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>Research a topic</button>
+              <button type="button" class="chip tone-pink" data-workspace-prompt="Write a warm, concise message about: " data-skill-categories="CREATIVE BUSINESS"><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>Write a message</button>
+              <button type="button" class="chip tone-amber" data-home-action="upload" data-skill-categories="DOCUMENTS"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg>Summarize a file</button>
+              <button type="button" class="chip tone-green" data-workspace-prompt="Create a workflow for this goal and break it into clear steps: " data-skill-categories="AUTOMATION"><svg class="ico" aria-hidden="true"><use href="#i-task"/></svg>Plan a task</button>
+              <button type="button" class="chip tone-coral" data-workspace-prompt="Draft a polite customer reply to: " data-skill-categories="BUSINESS"><svg class="ico" aria-hidden="true"><use href="#i-briefcase"/></svg>Business draft</button>
               <button type="button" class="chip tone-violet" data-nav="developer" data-dev-only hidden><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg>Analyze a repo</button>
               <button type="button" class="chip tone-blue" data-go="work"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg>Open Work</button>
               <button type="button" class="chip tone-cyan" data-go="agents"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg>Agents</button>
@@ -192,6 +193,14 @@
             <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
           </button>
           </div>
+          <button type="button" class="home-more" id="home-more" hidden><span>Your workspace</span><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg></button>
+          </div>
+
+          <!-- Below the first screen: what the account really holds (drawn by workspace.js refreshHome; hidden until it has something true to say). -->
+          <section class="home-dash" id="home-dash" aria-labelledby="home-dash-title" hidden>
+            <h2 class="home-dash-title" id="home-dash-title">Your workspace</h2>
+            <div class="home-dash-body" id="home-dash-body"></div>
+          </section>
 
           <form class="home-card" id="home-prompt-form" autocomplete="off">
             <button type="button" class="icon-btn tone-amber" data-home-action="upload" aria-label="Upload file" title="Upload file"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></button>
@@ -288,7 +297,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="work-title">Work</h1>
-              <p class="page-sub">Projects, files, research and tasks. Everything here is stored on the ZARVIS server with your account.</p>
+              <p class="page-sub" id="work-sub">Projects, files, research and tasks. Everything here is stored on the ZARVIS server with your account.</p>
             </div>
           </header>
           <div class="ws-tabs" role="tablist" aria-label="Work sections" id="work-tabs">
@@ -309,13 +318,19 @@
                 <button type="button" class="btn btn-secondary" id="tasks-new-btn"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New task</span></button>
               </div>
             </div>
-            <div class="toolbar">
-              <label class="search-field">
-                <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
-                <span class="sr-only">Search tasks</span>
-                <input type="search" id="tasks-search" aria-label="Search tasks" placeholder="Search tasks" autocomplete="off" />
-              </label>
+            <div class="ws-controls" id="tasks-controls">
+              <div class="toolbar">
+                <label class="search-field">
+                  <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+                  <span class="sr-only">Search tasks</span>
+                  <input type="search" id="tasks-search" aria-label="Search tasks" placeholder="Search tasks" autocomplete="off" />
+                </label>
+                <select class="select" id="tasks-sort" aria-label="Sort tasks"></select>
+                <div class="segmented" id="tasks-view" role="group" aria-label="Task view"></div>
+              </div>
+              <div class="segmented" id="tasks-filters" role="group" aria-label="Filter tasks"></div>
             </div>
+            <p class="sr-only" id="tasks-status" role="status"></p>
             <p class="hint">A task is a record with its real status. Nothing runs in the background: a step runs when you press Run, as an ordinary ZARVIS turn, and the task shows what that turn actually did.</p>
             <div class="list" id="task-list" aria-live="polite"></div>
             <div class="empty-state" id="tasks-no-match" hidden><strong>No tasks match</strong><span>Try a different word.</span></div>
@@ -446,6 +461,7 @@
           </header>
           <div id="plans-current" class="stat-grid"></div>
           <p class="notice" id="plans-guest-note" hidden><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>You're on a guest account. Link an email so your plan and credits stay with you. <button type="button" class="inline-link" data-go="settings:account">Link an email</button></span></p>
+          <p class="notice" id="plans-payment" role="status" data-tone="info" hidden><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span><span id="plans-payment-text"></span> <span id="plans-payment-ref" hidden>Payment ID: <code id="plans-payment-id"></code></span></span></p>
           <p class="notice" id="plans-notice" hidden><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span id="plans-notice-text"></span></p>
           <div class="section-head">
             <h2 class="section-title">Choose your plan</h2>
@@ -541,6 +557,7 @@
               <p class="group-label">Privacy &amp; devices</p>
               <div class="settings-group">
                 <button type="button" class="settings-row" data-settings-page="permissions"><span class="row-ico tone-coral"><svg class="ico" aria-hidden="true"><use href="#i-phone"/></svg></span><span class="row-copy"><strong>Permissions &amp; Device Access</strong><small>What ZARVIS can access on web and Android</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="settings-row" data-settings-page="integrations"><span class="row-ico tone-green"><svg class="ico" aria-hidden="true"><use href="#i-link"/></svg></span><span class="row-copy"><strong>Integrations</strong><small>Connected services and what is planned</small></span><span class="row-value" data-setting-value="integrations"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
                 <button type="button" class="settings-row" data-settings-page="privacy"><span class="row-ico tone-pink"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg></span><span class="row-copy"><strong>Privacy &amp; data</strong><small>Confirmations, stored data and account deletion</small></span><span class="row-value"></span><svg class="ico row-chev" aria-hidden="true"><use href="#i-right"/></svg></button>
               </div>
               <p class="group-label">Advanced</p>
@@ -600,6 +617,14 @@
                 <div class="control-row">
                   <div class="row-copy"><strong>Listening</strong><small>Starts only when you tap the orb or microphone. There is no wake word.</small></div>
                 </div>
+              </div>
+              <div class="panel" id="voice-check" aria-labelledby="voice-check-title">
+                <div class="section-head">
+                  <h2 class="panel-title" id="voice-check-title">What this browser can do</h2>
+                  <button type="button" class="btn btn-ghost btn-sm" id="voice-check-again">Check again</button>
+                </div>
+                <div id="voice-check-rows" aria-live="polite"></div>
+                <p class="hint" id="voice-check-time" role="status"></p>
               </div>
             </section>
 
@@ -670,6 +695,13 @@
               <div class="capability-list" id="permission-center-list" aria-live="polite"></div>
             </section>
 
+            <section class="settings-panel" data-settings-panel="integrations" hidden>
+              <div class="panel">
+                <p class="muted">A service shows as connected only when the server holds a real, working connection for your account. Nothing below is guessed.</p>
+              </div>
+              <div class="capability-list" id="integrations-list" aria-live="polite"></div>
+            </section>
+
             <section class="settings-panel" data-settings-panel="privacy" hidden>
               <div class="panel">
                 <h2 class="panel-title">Your data</h2>
@@ -731,6 +763,12 @@
       <footer class="composer" id="composer" hidden>
         <div class="composer-inner">
           <div class="slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
+          <div class="speech-bar" id="speech-bar" role="group" aria-label="Spoken reply" data-paused="false" hidden>
+            <span class="speech-bar-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span class="speech-bar-label" id="speech-bar-label">Speaking</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="speech-pause" aria-pressed="false">Pause</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="speech-stop">Stop</button>
+          </div>
           <div class="attachment-chip" id="attachment-chip" hidden>
             <span class="attachment-ico" aria-hidden="true"><svg class="ico"><use href="#i-file"/></svg></span>
             <span class="attachment-text">

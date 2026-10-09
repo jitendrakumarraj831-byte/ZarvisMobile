@@ -67,6 +67,7 @@
     });
     line = line
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/~~([^\s~](?:[^~]*[^\s~])?)~~/g, "<del>$1</del>")
       // *italic*: the asterisks must hug the text, so "2 * 3 * 4" and bullets stay literal.
       .replace(/(^|[^*\w])\*([^\s*](?:[^*]*[^\s*])?)\*(?![*\w])/g, "$1<em>$2</em>")
       // [label](https://…) — only http(s); the text is already escaped, so no quote can
@@ -77,34 +78,269 @@
     return line.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
   }
 
+  // ---- Syntax highlighting for fenced code --------------------------------------------------------
+  // Small and dependency-free. It tokenizes the RAW code and escapes every token it emits, so the only
+  // markup it can produce is <span class="tok-…"> with a class from the fixed list below. A language it
+  // does not know, or code longer than HIGHLIGHT_MAX_CHARS (a streaming reply is re-rendered on every
+  // chunk), is shown as plain escaped text.
+
+  const HIGHLIGHT_MAX_CHARS = 30000;
+  const words = (list) => new Set(list.split(" "));
+  const LANGS = {
+    js: {
+      keywords: words("as async await break case catch class const continue default delete do else enum export extends finally for from function if implements import in instanceof interface let new of private protected public readonly return static super switch this throw try type typeof var void while with yield"),
+      literals: words("true false null undefined NaN Infinity"),
+      rules: [
+        ["com", /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/y],
+        ["str", /"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?|`(?:[^`\\]|\\[\s\S])*`?/y],
+        ["num", /(?:0[xX][\da-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)n?/y],
+      ],
+    },
+    python: {
+      keywords: words("and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield"),
+      literals: words("True False None"),
+      rules: [
+        ["com", /#[^\n]*/y],
+        ["str", /"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?/y],
+        ["num", /\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?/y],
+      ],
+    },
+    shell: {
+      keywords: words("if then else elif fi for while do done case esac in function select until return exit export local set unset cd echo source"),
+      literals: words(""),
+      rules: [
+        ["com", /#[^\n]*/y],
+        ["str", /"(?:[^"\\]|\\[\s\S])*"?|'[^']*'?/y],
+        ["lit", /\$\{[^}\n]*\}?|\$[A-Za-z_]\w*|\$[0-9@#?*!$-]/y],
+        ["num", /\d+(?:\.\d+)?/y],
+      ],
+    },
+    sql: {
+      keywords: words("select from where insert into values update set delete create table alter drop join left right inner outer on group by order limit having as and or not primary key foreign references index distinct union all case when then else end"),
+      literals: words("true false null"),
+      ignoreCase: true,
+      rules: [
+        ["com", /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/y],
+        ["str", /'(?:[^'\\]|\\.|'')*'?/y],
+        ["num", /\d+(?:\.\d+)?/y],
+      ],
+    },
+    json: {
+      keywords: words(""),
+      literals: words("true false null"),
+      rules: [
+        ["attr", /"(?:[^"\\\n]|\\.)*"(?=\s*:)/y],
+        ["str", /"(?:[^"\\\n]|\\.)*"?/y],
+        ["num", /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y],
+      ],
+    },
+    css: {
+      keywords: words(""),
+      literals: words(""),
+      rules: [
+        ["com", /\/\*[\s\S]*?(?:\*\/|$)/y],
+        ["str", /"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?/y],
+        ["kw", /@[\w-]+/y],
+        ["num", /#[\da-fA-F]{3,8}\b|-?(?:\d+\.?\d*|\.\d+)(?:px|em|rem|%|vh|vw|vmin|vmax|ch|s|ms|deg|fr)?/y],
+        ["attr", /[\w-]+(?=\s*:(?!:))/y],
+      ],
+    },
+  };
+  const LANG_ALIASES = {
+    js: "js", javascript: "js", jsx: "js", mjs: "js", cjs: "js", node: "js", ts: "js", typescript: "js", tsx: "js",
+    py: "python", python: "python",
+    sh: "shell", bash: "shell", shell: "shell", zsh: "shell", console: "shell",
+    sql: "sql", json: "json", jsonc: "json", css: "css", scss: "css",
+    html: "html", xml: "html", svg: "html", htm: "html",
+  };
+
+  function highlightLanguage(lang) {
+    return LANG_ALIASES[String(lang || "").toLowerCase()] || null;
+  }
+
+  /** Joins [class|null, text] tokens into escaped HTML, merging neighbouring plain text. */
+  function tokensToHtml(tokens) {
+    let out = "";
+    let plain = "";
+    for (const [cls, text] of tokens) {
+      if (!cls) {
+        plain += text;
+        continue;
+      }
+      if (plain) out += escapeHtml(plain);
+      plain = "";
+      out += `<span class="tok-${cls}">${escapeHtml(text)}</span>`;
+    }
+    return out + (plain ? escapeHtml(plain) : "");
+  }
+
+  function tokenizeWith(def, code) {
+    const tokens = [];
+    const isWord = /[A-Za-z_$]/;
+    let i = 0;
+    while (i < code.length) {
+      let matched = false;
+      for (const [cls, re] of def.rules) {
+        re.lastIndex = i;
+        const m = re.exec(code);
+        if (m && m[0]) {
+          tokens.push([cls, m[0]]);
+          i += m[0].length;
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+      if (isWord.test(code[i])) {
+        const m = /[A-Za-z_$][\w$]*/y;
+        m.lastIndex = i;
+        const word = m.exec(code)[0];
+        const key = def.ignoreCase ? word.toLowerCase() : word;
+        tokens.push([def.keywords.has(key) ? "kw" : def.literals.has(key) ? "lit" : null, word]);
+        i += word.length;
+      } else {
+        tokens.push([null, code[i]]);
+        i += 1;
+      }
+    }
+    return tokens;
+  }
+
+  function tokenizeHtml(code) {
+    const tokens = [];
+    const comment = /<!--[\s\S]*?(?:-->|$)/y;
+    const open = /<\/?[A-Za-z][\w:-]*/y;
+    const attrName = /[\w:@.-]+/y;
+    const value = /"[^"]*"?|'[^']*'?/y;
+    const close = /\/?>/y;
+    const at = (re, i) => { re.lastIndex = i; return re.exec(code); };
+    let i = 0;
+    let inTag = false;
+    while (i < code.length) {
+      let m;
+      if (!inTag && (m = at(comment, i))) tokens.push(["com", m[0]]);
+      else if (!inTag && (m = at(open, i))) { tokens.push(["tag", m[0]]); inTag = true; }
+      else if (inTag && (m = at(close, i))) { tokens.push(["tag", m[0]]); inTag = false; }
+      else if (inTag && (m = at(value, i))) tokens.push(["str", m[0]]);
+      else if (inTag && (m = at(attrName, i))) tokens.push(["attr", m[0]]);
+      else { tokens.push([null, code[i]]); i += 1; continue; }
+      i += m[0].length;
+    }
+    return tokens;
+  }
+
+  /** Escaped HTML for a block of raw code, with <span class="tok-…"> around comments, strings, numbers, keywords and so on. */
+  function highlightCode(code, lang) {
+    const raw = String(code ?? "");
+    const name = highlightLanguage(lang);
+    if (!name || raw.length > HIGHLIGHT_MAX_CHARS) return escapeHtml(raw);
+    return tokensToHtml(name === "html" ? tokenizeHtml(raw) : tokenizeWith(LANGS[name], raw));
+  }
+
+  // ---- Markdown tables ---------------------------------------------------------------------------------
+
+  const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+  /** Splits one (already escaped) table line into trimmed cells; `\|` is a literal pipe. */
+  function splitTableRow(line) {
+    let s = line.trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+    const cells = [];
+    let cell = "";
+    for (let i = 0; i < s.length; i += 1) {
+      if (s[i] === "\\" && s[i + 1] === "|") {
+        cell += "|";
+        i += 1;
+      } else if (s[i] === "|") {
+        cells.push(cell.trim());
+        cell = "";
+      } else {
+        cell += s[i];
+      }
+    }
+    cells.push(cell.trim());
+    return cells;
+  }
+
+  /** A table starts at `index` when that line and the next have the same number of cells and the next is a delimiter row (---|:--:). */
+  function tableStartsAt(lines, index) {
+    const head = lines[index];
+    const sep = lines[index + 1];
+    if (head === undefined || sep === undefined || !head.includes("|") || !sep.includes("|") || !TABLE_DELIMITER.test(sep)) return false;
+    return splitTableRow(head).length === splitTableRow(sep).length;
+  }
+
+  function tableHtml(headLine, sepLine, bodyLines) {
+    const align = splitTableRow(sepLine).map((c) => (c.startsWith(":") && c.endsWith(":") ? " class=\"al-c\"" : c.endsWith(":") ? " class=\"al-r\"" : ""));
+    const cell = (tag, text, i) => `<${tag}${tag === "th" ? ' scope="col"' : ""}${align[i] || ""}>${formatInlineMarkdown(text)}</${tag}>`;
+    const head = splitTableRow(headLine).map((t, i) => cell("th", t, i)).join("");
+    const rows = bodyLines
+      .map((line) => {
+        const cells = splitTableRow(line);
+        return "<tr>" + align.map((_, i) => cell("td", cells[i] ?? "", i)).join("") + "</tr>";
+      })
+      .join("");
+    // A scrollable region must be reachable by keyboard, and needs a name.
+    return `<div class="reply-table-wrap" role="region" tabindex="0" aria-label="Table"><table class="reply-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
   /**
-   * A safe subset of Markdown: headings, horizontal rules, bullet and numbered lists, fenced
-   * code blocks, bold, italic, inline code and http(s) links. All input is escaped first; nothing else is
-   * interpreted as HTML. An unclosed fence (e.g. mid-stream) renders the rest as code.
+   * A safe subset of Markdown: headings, horizontal rules, bullet and numbered lists, tables, block quotes,
+   * fenced code blocks (with syntax colours for common languages), bold, italic, strikethrough, inline code
+   * and http(s) links. All input is escaped first; nothing else is interpreted as HTML. An unclosed fence
+   * (e.g. mid-stream) renders the rest as code, and a table appears once its delimiter row has arrived.
    */
   function formatReplyHtml(text) {
-    const lines = escapeHtml(text).split(/\r?\n/);
+    const rawLines = String(text ?? "").split(/\r?\n/);
+    const lines = rawLines.map(escapeHtml);
     const html = [];
     let list = null; // "ul" | "ol" | null
-    let code = null; // { lang, lines } while inside a fence
+    let code = null; // { lang, lines, raw } while inside a fence
+    let quote = false;
     const closeList = () => {
       if (list) html.push(`</${list}>`);
       list = null;
     };
-    for (const line of lines) {
+    const closeQuote = () => {
+      if (quote) html.push("</blockquote>");
+      quote = false;
+    };
+    const codeBlock = (block) => `<pre class="reply-code"${block.lang ? ` data-lang="${block.lang}"` : ""}><code>${highlightCode(block.raw.join("\n"), block.lang)}</code></pre>`;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
       const fence = line.match(/^\s*```\s*([\w+#.-]*)\s*$/);
       if (code) {
         if (fence) {
-          html.push(`<pre class="reply-code"${code.lang ? ` data-lang="${code.lang}"` : ""}><code>${code.lines.join("\n")}</code></pre>`);
+          html.push(codeBlock(code));
           code = null;
         } else {
           code.lines.push(line);
+          code.raw.push(rawLines[index]);
         }
         continue;
       }
       if (fence) {
         closeList();
-        code = { lang: fence[1], lines: [] };
+        closeQuote();
+        code = { lang: fence[1], lines: [], raw: [] };
+        continue;
+      }
+      const quoted = line.match(/^\s*&gt;\s?(.*)$/);
+      if (quoted) {
+        closeList();
+        if (!quote) html.push('<blockquote class="reply-quote">');
+        quote = true;
+        html.push(quoted[1].trim() ? `<div class="reply-line">${formatInlineMarkdown(quoted[1])}</div>` : '<div class="reply-spacer" aria-hidden="true"></div>');
+        continue;
+      }
+      closeQuote();
+      if (tableStartsAt(lines, index)) {
+        closeList();
+        let end = index + 2;
+        while (end < lines.length && lines[end].trim() && lines[end].includes("|")) end += 1;
+        html.push(tableHtml(line, lines[index + 1], lines.slice(index + 2, end)));
+        index = end - 1;
         continue;
       }
       // A line of only ---, *** or ___ (spaces allowed between) is a horizontal rule.
@@ -113,10 +349,11 @@
         html.push('<hr class="reply-rule">');
         continue;
       }
-      const heading = line.match(/^\s*(#{1,3})\s+(.*)$/);
+      // #### and deeper are real headings in Gemini's output too; they share the smallest heading size.
+      const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
       if (heading) {
         closeList();
-        html.push(`<div class="reply-heading reply-h${heading[1].length}">${formatInlineMarkdown(heading[2])}</div>`);
+        html.push(`<div class="reply-heading reply-h${Math.min(heading[1].length, 3)}">${formatInlineMarkdown(heading[2])}</div>`);
         continue;
       }
       const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
@@ -136,7 +373,8 @@
       else html.push(`<div class="reply-line">${formatInlineMarkdown(line)}</div>`);
     }
     closeList();
-    if (code) html.push(`<pre class="reply-code"${code.lang ? ` data-lang="${code.lang}"` : ""}><code>${code.lines.join("\n")}</code></pre>`);
+    closeQuote();
+    if (code) html.push(codeBlock(code));
     return html.join("");
   }
 
@@ -239,6 +477,149 @@
     const bytes = new Uint8Array(16);
     c.getRandomValues(bytes);
     return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  /**
+   * What a refused or unreachable /billing/verify means for the person who just paid, from the server's own
+   * status. The Checkout callback only says the gateway took the payment; this decides what the page may claim:
+   *  - rejected: the server checked and it did not verify (400/404). The plan did not change.
+   *  - pending: the bank has not captured it yet (402). The plan turns on when it does.
+   *  - unreachable: the server could not be asked or the gateway did not answer (network, 5xx). Unknown; the
+   *    server also hears from Razorpay directly, so the plan may still switch on.
+   * `polls` is how many times the page re-reads the plan before it gives up and says it is not active yet.
+   */
+  function paymentVerifyOutcome(status, code) {
+    if (status === 402 || code === "payment_not_captured") {
+      return { kind: "pending", tone: "warn", polls: 6, message: "Your bank hasn't confirmed this payment yet. Your plan switches on as soon as it does. This page keeps checking." };
+    }
+    if (status === 400 || status === 404 || code === "invalid_signature" || code === "payment_mismatch" || code === "order_not_found") {
+      return { kind: "rejected", tone: "err", polls: 1, message: "We couldn't verify this payment, so your plan was not changed." };
+    }
+    return { kind: "unreachable", tone: "warn", polls: 6, message: "We couldn't reach the payment service to confirm your payment. If you were charged, your plan switches on automatically once it is confirmed. This page keeps checking." };
+  }
+
+  // ---- Tasks: groups, filters, sorting and the board ------------------------------------------------------
+  // The server's lifecycle (backend TaskLifecycle) is the only truth about a task. These helpers only decide where a
+  // task is listed; the card always shows its exact lifecycle, so grouping never flattens or renames a state.
+
+  /** The board's columns, left to right: [key, label]. */
+  const TASK_GROUPS = [["queued", "Not started"], ["running", "In progress"], ["waiting", "Waiting for you"], ["stopped", "Stopped"], ["finished", "Finished"]];
+  const LIFECYCLE_GROUP = {
+    QUEUED: "queued",
+    RUNNING: "running", EXECUTING: "running", VERIFYING: "running",
+    WAITING: "waiting", CONFIRMATION_REQUIRED: "waiting",
+    FAILED: "stopped", BLOCKED: "stopped",
+    COMPLETED: "finished", CANCELLED: "finished",
+  };
+  /** The filter buttons of the list: [key, label]. "open" is every group that still needs something to happen. */
+  const TASK_FILTERS = [["all", "All"], ["open", "Open tasks"], ["stopped", "Stopped"], ["finished", "Finished"]];
+  const TASK_SORTS = [["updated", "Recently updated"], ["newest", "Newest first"], ["oldest", "Oldest first"]];
+  const OPEN_TASK_GROUPS = ["queued", "running", "waiting"];
+
+  /** Which group a task belongs to. A run that stopped answering is shown as stopped; a lifecycle this client does not know is "unknown", never guessed. */
+  function taskGroup(task) {
+    const group = LIFECYCLE_GROUP[task && task.lifecycle];
+    if (!group) return "unknown";
+    return group === "running" && task.stale ? "stopped" : group;
+  }
+
+  function taskSearchText(task, projectName, lifecycleLabel) {
+    const steps = (task.steps || []).flatMap((step) => [step.description, step.resultSummary]);
+    return [task.goal, lifecycleLabel, projectName, task.result && task.result.summary, task.error && task.error.message, task.blockedReason, ...steps].filter(Boolean).join("\n").toLowerCase();
+  }
+
+  /** The tasks that match a search and a filter, in the chosen order. `projectName(id)` and `label(lifecycle)` let the page's own words be searched too. */
+  function filterTasks(tasks, { query = "", filter = "all", sort = "updated", projectName = () => "", label = (lifecycle) => lifecycle } = {}) {
+    const q = String(query).trim().toLowerCase();
+    const time = (value) => Date.parse(value) || 0;
+    const list = (Array.isArray(tasks) ? tasks : []).filter((task) => {
+      const group = taskGroup(task);
+      if (filter === "open" && !OPEN_TASK_GROUPS.includes(group)) return false;
+      if ((filter === "stopped" || filter === "finished") && group !== filter) return false;
+      return !q || taskSearchText(task, task.projectId ? projectName(task.projectId) : "", label(task.lifecycle)).includes(q);
+    });
+    const order = {
+      updated: (a, b) => time(b.updatedAt || b.createdAt) - time(a.updatedAt || a.createdAt),
+      newest: (a, b) => time(b.createdAt) - time(a.createdAt),
+      oldest: (a, b) => time(a.createdAt) - time(b.createdAt),
+    };
+    return list.sort(order[sort] || order.updated);
+  }
+
+  /** How many tasks each filter button would show (ignoring the search). */
+  function taskCounts(tasks) {
+    const counts = { all: 0, open: 0, stopped: 0, finished: 0 };
+    for (const task of Array.isArray(tasks) ? tasks : []) {
+      const group = taskGroup(task);
+      counts.all += 1;
+      if (OPEN_TASK_GROUPS.includes(group)) counts.open += 1;
+      else if (group === "stopped" || group === "finished") counts[group] += 1;
+    }
+    return counts;
+  }
+
+  /** The board: one column per group in order (empty ones included, so a column never disappears), plus "Other" only when a task has a lifecycle this client does not know. */
+  function taskBoard(tasks) {
+    const columns = TASK_GROUPS.map(([key, label]) => ({ key, label, tasks: [] }));
+    const other = { key: "unknown", label: "Other", tasks: [] };
+    for (const task of Array.isArray(tasks) ? tasks : []) (columns.find((c) => c.key === taskGroup(task)) || other).tasks.push(task);
+    return other.tasks.length ? [...columns, other] : columns;
+  }
+
+  // ---- Home dashboard -----------------------------------------------------------------------------------
+
+  /**
+   * What Home's "Your workspace" shows, chosen from what the server and this browser really hold. Every list is a
+   * slice of a real list (nothing is padded), and `empty` is only true when every source is known and has nothing;
+   * a source that failed to load is passed as null, which can never make the account look new.
+   *   chats: this browser's chat index (newest first); projects/files/tasks/tools: the server's lists, or null if unread.
+   */
+  function homeDashboard({ chats = [], projects = null, files = null, tasks = null, tools = null, limit = 3 } = {}) {
+    const time = (value) => Date.parse(value) || 0;
+    const known = (list) => Array.isArray(list);
+    const activeProjects = known(projects) ? projects.filter((p) => p.status !== "ARCHIVED").sort((a, b) => time(b.updatedAt) - time(a.updatedAt)) : null;
+    const recentFiles = known(files) ? [...files].sort((a, b) => time(b.createdAt) - time(a.createdAt)) : null;
+    const toolRuns = known(tools) ? tools.filter((entry) => entry.type === "tool").sort((a, b) => time(b.at) - time(a.at)) : null;
+    const open = known(tasks) ? filterTasks(tasks, { filter: "open" }) : null;
+    const sources = [activeProjects, recentFiles, tasks, toolRuns];
+    return {
+      chats: (Array.isArray(chats) ? chats : []).slice(0, limit),
+      projects: activeProjects ? activeProjects.slice(0, limit) : null,
+      files: recentFiles ? recentFiles.slice(0, limit) : null,
+      tasks: known(tasks) ? { counts: taskCounts(tasks), open: open.slice(0, limit), total: tasks.length } : null,
+      tools: toolRuns ? toolRuns.slice(0, limit) : null,
+      allKnown: sources.every(known),
+      empty: sources.every(known) && !(Array.isArray(chats) && chats.length) && !activeProjects.length && !recentFiles.length && !tasks.length && !toolRuns.length,
+    };
+  }
+
+  /**
+   * Whether an entry point may be offered: some skill of one of its categories exists in this build's /skills answer.
+   * An entry with no categories (a page link, or "ask") is always offered. A skill that needs a plan upgrade still counts:
+   * it is listed, and the server says so when it is used. `null` skills (not read yet) offers everything, never hides on a guess.
+   */
+  function entryAvailable(categories, skills) {
+    if (!Array.isArray(categories) || !categories.length || !Array.isArray(skills)) return true;
+    return skills.some((skill) => categories.includes(skill.category));
+  }
+
+  /** The sorts the Projects list offers, in the order they are shown: [key, label]. */
+  const PROJECT_SORTS = [["recent", "Most recent"], ["name", "Name"], ["tasks", "Open tasks"]];
+
+  /**
+   * The projects that match a search (name, goal and description, case-insensitive) in the chosen order. Pure: the list
+   * itself is whatever the server returned, so nothing here can show a project that does not exist.
+   */
+  function filterProjects(projects, { query = "", sort = "recent" } = {}) {
+    const q = String(query).trim().toLowerCase();
+    const list = (Array.isArray(projects) ? projects : []).filter((p) => !q || [p.name, p.goal, p.description].join("\n").toLowerCase().includes(q));
+    const time = (p) => Date.parse(p.updatedAt) || 0;
+    const byRecent = (a, b) => time(b) - time(a);
+    const order = {
+      name: (a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base", numeric: true }) || byRecent(a, b),
+      tasks: (a, b) => ((b.counts && b.counts.openTasks) || 0) - ((a.counts && a.counts.openTasks) || 0) || byRecent(a, b),
+    };
+    return list.sort(order[sort] || byRecent);
   }
 
   function riskLabel(risk) {
@@ -566,11 +947,25 @@
     parseSseEvents,
     escapeHtml,
     formatReplyHtml,
+    highlightCode,
+    highlightLanguage,
     createOrderedSegments,
     capabilityStatusLabel,
     toolStatusLabel,
     webAccessSummary,
     riskLabel,
+    paymentVerifyOutcome,
+    homeDashboard,
+    entryAvailable,
+    TASK_GROUPS,
+    TASK_FILTERS,
+    TASK_SORTS,
+    taskGroup,
+    filterTasks,
+    taskCounts,
+    taskBoard,
+    PROJECT_SORTS,
+    filterProjects,
     turnFailureKind,
     createClientTurnId,
     resolveApiBase,

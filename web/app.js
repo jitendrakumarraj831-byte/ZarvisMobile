@@ -115,6 +115,7 @@
         SPEAKING: "Speaking",
         ERROR: "Something went wrong",
       },
+      pausedLabel: "Paused",
       quickActions: {
         ask: "Ask anything",
         write: "Write",
@@ -184,6 +185,7 @@
         SPEAKING: "बोल रहा हूँ",
         ERROR: "समस्या हुई",
       },
+      pausedLabel: "रुका हुआ",
       quickActions: {
         ask: "कुछ भी पूछें",
         write: "लिखें",
@@ -224,6 +226,11 @@
       return undefined;
     }
   }
+
+  /** True while the user has paused a spoken reply (the orb stays SPEAKING; Resume carries on from the same spot). */
+  let speechPaused = false;
+  /** Bumped whenever speech is stopped or a new playback starts. A turn that finishes later must not set the orb idle over speech that is not its own. */
+  let speechEpoch = 0;
 
   const el = {
     orb: document.getElementById("orb"),
@@ -408,6 +415,7 @@
     // non-critical screen must never prevent the other buttons from receiving handlers.
     const optionalInitializers = [
       ["speech synthesis", setupSpeechSynthesis],
+      ["speech bar", setupSpeechBar],
       ["language UI", applyLanguage],
       ["voice toggle", applyVoiceToggleState],
       ["speech recognition", setupSpeechRecognition],
@@ -816,7 +824,7 @@
     if (!el.heroStatusLabel) return;
     const copy = COPY[state.lang];
     const key = el.orb?.dataset.state;
-    el.heroStatusLabel.textContent = navigator.onLine === false && (!key || key === "IDLE") ? copy.offlineLabel : copy.stateLabels[key] || copy.stateLabels.IDLE;
+    el.heroStatusLabel.textContent = key === "SPEAKING" && speechPaused ? copy.pausedLabel : navigator.onLine === false && (!key || key === "IDLE") ? copy.offlineLabel : copy.stateLabels[key] || copy.stateLabels.IDLE;
   }
 
   function setupConnectionState() {
@@ -897,6 +905,9 @@
     showSessionGate(reason);
   }
 
+  /** How long a page waits for a read (a list, a plan, the task list) before it shows its offline/unavailable state. */
+  const READ_TIMEOUT_MS = 25000;
+
   async function apiFetch(path, options = {}, retried = false) {
     // A link straight to a page that loads data (#/plans, #/activity ...) is opened before a first-time visitor has a session.
     // Without this wait that request goes out with no token, gets a 401, and shows the "session ended" gate to someone who never had one.
@@ -912,14 +923,31 @@
     // A FormData body (document upload) must NOT get a manual content-type: the browser sets
     // its own multipart boundary.
     const isFormData = options.body instanceof FormData;
-    const res = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: {
-        ...(isFormData ? {} : { "content-type": "application/json" }),
-        authorization: `Bearer ${accessToken}`,
-        ...(options.headers || {}),
-      },
-    });
+    // timeoutMs is opt-in: reads that a page waits on pass it, streams, uploads and speech do not. A timeout rejects
+    // like a dropped connection (AbortError), so every caller's existing network-failure path handles it.
+    const { timeoutMs, ...fetchOptions } = options;
+    let timer = null;
+    let signal = fetchOptions.signal;
+    if (timeoutMs) {
+      const timeout = new AbortController();
+      timer = setTimeout(() => timeout.abort(), timeoutMs);
+      signal = fetchOptions.signal && typeof AbortSignal.any === "function" ? AbortSignal.any([fetchOptions.signal, timeout.signal]) : timeout.signal;
+      if (fetchOptions.signal && typeof AbortSignal.any !== "function") fetchOptions.signal.addEventListener("abort", () => timeout.abort(), { once: true });
+    }
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        ...fetchOptions,
+        signal,
+        headers: {
+          ...(isFormData ? {} : { "content-type": "application/json" }),
+          authorization: `Bearer ${accessToken}`,
+          ...(options.headers || {}),
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.status !== 401 || retried) return res;
 
     const outcome = await refreshSession(accessToken);
@@ -1305,7 +1333,7 @@
   async function loadConversationMessages(wanted) {
     kit("setThreadLoading", true);
     try {
-      const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`);
+      const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`, { timeoutMs: READ_TIMEOUT_MS });
       if (state.conversationId !== wanted) return "skipped"; // another chat was opened while this one loaded
       if (res.status === 404) {
         state.conversationId = null;
@@ -1323,7 +1351,7 @@
       // What ZARVIS ran in this chat comes back too, placed between the messages by when it happened.
       let stored = [];
       try {
-        const runs = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/executions`);
+        const runs = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/executions`, { timeoutMs: READ_TIMEOUT_MS });
         if (runs.ok) stored = window.ZarvisExec.renderStored((await runs.json()).executions || []);
       } catch (err) {
         if (err instanceof SessionEndedError) return "skipped";
@@ -1400,18 +1428,114 @@
     }
   }
 
+  /** The capability registry from the server, read once (Permissions and Integrations both draw from it). Throws when it cannot be read. */
+  async function loadCapabilityList() {
+    if (capabilityCache) return capabilityCache;
+    const res = await fetch(`${API_BASE}/capabilities`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.json();
+    if (!Array.isArray(body.capabilities)) throw new Error("Unexpected capability list");
+    capabilityCache = body.capabilities;
+    return capabilityCache;
+  }
+
+  /** One row of the Integrations page: a name, an honest status badge, what it is for, and an optional action. */
+  function integrationItem({ name, status, tone, text, action }) {
+    const item = document.createElement("article");
+    item.className = "capability-item";
+    const header = document.createElement("header");
+    const title = document.createElement("strong");
+    title.textContent = name;
+    const badge = document.createElement("span");
+    badge.className = "z-badge" + (tone ? " z-badge-" + tone : "");
+    badge.textContent = status;
+    header.append(title, badge);
+    const body = document.createElement("p");
+    body.className = "capability-access";
+    body.textContent = text;
+    item.append(header, body);
+    if (action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-secondary btn-sm";
+      button.textContent = action.label;
+      button.addEventListener("click", action.run);
+      item.appendChild(button);
+    }
+    return item;
+  }
+
+  /** Settings → Integrations: GitHub from the server's own connection status, Calendar from the capability registry, and a plain line about what does not exist. */
+  async function renderIntegrations() {
+    const list = document.getElementById("integrations-list");
+    if (!list) return;
+    list.textContent = "Loading…";
+    const [github, capabilities] = await Promise.all([
+      apiFetch("/integrations/github", { timeoutMs: READ_TIMEOUT_MS }).then((res) => (res.ok ? res.json() : null)).catch((err) => (err instanceof SessionEndedError ? undefined : null)),
+      loadCapabilityList().catch(() => null),
+    ]);
+    if (github === undefined) return; // the session ended; the gate is showing
+    list.textContent = "";
+    const manage = { label: "Manage in Developer Agent", run: () => { if (requireDevAccess("The Developer Agent")) setActiveView("developer"); } };
+    if (github === null) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Unknown", text: "Couldn't check the GitHub connection. Open this page again in a moment." }));
+    } else if (!github.available) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Not set up on this server", tone: "off", text: "Connecting a GitHub account isn't configured on this server. Public repositories can still be analyzed without one." }));
+    } else if (github.connected) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Connected as " + github.login, tone: "ok", text: "Used by the Developer Agent to read repositories and, only after you confirm the exact change, open a pull request. ZARVIS never merges. The token is stored encrypted and is never shown.", action: manage }));
+    } else {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Not connected", tone: "off", text: "Public repositories can be analyzed without an account. Private repositories and pull requests need your own token.", action: manage }));
+    }
+    const calendar = capabilities && capabilities.find((c) => c.id === "calendar");
+    if (calendar) {
+      list.appendChild(integrationItem({ name: "Calendar", status: Logic.capabilityStatusLabel(calendar.platforms.web.status), tone: "off", text: calendar.platforms.web.note }));
+    }
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "There is no integration with Gmail, Google Drive or Slack. ZARVIS does not read them and shows nothing from them.";
+    list.appendChild(note);
+    const value = document.querySelector('[data-setting-value="integrations"]');
+    if (value) value.textContent = github && github.connected ? "GitHub connected" : "";
+    renderSettingsSubpageValue();
+  }
+
+  /** Settings → Voice → "What this browser can do": only things the browser can really be asked, each with what to do about a "no". */
+  async function renderVoiceCheck({ announce = false } = {}) {
+    const box = document.getElementById("voice-check-rows");
+    if (!box) return;
+    const mic = await microphonePermissionState();
+    const rows = [
+      ["Secure connection", window.isSecureContext ? "Yes. Browsers only allow the microphone on https or localhost." : "No. Browsers only allow the microphone on https or localhost, so voice input will not work here."],
+      ["Speech recognition", window.SpeechRecognition || window.webkitSpeechRecognition ? "Available in this browser." : "Not available in this browser. Type your request, or open ZARVIS in Chrome."],
+      ["Microphone", mic === "granted" ? "Allowed in this browser." : mic === "denied" ? "Blocked. Allow the microphone for this site in your browser's site settings, then tap the orb again." : mic === "prompt" ? "The browser will ask the first time you tap the orb or microphone." : "The browser decides when you tap the orb; this browser does not say in advance."],
+      ["Audio playback", window.AudioContext || window.webkitAudioContext ? "Available. A browser may keep sound off until you have tapped the page once." : "Not available in this browser, so spoken replies cannot play."],
+    ];
+    box.replaceChildren();
+    for (const [name, text] of rows) {
+      const row = document.createElement("div");
+      row.className = "control-row";
+      const copy = document.createElement("div");
+      copy.className = "row-copy";
+      const title = document.createElement("strong");
+      title.textContent = name;
+      const small = document.createElement("small");
+      small.textContent = text;
+      copy.append(title, small);
+      row.appendChild(copy);
+      box.appendChild(row);
+    }
+    // The result is the browser's answer right now: say when it was read, so "Check again" visibly did something even when nothing changed.
+    const time = document.getElementById("voice-check-time");
+    if (time) time.textContent = "Checked at " + new Date().toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (announce) showToast("Checked again");
+  }
+
   async function renderPermissionCenter() {
     const list = document.getElementById("permission-center-list");
     if (!list) return;
     list.textContent = "Loading…";
     try {
-      if (!capabilityCache) {
-        const res = await fetch(`${API_BASE}/capabilities`);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const body = await res.json();
-        if (!Array.isArray(body.capabilities)) throw new Error("Unexpected capability list");
-        capabilityCache = body.capabilities;
-      }
+      await loadCapabilityList();
     } catch (err) {
       console.error(err);
       list.textContent = "Couldn't load the capability list. Check your connection.";
@@ -1571,7 +1695,7 @@
     const disconnect = document.getElementById("github-disconnect-btn");
     if (!statusNode) return;
     try {
-      const res = await apiFetch("/integrations/github");
+      const res = await apiFetch("/integrations/github", { timeoutMs: READ_TIMEOUT_MS });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const status = await res.json();
       const rowValue = document.querySelector('[data-setting-value="developer"]');
@@ -1661,11 +1785,19 @@
   }
 
   async function loadSkills() {
-    const res = await apiFetch("/skills");
+    const res = await apiFetch("/skills", { timeoutMs: READ_TIMEOUT_MS });
     if (!res.ok) return;
     const { skills } = await res.json();
     state.skills = skills;
     renderQuickActions(skills);
+    applyHomeQuickActions(skills);
+  }
+
+  /** Home's prompts are offered only when this build has a skill of that kind (the Chat starters follow the same rule). */
+  function applyHomeQuickActions(skills) {
+    for (const chip of document.querySelectorAll("#home-quick .chip[data-skill-categories]")) {
+      chip.hidden = !Logic.entryAvailable(chip.dataset.skillCategories.split(" "), skills);
+    }
   }
 
   function groupByCategory(skills) {
@@ -2008,7 +2140,7 @@
       setActiveView,
       conversationId: () => state.conversationId,
       fetchConversations: async () => {
-        const res = await apiFetch("/conversations?limit=50");
+        const res = await apiFetch("/conversations?limit=50", { timeoutMs: READ_TIMEOUT_MS });
         if (!res.ok) return null;
         const data = await res.json().catch(() => null);
         return Array.isArray(data?.conversations) ? data.conversations : null;
@@ -2578,6 +2710,7 @@
   // its exact backend call (DELETE /api/v1/account, already wired server-side).
 
   function setupSettings() {
+    document.getElementById("voice-check-again")?.addEventListener("click", () => void renderVoiceCheck({ announce: true }));
     for (const btn of document.querySelectorAll("[data-settings-page]")) {
       btn.addEventListener("click", () => openSettingsPage(btn.dataset.settingsPage));
     }
@@ -2662,6 +2795,8 @@
     }
     if (page === "account") void refreshAccountPanel();
     if (page === "permissions") void renderPermissionCenter();
+    if (page === "integrations") void renderIntegrations();
+    if (page === "voice") void renderVoiceCheck();
     if (page === "ai") void renderAiProvider();
     if (page === "memory") void workspace()?.renderMemory();
     el.settingsPanelBack?.focus?.();
@@ -2747,7 +2882,7 @@
     }
     if (currentPlanName) return;
     try {
-      const res = await apiFetch("/entitlements/me");
+      const res = await apiFetch("/entitlements/me", { timeoutMs: READ_TIMEOUT_MS });
       if (!res.ok) return;
       const snapshot = await res.json();
       if (snapshot?.plan) currentPlanName = snapshot.plan;
@@ -3001,7 +3136,7 @@
     if (!el.developerLog) return;
     let res;
     try {
-      res = await apiFetch("/executions?skillIds=developer.analyze_repo,developer.implement&limit=10");
+      res = await apiFetch("/executions?skillIds=developer.analyze_repo,developer.implement&limit=10", { timeoutMs: READ_TIMEOUT_MS });
     } catch (err) {
       if (!(err instanceof SessionEndedError)) console.warn("Developer history failed:", err);
       return;
@@ -3065,20 +3200,19 @@
 
   async function refreshPlans() {
     el.plansCurrent.replaceChildren();
-    let snapshot = null;
-    try {
-      const res = await apiFetch("/entitlements/me");
-      if (res.ok) snapshot = await res.json();
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-    }
-    try {
-      const res = await apiFetch("/billing/plans");
-      planCatalogue = res.ok ? await res.json() : null;
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-      planCatalogue = null;
-    }
+    // Both are read together: waiting for one to time out before asking for the other doubled the wait.
+    const read = async (path) => {
+      try {
+        const res = await apiFetch(path, { timeoutMs: READ_TIMEOUT_MS });
+        return { ended: false, body: res.ok ? await res.json() : null };
+      } catch (err) {
+        return { ended: err instanceof SessionEndedError, body: null };
+      }
+    };
+    const [entitlements, plans] = await Promise.all([read("/entitlements/me"), read("/billing/plans")]);
+    if (entitlements.ended || plans.ended) return;
+    const snapshot = entitlements.body;
+    planCatalogue = plans.body;
     if (snapshot) {
       currentPlanName = snapshot.plan;
       const paid = snapshot.plan === "PRO" && snapshot.planExpiresAt;
@@ -3222,6 +3356,7 @@
       button.disabled = false;
       button.textContent = label;
     };
+    showPaymentResult("info", "");
     button.disabled = true;
     button.textContent = "Opening secure checkout…";
     try {
@@ -3244,10 +3379,10 @@
           reset();
           void confirmPayment(order.orderId, response);
         },
-        modal: { ondismiss: reset },
+        modal: { ondismiss: () => { reset(); showToast("Checkout closed. No payment was completed."); } },
       });
       checkout.on("payment.failed", (event) => {
-        showToast(event?.error?.description ? "Payment failed: " + event.error.description : "Payment failed. You were not charged.");
+        showPaymentResult("err", (event?.error?.description ? "Payment failed: " + event.error.description + " " : "Payment failed. ") + "Your plan was not changed.", event?.error?.metadata?.payment_id);
       });
       checkout.open();
     } catch (err) {
@@ -3257,31 +3392,73 @@
     }
   }
 
-  /** After Checkout succeeds: the server checks the signature and the payment before granting Pro. */
+  /** The last payment result stays on the Plans page until the next checkout: a toast is gone in two seconds, and this is about money. */
+  function showPaymentResult(tone, text, paymentId) {
+    const box = document.getElementById("plans-payment");
+    if (!box) return;
+    box.dataset.tone = tone;
+    document.getElementById("plans-payment-text").textContent = text;
+    const ref = document.getElementById("plans-payment-ref");
+    ref.hidden = !paymentId;
+    document.getElementById("plans-payment-id").textContent = paymentId || "";
+    box.hidden = !text;
+  }
+
+  /** Re-reads the plan up to `attempts` times, 5 s apart; resolves with the snapshot once it is PRO, or null. */
+  async function waitForPro(attempts) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await delay(PAYMENT_POLL_MS);
+      try {
+        const check = await apiFetch("/entitlements/me", { timeoutMs: READ_TIMEOUT_MS });
+        if (check.ok) {
+          const snapshot = await check.json();
+          if (snapshot.plan === "PRO") return snapshot;
+        }
+      } catch (err) {
+        if (err instanceof SessionEndedError) return null;
+      }
+    }
+    return null;
+  }
+  const PAYMENT_POLL_MS = 5000;
+
+  /**
+   * After Checkout succeeds: the server checks the signature and the payment with Razorpay before granting Pro.
+   * What this page says depends only on what the server answered (Logic.paymentVerifyOutcome): never "payment
+   * received" for a payment the server refused, and a final word if the plan still is not active.
+   */
   async function confirmPayment(orderId, response) {
-    showToast("Confirming your payment…");
+    const paymentId = response.razorpay_payment_id;
+    showPaymentResult("info", "Confirming your payment…", paymentId);
+    let outcome = null;
+    let granted = null;
     try {
       const res = await apiFetch("/billing/verify", {
         method: "POST",
-        body: JSON.stringify({ orderId, paymentId: response.razorpay_payment_id, signature: response.razorpay_signature }),
+        body: JSON.stringify({ orderId, paymentId, signature: response.razorpay_signature }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || "verification_failed");
-      recordActivity("conversation", "Upgraded to Pro", body.planExpiresAt ? "Active until " + formatDate(body.planExpiresAt) : "", "ok");
-      showToast("Pro is active" + (body.planExpiresAt ? " until " + formatDate(body.planExpiresAt) : ""));
+      if (res.ok) granted = body;
+      else outcome = Logic.paymentVerifyOutcome(res.status, body.code);
     } catch (err) {
       if (err instanceof SessionEndedError) return;
-      // The payment may still have gone through (the server also hears from Razorpay directly).
-      showToast("Payment received. Activating your plan — this can take a minute.");
-      for (let attempt = 0; attempt < 6; attempt += 1) {
-        await delay(5000);
-        try {
-          const check = await apiFetch("/entitlements/me");
-          if (check.ok && (await check.json()).plan === "PRO") break;
-        } catch {
-          break;
-        }
-      }
+      outcome = Logic.paymentVerifyOutcome(0, undefined);
+    }
+    if (!outcome) {
+      recordActivity("conversation", "Upgraded to Pro", granted.planExpiresAt ? "Active until " + formatDate(granted.planExpiresAt) : "", "ok");
+      showPaymentResult("ok", "Pro is active" + (granted.planExpiresAt ? " until " + formatDate(granted.planExpiresAt) : "") + ".", paymentId);
+      showToast("Pro is active");
+      await refreshPlans();
+      return;
+    }
+    showPaymentResult(outcome.tone, outcome.message, paymentId);
+    // The server also hears from Razorpay directly, so even a refused or unanswered callback is worth one more look at the plan.
+    const snapshot = await waitForPro(outcome.polls);
+    if (snapshot) {
+      showPaymentResult("ok", "Pro is active" + (snapshot.planExpiresAt ? " until " + formatDate(snapshot.planExpiresAt) : "") + ".", paymentId);
+      showToast("Pro is active");
+    } else if (outcome.kind !== "rejected") {
+      showPaymentResult("warn", "Your plan isn't active yet. If you were charged, it switches on once the payment is confirmed. Open this page again in a few minutes.", paymentId);
     }
     await refreshPlans();
   }
@@ -3634,7 +3811,7 @@
   async function fetchTasks() {
     let res;
     try {
-      res = await apiFetch("/tasks");
+      res = await apiFetch("/tasks", { timeoutMs: READ_TIMEOUT_MS });
     } catch (err) {
       latestTasks = null;
       throw err;
@@ -3920,9 +4097,18 @@
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           if (fullMessage.trim()) kit("afterTurn", { isFirstTurn });
+          const speechOwner = speechEpoch;
           drainTts();
+          // The last (often the only) segment is requested only now, so nothing is scheduled yet: wait for every segment to be on the
+          // player before waiting for playback, or the turn ends "idle" and the audio then starts and leaves the UI on "Speaking" for good.
+          while (!controller.signal.aborted) {
+            drainTts();
+            if (!ttsTasks.size) break;
+            await Promise.allSettled([...ttsTasks]);
+            await delay(0); // lets each finished task leave the set
+          }
           await waitForTtsPlayback(controller.signal);
-          if (!controller.signal.aborted) setOrbState("IDLE");
+          if (!controller.signal.aborted && speechOwner === speechEpoch) setOrbState("IDLE");
         }
       };
 
@@ -3968,6 +4154,7 @@
       for (const streaming of el.conversation.querySelectorAll(".bubble.is-streaming")) streaming.classList.remove("is-streaming");
       thinkingNode.remove();
       if (currentTurnController === controller) currentTurnController = null;
+      workspace()?.invalidateHome(); // a turn may have run a tool, saved a file or recorded a task: Home must read again
       updateComposerMode(); // Send/Stop must reflect that no turn is in flight any more
     }
   }
@@ -4538,6 +4725,7 @@
   // sub-second rule): this runs synchronously the moment a turn starts, well before the
   // network call resolves, so the pulse appears the same frame as the tap/Enter.
   function setOrbState(newState) {
+    if (newState !== "SPEAKING") speechPaused = false; // a pause only means something while a reply is being spoken
     el.orb.dataset.state = newState;
     el.heroStatus.dataset.state = newState;
     document.body.dataset.orbState = newState;
@@ -4547,6 +4735,43 @@
     // `dataset.state` above (unchanged) is what CSS/animations key off of.
     renderHeroStatus();
     updateComposerMode();
+    syncSpeechBar();
+  }
+
+  /** The bar above the composer while a reply is spoken: its own state words, Pause / Resume and Stop. */
+  function syncSpeechBar() {
+    const bar = document.getElementById("speech-bar");
+    if (!bar) return;
+    const speaking = el.orb.dataset.state === "SPEAKING";
+    bar.hidden = !speaking;
+    bar.dataset.paused = String(speechPaused);
+    document.getElementById("speech-bar-label").textContent = speechPaused ? "Paused" : "Speaking";
+    const pause = document.getElementById("speech-pause");
+    pause.textContent = speechPaused ? "Resume" : "Pause";
+    pause.setAttribute("aria-pressed", String(speechPaused));
+  }
+
+  /**
+   * Pause or resume the reply being spoken, on whichever path is playing it: a streamed reply is scheduled on the AudioContext, which
+   * can be suspended and resumed where it stopped; a "Listen" reply is one audio element. Nothing is cancelled, so the turn is untouched.
+   */
+  function setSpeechPaused(on) {
+    if (on === speechPaused || (on && el.orb.dataset.state !== "SPEAKING")) return;
+    speechPaused = on;
+    if (activeAudio) {
+      if (on) activeAudio.pause();
+      else void activeAudio.play().catch(() => {});
+    } else if (activeAudioContext) {
+      void (on ? activeAudioContext.suspend() : activeAudioContext.resume());
+    }
+    renderHeroStatus();
+    syncSpeechBar();
+    announceChat(on ? "Paused" : "Speaking");
+  }
+
+  function setupSpeechBar() {
+    document.getElementById("speech-pause")?.addEventListener("click", () => setSpeechPaused(!speechPaused));
+    document.getElementById("speech-stop")?.addEventListener("click", () => { haptic(); stopSpeaking(); });
   }
 
   /** Swaps the Send button into a Stop button for the whole busy span (UNDERSTANDING through
@@ -4724,6 +4949,7 @@
   // Gemini is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node, force = false) {
     if ((!state.speak && !force) || !text) return;
+    speechEpoch += 1; // this playback now owns the orb state
     if (node) attachWaveform(node);
     try {
       await speakWithGemini(text);
@@ -4769,7 +4995,7 @@
           // "Speaking" only once the browser reports audio is actually playing.
           audio.addEventListener("playing", () => setOrbState("SPEAKING"), { once: true });
           audio.addEventListener("ended", resolve, { once: true });
-          audio.addEventListener("pause", resolve, { once: true });
+          audio.addEventListener("pause", () => { if (!speechPaused) resolve(); });
           audio.addEventListener("error", () => reject(new Error("Gemini audio playback failed")), { once: true });
           audio.play().catch(reject);
         });
@@ -4925,6 +5151,9 @@
   }
 
   function stopSpeaking() {
+    speechEpoch += 1;
+    speechPaused = false;
+    if (activeAudioContext && activeAudioContext.state === "suspended") void activeAudioContext.resume(); // the next reply must be able to play
     for (const controller of activeTtsControllers) controller.abort();
     activeTtsControllers.clear();
     if (activeAudio) activeAudio.pause();

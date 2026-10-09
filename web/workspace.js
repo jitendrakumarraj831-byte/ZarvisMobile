@@ -8,6 +8,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   let host = null;
+  const Logic = window.ZarvisLogic;
   const $ = (id) => document.getElementById(id);
 
   /* ---------- Small DOM helpers (text is always set as text, never as HTML) ---------- */
@@ -117,6 +118,7 @@
     const timer = setTimeout(() => controller.abort(), LONG_CALL.test(path) ? LONG_TIMEOUT_MS : SHORT_TIMEOUT_MS);
     try {
       const res = await host.apiFetch(path, { ...options, signal: controller.signal });
+      if (res.ok && options.method && options.method !== "GET") home.at = 0; // Home's copy of the account is now out of date
       const body = res.status === 204 ? null : await res.json().catch(() => null);
       return { ok: res.ok, status: res.status, body, network: false, timeout: false, ended: false };
     } catch (err) {
@@ -174,6 +176,33 @@
 
   function sectionHead(title, ...actions) {
     return h("div", "section-head", h("h2", "section-title", title), actions.length ? h("div", "ws-actions", actions) : null);
+  }
+
+  /**
+   * Marks a sideways-scrolling row with which edges have more to scroll to (data-fade="start end"), so CSS can fade them:
+   * a tab that is cut off by the edge reads as "there is more", not as a clipped word.
+   */
+  function scrollFade(row) {
+    if (!row || row.dataset.fadeReady) return;
+    row.dataset.fadeReady = "1";
+    row.classList.add("scroll-fade");
+    const update = () => {
+      const max = row.scrollWidth - row.clientWidth;
+      const edges = [];
+      if (row.scrollLeft > 2) edges.push("start");
+      if (max > 2 && row.scrollLeft < max - 2) edges.push("end");
+      row.dataset.fade = edges.join(" ");
+    };
+    row.addEventListener("scroll", update, { passive: true });
+    // Tied to the element (nothing on window), so a row that is rebuilt and dropped, like the task board on every repaint, leaves
+    // nothing behind. The children are watched too: their width changes with the language, while the row's own box does not.
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(update);
+      observer.observe(row);
+      for (const child of row.children) observer.observe(child);
+    }
+    update();
+    row.__updateFade = update;
   }
 
   /* ---------- Dialogs ---------- */
@@ -508,14 +537,32 @@
   /* ---------- Work shell ---------- */
 
   const WORK_TABS = ["projects", "files", "research", "tasks", "outputs"];
-  const work = { tab: "projects", projectId: null, projectTab: "overview", showArchived: false };
+  const work = { tab: "projects", projectId: null, projectTab: "overview", showArchived: false, projectQuery: "", projectSort: "recent" };
   const cache = { projects: null };
 
   function workSub() {
     return work.tab === "projects" && work.projectId ? "project-" + work.projectId : work.tab;
   }
 
+  /** What each Work section is, in one line. The Projects list keeps the page's own sentence (it says where everything is stored); a project's page needs none. */
+  const WORK_SUBTITLES = {
+    files: "Documents and images ZARVIS has read, with the text it kept.",
+    research: "Web searches with their sources, and notes with citations.",
+    tasks: "Tracked tasks with their real status.",
+    outputs: "What ZARVIS wrote for you, saved as files.",
+  };
+  const WORK_SUBTITLE_DEFAULT = "Projects, files, research and tasks. Everything here is stored on the ZARVIS server with your account.";
+
   function applyTabs() {
+    const sub = $("work-sub");
+    if (sub) {
+      const text = work.projectId ? "" : WORK_SUBTITLES[work.tab] || WORK_SUBTITLE_DEFAULT;
+      if (sub.textContent !== text && sub.dataset.shown !== text) {
+        sub.textContent = text;
+        sub.dataset.shown = text;
+      }
+      sub.hidden = !text;
+    }
     for (const tab of WORK_TABS) {
       const button = $("work-tab-" + tab);
       const panel = $("work-panel-" + tab);
@@ -526,6 +573,7 @@
       // On a narrow screen the tab row scrolls sideways: keep the chosen tab in view (without moving the page).
       if (selected && button && button.offsetParent) button.parentElement.scrollLeft = Math.max(0, button.offsetLeft - (button.parentElement.clientWidth - button.offsetWidth) / 2);
     }
+    $("work-tabs")?.__updateFade?.();
   }
 
   function renderWorkTab() {
@@ -582,6 +630,8 @@
       event.preventDefault();
       selectTab(WORK_TABS[next], { focus: true });
     });
+    scrollFade(list);
+    setupTaskControls();
     $("tasks-refresh-btn")?.addEventListener("click", () => void renderTasks());
     $("tasks-new-btn")?.addEventListener("click", () => newTaskDialog({}));
     $("tasks-search")?.addEventListener("input", applyTaskFilter);
@@ -664,21 +714,60 @@
       return;
     }
     const grid = h("div", "ws-grid");
-    for (const project of projects) {
-      const card = h("article", "ws-card ws-project");
-      const open = button("", "ws-card-open", () => openProject(project.id));
-      open.setAttribute("aria-label", "Open project: " + project.name);
-      const head = h("div", "ws-card-head");
-      put(head, userText("strong", "ws-card-title", project.name), project.status === "ARCHIVED" ? badge("Archived", "off") : null, project.agentId ? badge(AGENT_NAMES[project.agentId] || project.agentId, "info") : null);
-      card.append(head);
-      if (project.goal) card.appendChild(userText("p", "ws-card-goal", project.goal));
-      card.appendChild(h("p", "ws-card-counts", countsLine(project.counts)));
-      card.appendChild(h("p", "ws-card-time", "Updated " + relative(project.updatedAt)));
-      card.appendChild(open);
-      grid.appendChild(card);
+    grid.id = "projects-grid";
+    const status = h("p", "sr-only");
+    status.setAttribute("role", "status");
+    const paint = () => {
+      const shown = Logic.filterProjects(projects, { query: work.projectQuery, sort: work.projectSort });
+      grid.replaceChildren();
+      if (!shown.length) {
+        grid.appendChild(emptyBox("No projects match", "Try another search."));
+        status.textContent = "No projects match";
+        return;
+      }
+      status.textContent = plural(shown.length, "project shown", "projects shown");
+      for (const project of shown) grid.appendChild(projectCard(project));
+    };
+    // Searching and sorting only make sense once there is something to choose between.
+    if (projects.length > 1) {
+      const search = h("input");
+      search.type = "search";
+      search.id = "projects-search";
+      search.placeholder = "Search projects";
+      search.autocomplete = "off";
+      search.setAttribute("aria-label", "Search projects");
+      search.value = work.projectQuery;
+      search.addEventListener("input", () => { work.projectQuery = search.value; paint(); });
+      const sort = h("select", "select");
+      sort.id = "projects-sort";
+      sort.setAttribute("aria-label", "Sort projects");
+      for (const [key, label] of Logic.PROJECT_SORTS) {
+        const option = h("option", null, label);
+        option.value = key;
+        sort.appendChild(option);
+      }
+      sort.value = work.projectSort;
+      sort.addEventListener("change", () => { work.projectSort = sort.value; paint(); });
+      panel.appendChild(h("div", "toolbar", h("label", "search-field", icon("i-search"), h("span", "sr-only", "Search projects"), search), sort));
     }
+    panel.appendChild(status);
+    paint();
     panel.appendChild(grid);
     panel.appendChild(h("p", "hint", "Projects are stored on the ZARVIS server with your account, so they are the same on every device."));
+  }
+
+  function projectCard(project) {
+    const card = h("article", "ws-card ws-project");
+    const open = button("", "ws-card-open", () => openProject(project.id));
+    open.setAttribute("aria-label", "Open project: " + project.name);
+    const head = h("div", "ws-card-head");
+    put(head, userText("strong", "ws-card-title", project.name), project.status === "ARCHIVED" ? badge("Archived", "off") : null, project.agentId ? badge(AGENT_NAMES[project.agentId] || project.agentId, "info") : null);
+    card.append(head);
+    if (project.goal) card.appendChild(userText("p", "ws-card-goal", project.goal));
+    card.appendChild(h("p", "ws-card-counts", countsLine(project.counts)));
+    card.appendChild(h("p", "ws-card-time", "Updated " + relative(project.updatedAt)));
+    card.appendChild(open);
+    return card;
   }
 
   function openProject(id, tab = "overview") {
@@ -754,6 +843,7 @@
     const tabs = h("div", "ws-subtabs");
     tabs.setAttribute("role", "tablist");
     tabs.setAttribute("aria-label", "Project sections");
+    scrollFade(tabs);
     const countFor = { chats: detail.counts.conversations, files: detail.counts.files, research: detail.counts.research, tasks: detail.counts.tasks, decisions: detail.counts.decisions, memory: detail.counts.memory };
     const body = h("div", "ws-subpanel");
     body.setAttribute("role", "tabpanel");
@@ -1827,7 +1917,9 @@
 
   /* ---------- Tasks ---------- */
 
-  const taskState = { tasks: [], poll: 0, running: new Set() };
+  const TASKS_VIEW_KEY = "zarvis.tasksView";
+  const readTasksView = () => { try { return localStorage.getItem(TASKS_VIEW_KEY) === "board" ? "board" : "list"; } catch { return "list"; } };
+  const taskState = { tasks: [], poll: 0, running: new Set(), view: readTasksView(), filter: "all", sort: "updated" };
   const MID_RUN = ["RUNNING", "EXECUTING", "VERIFYING"];
 
   const STEP_WORD = { DONE: "Done", FAILED: "Failed", RUNNING: "In progress", SKIPPED: "Skipped", PENDING: "Not started" };
@@ -1843,7 +1935,7 @@
     return "";
   }
 
-  function taskCard(task, onChanged) {
+  function taskCard(task, onChanged, { compact = false } = {}) {
     const card = h("article", "task-card");
     card.dataset.status = task.status;
     card.dataset.lifecycle = task.lifecycle;
@@ -1890,7 +1982,15 @@
         li.append(dot, text);
         steps.appendChild(li);
       }
-      card.appendChild(steps);
+      // On the board a card is a summary: the steps are one tap away, not a wall of text in a narrow column.
+      if (compact) {
+        const details = h("details", "ws-task-steps");
+        details.appendChild(h("summary", null, "Steps (" + task.steps.length + ")"));
+        details.appendChild(steps);
+        card.appendChild(details);
+      } else {
+        card.appendChild(steps);
+      }
     } else if (task.lifecycle === "QUEUED") {
       card.appendChild(h("p", "muted", "No steps yet. Running it carries out the goal as a single step."));
     }
@@ -1999,18 +2099,9 @@
     })();
   }
 
+  /** Re-draws the task list or board from what was last read, with the current search, filter and sort. */
   function applyTaskFilter() {
-    const list = $("task-list");
-    if (!list) return;
-    const q = ($("tasks-search")?.value || "").trim().toLowerCase();
-    const cards = Array.from(list.querySelectorAll(".task-card"));
-    let shown = 0;
-    for (const card of cards) {
-      card.hidden = !!q && !card.textContent.toLowerCase().includes(q);
-      if (!card.hidden) shown += 1;
-    }
-    const none = $("tasks-no-match");
-    if (none) none.hidden = !cards.length || shown > 0;
+    paintTasks();
   }
 
   async function renderTasks(keepScroll) {
@@ -2025,22 +2116,16 @@
     $("tasks-refresh-btn")?.removeAttribute("disabled");
     list.removeAttribute("aria-busy");
     if (r.ended || !isCurrent("tasks", token)) return;
-    list.replaceChildren();
     if (!r.ok) {
-      list.appendChild(errorBox("Couldn't load your tasks", r, () => void renderTasks()));
+      list.replaceChildren(errorBox("Couldn't load your tasks", r, () => void renderTasks()));
+      $("tasks-controls").hidden = true;
       host.onTasks?.(null);
       return;
     }
     const tasks = [...r.body.tasks].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     taskState.tasks = tasks;
     host.onTasks?.(tasks);
-    if (!tasks.length) {
-      list.appendChild(emptyBox("No tasks yet", "Ask ZARVIS to plan a goal in chat, or create one here. A task shows its real status and never starts by itself.", { label: "New task", icon: "i-plus", onClick: () => newTaskDialog({}) }));
-      return;
-    }
-    const again = (quiet) => { if (quiet === true) paintTasks(); else void renderTasks(); };
-    for (const task of tasks) list.appendChild(taskCard(task, again));
-    applyTaskFilter();
+    paintTasks();
     // A run that is still going on the server (started here or elsewhere) is re-read until it settles.
     if (tasks.some((t) => MID_RUN.includes(t.lifecycle) && !t.stale) && work.tab === "tasks") {
       taskState.poll = setTimeout(() => { if (!document.hidden && host.activeView() === "work" && work.tab === "tasks") void renderTasks(); }, 4000);
@@ -2048,13 +2133,96 @@
     void keepScroll;
   }
 
+  /** The columns of the board. Cards are the same task cards as the list (one implementation of Run, Retry, Cancel and confirmations). */
+  function taskBoardView(tasks, again) {
+    const board = h("div", "task-board");
+    for (const column of Logic.taskBoard(tasks)) {
+      const title = h("h3", "task-col-title", h("span", null, column.label), h("span", "ws-count", String(column.tasks.length)));
+      title.id = "task-col-" + column.key;
+      const body = h("div", "task-col-body");
+      if (column.tasks.length) for (const task of column.tasks) body.appendChild(taskCard(task, again, { compact: true }));
+      else body.appendChild(h("p", "task-col-empty", "None"));
+      const section = h("section", "task-col", title, body);
+      section.dataset.group = column.key;
+      section.setAttribute("aria-labelledby", title.id);
+      board.appendChild(section);
+    }
+    scrollFade(board);
+    return board;
+  }
+
   function paintTasks() {
     const list = $("task-list");
-    if (!list || !taskState.tasks.length) return;
+    if (!list) return;
+    const controls = $("tasks-controls");
+    const none = $("tasks-no-match");
+    const status = $("tasks-status");
     list.replaceChildren();
+    if (none) none.hidden = true;
+    const tasks = taskState.tasks;
+    if (!tasks.length) {
+      if (controls) controls.hidden = true;
+      list.appendChild(emptyBox("No tasks yet", "Ask ZARVIS to plan a goal in chat, or create one here. A task shows its real status and never starts by itself.", { label: "New task", icon: "i-plus", onClick: () => newTaskDialog({}) }));
+      if (status) status.textContent = "";
+      return;
+    }
+    if (controls) controls.hidden = false;
+    const board = taskState.view === "board";
+    // On the board the columns are the statuses, so the status filter would only contradict them.
+    $("tasks-filters").hidden = board;
+    const counts = Logic.taskCounts(tasks);
+    for (const b of $("tasks-filters").querySelectorAll("[data-filter]")) {
+      b.querySelector(".ws-count").textContent = String(counts[b.dataset.filter]);
+      const on = b.dataset.filter === taskState.filter;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", String(on));
+    }
+    for (const b of $("tasks-view").querySelectorAll("[data-view]")) {
+      const on = b.dataset.view === taskState.view;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", String(on));
+    }
+    const shown = Logic.filterTasks(tasks, { query: $("tasks-search")?.value || "", filter: board ? "all" : taskState.filter, sort: taskState.sort, projectName: projectNameOf, label: (lifecycle) => T(LIFECYCLE_LABEL[lifecycle] || lifecycle) });
+    if (status) status.textContent = shown.length ? plural(shown.length, "task shown", "tasks shown") : "No tasks match";
+    if (!shown.length) {
+      if (none) none.hidden = false;
+      return;
+    }
     const again = (quiet) => { if (quiet === true) paintTasks(); else void renderTasks(); };
-    for (const task of taskState.tasks) list.appendChild(taskCard(task, again));
-    applyTaskFilter();
+    if (board) list.appendChild(taskBoardView(shown, again));
+    else for (const task of shown) list.appendChild(taskCard(task, again));
+  }
+
+  /** Search, sort, filter and List/Board controls of the Tasks page; built from the shared definitions in logic.js. */
+  function setupTaskControls() {
+    const filters = $("tasks-filters");
+    const sort = $("tasks-sort");
+    const view = $("tasks-view");
+    if (!filters || !sort || !view || filters.children.length) return;
+    for (const [key, label] of Logic.TASK_FILTERS) {
+      const b = h("button", "seg", h("span", null, label), h("span", "ws-count", "0"));
+      b.type = "button";
+      b.dataset.filter = key;
+      b.addEventListener("click", () => { taskState.filter = key; paintTasks(); });
+      filters.appendChild(b);
+    }
+    for (const [key, label] of Logic.TASK_SORTS) {
+      const option = h("option", null, label);
+      option.value = key;
+      sort.appendChild(option);
+    }
+    sort.addEventListener("change", () => { taskState.sort = sort.value; paintTasks(); });
+    for (const [key, label, ico] of [["list", "List", "i-list"], ["board", "Board", "i-columns"]]) {
+      const b = h("button", "seg", icon(ico), h("span", null, label));
+      b.type = "button";
+      b.dataset.view = key;
+      b.addEventListener("click", () => {
+        taskState.view = key;
+        try { localStorage.setItem(TASKS_VIEW_KEY, key); } catch { /* the choice just is not remembered */ }
+        paintTasks();
+      });
+      view.appendChild(b);
+    }
   }
 
   /* ---------- Agents ---------- */
@@ -2126,7 +2294,7 @@
     const r = await call("/agents/" + encodeURIComponent(id));
     if (r.ended || !isCurrent("agents", token)) return;
     root.replaceChildren();
-    root.appendChild(button("Agents", "btn btn-ghost ws-back", () => openAgent(""), { icon: "i-left" }));
+    // No second "‹ Agents" button here: the breadcrumb above the page is the way back (and the 44px one on a phone).
     if (!r.ok) {
       root.appendChild(r.status === 404 ? emptyBox("That agent doesn't exist", "", { label: "Back to agents", onClick: () => openAgent("") }) : errorBox("Couldn't load this agent", r, () => void renderAgents()));
       return;
@@ -2451,25 +2619,171 @@
     }
   }
 
-  /* ---------- Home: continue a project ---------- */
+  /* ---------- Home: continue a project, and "Your workspace" below the first screen ---------- */
 
-  async function refreshHome() {
+  // Home reads the account once per visit (not per card), keeps that read for a few seconds so entering Home twice in a row
+  // does not ask again, and forgets it the moment this page writes anything (see call()).
+  const HOME_TTL_MS = 8000;
+  const HOME_INTRO_KEY = "zarvis.homeIntroDismissed";
+  const home = { at: 0, data: null };
+  const homeIntroDismissed = () => { try { return localStorage.getItem(HOME_INTRO_KEY) === "1"; } catch { return false; } };
+
+  async function refreshHome(force = false) {
+    const dash = $("home-dash");
+    // Home is only read when Home is the page being shown (it is also asked for once at start-up, whatever page that opens on).
+    if (!$("home-project") || host.activeView() !== "home") return;
+    if (force || !home.data || Date.now() - home.at >= HOME_TTL_MS) {
+      const token = claim("home");
+      if (dash && !home.data) paintHomeLoading();
+      const reads = await Promise.all([call("/projects?status=ACTIVE"), call("/files"), call("/tasks"), call("/activity?limit=40"), call("/entitlements/me")]);
+      if (reads.some((r) => r.ended) || !isCurrent("home", token)) return;
+      home.data = { projects: reads[0], files: reads[1], tasks: reads[2], activity: reads[3], plan: reads[4] };
+      home.at = Date.now();
+    }
+    paintHome();
+  }
+
+  /** The sentence for a read that failed: what is true, not a guess. */
+  const homeReadFailure = (r) => (r.timeout ? "took too long to answer" : r.network ? "could not be reached" : "could not be loaded");
+
+  function paintHomeLoading() {
+    const dash = $("home-dash");
+    dash.hidden = false;
+    dash.setAttribute("aria-busy", "true");
+    $("home-dash-body").replaceChildren(skeleton(3));
+  }
+
+  function paintHome() {
+    const data = home.data;
+    if (!data) return;
+    $("home-dash")?.setAttribute("data-loaded", "1"); // set in the same tick the cards are drawn; tests wait for it
     const row = $("home-project");
-    if (!row) return;
-    const r = await call("/projects?status=ACTIVE");
-    if (r.ended || !r.ok || !r.body.projects.length) {
-      row.hidden = true;
+    const projectList = data.projects.ok && data.projects.body && Array.isArray(data.projects.body.projects) ? data.projects.body.projects : null;
+    // "Continue a project" above the fold: the newest active project.
+    if (row) {
+      const newest = projectList && Logic.homeDashboard({ projects: projectList }).projects[0];
+      if (newest) {
+        $("home-project-title").textContent = newest.name;
+        $("home-project-title").dataset.userText = ""; // the project's own name
+        $("home-project-label").textContent = "Continue a project · " + relative(newest.updatedAt);
+        row.hidden = false;
+        row.onclick = () => {
+          host.setActiveView("work");
+          openProject(newest.id);
+        };
+      } else {
+        row.hidden = true;
+      }
+    }
+    const dash = $("home-dash");
+    const body = $("home-dash-body");
+    if (!dash || !body) return;
+    dash.removeAttribute("aria-busy");
+    const field = (r, key) => (r.ok && r.body && Array.isArray(r.body[key]) ? r.body[key] : null);
+    const kit = window.ZarvisChatKit;
+    const model = Logic.homeDashboard({ chats: kit ? kit.list() : [], projects: projectList, files: field(data.files, "files"), tasks: field(data.tasks, "tasks"), tools: field(data.activity, "activity") });
+    body.replaceChildren();
+    const failed = [["projects", data.projects], ["files", data.files], ["tasks", data.tasks], ["recent activity", data.activity]].filter(([, r]) => !r.ok);
+
+    // A brand-new account: say where to start, with real actions. It can be dismissed for good. Never shown when a read failed.
+    if (model.empty) {
+      dash.hidden = homeIntroDismissed();
+      if (!dash.hidden) body.appendChild(homeIntro());
+      syncHomeMore();
       return;
     }
-    const p = r.body.projects[0];
-    $("home-project-title").textContent = p.name;
-    $("home-project-title").dataset.userText = ""; // the project's own name
-    $("home-project-label").textContent = "Continue a project · " + relative(p.updatedAt);
-    row.hidden = false;
-    row.onclick = () => {
-      host.setActiveView("work");
-      openProject(p.id);
-    };
+    const grid = h("div", "dash-grid");
+    if (model.chats.length) {
+      grid.appendChild(dashCard("Recent chats", { label: "See all", go: "history" }, model.chats.map((chat) => dashRow("i-chat", "blue", chat.title, relative(chat.updatedAt), () => void host.openConversation(chat.id)))));
+    }
+    if (model.projects && model.projects.length) {
+      grid.appendChild(dashCard("Projects", { label: "See all", go: "work:projects" }, model.projects.map((p) => dashRow("i-folder", "violet", p.name, countsLine(p.counts) + " · " + relative(p.updatedAt), () => { host.setActiveView("work"); openProject(p.id); }))));
+    }
+    if (model.tasks && model.tasks.total) {
+      const c = model.tasks.counts;
+      const summary = [plural(c.open, "open", "open"), c.stopped ? plural(c.stopped, "stopped", "stopped") : null, plural(c.finished, "finished", "finished")].filter(Boolean).join(" · ");
+      const rows = model.tasks.open.length
+        ? model.tasks.open.map((t) => dashRow("i-task", "green", t.goal, T(LIFECYCLE_LABEL[t.lifecycle] || t.lifecycle) + " · " + relative(t.updatedAt || t.createdAt), () => { host.setActiveView("work"); selectTab("tasks"); }))
+        : [h("p", "dash-note", "No open tasks.")];
+      grid.appendChild(dashCard("Tasks", { label: "See all", go: "work:tasks" }, [h("p", "dash-summary", summary), ...rows]));
+    }
+    if (model.files && model.files.length) {
+      grid.appendChild(dashCard("Recent files", { label: "See all", go: "work:files" }, model.files.map((f) => dashRow(FILE_ICON[f.kind] || "i-file", f.kind === "image" ? "pink" : f.source === "generated" ? "violet" : "amber", f.name, (FILE_KIND[f.kind] || "File") + " · " + relative(f.createdAt), () => void openFileViewer(f, () => { home.at = 0; void refreshHome(); })))));
+    }
+    if (model.tools && model.tools.length) {
+      grid.appendChild(dashCard("What ZARVIS did lately", { label: "Open Activity", go: "activity" }, model.tools.map((e) => dashRow(e.tone === "error" ? "i-x" : e.tone === "ok" ? "i-check" : "i-activity", e.tone === "error" ? "coral" : e.tone === "ok" ? "green" : "blue", e.title, (e.detail ? e.detail + " · " : "") + relative(e.at), () => host.setActiveView("activity"), { userTitle: false }))));
+    }
+    const plan = data.plan.ok && data.plan.body;
+    if (plan && plan.plan) grid.appendChild(planCard(plan));
+    if (grid.children.length) body.appendChild(grid);
+    if (failed.length) {
+      const note = h("div", "dash-failed");
+      note.setAttribute("role", "status");
+      note.append(icon("i-alert"), h("span", null, "Some of this is missing: " + failed.map(([name, r]) => name + " " + homeReadFailure(r)).join(", ") + "."), button("Try again", "btn btn-ghost btn-sm", () => void refreshHome(true)));
+      body.appendChild(note);
+    }
+    dash.hidden = !body.children.length;
+    syncHomeMore();
+  }
+
+  /** The cue under the prompts that scrolls to the dashboard; it exists only while the dashboard does. */
+  function syncHomeMore() {
+    const more = $("home-more");
+    if (more) more.hidden = !!$("home-dash")?.hidden;
+  }
+
+  function dashRow(ico, tone, title, meta, onClick, { userTitle = true } = {}) {
+    const row = h("button", "dash-row", h("span", "row-ico tone-" + tone, icon(ico)), h("span", "dash-row-copy", userTitle ? userText("strong", null, title) : h("strong", null, title), meta ? h("small", null, meta) : null), icon("i-right"));
+    row.type = "button";
+    row.addEventListener("click", () => { host?.haptic?.(); onClick(); });
+    return row;
+  }
+
+  function dashCard(title, more, rows) {
+    const head = h("div", "dash-card-head", h("h3", "dash-card-title", title));
+    if (more) {
+      const link = h("button", "link-btn", more.label);
+      link.type = "button";
+      link.dataset.go = more.go; // the app's own link handler goes there
+      link.setAttribute("aria-label", more.label + ": " + title);
+      head.appendChild(link);
+    }
+    return h("section", "dash-card", head, h("div", "dash-card-rows", rows));
+  }
+
+  /** Plan and credits exactly as the server reports them; a guest is told, once, that a kept account is what keeps them. */
+  function planCard(plan) {
+    const name = { TRIAL: "Trial", FREE: "Free", PRO: "Pro" }[plan.plan] || plan.plan;
+    const credits = Number(plan.creditBalance);
+    const when = plan.plan === "PRO" && plan.planExpiresAt ? "Active until " + new Date(plan.planExpiresAt).toLocaleDateString(host?.lang?.() === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short", year: "numeric" })
+      : plan.plan === "TRIAL" && plan.trialExpiresAt ? "Ends " + new Date(plan.trialExpiresAt).toLocaleDateString(host?.lang?.() === "hi" ? "hi-IN" : "en-IN", { day: "numeric", month: "short" }) : "";
+    const rows = [dashRow("i-plan", "violet", name + " plan", [Number.isFinite(credits) ? plural(credits, "credit", "credits") : null, when].filter(Boolean).join(" · "), () => host.setActiveView("plans"), { userTitle: false })];
+    if (localStorage.getItem("zarvis.isGuest") !== "false") {
+      const link = h("button", "inline-link", "Link an email");
+      link.type = "button";
+      link.dataset.go = "settings:account";
+      rows.push(h("p", "dash-note", "This is a guest account, so its work stays only while this browser keeps it. ", link));
+    }
+    return dashCard("Plan and credits", { label: "Plans & Usage", go: "plans" }, rows);
+  }
+
+  /** First-visit guidance: three real starting points, not a tour. */
+  function homeIntro() {
+    const card = h("section", "dash-card dash-intro");
+    card.append(h("h3", "dash-card-title", "Start here"), h("p", "dash-note", "Nothing is saved yet. Pick one way to begin; ZARVIS only keeps what you make."));
+    const steps = h("div", "dash-intro-steps");
+    steps.append(
+      dashRow("i-chat", "blue", "Ask a question", "Type or speak; chats are saved to your account.", () => $("home-prompt-input")?.focus(), { userTitle: false }),
+      dashRow("i-upload", "amber", "Add a file", "ZARVIS reads it and keeps the text, so you can summarize it.", () => document.querySelector('#home-prompt-form [data-home-action="upload"]')?.click(), { userTitle: false }),
+      dashRow("i-folder", "violet", "Start a project", "Keep a goal's chats, files and tasks together.", () => { host.setActiveView("work"); selectTab("projects"); void newProjectDialog(); }, { userTitle: false }),
+    );
+    const dismiss = button("Hide this", "btn btn-ghost btn-sm", () => {
+      try { localStorage.setItem(HOME_INTRO_KEY, "1"); } catch { /* it just comes back next time */ }
+      $("home-dash").hidden = true;
+      syncHomeMore();
+    });
+    card.append(steps, dismiss);
+    return card;
   }
 
   /* ---------- Files dropped on the Files page ---------- */
@@ -2491,6 +2805,10 @@
   function init(hostApi) {
     host = hostApi;
     setupWork();
+    $("home-more")?.addEventListener("click", () => {
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      $("home-dash")?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    });
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && host.activeView() === "work" && work.tab === "tasks") void renderTasks();
     });
@@ -2512,6 +2830,7 @@
     setActivityFilter,
     renderUsage,
     refreshHome,
+    invalidateHome: () => { home.at = 0; },
     handleDrop,
     rememberDialog,
     saveReplyDialog,

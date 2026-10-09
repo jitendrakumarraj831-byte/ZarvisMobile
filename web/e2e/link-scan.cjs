@@ -66,7 +66,7 @@ window.__scan = {
     return { view: document.body.dataset.activeView, hash: location.hash, settings: panel ? panel.dataset.settingsPanel : null,
       h1: (document.querySelector('.view:not([hidden]) h1:not(.sr-only)') || {}).textContent?.trim() || null,
       composer: (document.getElementById('text-input') || {}).value || '', overlays, toast: toast && !toast.hidden ? toast.textContent.trim() : null,
-      appearance: document.documentElement.dataset.appearance, lang: document.documentElement.lang,
+      appearance: document.documentElement.dataset.appearance, lang: document.documentElement.lang, scroll: Math.round(window.scrollY / 100),
       pressed: [...document.querySelectorAll('[aria-pressed="true"]')].map((e) => e.id || e.dataset.size || e.dataset.filter || e.dataset.billing || '').join(','), dom: h };
   },
 };`;
@@ -76,7 +76,8 @@ async function newContext(browser) {
   // Every load starts from the same preferences, so one click's side effect (language, theme, draft, open chat) cannot leak into the next.
   await ctx.addInitScript(() => {
     try {
-      for (const k of ["zarvis.lang", "zarvis.appearance", "zarvis.speak", "zarvis.ttsVoice", "zarvis.chatText", "zarvis.sidebarRail", "zarvis.draft", "zarvis.conversationId"]) localStorage.removeItem(k);
+      // zarvis.chatsHidden too: the app hides a chat it could not open (the seeded ones below do not exist on the server), and a hidden chat would shift every later control.
+      for (const k of ["zarvis.lang", "zarvis.appearance", "zarvis.speak", "zarvis.ttsVoice", "zarvis.chatText", "zarvis.sidebarRail", "zarvis.draft", "zarvis.conversationId", "zarvis.chatsHidden"]) localStorage.removeItem(k);
       localStorage.setItem("zarvis.welcomeDismissed", "1");
       localStorage.setItem("zarvis.devAccess", "on");
       localStorage.setItem("zarvis.chats", JSON.stringify([
@@ -90,7 +91,7 @@ async function newContext(browser) {
 
 /** A click that changes nothing is correct when it is the page you are already on, a label, or a form submitted empty. */
 function isSamePage(record, label) {
-  return /^(zarvis ai home|home|chat|work|agents|projects|files|research|outputs|tasks|activity|capabilities|plans|settings|developer|metrics|all|monthly|default|repository|send|new chat|overview|decisions|memory)/i.test(label) || record.tag === "label" || /form|ws-ask/.test(record.section || "");
+  return /^(zarvis ai home|home|chat|work|agents|projects|files|research|outputs|tasks|activity|capabilities|plans|settings|developer|metrics|all|list|monthly|default|repository|send|new chat|overview|decisions|memory)/i.test(label) || record.tag === "label" || /form|ws-ask/.test(record.section || "");
 }
 
 async function open(page, state) {
@@ -102,6 +103,8 @@ async function open(page, state) {
   // click would be reported as DEAD although a real user could not have made it.
   await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(450);
+  // Home draws its "Your workspace" from several reads; its controls exist only once those have answered.
+  await page.waitForFunction(() => !/^#\/home|^$/.test(location.hash) || document.getElementById("home-dash")?.hasAttribute("data-loaded"), null, { timeout: 12000 }).catch(() => {});
   if (state.thread) {
     await page.fill("#text-input", "Plan my launch week");
     await page.press("#text-input", "Enter");
@@ -225,6 +228,11 @@ function summarize(result) {
         const handle = await page.evaluateHandle(({ scope, chrome, wantChrome, i }) => window.__scan.list(scope, chrome, wantChrome)[i], { scope, chrome: CHROME, wantChrome, i });
         const el = handle.asElement();
         if (!el) { rec.outcome = "missing-after-reload"; records.push(rec); continue; }
+        // The same index must still be the same control: a page whose content changes between loads (Home's workspace) shifts the list.
+        const nowNamed = await el.evaluate((e) => window.__scan.describe(e).name);
+        // ("just now" becomes "1m ago" between two loads of the same control, so relative times are not part of the name.)
+        const sameName = (a, b) => { const plain = (t) => String(t).replace(/\b(just now|\d+m ago|\d+h ago|\d{1,2} [A-Z][a-z]{2} \d{4})\b/g, "~").replace(/\s+/g, " ").trim(); return plain(a) === plain(b); };
+        if (!sameName(nowNamed, rec.name)) { rec.outcome = "moved-after-reload"; rec.nowNamed = nowNamed; records.push(rec); continue; }
         await el.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
         const before = await page.evaluate(() => window.__scan.snap());
         const hit = await el.evaluate((e) => { const r = e.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const top = document.elementFromPoint(x, y); return { x, y, ok: !!top && (top === e || e.contains(top) || top.contains(e)) }; });
