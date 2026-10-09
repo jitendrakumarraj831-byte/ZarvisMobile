@@ -67,6 +67,7 @@
     });
     line = line
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/~~([^\s~](?:[^~]*[^\s~])?)~~/g, "<del>$1</del>")
       // *italic*: the asterisks must hug the text, so "2 * 3 * 4" and bullets stay literal.
       .replace(/(^|[^*\w])\*([^\s*](?:[^*]*[^\s*])?)\*(?![*\w])/g, "$1<em>$2</em>")
       // [label](https://…) — only http(s); the text is already escaped, so no quote can
@@ -77,34 +78,269 @@
     return line.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
   }
 
+  // ---- Syntax highlighting for fenced code --------------------------------------------------------
+  // Small and dependency-free. It tokenizes the RAW code and escapes every token it emits, so the only
+  // markup it can produce is <span class="tok-…"> with a class from the fixed list below. A language it
+  // does not know, or code longer than HIGHLIGHT_MAX_CHARS (a streaming reply is re-rendered on every
+  // chunk), is shown as plain escaped text.
+
+  const HIGHLIGHT_MAX_CHARS = 30000;
+  const words = (list) => new Set(list.split(" "));
+  const LANGS = {
+    js: {
+      keywords: words("as async await break case catch class const continue default delete do else enum export extends finally for from function if implements import in instanceof interface let new of private protected public readonly return static super switch this throw try type typeof var void while with yield"),
+      literals: words("true false null undefined NaN Infinity"),
+      rules: [
+        ["com", /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/y],
+        ["str", /"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?|`(?:[^`\\]|\\[\s\S])*`?/y],
+        ["num", /(?:0[xX][\da-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)n?/y],
+      ],
+    },
+    python: {
+      keywords: words("and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield"),
+      literals: words("True False None"),
+      rules: [
+        ["com", /#[^\n]*/y],
+        ["str", /"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?/y],
+        ["num", /\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?/y],
+      ],
+    },
+    shell: {
+      keywords: words("if then else elif fi for while do done case esac in function select until return exit export local set unset cd echo source"),
+      literals: words(""),
+      rules: [
+        ["com", /#[^\n]*/y],
+        ["str", /"(?:[^"\\]|\\[\s\S])*"?|'[^']*'?/y],
+        ["lit", /\$\{[^}\n]*\}?|\$[A-Za-z_]\w*|\$[0-9@#?*!$-]/y],
+        ["num", /\d+(?:\.\d+)?/y],
+      ],
+    },
+    sql: {
+      keywords: words("select from where insert into values update set delete create table alter drop join left right inner outer on group by order limit having as and or not primary key foreign references index distinct union all case when then else end"),
+      literals: words("true false null"),
+      ignoreCase: true,
+      rules: [
+        ["com", /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/y],
+        ["str", /'(?:[^'\\]|\\.|'')*'?/y],
+        ["num", /\d+(?:\.\d+)?/y],
+      ],
+    },
+    json: {
+      keywords: words(""),
+      literals: words("true false null"),
+      rules: [
+        ["attr", /"(?:[^"\\\n]|\\.)*"(?=\s*:)/y],
+        ["str", /"(?:[^"\\\n]|\\.)*"?/y],
+        ["num", /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y],
+      ],
+    },
+    css: {
+      keywords: words(""),
+      literals: words(""),
+      rules: [
+        ["com", /\/\*[\s\S]*?(?:\*\/|$)/y],
+        ["str", /"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?/y],
+        ["kw", /@[\w-]+/y],
+        ["num", /#[\da-fA-F]{3,8}\b|-?(?:\d+\.?\d*|\.\d+)(?:px|em|rem|%|vh|vw|vmin|vmax|ch|s|ms|deg|fr)?/y],
+        ["attr", /[\w-]+(?=\s*:(?!:))/y],
+      ],
+    },
+  };
+  const LANG_ALIASES = {
+    js: "js", javascript: "js", jsx: "js", mjs: "js", cjs: "js", node: "js", ts: "js", typescript: "js", tsx: "js",
+    py: "python", python: "python",
+    sh: "shell", bash: "shell", shell: "shell", zsh: "shell", console: "shell",
+    sql: "sql", json: "json", jsonc: "json", css: "css", scss: "css",
+    html: "html", xml: "html", svg: "html", htm: "html",
+  };
+
+  function highlightLanguage(lang) {
+    return LANG_ALIASES[String(lang || "").toLowerCase()] || null;
+  }
+
+  /** Joins [class|null, text] tokens into escaped HTML, merging neighbouring plain text. */
+  function tokensToHtml(tokens) {
+    let out = "";
+    let plain = "";
+    for (const [cls, text] of tokens) {
+      if (!cls) {
+        plain += text;
+        continue;
+      }
+      if (plain) out += escapeHtml(plain);
+      plain = "";
+      out += `<span class="tok-${cls}">${escapeHtml(text)}</span>`;
+    }
+    return out + (plain ? escapeHtml(plain) : "");
+  }
+
+  function tokenizeWith(def, code) {
+    const tokens = [];
+    const isWord = /[A-Za-z_$]/;
+    let i = 0;
+    while (i < code.length) {
+      let matched = false;
+      for (const [cls, re] of def.rules) {
+        re.lastIndex = i;
+        const m = re.exec(code);
+        if (m && m[0]) {
+          tokens.push([cls, m[0]]);
+          i += m[0].length;
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+      if (isWord.test(code[i])) {
+        const m = /[A-Za-z_$][\w$]*/y;
+        m.lastIndex = i;
+        const word = m.exec(code)[0];
+        const key = def.ignoreCase ? word.toLowerCase() : word;
+        tokens.push([def.keywords.has(key) ? "kw" : def.literals.has(key) ? "lit" : null, word]);
+        i += word.length;
+      } else {
+        tokens.push([null, code[i]]);
+        i += 1;
+      }
+    }
+    return tokens;
+  }
+
+  function tokenizeHtml(code) {
+    const tokens = [];
+    const comment = /<!--[\s\S]*?(?:-->|$)/y;
+    const open = /<\/?[A-Za-z][\w:-]*/y;
+    const attrName = /[\w:@.-]+/y;
+    const value = /"[^"]*"?|'[^']*'?/y;
+    const close = /\/?>/y;
+    const at = (re, i) => { re.lastIndex = i; return re.exec(code); };
+    let i = 0;
+    let inTag = false;
+    while (i < code.length) {
+      let m;
+      if (!inTag && (m = at(comment, i))) tokens.push(["com", m[0]]);
+      else if (!inTag && (m = at(open, i))) { tokens.push(["tag", m[0]]); inTag = true; }
+      else if (inTag && (m = at(close, i))) { tokens.push(["tag", m[0]]); inTag = false; }
+      else if (inTag && (m = at(value, i))) tokens.push(["str", m[0]]);
+      else if (inTag && (m = at(attrName, i))) tokens.push(["attr", m[0]]);
+      else { tokens.push([null, code[i]]); i += 1; continue; }
+      i += m[0].length;
+    }
+    return tokens;
+  }
+
+  /** Escaped HTML for a block of raw code, with <span class="tok-…"> around comments, strings, numbers, keywords and so on. */
+  function highlightCode(code, lang) {
+    const raw = String(code ?? "");
+    const name = highlightLanguage(lang);
+    if (!name || raw.length > HIGHLIGHT_MAX_CHARS) return escapeHtml(raw);
+    return tokensToHtml(name === "html" ? tokenizeHtml(raw) : tokenizeWith(LANGS[name], raw));
+  }
+
+  // ---- Markdown tables ---------------------------------------------------------------------------------
+
+  const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+  /** Splits one (already escaped) table line into trimmed cells; `\|` is a literal pipe. */
+  function splitTableRow(line) {
+    let s = line.trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+    const cells = [];
+    let cell = "";
+    for (let i = 0; i < s.length; i += 1) {
+      if (s[i] === "\\" && s[i + 1] === "|") {
+        cell += "|";
+        i += 1;
+      } else if (s[i] === "|") {
+        cells.push(cell.trim());
+        cell = "";
+      } else {
+        cell += s[i];
+      }
+    }
+    cells.push(cell.trim());
+    return cells;
+  }
+
+  /** A table starts at `index` when that line and the next have the same number of cells and the next is a delimiter row (---|:--:). */
+  function tableStartsAt(lines, index) {
+    const head = lines[index];
+    const sep = lines[index + 1];
+    if (head === undefined || sep === undefined || !head.includes("|") || !sep.includes("|") || !TABLE_DELIMITER.test(sep)) return false;
+    return splitTableRow(head).length === splitTableRow(sep).length;
+  }
+
+  function tableHtml(headLine, sepLine, bodyLines) {
+    const align = splitTableRow(sepLine).map((c) => (c.startsWith(":") && c.endsWith(":") ? " class=\"al-c\"" : c.endsWith(":") ? " class=\"al-r\"" : ""));
+    const cell = (tag, text, i) => `<${tag}${tag === "th" ? ' scope="col"' : ""}${align[i] || ""}>${formatInlineMarkdown(text)}</${tag}>`;
+    const head = splitTableRow(headLine).map((t, i) => cell("th", t, i)).join("");
+    const rows = bodyLines
+      .map((line) => {
+        const cells = splitTableRow(line);
+        return "<tr>" + align.map((_, i) => cell("td", cells[i] ?? "", i)).join("") + "</tr>";
+      })
+      .join("");
+    // A scrollable region must be reachable by keyboard, and needs a name.
+    return `<div class="reply-table-wrap" role="region" tabindex="0" aria-label="Table"><table class="reply-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
   /**
-   * A safe subset of Markdown: headings, horizontal rules, bullet and numbered lists, fenced
-   * code blocks, bold, italic, inline code and http(s) links. All input is escaped first; nothing else is
-   * interpreted as HTML. An unclosed fence (e.g. mid-stream) renders the rest as code.
+   * A safe subset of Markdown: headings, horizontal rules, bullet and numbered lists, tables, block quotes,
+   * fenced code blocks (with syntax colours for common languages), bold, italic, strikethrough, inline code
+   * and http(s) links. All input is escaped first; nothing else is interpreted as HTML. An unclosed fence
+   * (e.g. mid-stream) renders the rest as code, and a table appears once its delimiter row has arrived.
    */
   function formatReplyHtml(text) {
-    const lines = escapeHtml(text).split(/\r?\n/);
+    const rawLines = String(text ?? "").split(/\r?\n/);
+    const lines = rawLines.map(escapeHtml);
     const html = [];
     let list = null; // "ul" | "ol" | null
-    let code = null; // { lang, lines } while inside a fence
+    let code = null; // { lang, lines, raw } while inside a fence
+    let quote = false;
     const closeList = () => {
       if (list) html.push(`</${list}>`);
       list = null;
     };
-    for (const line of lines) {
+    const closeQuote = () => {
+      if (quote) html.push("</blockquote>");
+      quote = false;
+    };
+    const codeBlock = (block) => `<pre class="reply-code"${block.lang ? ` data-lang="${block.lang}"` : ""}><code>${highlightCode(block.raw.join("\n"), block.lang)}</code></pre>`;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
       const fence = line.match(/^\s*```\s*([\w+#.-]*)\s*$/);
       if (code) {
         if (fence) {
-          html.push(`<pre class="reply-code"${code.lang ? ` data-lang="${code.lang}"` : ""}><code>${code.lines.join("\n")}</code></pre>`);
+          html.push(codeBlock(code));
           code = null;
         } else {
           code.lines.push(line);
+          code.raw.push(rawLines[index]);
         }
         continue;
       }
       if (fence) {
         closeList();
-        code = { lang: fence[1], lines: [] };
+        closeQuote();
+        code = { lang: fence[1], lines: [], raw: [] };
+        continue;
+      }
+      const quoted = line.match(/^\s*&gt;\s?(.*)$/);
+      if (quoted) {
+        closeList();
+        if (!quote) html.push('<blockquote class="reply-quote">');
+        quote = true;
+        html.push(quoted[1].trim() ? `<div class="reply-line">${formatInlineMarkdown(quoted[1])}</div>` : '<div class="reply-spacer" aria-hidden="true"></div>');
+        continue;
+      }
+      closeQuote();
+      if (tableStartsAt(lines, index)) {
+        closeList();
+        let end = index + 2;
+        while (end < lines.length && lines[end].trim() && lines[end].includes("|")) end += 1;
+        html.push(tableHtml(line, lines[index + 1], lines.slice(index + 2, end)));
+        index = end - 1;
         continue;
       }
       // A line of only ---, *** or ___ (spaces allowed between) is a horizontal rule.
@@ -113,10 +349,11 @@
         html.push('<hr class="reply-rule">');
         continue;
       }
-      const heading = line.match(/^\s*(#{1,3})\s+(.*)$/);
+      // #### and deeper are real headings in Gemini's output too; they share the smallest heading size.
+      const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
       if (heading) {
         closeList();
-        html.push(`<div class="reply-heading reply-h${heading[1].length}">${formatInlineMarkdown(heading[2])}</div>`);
+        html.push(`<div class="reply-heading reply-h${Math.min(heading[1].length, 3)}">${formatInlineMarkdown(heading[2])}</div>`);
         continue;
       }
       const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
@@ -136,7 +373,8 @@
       else html.push(`<div class="reply-line">${formatInlineMarkdown(line)}</div>`);
     }
     closeList();
-    if (code) html.push(`<pre class="reply-code"${code.lang ? ` data-lang="${code.lang}"` : ""}><code>${code.lines.join("\n")}</code></pre>`);
+    closeQuote();
+    if (code) html.push(codeBlock(code));
     return html.join("");
   }
 
@@ -239,6 +477,25 @@
     const bytes = new Uint8Array(16);
     c.getRandomValues(bytes);
     return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  /**
+   * What a refused or unreachable /billing/verify means for the person who just paid, from the server's own
+   * status. The Checkout callback only says the gateway took the payment; this decides what the page may claim:
+   *  - rejected: the server checked and it did not verify (400/404). The plan did not change.
+   *  - pending: the bank has not captured it yet (402). The plan turns on when it does.
+   *  - unreachable: the server could not be asked or the gateway did not answer (network, 5xx). Unknown; the
+   *    server also hears from Razorpay directly, so the plan may still switch on.
+   * `polls` is how many times the page re-reads the plan before it gives up and says it is not active yet.
+   */
+  function paymentVerifyOutcome(status, code) {
+    if (status === 402 || code === "payment_not_captured") {
+      return { kind: "pending", tone: "warn", polls: 6, message: "Your bank hasn't confirmed this payment yet. Your plan switches on as soon as it does. This page keeps checking." };
+    }
+    if (status === 400 || status === 404 || code === "invalid_signature" || code === "payment_mismatch" || code === "order_not_found") {
+      return { kind: "rejected", tone: "err", polls: 1, message: "We couldn't verify this payment, so your plan was not changed." };
+    }
+    return { kind: "unreachable", tone: "warn", polls: 6, message: "We couldn't reach the payment service to confirm your payment. If you were charged, your plan switches on automatically once it is confirmed. This page keeps checking." };
   }
 
   function riskLabel(risk) {
@@ -566,11 +823,14 @@
     parseSseEvents,
     escapeHtml,
     formatReplyHtml,
+    highlightCode,
+    highlightLanguage,
     createOrderedSegments,
     capabilityStatusLabel,
     toolStatusLabel,
     webAccessSummary,
     riskLabel,
+    paymentVerifyOutcome,
     turnFailureKind,
     createClientTurnId,
     resolveApiBase,

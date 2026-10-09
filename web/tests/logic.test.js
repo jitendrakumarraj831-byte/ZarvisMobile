@@ -75,7 +75,11 @@ test("reply formatting: headings, numbered lists, fenced code and safe links", (
   const html = L.formatReplyHtml("## Plan\n1. first\n2. second\n```js\nconst a = \"<b>\";\n```\nSee [docs](https://ex.com/a?b=1&c=2) or https://x.org/p.\n[bad](javascript:alert(1))");
   assert.ok(html.includes('<div class="reply-heading reply-h2">Plan</div>'));
   assert.ok(html.includes('<ol class="reply-list reply-ol"><li>first</li><li>second</li></ol>'));
-  assert.ok(html.includes('<pre class="reply-code" data-lang="js"><code>const a = &quot;&lt;b&gt;&quot;;</code></pre>'));
+  // The code is coloured now; what must never change is the text and that it stays escaped.
+  const block = html.match(/<pre class="reply-code" data-lang="js"><code>([\s\S]*?)<\/code><\/pre>/);
+  assert.ok(block, "a js code block");
+  assert.equal(block[1].replace(/<\/?span[^>]*>/g, ""), "const a = &quot;&lt;b&gt;&quot;;");
+  assert.ok(!block[1].includes("<b>"));
   assert.ok(html.includes('<a href="https://ex.com/a?b=1&amp;c=2" target="_blank" rel="noopener noreferrer">docs</a>'));
   assert.ok(html.includes('<a href="https://x.org/p" target="_blank" rel="noopener noreferrer">https://x.org/p</a>.'));
   assert.ok(!html.includes('href="javascript'));
@@ -390,4 +394,110 @@ test("feature status words are the four honest ones", () => {
   assert.equal(L.isFeatureStatus("WORKING"), true);
   assert.equal(L.isFeatureStatus("ACTIVE"), false);
   assert.equal(L.isFeatureStatus("working"), false);
+});
+
+test("reply formatting: pipe tables become a scrollable, labelled table with alignment, escaped cells and inline markdown", () => {
+  const html = L.formatReplyHtml("Prices:\n\n| Item | Qty | Note |\n|:--|:-:|--:|\n| **Tea** | 2 | a \\| b |\n| <b>x</b> | 3 |\n\nDone");
+  assert.match(html, /<div class="reply-table-wrap" role="region" tabindex="0" aria-label="Table"><table class="reply-table">/);
+  assert.match(html, /<th scope="col">Item<\/th><th scope="col" class="al-c">Qty<\/th><th scope="col" class="al-r">Note<\/th>/);
+  assert.match(html, /<td><strong>Tea<\/strong><\/td><td class="al-c">2<\/td><td class="al-r">a \| b<\/td>/);
+  // A short row is padded to the header width; HTML in a cell is escaped.
+  assert.match(html, /<td>&lt;b&gt;x&lt;\/b&gt;<\/td><td class="al-c">3<\/td><td class="al-r"><\/td>/);
+  assert.ok(!html.includes("<b>x"));
+  assert.match(html, /<div class="reply-line">Done<\/div>$/);
+});
+
+test("reply formatting: a table needs its delimiter row, so a header seen mid-stream is plain text and 'a | b' prose is not a table", () => {
+  assert.doesNotMatch(L.formatReplyHtml("| Item | Qty |"), /<table/);
+  assert.doesNotMatch(L.formatReplyHtml("Use a | b to choose.\n---"), /<table/);
+  // Different cell counts are not a table either.
+  assert.doesNotMatch(L.formatReplyHtml("| a | b |\n|---|"), /<table/);
+  assert.match(L.formatReplyHtml("| a | b |\n|---|---|"), /<table[^>]*><thead>.*<\/thead><tbody><\/tbody><\/table>/);
+});
+
+test("reply formatting: block quotes, deeper headings and strikethrough", () => {
+  const html = L.formatReplyHtml("> Note **this**\n>\n> and that\nplain\n#### Small heading\n~~old~~ new, 2 ~ 3 ~ 4");
+  assert.match(html, /<blockquote class="reply-quote"><div class="reply-line">Note <strong>this<\/strong><\/div><div class="reply-spacer" aria-hidden="true"><\/div><div class="reply-line">and that<\/div><\/blockquote><div class="reply-line">plain<\/div>/);
+  assert.match(html, /<div class="reply-heading reply-h3">Small heading<\/div>/);
+  assert.match(html, /<del>old<\/del> new, 2 ~ 3 ~ 4/);
+  // A ">" inside a code fence is code, not a quote.
+  assert.doesNotMatch(L.formatReplyHtml("```\n> not a quote\n```"), /blockquote/);
+  // An unclosed quote at the end of a streaming reply is closed.
+  assert.ok(L.formatReplyHtml("> still typing").endsWith("</blockquote>"));
+});
+
+test("syntax highlighting colours comments, strings, numbers, keywords and literals, and escapes everything it emits", () => {
+  const js = L.highlightCode('const n = 42; // answer\nlet s = "<img onerror=x>"; return null', "ts");
+  assert.match(js, /<span class="tok-kw">const<\/span> n = <span class="tok-num">42<\/span>; <span class="tok-com">\/\/ answer<\/span>/);
+  assert.match(js, /<span class="tok-str">&quot;&lt;img onerror=x&gt;&quot;<\/span>/);
+  assert.match(js, /<span class="tok-lit">null<\/span>/);
+  assert.ok(!js.includes("<img"));
+  // Identifiers that merely contain a keyword are left alone.
+  assert.doesNotMatch(L.highlightCode("constant forEach iffy", "js"), /tok-kw/);
+  const py = L.highlightCode('def f(x):\n    """doc"""\n    return None  # done', "python");
+  assert.match(py, /<span class="tok-kw">def<\/span> f/);
+  assert.match(py, /<span class="tok-str">&quot;&quot;&quot;doc&quot;&quot;&quot;<\/span>/);
+  assert.match(py, /<span class="tok-lit">None<\/span>/);
+  assert.match(py, /<span class="tok-com"># done<\/span>/);
+  const json = L.highlightCode('{"name": "zarvis", "n": -1.5e3, "ok": true}', "json");
+  assert.match(json, /<span class="tok-attr">&quot;name&quot;<\/span>: <span class="tok-str">&quot;zarvis&quot;<\/span>/);
+  assert.match(json, /<span class="tok-num">-1\.5e3<\/span>/);
+  assert.match(json, /<span class="tok-lit">true<\/span>/);
+  const sh = L.highlightCode('export PATH="$HOME/bin:$PATH" # set', "bash");
+  assert.match(sh, /<span class="tok-kw">export<\/span> PATH=<span class="tok-str">&quot;\$HOME\/bin:\$PATH&quot;<\/span> <span class="tok-com"># set<\/span>/);
+  assert.match(L.highlightCode("SELECT id FROM t WHERE x = 'a''b' -- c", "sql"), /<span class="tok-kw">SELECT<\/span> id <span class="tok-kw">FROM<\/span> t <span class="tok-kw">WHERE<\/span> x = <span class="tok-str">&#39;a&#39;&#39;b&#39;<\/span> <span class="tok-com">-- c<\/span>/);
+  const css = L.highlightCode("@media (min-width: 700px) { a:hover { color: #fff; margin: 0 8px } }", "css");
+  assert.match(css, /<span class="tok-kw">@media<\/span>/);
+  assert.match(css, /<span class="tok-attr">color<\/span>: <span class="tok-num">#fff<\/span>/);
+  assert.match(css, /<span class="tok-num">8px<\/span>/);
+  const html = L.highlightCode('<a href="x" data-a=\'b\'>hi</a><!-- c -->', "html");
+  assert.match(html, /<span class="tok-tag">&lt;a<\/span> <span class="tok-attr">href<\/span>=<span class="tok-str">&quot;x&quot;<\/span>/);
+  assert.match(html, /<span class="tok-tag">&gt;<\/span>hi<span class="tok-tag">&lt;\/a<\/span><span class="tok-tag">&gt;<\/span>/);
+  assert.match(html, /<span class="tok-com">&lt;!-- c --&gt;<\/span>/);
+});
+
+test("syntax highlighting never changes the text, only wraps it; unknown languages and huge blocks stay plain", () => {
+  const samples = [
+    ["js", "const a = `x ${y}`; /* unclosed"],
+    ["python", "s = 'unterminated\nx = 1"],
+    ["json", '{"a": [1, 2, {"b": null}], "c": "unterminated'],
+    ["html", "<div class=\"a\"><p>text &amp; more</p><!-- open"],
+    ["css", "a { b: c; } /* open"],
+    ["sql", "select * from t; -- c"],
+    ["shell", "echo $HOME ${X} 'q"],
+  ];
+  const textOf = (html) => html.replace(/<\/?span[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+  for (const [lang, code] of samples) assert.equal(textOf(L.highlightCode(code, lang)), code, lang);
+  assert.equal(L.highlightCode("const a = 1 < 2", "cobol"), "const a = 1 &lt; 2");
+  assert.equal(L.highlightCode("const a = 1", ""), "const a = 1");
+  const big = "const a = 1;\n".repeat(4000);
+  assert.ok(!L.highlightCode(big, "js").includes("<span"));
+  assert.equal(L.highlightLanguage("TypeScript"), "js");
+  assert.equal(L.highlightLanguage("zsh"), "shell");
+  assert.equal(L.highlightLanguage("brainfuck"), null);
+});
+
+test("a fenced block in a reply is coloured, keeps its language label and its copy text, and an unknown language stays plain", () => {
+  const html = L.formatReplyHtml("```python\nprint(\"hi\")  # greet\n```\n```unknownlang\nprint(\"hi\")\n```");
+  assert.match(html, /<pre class="reply-code" data-lang="python"><code>print\(<span class="tok-str">&quot;hi&quot;<\/span>\)  <span class="tok-com"># greet<\/span><\/code><\/pre>/);
+  assert.match(html, /<pre class="reply-code" data-lang="unknownlang"><code>print\(&quot;hi&quot;\)<\/code><\/pre>/);
+});
+
+test("a refused or unanswered payment confirmation never reads as 'payment received'", () => {
+  const rejected = L.paymentVerifyOutcome(400, "invalid_signature");
+  assert.equal(rejected.kind, "rejected");
+  assert.equal(rejected.tone, "err");
+  assert.match(rejected.message, /plan was not changed/);
+  assert.equal(L.paymentVerifyOutcome(400, "payment_mismatch").kind, "rejected");
+  assert.equal(L.paymentVerifyOutcome(404, "order_not_found").kind, "rejected");
+  const pending = L.paymentVerifyOutcome(402, "payment_not_captured");
+  assert.equal(pending.kind, "pending");
+  assert.equal(pending.tone, "warn");
+  assert.ok(pending.polls > rejected.polls, "a bank still processing is worth waiting for; a rejection is not");
+  for (const [status, code] of [[0, undefined], [502, "gateway_error"], [504, "gateway_error"], [503, "payments_unavailable"], [500, undefined], [429, undefined]]) {
+    const o = L.paymentVerifyOutcome(status, code);
+    assert.equal(o.kind, "unreachable", `${status} ${code}`);
+    assert.match(o.message, /If you were charged/);
+  }
+  for (const o of [rejected, pending, L.paymentVerifyOutcome(0)]) assert.doesNotMatch(o.message, /received|successful|thank/i);
 });

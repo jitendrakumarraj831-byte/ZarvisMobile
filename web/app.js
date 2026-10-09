@@ -897,6 +897,9 @@
     showSessionGate(reason);
   }
 
+  /** How long a page waits for a read (a list, a plan, the task list) before it shows its offline/unavailable state. */
+  const READ_TIMEOUT_MS = 25000;
+
   async function apiFetch(path, options = {}, retried = false) {
     // A link straight to a page that loads data (#/plans, #/activity ...) is opened before a first-time visitor has a session.
     // Without this wait that request goes out with no token, gets a 401, and shows the "session ended" gate to someone who never had one.
@@ -912,14 +915,31 @@
     // A FormData body (document upload) must NOT get a manual content-type: the browser sets
     // its own multipart boundary.
     const isFormData = options.body instanceof FormData;
-    const res = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: {
-        ...(isFormData ? {} : { "content-type": "application/json" }),
-        authorization: `Bearer ${accessToken}`,
-        ...(options.headers || {}),
-      },
-    });
+    // timeoutMs is opt-in: reads that a page waits on pass it, streams, uploads and speech do not. A timeout rejects
+    // like a dropped connection (AbortError), so every caller's existing network-failure path handles it.
+    const { timeoutMs, ...fetchOptions } = options;
+    let timer = null;
+    let signal = fetchOptions.signal;
+    if (timeoutMs) {
+      const timeout = new AbortController();
+      timer = setTimeout(() => timeout.abort(), timeoutMs);
+      signal = fetchOptions.signal && typeof AbortSignal.any === "function" ? AbortSignal.any([fetchOptions.signal, timeout.signal]) : timeout.signal;
+      if (fetchOptions.signal && typeof AbortSignal.any !== "function") fetchOptions.signal.addEventListener("abort", () => timeout.abort(), { once: true });
+    }
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        ...fetchOptions,
+        signal,
+        headers: {
+          ...(isFormData ? {} : { "content-type": "application/json" }),
+          authorization: `Bearer ${accessToken}`,
+          ...(options.headers || {}),
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.status !== 401 || retried) return res;
 
     const outcome = await refreshSession(accessToken);
@@ -1305,7 +1325,7 @@
   async function loadConversationMessages(wanted) {
     kit("setThreadLoading", true);
     try {
-      const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`);
+      const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`, { timeoutMs: READ_TIMEOUT_MS });
       if (state.conversationId !== wanted) return "skipped"; // another chat was opened while this one loaded
       if (res.status === 404) {
         state.conversationId = null;
@@ -1323,7 +1343,7 @@
       // What ZARVIS ran in this chat comes back too, placed between the messages by when it happened.
       let stored = [];
       try {
-        const runs = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/executions`);
+        const runs = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/executions`, { timeoutMs: READ_TIMEOUT_MS });
         if (runs.ok) stored = window.ZarvisExec.renderStored((await runs.json()).executions || []);
       } catch (err) {
         if (err instanceof SessionEndedError) return "skipped";
@@ -1571,7 +1591,7 @@
     const disconnect = document.getElementById("github-disconnect-btn");
     if (!statusNode) return;
     try {
-      const res = await apiFetch("/integrations/github");
+      const res = await apiFetch("/integrations/github", { timeoutMs: READ_TIMEOUT_MS });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const status = await res.json();
       const rowValue = document.querySelector('[data-setting-value="developer"]');
@@ -1661,7 +1681,7 @@
   }
 
   async function loadSkills() {
-    const res = await apiFetch("/skills");
+    const res = await apiFetch("/skills", { timeoutMs: READ_TIMEOUT_MS });
     if (!res.ok) return;
     const { skills } = await res.json();
     state.skills = skills;
@@ -2008,7 +2028,7 @@
       setActiveView,
       conversationId: () => state.conversationId,
       fetchConversations: async () => {
-        const res = await apiFetch("/conversations?limit=50");
+        const res = await apiFetch("/conversations?limit=50", { timeoutMs: READ_TIMEOUT_MS });
         if (!res.ok) return null;
         const data = await res.json().catch(() => null);
         return Array.isArray(data?.conversations) ? data.conversations : null;
@@ -2747,7 +2767,7 @@
     }
     if (currentPlanName) return;
     try {
-      const res = await apiFetch("/entitlements/me");
+      const res = await apiFetch("/entitlements/me", { timeoutMs: READ_TIMEOUT_MS });
       if (!res.ok) return;
       const snapshot = await res.json();
       if (snapshot?.plan) currentPlanName = snapshot.plan;
@@ -3001,7 +3021,7 @@
     if (!el.developerLog) return;
     let res;
     try {
-      res = await apiFetch("/executions?skillIds=developer.analyze_repo,developer.implement&limit=10");
+      res = await apiFetch("/executions?skillIds=developer.analyze_repo,developer.implement&limit=10", { timeoutMs: READ_TIMEOUT_MS });
     } catch (err) {
       if (!(err instanceof SessionEndedError)) console.warn("Developer history failed:", err);
       return;
@@ -3065,20 +3085,19 @@
 
   async function refreshPlans() {
     el.plansCurrent.replaceChildren();
-    let snapshot = null;
-    try {
-      const res = await apiFetch("/entitlements/me");
-      if (res.ok) snapshot = await res.json();
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-    }
-    try {
-      const res = await apiFetch("/billing/plans");
-      planCatalogue = res.ok ? await res.json() : null;
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-      planCatalogue = null;
-    }
+    // Both are read together: waiting for one to time out before asking for the other doubled the wait.
+    const read = async (path) => {
+      try {
+        const res = await apiFetch(path, { timeoutMs: READ_TIMEOUT_MS });
+        return { ended: false, body: res.ok ? await res.json() : null };
+      } catch (err) {
+        return { ended: err instanceof SessionEndedError, body: null };
+      }
+    };
+    const [entitlements, plans] = await Promise.all([read("/entitlements/me"), read("/billing/plans")]);
+    if (entitlements.ended || plans.ended) return;
+    const snapshot = entitlements.body;
+    planCatalogue = plans.body;
     if (snapshot) {
       currentPlanName = snapshot.plan;
       const paid = snapshot.plan === "PRO" && snapshot.planExpiresAt;
@@ -3222,6 +3241,7 @@
       button.disabled = false;
       button.textContent = label;
     };
+    showPaymentResult("info", "");
     button.disabled = true;
     button.textContent = "Opening secure checkout…";
     try {
@@ -3244,10 +3264,10 @@
           reset();
           void confirmPayment(order.orderId, response);
         },
-        modal: { ondismiss: reset },
+        modal: { ondismiss: () => { reset(); showToast("Checkout closed. No payment was completed."); } },
       });
       checkout.on("payment.failed", (event) => {
-        showToast(event?.error?.description ? "Payment failed: " + event.error.description : "Payment failed. You were not charged.");
+        showPaymentResult("err", (event?.error?.description ? "Payment failed: " + event.error.description + " " : "Payment failed. ") + "Your plan was not changed.", event?.error?.metadata?.payment_id);
       });
       checkout.open();
     } catch (err) {
@@ -3257,31 +3277,73 @@
     }
   }
 
-  /** After Checkout succeeds: the server checks the signature and the payment before granting Pro. */
+  /** The last payment result stays on the Plans page until the next checkout: a toast is gone in two seconds, and this is about money. */
+  function showPaymentResult(tone, text, paymentId) {
+    const box = document.getElementById("plans-payment");
+    if (!box) return;
+    box.dataset.tone = tone;
+    document.getElementById("plans-payment-text").textContent = text;
+    const ref = document.getElementById("plans-payment-ref");
+    ref.hidden = !paymentId;
+    document.getElementById("plans-payment-id").textContent = paymentId || "";
+    box.hidden = !text;
+  }
+
+  /** Re-reads the plan up to `attempts` times, 5 s apart; resolves with the snapshot once it is PRO, or null. */
+  async function waitForPro(attempts) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await delay(PAYMENT_POLL_MS);
+      try {
+        const check = await apiFetch("/entitlements/me", { timeoutMs: READ_TIMEOUT_MS });
+        if (check.ok) {
+          const snapshot = await check.json();
+          if (snapshot.plan === "PRO") return snapshot;
+        }
+      } catch (err) {
+        if (err instanceof SessionEndedError) return null;
+      }
+    }
+    return null;
+  }
+  const PAYMENT_POLL_MS = 5000;
+
+  /**
+   * After Checkout succeeds: the server checks the signature and the payment with Razorpay before granting Pro.
+   * What this page says depends only on what the server answered (Logic.paymentVerifyOutcome): never "payment
+   * received" for a payment the server refused, and a final word if the plan still is not active.
+   */
   async function confirmPayment(orderId, response) {
-    showToast("Confirming your payment…");
+    const paymentId = response.razorpay_payment_id;
+    showPaymentResult("info", "Confirming your payment…", paymentId);
+    let outcome = null;
+    let granted = null;
     try {
       const res = await apiFetch("/billing/verify", {
         method: "POST",
-        body: JSON.stringify({ orderId, paymentId: response.razorpay_payment_id, signature: response.razorpay_signature }),
+        body: JSON.stringify({ orderId, paymentId, signature: response.razorpay_signature }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || "verification_failed");
-      recordActivity("conversation", "Upgraded to Pro", body.planExpiresAt ? "Active until " + formatDate(body.planExpiresAt) : "", "ok");
-      showToast("Pro is active" + (body.planExpiresAt ? " until " + formatDate(body.planExpiresAt) : ""));
+      if (res.ok) granted = body;
+      else outcome = Logic.paymentVerifyOutcome(res.status, body.code);
     } catch (err) {
       if (err instanceof SessionEndedError) return;
-      // The payment may still have gone through (the server also hears from Razorpay directly).
-      showToast("Payment received. Activating your plan — this can take a minute.");
-      for (let attempt = 0; attempt < 6; attempt += 1) {
-        await delay(5000);
-        try {
-          const check = await apiFetch("/entitlements/me");
-          if (check.ok && (await check.json()).plan === "PRO") break;
-        } catch {
-          break;
-        }
-      }
+      outcome = Logic.paymentVerifyOutcome(0, undefined);
+    }
+    if (!outcome) {
+      recordActivity("conversation", "Upgraded to Pro", granted.planExpiresAt ? "Active until " + formatDate(granted.planExpiresAt) : "", "ok");
+      showPaymentResult("ok", "Pro is active" + (granted.planExpiresAt ? " until " + formatDate(granted.planExpiresAt) : "") + ".", paymentId);
+      showToast("Pro is active");
+      await refreshPlans();
+      return;
+    }
+    showPaymentResult(outcome.tone, outcome.message, paymentId);
+    // The server also hears from Razorpay directly, so even a refused or unanswered callback is worth one more look at the plan.
+    const snapshot = await waitForPro(outcome.polls);
+    if (snapshot) {
+      showPaymentResult("ok", "Pro is active" + (snapshot.planExpiresAt ? " until " + formatDate(snapshot.planExpiresAt) : "") + ".", paymentId);
+      showToast("Pro is active");
+    } else if (outcome.kind !== "rejected") {
+      showPaymentResult("warn", "Your plan isn't active yet. If you were charged, it switches on once the payment is confirmed. Open this page again in a few minutes.", paymentId);
     }
     await refreshPlans();
   }
@@ -3634,7 +3696,7 @@
   async function fetchTasks() {
     let res;
     try {
-      res = await apiFetch("/tasks");
+      res = await apiFetch("/tasks", { timeoutMs: READ_TIMEOUT_MS });
     } catch (err) {
       latestTasks = null;
       throw err;

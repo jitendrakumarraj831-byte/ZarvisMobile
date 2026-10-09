@@ -331,6 +331,177 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     });
   }
 
+  // Markdown in a reply: tables, quotes and coloured code are real elements, stay inside the screen at every width, and copy as plain code.
+  await step("Markdown reply: a wide table scrolls inside its own frame (no page overflow at 320-1440), code is coloured and copies as plain text, a quote is a quote", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 800 }, bypassCSP: true, reducedMotion: "reduce", permissions: ["clipboard-read", "clipboard-write"] });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const MD = "> Quoted **note**\n\n| Name | A very long column heading that needs room | Third | Fourth |\n|:--|:-:|--:|---|\n| one | some long text that keeps going and going so that the table is wider than a phone | 3 | four |\n\n```ts\nconst total: number = 40 + 2; // sum\nconsole.log(\"<b>\", total);\n```\n\n~~old~~ #### not a heading here";
+    await page.route("**/api/v1/orchestrator/turn-stream", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: reply(MD, "md") }));
+    await openView(page, "chat");
+    await page.fill("#text-input", "markdown please");
+    await page.press("#text-input", "Enter");
+    await page.waitForSelector(".bubble.assistant .reply-table");
+    for (const width of [320, 360, 390, 412, 768, 1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.waitForTimeout(150);
+      const m = await page.evaluate(() => ({ over: document.documentElement.scrollWidth - innerWidth, wrapInside: (() => { const w = document.querySelector(".reply-table-wrap"); const b = w.closest(".bubble-body").getBoundingClientRect(); return w.getBoundingClientRect().right <= b.right + 1; })() }));
+      assert.ok(m.over <= 1, `page overflows by ${m.over}px at ${width}`);
+      assert.ok(m.wrapInside, `table frame leaves its bubble at ${width}`);
+    }
+    await page.setViewportSize({ width: 320, height: 800 });
+    const facts = await page.evaluate(() => {
+      const wrap = document.querySelector(".reply-table-wrap");
+      const code = document.querySelector("pre.reply-code code");
+      const color = (el) => getComputedStyle(el).color;
+      return {
+        scrolls: wrap.scrollWidth > wrap.clientWidth,
+        focusable: wrap.tabIndex === 0 && wrap.getAttribute("role") === "region" && !!wrap.getAttribute("aria-label"),
+        headers: [...document.querySelectorAll(".reply-table th")].map((t) => t.textContent),
+        quote: document.querySelector("blockquote.reply-quote")?.textContent.trim(),
+        kw: code.querySelector(".tok-kw")?.textContent, kwColor: code.querySelector(".tok-kw") && color(code.querySelector(".tok-kw")), plainColor: color(code),
+        com: code.querySelector(".tok-com")?.textContent,
+        codeText: code.textContent,
+        injected: !!document.querySelector(".bubble-body b, .bubble-body img"),
+        struck: document.querySelector(".bubble-body del")?.textContent,
+      };
+    });
+    assert.ok(facts.scrolls, "a table wider than a phone scrolls inside its frame");
+    assert.ok(facts.focusable, "the scrollable table is keyboard reachable and named");
+    assert.deepEqual(facts.headers, ["Name", "A very long column heading that needs room", "Third", "Fourth"]);
+    assert.equal(facts.quote, "Quoted note");
+    assert.equal(facts.kw, "const");
+    assert.notEqual(facts.kwColor, facts.plainColor, "keywords are coloured");
+    assert.equal(facts.com, "// sum");
+    assert.equal(facts.codeText, 'const total: number = 40 + 2; // sum\nconsole.log("<b>", total);');
+    assert.equal(facts.injected, false, "HTML in code or text is never turned into elements");
+    assert.equal(facts.struck, "old");
+    await page.click("pre.reply-code .code-copy");
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), facts.codeText, "Copy puts plain code on the clipboard, not markup");
+    await ctx.close();
+  });
+
+  // Payments: what the Plans page says follows what the server answered. The gateway is stubbed (no money moves); the
+  // app's own /billing/verify and /entitlements/me answers are what each scenario varies.
+  await step("Billing: a refused payment is not 'received', an unanswered one says it is unconfirmed and then whether the plan came on, a failed or closed checkout says so", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true });
+    await ctx.addInitScript(() => {
+      window.Razorpay = class { constructor(o) { this.o = o; this.on_ = {}; window.__rzp = this; } on(ev, fn) { this.on_[ev] = fn; } open() {} };
+    });
+    const page = await pageOf(ctx);
+    await ready(page);
+    let verify = { status: 200, body: {} };
+    let plan = "TRIAL";
+    let planChecks = 0;
+    const plans = ["monthly", "yearly"].map((period) => ({ key: "pro_" + period, period, amountInr: period === "yearly" ? 4999 : 499, perMonthInr: period === "yearly" ? 417 : 499, credits: period === "yearly" ? 12000 : 1000, savingsPercent: period === "yearly" ? 16 : 0 }));
+    await page.route("**/api/v1/billing/plans", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ currency: "INR", paymentsEnabled: true, testMode: true, methods: [], plans, current: { plan, planExpiresAt: null, creditBalance: 50 } }) }));
+    await page.route("**/api/v1/billing/orders", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ keyId: "rzp_test_x", orderId: "order_1", amountPaise: 49900, currency: "INR", description: "Pro monthly" }) }));
+    await page.route("**/api/v1/billing/verify", (r) => r.fulfill({ status: verify.status, contentType: "application/json", body: JSON.stringify(verify.body) }));
+    await page.route("**/api/v1/entitlements/me", (r) => { planChecks += 1; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ plan, creditBalance: 50, trialExpiresAt: "2030-01-01T00:00:00Z", planExpiresAt: plan === "PRO" ? "2030-02-01T00:00:00Z" : null }) }); });
+    await page.clock.install();
+    const notice = () => page.evaluate(() => { const b = document.getElementById("plans-payment"); return { hidden: b.hidden, tone: b.dataset.tone, text: b.querySelector("#plans-payment-text").textContent, id: document.getElementById("plans-payment-ref").hidden ? "" : document.getElementById("plans-payment-id").textContent, body: document.body.innerText };});
+    const tick = async (ms) => { await page.clock.fastForward(ms); await page.waitForTimeout(250); };
+    const pay = async (callback) => {
+      await openView(page, "plans");
+      await page.waitForSelector(".plan-cta:not([disabled])", { timeout: 8000 }).catch(async (err) => {
+        throw new Error("no enabled plan button: " + JSON.stringify(await page.evaluate(() => ({ active: document.body.dataset.activeView, ctas: [...document.querySelectorAll(".plan-cta")].map((b) => b.textContent + (b.disabled ? " (disabled)" : "")), notice: document.getElementById("plans-notice-text")?.textContent, text: document.body.innerText.replace(/\s+/g, " ").slice(0, 200) }))));
+      });
+      await page.click(".plan-cta:not([disabled])");
+      await page.waitForFunction(() => !!window.__rzp);
+      await page.evaluate(callback);
+      await page.waitForTimeout(300);
+    };
+    const handler = () => window.__rzp.o.handler({ razorpay_payment_id: "pay_123", razorpay_order_id: "order_1", razorpay_signature: "sig" });
+
+    // 1. The server refuses the signature: an error that says the plan did not change, with the payment id, and no "received".
+    verify = { status: 400, body: { error: "The payment signature did not verify.", code: "invalid_signature" } };
+    await pay(handler);
+    await tick(5200);
+    let n = await notice();
+    assert.equal(n.tone, "err");
+    assert.match(n.text, /couldn't verify this payment, so your plan was not changed/);
+    assert.equal(n.id, "pay_123");
+    assert.doesNotMatch(n.body, /Payment received|Pro is active/i);
+
+    // 2. The gateway cannot be reached and the plan never comes on: unconfirmed first, then an honest "not active yet".
+    verify = { status: 502, body: { error: "gateway", code: "gateway_error" } };
+    await pay(handler);
+    n = await notice();
+    assert.equal(n.tone, "warn");
+    assert.match(n.text, /couldn't reach the payment service/);
+    assert.doesNotMatch(n.body, /Payment received/i);
+    for (let i = 0; i < 6; i += 1) await tick(5100);
+    n = await notice();
+    assert.equal(n.tone, "warn");
+    assert.match(n.text, /plan isn't active yet/);
+    assert.equal(n.id, "pay_123");
+
+    // 3. The gateway cannot be reached but the plan comes on (the server heard from Razorpay): it then says Pro is active.
+    plan = "TRIAL";
+    await pay(handler);
+    await tick(5100);
+    plan = "PRO";
+    await tick(5100);
+    n = await notice();
+    assert.equal(n.tone, "ok");
+    assert.match(n.text, /^Pro is active until/);
+
+    // 4. The bank has not captured yet (402): says so, and waits.
+    plan = "TRIAL";
+    verify = { status: 402, body: { error: "The payment has not completed.", code: "payment_not_captured" } };
+    await pay(handler);
+    n = await notice();
+    assert.match(n.text, /bank hasn't confirmed/);
+
+    // 5. A verified payment.
+    plan = "PRO";
+    verify = { status: 200, body: { plan: "PRO", planExpiresAt: "2030-02-01T00:00:00Z" } };
+    await pay(handler);
+    n = await notice();
+    assert.equal(n.tone, "ok");
+    assert.match(n.text, /^Pro is active until/);
+
+    // 6. The gateway reports a failed payment: it says the plan was not changed (it cannot know about the bank), and a closed checkout is not a payment.
+    plan = "TRIAL";
+    await pay(() => window.__rzp.on_["payment.failed"]({ error: { description: "Card declined", metadata: { payment_id: "pay_failed" } } }));
+    n = await notice();
+    assert.equal(n.tone, "err");
+    assert.match(n.text, /^Payment failed: Card declined Your plan was not changed\./);
+    assert.equal(n.id, "pay_failed");
+    // The modal stays open for a retry after a failure, so the button stays busy until it is closed.
+    await page.evaluate(() => window.__rzp.o.modal.ondismiss());
+    await page.waitForTimeout(200);
+    assert.match(await page.evaluate(() => document.getElementById("toast").textContent), /Checkout closed\. No payment was completed\./);
+    assert.ok(planChecks > 0);
+    await ctx.close();
+  });
+
+  // A server that accepts the connection and never answers must not leave a page on its loading state for ever.
+  await step("Stalled server: Plans stops waiting after the read timeout and says plans could not be loaded; the page stays usable", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true });
+    const page = await pageOf(ctx);
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    await ready(page);
+    await page.route("**/api/v1/billing/plans", () => {}); // never answered
+    await page.route("**/api/v1/entitlements/me", () => {}); // never answered
+    await page.clock.install();
+    await openView(page, "plans");
+    await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(() => document.getElementById("plans-notice").hidden), true, "still waiting: nothing is claimed yet");
+    await page.clock.fastForward(26000);
+    await page.waitForTimeout(400);
+    const after = await page.evaluate(() => ({ notice: document.getElementById("plans-notice-text").textContent, ctas: [...document.querySelectorAll(".plan-cta")].map((b) => b.textContent), prices: document.getElementById("plan-cards").innerText }));
+    assert.match(after.notice, /Couldn't load plans and prices/);
+    assert.ok(after.ctas.length >= 2, "the plan cards are drawn");
+    assert.match(after.prices, /Price unavailable/);
+    assert.ok(!after.ctas.some((t) => /Upgrade/.test(t)), "no purchase button without a price");
+    await openView(page, "settings");
+    assert.equal(await page.evaluate(() => document.body.dataset.activeView), "settings", "navigation still works");
+    assert.deepEqual(errs, [], "a timeout is handled, not thrown");
+    await ctx.close();
+  });
+
   // Chat with real content: a formatted reply (list, code), an action row, a finished tool and a waiting "Thinking" card.
   // One guest account for all four looks: the server allows 60 sign-ups an hour per address and the suites share them.
   await step("accessibility: Chat with a rich reply, a tool row and Thinking has no serious/critical axe violation (phone and desktop, both themes)", async () => {
@@ -338,7 +509,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     const page = await pageOf(ctx);
     await ready(page);
     const CID = "00000000-0000-4000-8000-000000000001";
-    const RICH = "Here is **what I found**:\n\n## Summary\n- First point with a [link](https://example.com/docs)\n- Second point with `inline code`\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```\n\n1. One\n2. Two";
+    const RICH = "Here is **what I found**:\n\n## Summary\n- First point with a [link](https://example.com/docs)\n- Second point with `inline code`\n\n> Prices are in INR.\n\n| Plan | Price | Notes |\n|:--|--:|---|\n| Pro monthly | 499 | Includes voice and web search, renews every month |\n| Pro yearly | 4999 | Best value |\n\n```js\nconst answer = 42; // the answer\nconsole.log(answer);\n```\n\n1. One\n2. Two";
     let turn = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => {
       turn += 1;
