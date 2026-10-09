@@ -1,6 +1,10 @@
 package com.zarvismobile.app.navigation
 
 import android.net.Uri
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -12,6 +16,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -68,7 +73,9 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
         Routes.METRICS, Routes.TASKS -> Routes.ACTIVITY
         else -> currentRoute ?: Routes.HOME
     }
-    val showBottomBar = BOTTOM_NAV_ITEMS.any { it.route == selectedRoute }
+    // The tab bar sits behind the keyboard, so while typing it is only dead space between the composer and the keys: hide it.
+    val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val showBottomBar = BOTTOM_NAV_ITEMS.any { it.route == selectedRoute } && !keyboardOpen
 
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -88,10 +95,13 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
             }
         },
     ) { innerPadding ->
+        // The Scaffold already pads for the tab bar (or, with no bar, for the gesture/navigation bar). Mark that space as taken so a
+        // screen's own navigationBarsPadding()/imePadding() does not add the same inset a second time above the composer or buttons.
+        val bottomPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding())
         NavHost(
             navController = navController,
             startDestination = if (startAtOnboarding) Routes.ONBOARDING else Routes.HOME,
-            modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
+            modifier = Modifier.padding(bottomPadding).consumeWindowInsets(bottomPadding),
         ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
