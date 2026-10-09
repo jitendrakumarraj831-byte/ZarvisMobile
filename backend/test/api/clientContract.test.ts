@@ -42,6 +42,66 @@ function served(app: Express): Array<{ method: string; segments: string[] }> {
   return out;
 }
 
+
+/**
+ * The API paths a web file calls: `apiFetch("/x")` and the workspace's `call("/x/" + encodeURIComponent(id))`. A part of the
+ * expression that is not a string literal stands for one path segment when it follows a "/" and is otherwise a query suffix.
+ */
+function webApiPaths(source: string): string[] {
+  const out = new Set<string>();
+  for (const match of source.matchAll(/(?<![\w.])(?:host\.)?(?:apiFetch|call)\(\s*/g)) {
+    let i = match.index + match[0].length;
+    const first = source[i];
+    if (first !== '"' && first !== "'" && first !== "`") continue; // a variable path (a wrapper's own parameter)
+    let depth = 0;
+    let quote = "";
+    let end = i;
+    for (; end < source.length; end += 1) {
+      const c = source[end]!;
+      if (quote) {
+        if (c === "\\") end += 1;
+        else if (c === quote) quote = "";
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "(" || c === "[" || c === "{") depth += 1;
+      else if (c === ")" || c === "]" || c === "}") {
+        if (depth === 0) break;
+        depth -= 1;
+      } else if (c === "," && depth === 0) break;
+    }
+    const expression = source.slice(i, end);
+    // Split on top-level "+" into literals and non-literals.
+    const parts: string[] = [];
+    let current = "";
+    quote = "";
+    depth = 0;
+    for (let k = 0; k < expression.length; k += 1) {
+      const c = expression[k]!;
+      if (quote) {
+        current += c;
+        if (c === "\\") { current += expression[k + 1] ?? ""; k += 1; } else if (c === quote) quote = "";
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") { quote = c; current += c; }
+      else if (c === "(" || c === "[" || c === "{") { depth += 1; current += c; }
+      else if (c === ")" || c === "]" || c === "}") { depth -= 1; current += c; }
+      else if (c === "+" && depth === 0) { parts.push(current.trim()); current = ""; }
+      else current += c;
+    }
+    parts.push(current.trim());
+    let path = "";
+    for (const part of parts) {
+      const literal = /^(["'`])(.*)\1$/s.exec(part);
+      if (literal) path += (literal[2] ?? "").replace(/\$\{[^}]+\}/g, VAR);
+      else if (path.endsWith("/")) path += VAR;
+    }
+    path = path.split("?")[0]!.replace(/\/+$/, "");
+    if (path.startsWith("/") && !path.includes(" ")) out.add("/api/v1" + path);
+  }
+  return [...out];
+}
+
 const app = buildServer(buildContainer(new InMemoryStore()));
 const routes = served(app);
 const segmentMatches = (route: string, client: string) => route.startsWith(":") || client === VAR || route === client;
@@ -62,10 +122,12 @@ describe("client ↔ backend API contract", () => {
     expect(missing).toEqual([]);
   });
 
-  it("every web apiFetch path exists", async () => {
-    const source = readFileSync(join(repo, "web/app.js"), "utf8");
-    const paths = [...new Set([...source.matchAll(/apiFetch\(\s*["'`]([^"'`]+)["'`]/g)].map((m) => "/api/v1" + (m[1] ?? "").split("?")[0]!.replace(/\$\{[^}]+\}/g, VAR)))];
-    expect(paths.length).toBeGreaterThan(10);
+  it("every web API path exists (app.js, workspace.js, exec-cards.js, chat-kit.js, shell.js, feature-pages.js)", async () => {
+    const paths = new Set<string>();
+    for (const file of ["app.js", "workspace.js", "exec-cards.js", "chat-kit.js", "shell.js", "feature-pages.js"]) {
+      for (const path of webApiPaths(readFileSync(join(repo, "web", file), "utf8"))) paths.add(path);
+    }
+    expect(paths.size).toBeGreaterThan(30);
     const missing: string[] = [];
     for (const path of paths) {
       if (isServed(null, path)) continue;
@@ -77,5 +139,13 @@ describe("client ↔ backend API contract", () => {
       missing.push(path.replaceAll(VAR, "{var}"));
     }
     expect(missing).toEqual([]);
+  });
+
+  it("the web files call the workspace endpoints this phase added", () => {
+    const all = new Set<string>();
+    for (const file of ["workspace.js", "exec-cards.js"]) for (const path of webApiPaths(readFileSync(join(repo, "web", file), "utf8"))) all.add(path);
+    for (const expected of ["/api/v1/projects", "/api/v1/notes", "/api/v1/memory", "/api/v1/files", "/api/v1/executions", "/api/v1/agents", "/api/v1/usage/summary", "/api/v1/developer/pr-status"]) {
+      expect([...all].some((p) => p.startsWith(expected)), expected).toBe(true);
+    }
   });
 });

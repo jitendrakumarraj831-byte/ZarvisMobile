@@ -154,36 +154,52 @@
        data-cap-page = view id (page action)
        data-cap-prompt = text placed in the composer (chat)
        data-feature-page = detail page id */
+  /* Every capability carries one of four honest states (the same words as the Permission Center):
+       WORKING      implemented, connected and covered by this repository's automated tests
+       PARTIAL      part of it is real: it depends on a service, a plan, a browser or a step you take
+       PLANNED      designed, not active
+       UNSUPPORTED  no route on the web (Android-only actions, things this version does not do)
+     `note` says in a few words what the state depends on. A capability is never listed as active unless it is WORKING or PARTIAL. */
   const GROUPS = [
     { title: "AI", items: [
-      { icon: "i-chat", name: "Conversation", short: "Ask anything, get answers", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["Available", "ok"], action: ["chat", "Open"] },
-      { icon: "i-globe", name: "Web search", short: "Live, sourced results", desc: "Live, sourced results when the provider can ground them.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
-      { icon: "i-search", name: "Research writing", short: "Compare, report, outline", desc: "Compare, report and outline — labelled when not from a live source.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
+      { icon: "i-chat", name: "Conversation", short: "Ask anything, get answers", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["WORKING"], action: ["chat", "Open"] },
+      { icon: "i-globe", name: "Web search", short: "Live, sourced results", desc: "Live, sourced results. Needs the search provider configured on the server; sources are the links it returns.", status: ["WORKING", "Needs the search provider"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
+      { icon: "i-search", name: "Research writing", short: "Compare, report, outline", desc: "Compare, report and outline are written from general knowledge, not from a live search, and say so.", status: ["PARTIAL", "Not live-sourced"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
+    ] },
+    { title: "Work", items: [
+      { icon: "i-folder", name: "Projects", short: "Keep chats, files and decisions together", desc: "A project keeps its chats, files, tasks, decisions and memory, and Continue work resumes what is stored.", status: ["WORKING"], action: ["page", "Open"], page: "work" },
+      { icon: "i-file", name: "Files library", short: "Keep what ZARVIS read", desc: "Upload a file and ZARVIS keeps the text it read (not the original) so you can summarize, ask, extract or compare.", status: ["WORKING", "Text only is kept"], action: ["page", "Open"], page: "work" },
+      { icon: "i-memory", name: "Memory", short: "Only what you save", desc: "Personal and project memory that you add, pause and delete. Nothing is remembered automatically.", status: ["WORKING"], action: ["settings", "Open"], settings: "memory" },
     ] },
     { title: "Voice", items: [
-      { icon: "i-mic", name: "Voice input", short: "Talk naturally", desc: "Tap the orb or microphone to speak. No wake word.", status: ["Available", "ok"], action: ["voice", "Talk"], feature: "voice" },
-      { icon: "i-wave", name: "Spoken replies", short: "Hear replies aloud", desc: "ZARVIS reads replies aloud with a natural voice.", status: ["Available", "ok"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
+      { icon: "i-mic", name: "Voice input", short: "Talk naturally", desc: "Tap the orb or microphone to speak. No wake word. Depends on your browser's speech recognition.", status: ["PARTIAL", "Browser dependent"], action: ["voice", "Talk"], feature: "voice" },
+      { icon: "i-wave", name: "Spoken replies", short: "Hear replies aloud", desc: "ZARVIS reads replies aloud with Gemini voices. Needs the server's AI key and quota.", status: ["WORKING", "Needs the AI key"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
     ] },
     { title: "Vision", items: [
-      { icon: "i-image", name: "Image understanding", short: "Ask about photos", desc: "Attach a photo or screenshot and ask about it.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
-      { icon: "i-sparkle", name: "Image generation", short: "Not part of this version", desc: "Creating images isn't part of this version.", status: ["Not available", "off"] },
+      { icon: "i-image", name: "Image understanding", short: "Ask about photos", desc: "Attach a photo or screenshot and ask about it. Needs the server's vision model.", status: ["PARTIAL", "Needs the vision model"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-sparkle", name: "Image generation", short: "Not part of this version", desc: "Creating images is designed but not active in this version.", status: ["PLANNED"] },
     ] },
     { title: "Files", items: [
-      { icon: "i-file", name: "Document summaries", short: "PDF, Docs, text files", desc: "PDF, DOCX and text files — summarize or ask questions.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-file", name: "Document summaries", short: "PDF, Docs, text files", desc: "PDF, DOCX and text files: summarize or ask questions.", status: ["WORKING"], action: ["attach", "Upload"], feature: "documents" },
     ] },
     { title: "Automation", items: [
-      { icon: "i-task", name: "Tracked tasks", short: "Plan goals in steps", desc: "Break a goal into steps and track its status on the Tasks page.", status: ["Status only", "info"], action: ["page", "Open"], page: "tasks" },
-      { icon: "i-phone", name: "Phone Agent", short: "Android app actions", desc: "Open apps, find contacts and place confirmed calls.", status: ["Android app", "info"], action: ["feature", "Details"], feature: "phone" },
+      { icon: "i-task", name: "Tasks", short: "Goals in steps you start", desc: "A task has a real status. A step runs, as a ZARVIS turn, when you press Run; nothing runs in the background.", status: ["PARTIAL", "You start each step"], action: ["page", "Open"], page: "tasks" },
+      { icon: "i-activity", name: "Background automation", short: "Tasks that run by themselves", desc: "Running steps on a schedule or without you is designed but not active.", status: ["PLANNED"] },
+      { icon: "i-phone", name: "Phone Agent", short: "Android app actions", desc: "Open apps, find contacts and place confirmed calls. Android-only: the website can't do them.", status: ["UNSUPPORTED", "Android app only"], action: ["feature", "Details"], feature: "phone" },
     ] },
     { title: "Developer", items: [
-      { icon: "i-code", name: "Repository analysis", short: "Read-only repo report", desc: "A read-only report on a GitHub repository.", status: ["Available", "ok"], action: ["developer", "Open"], feature: "developer" },
-      { icon: "i-github", name: "Pull requests", short: "Implement after approval", desc: "Implement a change after you approve the exact action.", status: ["PRO · approval", "warn"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-code", name: "Repository analysis", short: "Read-only repo report", desc: "A read-only report on a GitHub repository, read from its file tree. Checked against a GitHub test double, not yet against live GitHub in CI.", status: ["PARTIAL", "Not yet checked live"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-github", name: "Pull requests", short: "Implement after approval", desc: "Implement a change after you approve the exact action. Needs the Pro plan and your own GitHub account; live writes are not yet checked in CI.", status: ["PARTIAL", "Pro, your approval"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-check", name: "Running tests", short: "ZARVIS runs none", desc: "ZARVIS does not run your tests. A pull request shows what your repository's own checks report on GitHub.", status: ["UNSUPPORTED", "Reads GitHub checks only"], action: ["developer", "Open"], feature: "developer" },
     ] },
     { title: "Productivity", items: [
-      { icon: "i-pen", name: "Writing", short: "Messages, poems, ideas", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["Available", "ok"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
-      { icon: "i-briefcase", name: "Business drafts", short: "Replies, posts, invoices", desc: "Customer replies, social posts and invoice drafts. Never sent.", status: ["Draft only", "ok"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
+      { icon: "i-pen", name: "Writing", short: "Messages, poems, ideas", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["WORKING"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
+      { icon: "i-briefcase", name: "Business drafts", short: "Replies, posts, invoices", desc: "Customer replies, social posts and invoice drafts. Drafts only: nothing is sent, posted or invoiced.", status: ["WORKING", "Draft only"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
     ] },
   ];
+
+  /* The card badge colour for each state. */
+  const STATUS_TONE = { WORKING: "ok", PARTIAL: "warn", PLANNED: "info", UNSUPPORTED: "off" };
 
   function badgeClass(kind) {
     if (kind === "permission") return "feature-badge feature-badge-permission";
@@ -220,6 +236,7 @@
   const FILTERS = [
     { id: "all", label: "All" },
     { id: "ai", label: "AI", groups: ["AI"] },
+    { id: "work", label: "Work", groups: ["Work"] },
     { id: "media", label: "Media", groups: ["Voice", "Vision", "Files"] },
     { id: "productivity", label: "Productivity", groups: ["Productivity"] },
     { id: "developer", label: "Developer", groups: ["Developer"] },
@@ -257,20 +274,20 @@
       pills.appendChild(pill);
     }
     // A truthful tally of what the catalogue below says, by status.
-    const counts = { ok: 0, warn: 0, info: 0, off: 0 };
+    const counts = { WORKING: 0, PARTIAL: 0, PLANNED: 0, UNSUPPORTED: 0 };
     for (const group of GROUPS) {
       if (group.title === "Developer" && !withDeveloper) continue;
-      for (const item of group.items) counts[item.status[1]] = (counts[item.status[1]] || 0) + 1;
+      for (const item of group.items) counts[item.status[0]] += 1;
     }
     const summary = el("div", "cap-summary");
     summary.setAttribute("role", "list");
     summary.setAttribute("aria-label", "Capabilities by status");
-    for (const [kind, label] of [["ok", "ready now"], ["warn", "need your approval"], ["info", "limited or Android-only"], ["off", "not available"]]) {
-      if (!counts[kind]) continue;
+    for (const [status, label] of [["WORKING", "working"], ["PARTIAL", "partial"], ["PLANNED", "planned"], ["UNSUPPORTED", "unsupported on the web"]]) {
+      if (!counts[status]) continue;
       const chip = el("span", "cap-sum");
-      chip.dataset.kind = kind;
+      chip.dataset.kind = STATUS_TONE[status];
       chip.setAttribute("role", "listitem");
-      chip.append(el("i", "cap-sum-dot"), el("strong", null, String(counts[kind])), document.createTextNode(" " + label));
+      chip.append(el("i", "cap-sum-dot"), el("strong", null, String(counts[status])), document.createTextNode(" " + label));
       summary.appendChild(chip);
     }
     container.append(summary, pills, grid);
@@ -278,7 +295,8 @@
     GROUPS.forEach((group, groupIndex) => {
       if (group.title === "Developer" && !withDeveloper) return;
       group.items.forEach((item, index) => {
-        const row = el("article", "cap-item " + TONES[groupIndex % TONES.length] + (item.status[1] === "off" ? " is-off" : ""));
+        const row = el("article", "cap-item " + TONES[groupIndex % TONES.length] + (item.status[0] === "UNSUPPORTED" || item.status[0] === "PLANNED" ? " is-off" : ""));
+        row.dataset.status = item.status[0];
         row.dataset.capGroup = filterFor(group.title);
         row.style.animationDelay = Math.min(index * 40 + groupIndex * 20, 240) + "ms";
         const ico = el("span", "row-ico " + TONES[groupIndex % TONES.length]);
@@ -293,9 +311,12 @@
         }
         const name = el("span", "cap-name");
         name.appendChild(el("span", null, item.name));
-        // "Available" is the default; only notable states get a badge.
-        if (item.status[0] !== "Available") name.appendChild(el("span", "z-badge z-badge-" + item.status[1], item.status[0]));
+        // Every capability says what state it is in, in the product's four words.
+        const badge = el("span", "z-badge z-badge-" + STATUS_TONE[item.status[0]], window.ZarvisLogic.capabilityStatusLabel(item.status[0]));
+        if (item.status[1]) badge.title = item.status[1];
+        name.appendChild(badge);
         copy.append(name, el("span", "cap-desc", item.short || item.desc));
+        if (item.status[1]) copy.append(el("span", "cap-note", item.status[1]));
         row.title = item.desc;
         row.append(ico, copy);
         if (item.action) {
@@ -444,6 +465,7 @@
   window.ZarvisFeatures = {
     catalog: CATALOG,
     groups: GROUPS,
+    STATUS_TONE: STATUS_TONE,
     renderHub: renderHub,
     renderDetail: renderDetail,
   };

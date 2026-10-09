@@ -57,7 +57,7 @@ describe.each(STORES)("conversation list (API, %s)", (_label, makeStore) => {
     expect(res.body.conversations.map((c: { id: string }) => c.id)).toEqual([second, first]);
     expect(res.body.conversations.map((c: { title: string }) => c.title)).toEqual(["Explain photosynthesis simply", "Plan my launch week"]);
     for (const c of res.body.conversations) {
-      expect(Object.keys(c).sort()).toEqual(["createdAt", "id", "title", "updatedAt"]); // metadata only, never messages
+      expect(Object.keys(c).sort()).toEqual(["createdAt", "id", "projectId", "title", "updatedAt"]); // metadata only, never messages
       expect(Number.isFinite(Date.parse(c.updatedAt))).toBe(true);
     }
     expect(JSON.stringify(res.body)).not.toContain("secret");

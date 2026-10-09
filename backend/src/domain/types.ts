@@ -59,6 +59,8 @@ export interface SkillExecutionContext {
   taskId?: string;
   /** Conversation the call belongs to, so a later approval can report back into it. */
   conversationId?: string;
+  /** Project the work belongs to (the conversation's project), recorded with the execution. */
+  projectId?: string;
   locale?: string;
   /**
    * Set ONLY by the confirmations route after it atomically consumed a server-issued,
@@ -163,8 +165,32 @@ export interface PendingConfirmationView {
   expiresAt: string;
 }
 
+/**
+ * The task status the Android client parses (its `TaskStatus` enum has exactly these values).
+ * It stays on the wire for that client; the truthful state is `TaskLifecycle` below, and
+ * `legacyStatus()` is the only place that maps one onto the other.
+ */
 export type TaskStatus = "PENDING" | "RUNNING" | "PAUSED" | "DONE" | "FAILED" | "CANCELLED";
 export type StepStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED" | "SKIPPED";
+
+/**
+ * What a task is really doing:
+ * QUEUED (recorded, nothing started) -> RUNNING (a step has started) -> EXECUTING (a tool is running)
+ * -> VERIFYING (checking what the step produced) -> WAITING (a step finished, the next one needs the user
+ * to start it) / CONFIRMATION_REQUIRED (an action is waiting for the user's approval) -> COMPLETED.
+ * FAILED, CANCELLED and BLOCKED (cannot continue until the user fixes something) are the other ends.
+ */
+export type TaskLifecycle =
+  | "QUEUED"
+  | "RUNNING"
+  | "WAITING"
+  | "CONFIRMATION_REQUIRED"
+  | "EXECUTING"
+  | "VERIFYING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "BLOCKED";
 
 export interface TaskStep {
   id: string;
@@ -173,6 +199,25 @@ export interface TaskStep {
   status: StepStatus;
   resultSummary?: string;
   retryCount: number;
+  /** Why the step failed, from the real outcome. */
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  /** What was actually observed when the step finished (tool statuses, verification checks). */
+  evidence?: Record<string, unknown>;
+}
+
+export interface TaskEvent {
+  at: string;
+  type: string;
+  message: string;
+  stepId?: string;
+}
+
+export interface TaskFailure {
+  code: string;
+  message: string;
+  retryable: boolean;
 }
 
 export interface Task {
@@ -183,4 +228,56 @@ export interface Task {
   steps: TaskStep[];
   riskLevel: RiskLevel;
   createdAt: Date;
+  /** Fields below are optional so a task written before they existed still reads; see tasks/taskView.ts. */
+  updatedAt?: Date;
+  projectId?: string;
+  /** The conversation the task's steps run in (created by the first step). */
+  conversationId?: string;
+  lifecycle?: TaskLifecycle;
+  error?: TaskFailure;
+  /** The final answer, set only when every step is done. */
+  result?: { summary: string };
+  events?: TaskEvent[];
+  retryCount?: number;
+  blockedReason?: string;
+  /** The server-issued confirmation the task is waiting for. */
+  pendingConfirmationId?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
+
+const LIFECYCLE_TO_LEGACY: Record<TaskLifecycle, TaskStatus> = {
+  QUEUED: "PENDING",
+  RUNNING: "RUNNING",
+  EXECUTING: "RUNNING",
+  VERIFYING: "RUNNING",
+  CONFIRMATION_REQUIRED: "RUNNING",
+  WAITING: "PAUSED",
+  BLOCKED: "PAUSED",
+  COMPLETED: "DONE",
+  FAILED: "FAILED",
+  CANCELLED: "CANCELLED",
+};
+
+export function legacyStatus(lifecycle: TaskLifecycle): TaskStatus {
+  return LIFECYCLE_TO_LEGACY[lifecycle];
+}
+
+/** A task written before the lifecycle existed (or by something that only sets `status`) maps back. */
+export function lifecycleFromLegacy(status: TaskStatus): TaskLifecycle {
+  switch (status) {
+    case "PENDING": return "QUEUED";
+    case "RUNNING": return "RUNNING";
+    case "PAUSED": return "WAITING";
+    case "DONE": return "COMPLETED";
+    case "FAILED": return "FAILED";
+    case "CANCELLED": return "CANCELLED";
+  }
+}
+
+/** `status` is what older code and clients set, so when it disagrees with `lifecycle` it wins. */
+export function taskLifecycle(task: Pick<Task, "status" | "lifecycle">): TaskLifecycle {
+  return task.lifecycle && legacyStatus(task.lifecycle) === task.status ? task.lifecycle : lifecycleFromLegacy(task.status);
+}
+
+export const TERMINAL_LIFECYCLES: readonly TaskLifecycle[] = ["COMPLETED", "FAILED", "CANCELLED"];

@@ -212,6 +212,7 @@
       const button = node("button", "nav-item nav-chat");
       button.type = "button";
       button.title = chat.title;
+      button.dataset.userText = ""; // the chat's own title is the user's words
       if (chat.id === api.conversationId() && api.activeView() === "chat") {
         button.classList.add("is-current");
         button.setAttribute("aria-current", "page");
@@ -231,6 +232,7 @@
     button.hidden = !latest;
     if (!latest) return;
     $("home-continue-title").textContent = latest.title;
+    $("home-continue-title").dataset.userText = "";
     $("home-continue-label").textContent = "Continue where you left off · " + relative(latest.updatedAt);
   }
 
@@ -321,7 +323,7 @@
     });
     $("chat-history-btn").addEventListener("click", (event) => openHistory(event.currentTarget));
     $("chat-recent-all").addEventListener("click", (event) => openHistory(event.currentTarget));
-    $("activity-chats-all").addEventListener("click", (event) => openHistory(event.currentTarget));
+    $("activity-chats-all")?.addEventListener("click", (event) => openHistory(event.currentTarget));
     $("home-continue").addEventListener("click", () => {
       if (chats[0]) openChat(chats[0].id);
     });
@@ -385,7 +387,8 @@
       api.fill(text);
       api.toast("Edit it, then send. This adds a new message.");
     });
-    tools.append(copy, edit);
+    const remember = toolButton("Remember", "i-memory", () => void window.ZarvisWorkspace?.rememberDialog(text));
+    tools.append(copy, edit, remember);
     // The user bubble lays out bottom-up (column-reverse): first in the DOM is lowest on screen.
     bubble.prepend(tools);
   }
@@ -663,8 +666,10 @@
       event.preventDefault();
       depth = 0;
       overlay.hidden = true;
-      const file = event.dataTransfer.files?.[0];
-      if (file) api.attachFile(file);
+      const files = Array.from(event.dataTransfer.files || []);
+      // On the Files page a dropped file goes to Files; everywhere else it is attached to the chat.
+      if (files.length && window.ZarvisWorkspace?.handleDrop?.(files)) return;
+      if (files[0]) api.attachFile(files[0]);
     });
     api.input.addEventListener("paste", (event) => {
       const file = Array.from(event.clipboardData?.files || [])[0];
@@ -760,6 +765,7 @@
       } else {
         const current = node("span", "crumb crumb-current", crumb.label);
         current.setAttribute("aria-current", "page");
+        if (crumb.name) current.dataset.userText = ""; // a project's own name
         item.appendChild(current);
       }
       if (index < trail.length - 1) {

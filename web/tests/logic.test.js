@@ -341,11 +341,15 @@ test("breadcrumbs: Home is the root, sub-pages link back through their parent", 
 test("in-text links only point at pages that exist", () => {
   assert.deepEqual(L.parseGoTarget("plans"), { view: "plans" });
   assert.deepEqual(L.parseGoTarget("activity"), { view: "activity" });
-  assert.deepEqual(L.parseGoTarget("tasks"), { view: "tasks" });
+  assert.deepEqual(L.parseGoTarget("tasks"), { view: "work", workTab: "tasks" }); // Tasks live inside Work now
+  assert.deepEqual(L.parseGoTarget("work"), { view: "work" });
+  assert.deepEqual(L.parseGoTarget("work:files"), { view: "work", workTab: "files" });
+  assert.deepEqual(L.parseGoTarget("agents"), { view: "agents" });
+  assert.deepEqual(L.parseGoTarget("agents:research"), { view: "agents", agentId: "research" });
   assert.deepEqual(L.parseGoTarget("settings"), { view: "settings", settingsPage: null });
   assert.deepEqual(L.parseGoTarget("settings:permissions"), { view: "settings", settingsPage: "permissions" });
   assert.deepEqual(L.parseGoTarget("history"), { action: "history" });
-  for (const bad of ["", null, undefined, "nowhere", "plans:extra", "settings:a:b", "settings:../x", "history:1", "feature", "Plans"]) {
+  for (const bad of ["", null, undefined, "nowhere", "plans:extra", "settings:a:b", "settings:../x", "history:1", "feature", "Plans", "work:nowhere", "tasks:1", "agents:../x", "agents:a:b", "work:files:x"]) {
     assert.equal(L.parseGoTarget(bad), null, String(bad));
   }
 });
@@ -355,4 +359,35 @@ test("moved addresses still open the right page", () => {
   assert.deepEqual(L.resolveLegacyRoute("settings", "data"), { view: "settings", sub: "privacy" });
   assert.deepEqual(L.resolveLegacyRoute("settings", "voice"), { view: "settings", sub: "voice" });
   assert.deepEqual(L.resolveLegacyRoute("plans", undefined), { view: "plans", sub: undefined });
+  assert.deepEqual(L.resolveLegacyRoute("tasks", undefined), { view: "work", sub: "tasks" });
+  assert.deepEqual(L.resolveLegacyRoute("work", "files"), { view: "work", sub: "files" });
+});
+
+test("the trail above Work and Agent pages links back to the section", () => {
+  assert.deepEqual(L.breadcrumbs({ view: "work", workTitle: "Files" }), [{ label: "Home", view: "home" }, { label: "Work", view: "work" }, { label: "Files" }]);
+  assert.deepEqual(L.breadcrumbs({ view: "agents", agentTitle: "Research agent" }), [{ label: "Home", view: "home" }, { label: "Agents", view: "agents" }, { label: "Research agent" }]);
+  assert.deepEqual(L.breadcrumbs({ view: "work" }), [{ label: "Home", view: "home" }, { label: "Work" }]);
+  assert.deepEqual(L.breadcrumbs({ view: "plans" }), [{ label: "Home", view: "home" }, { label: "Plans & Usage" }]);
+});
+
+test("the go-to shortcuts reach Work and Agents and only pages that exist", () => {
+  assert.equal(L.goShortcutTarget("w"), "work");
+  assert.equal(L.goShortcutTarget("e"), "agents");
+  assert.equal(L.goShortcutTarget("t"), "tasks");
+  for (const target of Object.values(L.GO_SHORTCUTS)) assert.ok(L.parseGoTarget(target), target + " is not a page");
+});
+
+test("open tasks are counted from the real lifecycle: a failed or finished task is not open", () => {
+  const t = (lifecycle) => ({ lifecycle });
+  assert.equal(L.openTaskCount([t("QUEUED"), t("RUNNING"), t("WAITING"), t("CONFIRMATION_REQUIRED"), t("BLOCKED"), t("EXECUTING"), t("VERIFYING")]), 7);
+  assert.equal(L.openTaskCount([t("COMPLETED"), t("FAILED"), t("CANCELLED")]), 0);
+  assert.equal(L.openTaskCount([{ status: "PENDING" }, null, undefined]), 0); // no lifecycle: nothing is assumed
+  assert.equal(L.openTaskCount(null), 0);
+});
+
+test("feature status words are the four honest ones", () => {
+  assert.deepEqual(L.FEATURE_STATUSES, ["WORKING", "PARTIAL", "PLANNED", "UNSUPPORTED"]);
+  assert.equal(L.isFeatureStatus("WORKING"), true);
+  assert.equal(L.isFeatureStatus("ACTIVE"), false);
+  assert.equal(L.isFeatureStatus("working"), false);
 });

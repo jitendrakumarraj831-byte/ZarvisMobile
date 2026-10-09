@@ -33,8 +33,8 @@ const AXE_SOURCE = require("node:fs").readFileSync(
 );
 
 const BASE = process.env.ZARVIS_URL || "http://localhost:3100";
-const VIEWS = ["home", "chat", "tasks", "activity", "capabilities", "developer", "metrics", "plans", "settings"];
-const WIDTHS = [360, 412, 768, 1024, 1280, 1920];
+const VIEWS = ["home", "chat", "work", "agents", "activity", "developer", "metrics", "plans", "settings"];
+const WIDTHS = [320, 360, 390, 412, 768, 1024, 1280, 1440, 1920];
 const results = [];
 
 async function step(name, fn) {
@@ -48,10 +48,36 @@ async function step(name, fn) {
   }
 }
 
-/** Opens a view through its own nav button (hidden menus on narrow screens included). */
+/** Opens a view through its own nav button (hidden menus on narrow screens included); a page with no nav button (Capabilities) opens by its address. */
 async function openView(page, view) {
-  await page.evaluate((v) => document.querySelector(`[data-view="${v}"]`).click(), view);
+  await page.evaluate((v) => {
+    const button = document.querySelector(`[data-view="${v}"]`);
+    if (button) button.click();
+    else location.hash = "#/" + v;
+  }, view);
   await page.waitForTimeout(150);
+}
+
+/** Puts one project, file, decision, memory and task on the account so the Work pages are measured with real rows. Returns the project id. */
+async function seedWorkspace(page) {
+  return page.evaluate(async () => {
+    const call = (path, body) => fetch("/api/v1" + path, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify(body) }).then((r) => r.json());
+    const project = await call("/projects", { name: "Website relaunch with a deliberately long project name to test wrapping", goal: "Ship the new marketing site by the end of the quarter", description: "Landing page, pricing and docs.", agentId: "research" });
+    await call("/notes", { kind: "decision", content: "Use Next.js for the site", projectId: project.id });
+    await call("/notes", { kind: "memory", content: "Brand colour is teal", projectId: project.id });
+    await call("/notes", { kind: "memory", content: "I prefer short answers" });
+    await call("/files/text", { name: "a-rather-long-file-name-for-the-quarterly-brief-final-v2.txt", text: "Brief: build a site.", source: "upload", projectId: project.id });
+    await call("/tasks", { goal: "Prepare the weekly report", steps: ["Collect the numbers", "Write the summary"], projectId: project.id });
+    return project.id;
+  });
+}
+
+/** The Work, Agents and Memory pages that are not top-level views. */
+const workspaceRoutes = (projectId) => ["#/work/projects", "#/work/project-" + projectId, "#/work/files", "#/work/research", "#/work/tasks", "#/work/outputs", "#/agents/research", "#/agents/developer", "#/settings/memory", "#/capabilities"];
+
+async function openRoute(page, hash) {
+  await page.evaluate((h) => { location.hash = h; }, hash);
+  await page.waitForTimeout(700);
 }
 
 /** What the page logged and which requests failed, so a timeout below explains itself. */
@@ -83,26 +109,44 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   const errors = [];
 
   // ---- Responsive -------------------------------------------------------------------------
-  await step(`responsive: no horizontal overflow, ${VIEWS.length} views × ${WIDTHS.length} widths`, async () => {
+  await step(`responsive: no horizontal overflow, ${VIEWS.length} views and the Work, Agents and Memory pages × ${WIDTHS.length} widths`, async () => {
     const problems = [];
+    // One guest account for every width (the server allows 60 sign-ups an hour per address and all the suites share them):
+    // the window is resized in place, the way a phone is turned or a browser window is dragged.
+    const ctx = await browser.newContext({ viewport: { width: WIDTHS[0], height: 860 } });
+    const page = await pageOf(ctx);
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    try {
+      await ready(page);
+    } catch (err) {
+      await ctx.close();
+      throw err;
+    }
+    const projectId = await seedWorkspace(page);
+    const overflowNow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     for (const width of WIDTHS) {
-      const ctx = await browser.newContext({ viewport: { width, height: 860 } });
-      const page = await pageOf(ctx);
-      page.on("pageerror", (e) => errors.push(`pageerror@${width}: ${e.message}`));
-      try {
-        await ready(page);
-      } catch (err) {
-        problems.push(`${width}px: ${err.message}`); // report every width that fails, not just the first
-        await ctx.close();
-        continue;
-      }
+      await page.setViewportSize({ width, height: 860 });
+      await page.waitForTimeout(250);
       for (const view of VIEWS) {
         await openView(page, view);
-        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        const overflow = await overflowNow();
         if (overflow > 1) problems.push(`${view}@${width}px overflows by ${overflow}px`);
       }
-      await ctx.close();
+      for (const hash of workspaceRoutes(projectId)) {
+        await openRoute(page, hash);
+        if (hash.includes("project-")) {
+          for (const tab of ["overview", "chats", "files", "research", "tasks", "decisions", "memory", "activity"]) {
+            await page.evaluate((t) => document.getElementById("project-tab-" + t)?.click(), tab);
+            await page.waitForTimeout(150);
+            const o = await overflowNow();
+            if (o > 1) problems.push(`project/${tab}@${width}px overflows by ${o}px`);
+          }
+        }
+        const overflow = await overflowNow();
+        if (overflow > 1) problems.push(`${hash.replace(/project-[\w-]+/, "project")}@${width}px overflows by ${overflow}px`);
+      }
     }
+    await ctx.close();
     assert.deepEqual(problems, []);
   });
 
@@ -243,6 +287,25 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         });
         for (const v of violations) found.push(`${view}: ${v}`);
       }
+      const projectId = await seedWorkspace(page);
+      for (const hash of workspaceRoutes(projectId)) {
+        await openRoute(page, hash);
+        const tabs = hash.includes("project-") ? ["overview", "chats", "files", "research", "tasks", "decisions", "memory", "activity"] : [null];
+        for (const tab of tabs) {
+          if (tab) {
+            await page.evaluate((t) => document.getElementById("project-tab-" + t)?.click(), tab);
+            await page.waitForTimeout(300);
+          }
+          const violations = await page.evaluate(async () => {
+            // eslint-disable-next-line no-undef
+            const r = await axe.run(document, { resultTypes: ["violations"] });
+            return r.violations
+              .filter((v) => v.impact === "serious" || v.impact === "critical")
+              .map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+          });
+          for (const v of violations) found.push(`${hash.replace(/project-[\w-]+/, "project")}${tab ? "/" + tab : ""}: ${v}`);
+        }
+      }
       await ctx.close();
       assert.deepEqual(found, []);
     });
@@ -280,7 +343,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => {
       turn += 1;
       if (turn % 2 === 0) return; // every second turn never answers, so the Thinking card stays up
-      const toolCalls = [{ skillId: "web.search", outcome: { kind: "success" }, result: { status: "COMPLETED", userSafeMessage: "Found 5 results." } }];
+      const toolCalls = [{ toolCallId: "tc-" + turn, skillId: "web.search", outcome: { kind: "success", result: { output: { query: "q", answer: "A short answer.", results: [{ title: "Example", url: "https://example.com/a" }] } }, chargedCredits: 1 }, result: { success: true, status: "COMPLETED", userSafeMessage: "Found 5 results.", verificationEvidence: { check: "non_empty_result", outputKeys: ["query", "answer", "results"], chargedCredits: 1 } } }];
       await route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([["meta", { conversationId: CID, turnId: "a" }], ["delta", { text: RICH }], ["done", { message: RICH, toolCalls, conversationId: CID, turnId: "a" }]]) });
     });
     const found = [];
@@ -294,7 +357,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
       await page.fill("#text-input", "Show me something formatted");
       await page.press("#text-input", "Enter");
       await page.waitForSelector(".bubble.assistant .bubble-actions");
-      await page.waitForSelector(".tool-row");
+      await page.waitForSelector(".exec-card");
       await page.fill("#text-input", "and one more thing");
       await page.press("#text-input", "Enter");
       await page.waitForSelector(".bubble.thinking");
@@ -376,7 +439,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
           .filter((e) => e.offsetParent !== null && !e.disabled)
           .filter((e) => {
             const label = e.getAttribute("aria-label") || e.getAttribute("title") || e.textContent.trim() ||
-              (e.id && document.querySelector(`label[for="${e.id}"]`)?.textContent.trim()) || e.getAttribute("placeholder") ||
+              (e.id && document.querySelector(`label[for="${e.id}"]`)?.textContent.trim()) || (e.labels && [...e.labels].map((l) => l.textContent).join(" ").trim()) || e.getAttribute("placeholder") ||
               (e.getAttribute("aria-labelledby") && document.getElementById(e.getAttribute("aria-labelledby"))?.textContent.trim());
             return !label;
           })

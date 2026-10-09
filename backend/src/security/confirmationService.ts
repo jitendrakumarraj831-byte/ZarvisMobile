@@ -43,6 +43,7 @@ export class ServerConfirmationService implements ConfirmationPort {
       riskLevel: request.riskLevel,
       actionClass: request.actionClass,
       conversationId: context.conversationId,
+      ...(context.taskId ? { taskId: context.taskId } : {}),
       status: "PENDING",
       createdAt: now,
       expiresAt: new Date(now.getTime() + CONFIRMATION_TTL_MS),

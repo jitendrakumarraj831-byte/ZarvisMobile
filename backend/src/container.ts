@@ -16,7 +16,10 @@ import { buildSkillRegistry } from "./skills/index.js";
 import { InMemoryStore } from "./store/inMemoryStore.js";
 import { PostgresStore } from "./store/postgresStore.js";
 import type { Store } from "./store/store.js";
+import { TaskRunner } from "./tasks/taskRunner.js";
 import { TaskService } from "./tasks/taskService.js";
+import { AgentCatalog } from "./agents/agentCatalog.js";
+import { WorkspaceService } from "./workspace/workspaceService.js";
 import { ToolPipeline } from "./tooling/toolPipeline.js";
 
 /**
@@ -46,18 +49,27 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     secretBox,
     options.githubClientFactory ?? ((token) => new RealGitHubClient(token, env.githubApiBaseUrl)),
   );
-  const registry = buildSkillRegistry(store, githubAccess);
+  // One TaskService for the Tasks API and for the automation skills, so cancelling a workflow in chat also stops a step that is running.
+  const taskService = new TaskService(store);
+  const registry = buildSkillRegistry(store, githubAccess, taskService);
   const entitlementPort = new StoreEntitlementPort(store);
   const usagePort = new StoreUsagePort(store);
   const permissionPort = new StorePermissionPort(store);
   const confirmationService = new ServerConfirmationService(store);
 
-  const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationService);
+  // Every call the pipeline evaluates leaves a row in the executions ledger (Activity, Research, Developer read it).
+  const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationService, undefined, {
+    record: (record) => store.recordExecution(record),
+  });
   const provider = getProvider(defaultModelConfig);
   const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider, defaultModelConfig, store);
   const authService = new AuthService(store);
   const googleVerifier = options.googleVerifier ?? (env.googleClientId ? new GoogleIdTokenVerifier(env.googleClientId, env.googleJwksUrl) : null);
-  const taskService = new TaskService(store);
+  // A task step is an ordinary orchestrator turn, started by the user; the runner is not a second brain.
+  const taskRunner = new TaskRunner(store, orchestrator, registry);
+  taskService.bindRunner(taskRunner);
+  const workspace = new WorkspaceService(store);
+  const agentCatalog = new AgentCatalog(registry, entitlementPort, store, githubAccess);
   const billingVerifier = env.playBillingServiceAccountJson
     ? new GooglePlayBillingVerifier(env.playBillingServiceAccountJson, env.playBillingPackageName)
     : env.isProduction
@@ -79,6 +91,9 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     entitlementPort,
     usagePort,
     taskService,
+    taskRunner,
+    workspace,
+    agentCatalog,
     billingVerifier,
     paymentService,
     ttsProvider,

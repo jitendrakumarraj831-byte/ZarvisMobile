@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type QueryResultRow } from "pg";
-import type { PermissionType, Task } from "../domain/types.js";
+import type { PermissionType, Task, TaskLifecycle } from "../domain/types.js";
+import type { NoteSource, Project, ProjectStatus, ToolExecutionRecord, WorkspaceFile, WorkspaceFileSummary, WorkspaceNote, WorkspaceNoteKind } from "../domain/workspace.js";
 import {
   EmailTakenError,
   GoogleIdentityTakenError,
@@ -173,6 +174,74 @@ const SCHEMA = `
     ON conversation_messages (conversation_id, created_at);
   CREATE INDEX IF NOT EXISTS conversations_account_updated_idx
     ON conversations (account_id, updated_at DESC);
+  ALTER TABLE conversations ADD COLUMN IF NOT EXISTS project_id UUID;
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS memory_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+  ALTER TABLE confirmations ADD COLUMN IF NOT EXISTS task_id UUID;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id UUID;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lifecycle TEXT;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS meta JSONB;
+  CREATE TABLE IF NOT EXISTS projects (
+    id UUID PRIMARY KEY,
+    account_id UUID NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    goal TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    agent_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS workspace_notes (
+    id UUID PRIMARY KEY,
+    account_id UUID NOT NULL,
+    project_id UUID,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    sources JSONB NOT NULL DEFAULT '[]',
+    execution_id UUID,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS workspace_files (
+    id UUID PRIMARY KEY,
+    account_id UUID NOT NULL,
+    project_id UUID,
+    name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    body TEXT NOT NULL,
+    note TEXT,
+    created_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS tool_executions (
+    id UUID PRIMARY KEY,
+    account_id UUID NOT NULL,
+    conversation_id UUID,
+    project_id UUID,
+    task_id UUID,
+    skill_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    output JSONB,
+    evidence JSONB,
+    input_preview JSONB,
+    confirmation_id UUID,
+    credits_charged NUMERIC NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS conversations_project_idx ON conversations (project_id) WHERE project_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS tasks_account_idx ON tasks (account_id);
+  CREATE INDEX IF NOT EXISTS projects_account_idx ON projects (account_id, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS workspace_notes_account_idx ON workspace_notes (account_id, project_id, created_at);
+  CREATE INDEX IF NOT EXISTS workspace_files_account_idx ON workspace_files (account_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS tool_executions_account_idx ON tool_executions (account_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS tool_executions_conversation_idx ON tool_executions (conversation_id, created_at) WHERE conversation_id IS NOT NULL;
 `;
 
 /**
@@ -343,11 +412,11 @@ export class PostgresStore implements Store {
   async createConfirmation(record: ConfirmationRecord): Promise<ConfirmationRecord> {
     await this.query(
       `INSERT INTO confirmations (id, account_id, skill_id, input, input_hash, action, risk_level, action_class,
-         conversation_id, status, created_at, expires_at, resolved_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         conversation_id, status, created_at, expires_at, resolved_at, task_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [record.id, record.accountId, record.skillId, JSON.stringify(record.input), record.inputHash, record.action,
         record.riskLevel, record.actionClass, record.conversationId ?? null, record.status, record.createdAt,
-        record.expiresAt, record.resolvedAt ?? null],
+        record.expiresAt, record.resolvedAt ?? null, record.taskId ?? null],
     );
     return record;
   }
@@ -480,6 +549,10 @@ export class PostgresStore implements Store {
       await client.query("DELETE FROM trials WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM credit_balances WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM tasks WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM projects WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM workspace_notes WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM workspace_files WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM tool_executions WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM turn_records WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM conversations WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM accounts WHERE id = $1", [accountId]);
@@ -679,14 +752,23 @@ export class PostgresStore implements Store {
     );
   }
 
-  async createConversation(accountId: string, title?: string): Promise<Conversation> {
+  async createConversation(accountId: string, title?: string, projectId?: string): Promise<Conversation> {
     const id = randomUUID();
     const now = new Date();
     const { rows } = await this.query<ConversationRow>(
-      "INSERT INTO conversations (id, account_id, title, created_at, updated_at) VALUES ($1, $2, $3, $4, $4) RETURNING *",
-      [id, accountId, title?.trim().slice(0, 120) || null, now],
+      "INSERT INTO conversations (id, account_id, title, project_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5) RETURNING *",
+      [id, accountId, title?.trim().slice(0, 120) || null, projectId && isUuid(projectId) ? projectId : null, now],
     );
     return toConversation(rows[0]!);
+  }
+
+  async setConversationProject(accountId: string, conversationId: string, projectId: string | null): Promise<Conversation | undefined> {
+    if (!isUuid(conversationId) || (projectId !== null && !isUuid(projectId))) return undefined;
+    const { rows } = await this.query<ConversationRow>(
+      "UPDATE conversations SET project_id = $3 WHERE id = $1 AND account_id = $2 RETURNING *",
+      [conversationId, accountId, projectId],
+    );
+    return rows[0] ? toConversation(rows[0]) : undefined;
   }
 
   async getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined> {
@@ -698,10 +780,20 @@ export class PostgresStore implements Store {
     return rows[0] ? toConversation(rows[0]) : undefined;
   }
 
-  async listConversations(accountId: string, limit?: number): Promise<Conversation[]> {
-    const { rows } = limit === undefined
-      ? await this.query<ConversationRow>("SELECT * FROM conversations WHERE account_id = $1 ORDER BY updated_at DESC", [accountId])
-      : await this.query<ConversationRow>("SELECT * FROM conversations WHERE account_id = $1 ORDER BY updated_at DESC LIMIT $2", [accountId, limit]);
+  async listConversations(accountId: string, limit?: number, filter: { projectId?: string } = {}): Promise<Conversation[]> {
+    if (filter.projectId && !isUuid(filter.projectId)) return [];
+    const params: unknown[] = [accountId];
+    let where = "account_id = $1";
+    if (filter.projectId) {
+      params.push(filter.projectId);
+      where += ` AND project_id = $${params.length}`;
+    }
+    let tail = "";
+    if (limit !== undefined) {
+      params.push(limit);
+      tail = ` LIMIT $${params.length}`;
+    }
+    const { rows } = await this.query<ConversationRow>(`SELECT * FROM conversations WHERE ${where} ORDER BY updated_at DESC${tail}`, params);
     return rows.map(toConversation);
   }
 
@@ -755,11 +847,14 @@ export class PostgresStore implements Store {
   }
 
   async createTask(task: Task): Promise<Task> {
+    const updatedAt = task.updatedAt ?? task.createdAt;
     await this.query(
-      "INSERT INTO tasks (id, account_id, goal, status, steps, risk_level, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-      [task.id, task.accountId, task.goal, task.status, JSON.stringify(task.steps), task.riskLevel, task.createdAt],
+      `INSERT INTO tasks (id, account_id, goal, status, steps, risk_level, created_at, project_id, updated_at, lifecycle, meta)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [task.id, task.accountId, task.goal, task.status, JSON.stringify(task.steps), task.riskLevel, task.createdAt,
+        task.projectId && isUuid(task.projectId) ? task.projectId : null, updatedAt, task.lifecycle ?? null, JSON.stringify(taskMeta(task))],
     );
-    return task;
+    return { ...task, updatedAt };
   }
 
   async getTask(taskId: string): Promise<Task | undefined> {
@@ -769,14 +864,31 @@ export class PostgresStore implements Store {
   }
 
   async updateTask(task: Task): Promise<Task> {
+    const updatedAt = task.updatedAt ?? new Date();
     const { rowCount } = await this.query(
-      "UPDATE tasks SET goal = $2, status = $3, steps = $4, risk_level = $5 WHERE id = $1",
-      [task.id, task.goal, task.status, JSON.stringify(task.steps), task.riskLevel],
+      `UPDATE tasks SET goal = $2, status = $3, steps = $4, risk_level = $5, project_id = $6, updated_at = $7, lifecycle = $8, meta = $9
+       WHERE id = $1`,
+      [task.id, task.goal, task.status, JSON.stringify(task.steps), task.riskLevel,
+        task.projectId && isUuid(task.projectId) ? task.projectId : null, updatedAt, task.lifecycle ?? null, JSON.stringify(taskMeta(task))],
     );
     if (!rowCount) {
       throw new Error(`Cannot update unknown task '${task.id}'`);
     }
-    return task;
+    return { ...task, updatedAt };
+  }
+
+  async updateTaskIf(task: Task, whileIn: TaskLifecycle[]): Promise<Task | undefined> {
+    if (!isUuid(task.id)) return undefined;
+    const updatedAt = task.updatedAt ?? new Date();
+    // One statement: the state is checked and written together, so two writers cannot both win.
+    const effective = `COALESCE(lifecycle, CASE status WHEN 'PENDING' THEN 'QUEUED' WHEN 'PAUSED' THEN 'WAITING' WHEN 'DONE' THEN 'COMPLETED' ELSE status END)`;
+    const { rowCount } = await this.query(
+      `UPDATE tasks SET goal = $2, status = $3, steps = $4, risk_level = $5, project_id = $6, updated_at = $7, lifecycle = $8, meta = $9
+       WHERE id = $1 AND ${effective} = ANY($10::text[])`,
+      [task.id, task.goal, task.status, JSON.stringify(task.steps), task.riskLevel,
+        task.projectId && isUuid(task.projectId) ? task.projectId : null, updatedAt, task.lifecycle ?? null, JSON.stringify(taskMeta(task)), whileIn],
+    );
+    return rowCount ? { ...task, updatedAt } : undefined;
   }
 
   async listTasksForAccount(accountId: string): Promise<Task[]> {
@@ -785,6 +897,247 @@ export class PostgresStore implements Store {
       [accountId],
     );
     return rows.map(toTask);
+  }
+
+  async claimTaskRun(accountId: string, taskId: string, from: TaskLifecycle[], now: Date, staleBefore: Date): Promise<Task | undefined> {
+    if (!isUuid(taskId)) return undefined;
+    // Rows written before the lifecycle column existed have lifecycle NULL; their status says the same thing.
+    const effective = `COALESCE(lifecycle, CASE status WHEN 'PENDING' THEN 'QUEUED' WHEN 'PAUSED' THEN 'WAITING' WHEN 'DONE' THEN 'COMPLETED' ELSE status END)`;
+    const { rows } = await this.query<TaskRow>(
+      `UPDATE tasks SET lifecycle = 'RUNNING', status = 'RUNNING', updated_at = $4
+       WHERE id = $2 AND account_id = $1
+         AND (${effective} = ANY($3::text[])
+              OR (${effective} IN ('RUNNING', 'EXECUTING', 'VERIFYING') AND COALESCE(updated_at, created_at) < $5))
+       RETURNING *`,
+      [accountId, taskId, from, now, staleBefore],
+    );
+    return rows[0] ? toTask(rows[0]) : undefined;
+  }
+
+  // ---- Projects, notes, files and the execution ledger -------------------------------------
+
+  async createProject(project: Project): Promise<Project> {
+    await this.query(
+      `INSERT INTO projects (id, account_id, name, description, goal, status, agent_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [project.id, project.accountId, project.name, project.description, project.goal, project.status, project.agentId ?? null, project.createdAt, project.updatedAt],
+    );
+    return project;
+  }
+
+  async getProject(accountId: string, projectId: string): Promise<Project | undefined> {
+    if (!isUuid(projectId)) return undefined;
+    const { rows } = await this.query<ProjectRow>("SELECT * FROM projects WHERE id = $1 AND account_id = $2", [projectId, accountId]);
+    return rows[0] ? toProject(rows[0]) : undefined;
+  }
+
+  async listProjects(accountId: string, filter: { status?: ProjectStatus } = {}): Promise<Project[]> {
+    const { rows } = filter.status
+      ? await this.query<ProjectRow>("SELECT * FROM projects WHERE account_id = $1 AND status = $2 ORDER BY updated_at DESC", [accountId, filter.status])
+      : await this.query<ProjectRow>("SELECT * FROM projects WHERE account_id = $1 ORDER BY updated_at DESC", [accountId]);
+    return rows.map(toProject);
+  }
+
+  async updateProject(project: Project): Promise<Project> {
+    const { rowCount } = await this.query(
+      `UPDATE projects SET name = $3, description = $4, goal = $5, status = $6, agent_id = $7, updated_at = $8
+       WHERE id = $1 AND account_id = $2`,
+      [project.id, project.accountId, project.name, project.description, project.goal, project.status, project.agentId ?? null, project.updatedAt],
+    );
+    if (!rowCount) throw new Error(`Cannot update unknown project '${project.id}'`);
+    return project;
+  }
+
+  async deleteProject(accountId: string, projectId: string): Promise<boolean> {
+    if (!isUuid(projectId)) return false;
+    const client = await this.pool.connect();
+    try {
+      await this.ensureSchema();
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock_shared($1)", [SCHEMA_LOCK_KEY]);
+      const found = await client.query("SELECT 1 FROM projects WHERE id = $1 AND account_id = $2 FOR UPDATE", [projectId, accountId]);
+      if (!found.rowCount) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      await client.query("DELETE FROM workspace_notes WHERE project_id = $1 AND account_id = $2", [projectId, accountId]);
+      for (const table of ["conversations", "tasks", "workspace_files", "tool_executions"]) {
+        await client.query(`UPDATE ${table} SET project_id = NULL WHERE project_id = $1 AND account_id = $2`, [projectId, accountId]);
+      }
+      await client.query("DELETE FROM projects WHERE id = $1 AND account_id = $2", [projectId, accountId]);
+      await client.query("COMMIT");
+      return true;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createNote(note: WorkspaceNote): Promise<WorkspaceNote> {
+    await this.query(
+      `INSERT INTO workspace_notes (id, account_id, project_id, kind, content, enabled, sources, execution_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [note.id, note.accountId, note.projectId ?? null, note.kind, note.content, note.enabled, JSON.stringify(note.sources),
+        note.executionId && isUuid(note.executionId) ? note.executionId : null, note.createdAt, note.updatedAt],
+    );
+    return note;
+  }
+
+  async getNote(accountId: string, noteId: string): Promise<WorkspaceNote | undefined> {
+    if (!isUuid(noteId)) return undefined;
+    const { rows } = await this.query<NoteRow>("SELECT * FROM workspace_notes WHERE id = $1 AND account_id = $2", [noteId, accountId]);
+    return rows[0] ? toNote(rows[0]) : undefined;
+  }
+
+  async listNotes(accountId: string, filter: { projectId?: string | null; kind?: WorkspaceNoteKind } = {}): Promise<WorkspaceNote[]> {
+    const params: unknown[] = [accountId];
+    let where = "account_id = $1";
+    if (filter.projectId === null) where += " AND project_id IS NULL";
+    else if (filter.projectId !== undefined) {
+      if (!isUuid(filter.projectId)) return [];
+      params.push(filter.projectId);
+      where += ` AND project_id = $${params.length}`;
+    }
+    if (filter.kind) {
+      params.push(filter.kind);
+      where += ` AND kind = $${params.length}`;
+    }
+    const { rows } = await this.query<NoteRow>(`SELECT * FROM workspace_notes WHERE ${where} ORDER BY created_at ASC`, params);
+    return rows.map(toNote);
+  }
+
+  async updateNote(note: WorkspaceNote): Promise<WorkspaceNote> {
+    const { rowCount } = await this.query(
+      `UPDATE workspace_notes SET content = $3, enabled = $4, sources = $5, updated_at = $6 WHERE id = $1 AND account_id = $2`,
+      [note.id, note.accountId, note.content, note.enabled, JSON.stringify(note.sources), note.updatedAt],
+    );
+    if (!rowCount) throw new Error(`Cannot update unknown note '${note.id}'`);
+    return note;
+  }
+
+  async deleteNote(accountId: string, noteId: string): Promise<boolean> {
+    if (!isUuid(noteId)) return false;
+    const { rowCount } = await this.query("DELETE FROM workspace_notes WHERE id = $1 AND account_id = $2", [noteId, accountId]);
+    return rowCount === 1;
+  }
+
+  async deletePersonalMemory(accountId: string): Promise<number> {
+    const { rowCount } = await this.query("DELETE FROM workspace_notes WHERE account_id = $1 AND kind = 'memory' AND project_id IS NULL", [accountId]);
+    return rowCount ?? 0;
+  }
+
+  async setMemoryEnabled(accountId: string, enabled: boolean): Promise<Account> {
+    const { rows } = await this.query<AccountRow>("UPDATE accounts SET memory_enabled = $2 WHERE id = $1 RETURNING *", [accountId, enabled]);
+    if (!rows[0]) throw new Error(`Cannot update unknown account '${accountId}'`);
+    return toAccount(rows[0]);
+  }
+
+  async createFile(file: WorkspaceFile): Promise<WorkspaceFile> {
+    await this.query(
+      `INSERT INTO workspace_files (id, account_id, project_id, name, mime_type, kind, source, size_bytes, body, note, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [file.id, file.accountId, file.projectId ?? null, file.name, file.mimeType, file.kind, file.source, file.sizeBytes, file.text, file.note ?? null, file.createdAt],
+    );
+    return file;
+  }
+
+  async getFile(accountId: string, fileId: string): Promise<WorkspaceFile | undefined> {
+    if (!isUuid(fileId)) return undefined;
+    const { rows } = await this.query<FileRow>("SELECT * FROM workspace_files WHERE id = $1 AND account_id = $2", [fileId, accountId]);
+    return rows[0] ? toFile(rows[0]) : undefined;
+  }
+
+  async listFiles(accountId: string, filter: { projectId?: string | null; limit?: number } = {}): Promise<WorkspaceFileSummary[]> {
+    const params: unknown[] = [accountId];
+    let where = "account_id = $1";
+    if (filter.projectId === null) where += " AND project_id IS NULL";
+    else if (filter.projectId !== undefined) {
+      if (!isUuid(filter.projectId)) return [];
+      params.push(filter.projectId);
+      where += ` AND project_id = $${params.length}`;
+    }
+    let tail = "";
+    if (filter.limit !== undefined) {
+      params.push(filter.limit);
+      tail = ` LIMIT $${params.length}`;
+    }
+    const { rows } = await this.query<FileRow & { text_length: string | number }>(
+      `SELECT id, account_id, project_id, name, mime_type, kind, source, size_bytes, note, created_at, length(body) AS text_length
+       FROM workspace_files WHERE ${where} ORDER BY created_at DESC${tail}`,
+      params,
+    );
+    return rows.map(({ text_length, ...row }) => {
+      const { text, ...summary } = toFile({ ...row, body: "" });
+      void text;
+      return { ...summary, textLength: Number(text_length) };
+    });
+  }
+
+  async updateFile(file: WorkspaceFile): Promise<WorkspaceFile> {
+    const { rowCount } = await this.query(
+      "UPDATE workspace_files SET name = $3, project_id = $4 WHERE id = $1 AND account_id = $2",
+      [file.id, file.accountId, file.name, file.projectId ?? null],
+    );
+    if (!rowCount) throw new Error(`Cannot update unknown file '${file.id}'`);
+    return file;
+  }
+
+  async deleteFile(accountId: string, fileId: string): Promise<boolean> {
+    if (!isUuid(fileId)) return false;
+    const { rowCount } = await this.query("DELETE FROM workspace_files WHERE id = $1 AND account_id = $2", [fileId, accountId]);
+    return rowCount === 1;
+  }
+
+  async recordExecution(record: ToolExecutionRecord): Promise<void> {
+    await this.query(
+      `INSERT INTO tool_executions (id, account_id, conversation_id, project_id, task_id, skill_id, skill_name, category, status, summary,
+         output, evidence, input_preview, confirmation_id, credits_charged, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       ON CONFLICT (id) DO NOTHING`,
+      [record.id, record.accountId,
+        record.conversationId && isUuid(record.conversationId) ? record.conversationId : null,
+        record.projectId && isUuid(record.projectId) ? record.projectId : null,
+        record.taskId && isUuid(record.taskId) ? record.taskId : null,
+        record.skillId, record.skillName, record.category, record.status, record.summary,
+        record.output ? JSON.stringify(record.output) : null,
+        record.evidence ? JSON.stringify(record.evidence) : null,
+        record.inputPreview ? JSON.stringify(record.inputPreview) : null,
+        record.confirmationId && isUuid(record.confirmationId) ? record.confirmationId : null,
+        record.creditsCharged, record.createdAt],
+    );
+  }
+
+  async getExecution(accountId: string, executionId: string): Promise<ToolExecutionRecord | undefined> {
+    if (!isUuid(executionId)) return undefined;
+    const { rows } = await this.query<ExecutionRow>("SELECT * FROM tool_executions WHERE id = $1 AND account_id = $2", [executionId, accountId]);
+    return rows[0] ? toExecution(rows[0]) : undefined;
+  }
+
+  async listExecutions(
+    accountId: string,
+    filter: { conversationId?: string; projectId?: string; taskId?: string; skillIds?: string[]; limit?: number } = {},
+  ): Promise<ToolExecutionRecord[]> {
+    const params: unknown[] = [accountId];
+    let where = "account_id = $1";
+    for (const [column, value] of [["conversation_id", filter.conversationId], ["project_id", filter.projectId], ["task_id", filter.taskId]] as const) {
+      if (!value) continue;
+      if (!isUuid(value)) return [];
+      params.push(value);
+      where += ` AND ${column} = $${params.length}`;
+    }
+    if (filter.skillIds) {
+      params.push(filter.skillIds);
+      where += ` AND skill_id = ANY($${params.length}::text[])`;
+    }
+    let tail = "";
+    if (filter.limit !== undefined) {
+      params.push(filter.limit);
+      tail = ` LIMIT $${params.length}`;
+    }
+    const { rows } = await this.query<ExecutionRow>(`SELECT * FROM tool_executions WHERE ${where} ORDER BY created_at DESC${tail}`, params);
+    return rows.map(toExecution);
   }
 }
 
@@ -820,6 +1173,7 @@ interface ConfirmationRow {
   risk_level: ConfirmationRecord["riskLevel"];
   action_class: ConfirmationRecord["actionClass"];
   conversation_id: string | null;
+  task_id?: string | null;
   status: ConfirmationStatus;
   created_at: Date;
   expires_at: Date;
@@ -858,6 +1212,7 @@ function toConfirmation(row: ConfirmationRow): ConfirmationRecord {
     riskLevel: row.risk_level,
     actionClass: row.action_class,
     conversationId: row.conversation_id ?? undefined,
+    ...(row.task_id ? { taskId: row.task_id } : {}),
     status: row.status,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
@@ -900,6 +1255,7 @@ interface AccountRow {
   user_id: string;
   plan: Account["plan"];
   plan_expires_at?: Date | null;
+  memory_enabled?: boolean | null;
   created_at: Date;
 }
 
@@ -927,12 +1283,128 @@ interface TaskRow {
   steps: Task["steps"];
   risk_level: Task["riskLevel"];
   created_at: Date;
+  project_id?: string | null;
+  updated_at?: Date | null;
+  lifecycle?: Task["lifecycle"] | null;
+  meta?: TaskMeta | null;
+}
+
+/** The task fields that have no column of their own; one JSON document keeps the table small. */
+type TaskMeta = Pick<Task, "conversationId" | "error" | "result" | "events" | "retryCount" | "blockedReason" | "pendingConfirmationId" | "startedAt" | "completedAt">;
+
+function taskMeta(task: Task): TaskMeta {
+  const meta: TaskMeta = {};
+  if (task.conversationId !== undefined) meta.conversationId = task.conversationId;
+  if (task.error !== undefined) meta.error = task.error;
+  if (task.result !== undefined) meta.result = task.result;
+  if (task.events !== undefined) meta.events = task.events;
+  if (task.retryCount !== undefined) meta.retryCount = task.retryCount;
+  if (task.blockedReason !== undefined) meta.blockedReason = task.blockedReason;
+  if (task.pendingConfirmationId !== undefined) meta.pendingConfirmationId = task.pendingConfirmationId;
+  if (task.startedAt !== undefined) meta.startedAt = task.startedAt;
+  if (task.completedAt !== undefined) meta.completedAt = task.completedAt;
+  return meta;
+}
+
+interface ProjectRow {
+  id: string;
+  account_id: string;
+  name: string;
+  description: string;
+  goal: string;
+  status: ProjectStatus;
+  agent_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface NoteRow {
+  id: string;
+  account_id: string;
+  project_id: string | null;
+  kind: WorkspaceNoteKind;
+  content: string;
+  enabled: boolean;
+  sources: NoteSource[] | null;
+  execution_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface FileRow {
+  id: string;
+  account_id: string;
+  project_id: string | null;
+  name: string;
+  mime_type: string;
+  kind: WorkspaceFile["kind"];
+  source: WorkspaceFile["source"];
+  size_bytes: string | number;
+  body: string;
+  note: string | null;
+  created_at: Date;
+}
+
+interface ExecutionRow {
+  id: string;
+  account_id: string;
+  conversation_id: string | null;
+  project_id: string | null;
+  task_id: string | null;
+  skill_id: string;
+  skill_name: string;
+  category: string;
+  status: string;
+  summary: string;
+  output: Record<string, unknown> | null;
+  evidence: Record<string, unknown> | null;
+  input_preview: Record<string, unknown> | null;
+  confirmation_id: string | null;
+  credits_charged: string | number;
+  created_at: Date;
+}
+
+function toProject(row: ProjectRow): Project {
+  return {
+    id: row.id, accountId: row.account_id, name: row.name, description: row.description, goal: row.goal, status: row.status,
+    ...(row.agent_id ? { agentId: row.agent_id } : {}), createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function toNote(row: NoteRow): WorkspaceNote {
+  return {
+    id: row.id, accountId: row.account_id, ...(row.project_id ? { projectId: row.project_id } : {}), kind: row.kind, content: row.content,
+    enabled: row.enabled, sources: row.sources ?? [], ...(row.execution_id ? { executionId: row.execution_id } : {}),
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function toFile(row: FileRow): WorkspaceFile {
+  return {
+    id: row.id, accountId: row.account_id, ...(row.project_id ? { projectId: row.project_id } : {}), name: row.name, mimeType: row.mime_type,
+    kind: row.kind, source: row.source, sizeBytes: Number(row.size_bytes), text: row.body, ...(row.note ? { note: row.note } : {}), createdAt: row.created_at,
+  };
+}
+
+function toExecution(row: ExecutionRow): ToolExecutionRecord {
+  return {
+    id: row.id, accountId: row.account_id,
+    ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
+    ...(row.project_id ? { projectId: row.project_id } : {}),
+    ...(row.task_id ? { taskId: row.task_id } : {}),
+    skillId: row.skill_id, skillName: row.skill_name, category: row.category, status: row.status, summary: row.summary,
+    ...(row.output ? { output: row.output } : {}), ...(row.evidence ? { evidence: row.evidence } : {}),
+    ...(row.input_preview ? { inputPreview: row.input_preview } : {}),
+    ...(row.confirmation_id ? { confirmationId: row.confirmation_id } : {}),
+    creditsCharged: Number(row.credits_charged), createdAt: row.created_at,
+  };
 }
 
 interface ConversationRow {
   id: string;
   account_id: string;
   title: string | null;
+  project_id?: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -952,7 +1424,7 @@ function toUser(row: UserRow): User {
 }
 
 function toAccount(row: AccountRow): Account {
-  return { id: row.id, userId: row.user_id, plan: row.plan, planExpiresAt: row.plan_expires_at ?? null, createdAt: row.created_at };
+  return { id: row.id, userId: row.user_id, plan: row.plan, planExpiresAt: row.plan_expires_at ?? null, memoryEnabled: row.memory_enabled !== false, createdAt: row.created_at };
 }
 
 function toConversation(row: ConversationRow): Conversation {
@@ -960,6 +1432,7 @@ function toConversation(row: ConversationRow): Conversation {
     id: row.id,
     accountId: row.account_id,
     title: row.title ?? undefined,
+    ...(row.project_id ? { projectId: row.project_id } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -976,6 +1449,7 @@ function toConversationMessage(row: ConversationMessageRow): ConversationMessage
 }
 
 function toTask(row: TaskRow): Task {
+  const meta = row.meta ?? {};
   return {
     id: row.id,
     accountId: row.account_id,
@@ -984,6 +1458,10 @@ function toTask(row: TaskRow): Task {
     steps: row.steps,
     riskLevel: row.risk_level,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
+    ...(row.project_id ? { projectId: row.project_id } : {}),
+    ...(row.lifecycle ? { lifecycle: row.lifecycle } : {}),
+    ...meta,
   };
 }
 

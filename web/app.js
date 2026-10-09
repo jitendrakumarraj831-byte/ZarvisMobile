@@ -256,7 +256,8 @@
     viewPlans: document.getElementById("view-plans"),
     viewMetrics: document.getElementById("view-metrics"),
     viewActivity: document.getElementById("view-activity"),
-    viewTasks: document.getElementById("view-tasks"),
+    viewWork: document.getElementById("view-work"),
+    viewAgents: document.getElementById("view-agents"),
     viewDeveloper: document.getElementById("view-developer"),
     viewSettings: document.getElementById("view-settings"),
     viewFeature: document.getElementById("view-feature"),
@@ -284,10 +285,6 @@
     settingsOpenDeveloper: document.getElementById("settings-open-developer"),
     settingsOpenMetrics: document.getElementById("settings-open-metrics"),
     settingsDevToggle: document.getElementById("settings-dev-toggle"),
-    taskList: document.getElementById("task-list"),
-    tasksSearch: document.getElementById("tasks-search"),
-    tasksNoMatch: document.getElementById("tasks-no-match"),
-    tasksRefreshBtn: document.getElementById("tasks-refresh-btn"),
     activityTasks: document.getElementById("activity-tasks"),
     activityRefreshBtn: document.getElementById("activity-refresh-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
@@ -350,6 +347,10 @@
     devAccess: readDevAccess(),
     settingsPage: null,
     featureId: null,
+    // The project and agent the open chat belongs to / is run with (null: none). A new chat started from a
+    // project or an agent page starts in that context; the server confirms it in the stream's `meta` event.
+    projectId: null,
+    agentId: null,
   };
 
   // Declared early out of habit: init() is now started at the very end of this file, so the
@@ -414,6 +415,7 @@
       ["go links", setupGoLinks],
       ["navigation", setupBottomNav],
       ["chat kit", setupChatKit],
+      ["workspace", setupWorkspace],
       ["home feature links", setupHomeFeatures],
       ["capability pages", setupCapabilityPages],
       ["plans", setupPlans],
@@ -462,6 +464,8 @@
       return;
     }
 
+    renderChatContext();
+    void workspace()?.refreshHome();
     setOrbState("IDLE");
     // No auto-arm: voice input only ever starts from an explicit mic/orb press.
   }
@@ -568,9 +572,26 @@
   let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
   let featureOwnsEntry = false; // same for a capability detail page
 
-  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", tasks: "Tasks", capabilities: "Capabilities", plans: "Plans", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
+  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", work: "Work", agents: "Agents", capabilities: "Capabilities", plans: "Plans & Usage", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
+
+  const workspace = () => window.ZarvisWorkspace;
+  const WORK_TAB_LABELS = { projects: "Projects", files: "Files", research: "Research", tasks: "Tasks", outputs: "Outputs" };
+
+  /** The section name shown in the title and the breadcrumb: the open tab, or the open project's name. */
+  function workTitle() {
+    const sub = workspace()?.workSub() || "projects";
+    if (sub.startsWith("project-")) return workspace()?.projectName(sub.slice(8)) || "Project";
+    return sub === "projects" ? "" : WORK_TAB_LABELS[sub] || "";
+  }
+
+  function agentTitle() {
+    const id = workspace()?.agentsSub();
+    return id ? id.charAt(0).toUpperCase() + id.slice(1) + " agent" : "";
+  }
 
   function currentRoute() {
+    if (state.activeView === "work") return "#/work/" + (workspace()?.workSub() || "projects");
+    if (state.activeView === "agents") return "#/agents" + (workspace()?.agentsSub() ? "/" + workspace().agentsSub() : "");
     if (state.activeView === "settings" && state.settingsPage) return "#/settings/" + state.settingsPage;
     if (state.activeView === "feature" && state.featureId) return "#/capabilities/" + state.featureId;
     return "#/" + state.activeView;
@@ -583,6 +604,8 @@
     let name = "";
     if (state.activeView === "settings" && state.settingsPage) name = el.settingsSubpageTitle?.textContent || "";
     else if (state.activeView === "feature") name = document.querySelector("#view-feature h1")?.textContent || "";
+    else if (state.activeView === "work") name = workTitle() ? workTitle() + " · Work" : "Work";
+    else if (state.activeView === "agents") name = agentTitle() || "Agents";
     else name = document.querySelector(".view:not([hidden]) h1:not(.sr-only)")?.textContent || "";
     name = window.ZarvisI18n?.translate((name || PAGE_TITLES[state.activeView] || "").trim(), state.lang) || "";
     return name ? name + " · " + brand : brand;
@@ -595,9 +618,16 @@
       view: state.activeView,
       settingsTitle: state.settingsPage ? el.settingsSubpageTitle?.textContent || "" : "",
       featureTitle: state.activeView === "feature" ? document.querySelector("#view-feature h1")?.textContent || "" : "",
+      workTitle: state.activeView === "work" ? workTitle() : "",
+      workTitleIsName: state.activeView === "work" && (workspace()?.workSub() || "").startsWith("project-"),
+      agentTitle: state.activeView === "agents" ? agentTitle() : "",
     });
     const announcer = document.getElementById("route-announcer");
-    if (announcer) announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
+    if (announcer) {
+      announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
+      // A project's own name is not interface text, so Hindi mode leaves it as written.
+      announcer.toggleAttribute("data-user-text", state.activeView === "work" && (workspace()?.workSub() || "").startsWith("project-"));
+    }
     if (applyingRoute) return;
     const route = currentRoute();
     if (location.hash === route || (state.activeView === "home" && !location.hash)) return;
@@ -608,11 +638,13 @@
 
   function applyRoute(hash) {
     const match = /^#\/([a-z]+)(?:\/([\w-]+))?$/.exec(hash || "");
-    const known = Logic.resolveLegacyRoute(match && VIEWS[match[1]] && match[1] !== "feature" ? match[1] : "home", match ? match[2] : undefined);
+    // #/tasks is an old address: Tasks moved into Work.
+    const isPage = !!match && (!!VIEWS[match[1]] || match[1] === "tasks") && match[1] !== "feature";
+    const known = Logic.resolveLegacyRoute(isPage ? match[1] : "home", match ? match[2] : undefined);
     const view = known.view;
     const sub = known.sub;
     // A link to a page that doesn't exist lands on Home, and says so instead of silently showing the wrong thing.
-    if (hash && hash !== "#" && hash !== "#/" && !(match && VIEWS[match[1]] && match[1] !== "feature")) showToast("That page doesn't exist. Opened Home.");
+    if (hash && hash !== "#" && hash !== "#/" && !isPage) showToast("That page doesn't exist. Opened Home.");
     applyingRoute = true;
     subpageOwnsEntry = false;
     featureOwnsEntry = false;
@@ -622,6 +654,14 @@
         if (sub && document.querySelector(`[data-settings-page="${sub}"]`)) {
           if (state.settingsPage !== sub) openSettingsPage(sub);
         } else if (state.settingsPage) closeSettingsPage();
+      } else if (view === "work") {
+        workspace()?.setWorkSub(sub);
+        if (state.activeView === "work") workspace()?.showWork(sub);
+        else setActiveView("work");
+      } else if (view === "agents") {
+        workspace()?.setAgentsSub(sub);
+        if (state.activeView === "agents") workspace()?.showAgents(sub);
+        else setActiveView("agents");
       } else if (view === "capabilities" && sub && document.querySelector(`[data-feature-page="${sub}"]`)) {
         openFeature(sub);
       } else if (view === "chat" && sub) {
@@ -1276,10 +1316,30 @@
       const body = await res.json();
       if (state.conversationId !== wanted) return "skipped";
       const messages = body.messages || [];
+      // The chat belongs to a project, or not: the server says so.
+      state.projectId = body.projectId || null;
+      state.agentId = null;
+      renderChatContext();
+      // What ZARVIS ran in this chat comes back too, placed between the messages by when it happened.
+      let stored = [];
+      try {
+        const runs = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/executions`);
+        if (runs.ok) stored = window.ZarvisExec.renderStored((await runs.json()).executions || []);
+      } catch (err) {
+        if (err instanceof SessionEndedError) return "skipped";
+        console.warn("Stored tool runs could not be loaded:", err);
+      }
+      if (state.conversationId !== wanted) return "skipped";
+      let next = 0;
       for (const message of messages) {
+        const sentAt = message.createdAt ? Date.parse(message.createdAt) : NaN;
+        if (message.role === "assistant" && Number.isFinite(sentAt)) {
+          while (next < stored.length && stored[next].at <= sentAt) el.conversation.appendChild(stored[next++].node);
+        }
         addBubble(message.role === "user" ? "user" : "assistant", message.content, undefined, message.createdAt ? new Date(message.createdAt) : null);
         state.history.push({ role: message.role, content: message.content });
       }
+      while (next < stored.length) el.conversation.appendChild(stored[next++].node); // e.g. an action still waiting after the last message
       state.history = state.history.slice(-12);
       if (messages.length) {
         state.firstTurn = false;
@@ -1309,6 +1369,9 @@
     localStorage.setItem(STORAGE_KEYS.conversationId, id);
     state.history = [];
     state.firstTurn = true;
+    state.projectId = null;
+    state.agentId = null;
+    renderChatContext();
     el.conversation.replaceChildren();
     kit("threadReset");
     syncChatConversationLayout();
@@ -1418,7 +1481,11 @@
   // A higher-risk action returns `confirmation_required` with a one-time id bound to that
   // exact action. Approve/decline resolves *that id*; nothing is ever re-sent with a flag.
 
-  function renderConfirmationCard(confirmation, container = el.conversation) {
+  /**
+   * `container` is where the card is drawn (the conversation by default). `options.onResolved(body)` is called with the server's
+   * answer once the confirmation was approved or declined; without it the answer is shown in the conversation (or the Developer page).
+   */
+  function renderConfirmationCard(confirmation, container = el.conversation, options = {}) {
     const card = document.createElement("div");
     card.className = "confirm-card";
     card.dataset.confirmationId = confirmation.id;
@@ -1426,10 +1493,12 @@
     card.setAttribute("aria-label", "Confirmation needed");
 
     const title = document.createElement("strong");
-    title.textContent = "Confirm this action · " + Logic.riskLabel(confirmation.riskLevel);
+    title.append(svgIcon("i-alert"), document.createTextNode("Confirmation required" + (confirmation.riskLevel ? " · " + Logic.riskLabel(confirmation.riskLevel) : "")));
     const action = document.createElement("p");
     action.className = "confirm-action";
-    action.textContent = confirmation.action;
+    const what = Object.assign(document.createElement("span"), { textContent: confirmation.action });
+    what.dataset.userText = ""; // what the action is was written by the server from the user's own request
+    action.append(document.createTextNode("ZARVIS wants to: "), what);
     const note = document.createElement("small");
     const expires = new Date(confirmation.expiresAt);
     note.textContent = "Nothing has been done yet. This approval works once, for this action only" +
@@ -1444,23 +1513,24 @@
     const approve = document.createElement("button");
     approve.type = "button";
     approve.className = "zarvis-btn zarvis-btn-primary";
-    approve.textContent = "Approve";
+    approve.textContent = "Confirm";
     actions.append(decline, approve);
 
     const resolve = async (verb) => {
       approve.disabled = true;
       decline.disabled = true;
-      approve.textContent = verb === "approve" ? "Running…" : "Approve";
+      approve.textContent = verb === "approve" ? "Running…" : "Confirm";
       try {
         const res = await apiFetch(`/confirmations/${encodeURIComponent(confirmation.id)}/${verb}`, { method: "POST" });
         const body = await res.json().catch(() => ({}));
         if (res.status === 409 && body.code === "confirmation_already_used") {
           actions.remove();
-          note.textContent = "Already approved: the action ran once and will not run again. Its result is in the conversation.";
+          note.textContent = "Already confirmed: the action ran once and will not run again. Its result is in the conversation.";
           return;
         }
         if (res.status === 404) {
           note.textContent = "This confirmation expired or was already used. Nothing was run. Ask again if you still want it.";
+          actions.remove();
           return;
         }
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -1468,19 +1538,20 @@
         if (body.outcome?.kind === "confirmation_required" && body.outcome.confirmation) {
           // What would run changed after approval (e.g. another GitHub account was connected).
           note.textContent = "The action changed before it ran, so nothing was done. Please review it again.";
-          renderConfirmationCard(body.outcome.confirmation, container);
+          renderConfirmationCard(body.outcome.confirmation, container, options);
           return;
         }
         note.textContent = Logic.toolStatusLabel(body.result?.status) + ".";
-        if (container === el.conversation) addBubble("assistant", body.message || "Done.");
-        else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error");
+        if (options.onResolved) options.onResolved(body);
+        else if (container === el.conversation) addBubble("assistant", body.message || "Done.");
+        else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error", true, body);
       } catch (err) {
         if (err instanceof SessionEndedError) return;
         console.error(err);
         note.textContent = "Couldn't reach ZARVIS. If the request got through, its result will appear in the conversation; trying again can never run it twice.";
         approve.disabled = false;
         decline.disabled = false;
-        approve.textContent = "Approve";
+        approve.textContent = "Confirm";
       }
     };
     approve.addEventListener("click", () => void resolve("approve"));
@@ -1758,7 +1829,8 @@
     plans: el.viewPlans,
     metrics: el.viewMetrics,
     activity: el.viewActivity,
-    tasks: el.viewTasks,
+    work: el.viewWork,
+    agents: el.viewAgents,
     settings: el.viewSettings,
     feature: el.viewFeature,
     developer: el.viewDeveloper,
@@ -1778,8 +1850,6 @@
     }
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
-    el.tasksRefreshBtn?.addEventListener("click", () => void refreshTasksPage());
-    el.tasksSearch?.addEventListener("input", applyTaskFilter);
     for (const btn of document.querySelectorAll("[data-nav]")) {
       btn.addEventListener("click", () => {
         haptic();
@@ -1843,7 +1913,7 @@
       startListening,
       pickFile: () => openFilePicker(),
       devAccess: () => state.devAccess,
-      extraItems: () => kit("paletteItems") || [],
+      extraItems: () => [...(kit("paletteItems") || []), ...workspaceItems()],
       account: () => {
         const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
         return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
@@ -1871,9 +1941,62 @@
         kit("openHistory", link);
         return;
       }
+      if (target.view === "work") {
+        goWork(target.workTab || workspace()?.workSub() || "projects");
+        return;
+      }
+      if (target.view === "agents") {
+        goAgents(target.agentId || "");
+        return;
+      }
       setActiveView(target.view);
       if (target.settingsPage && document.querySelector(`[data-settings-page="${target.settingsPage}"]`)) openSettingsPage(target.settingsPage);
     });
+  }
+
+  /** Hands the execution cards and the Work/Agents pages (exec-cards.js, workspace.js) the few things they need from this file. */
+  function setupWorkspace() {
+    window.ZarvisExec?.init({
+      conversation: el.conversation,
+      apiFetch,
+      toast: showToast,
+      skillLabel: skillDisplayName,
+      renderConfirmation: renderConfirmationCard,
+      scroll: () => scrollConversationToBottom(),
+      destination: toolDestination,
+      reply: (text) => addBubble("assistant", text),
+    });
+    window.ZarvisWorkspace?.init({
+      apiFetch,
+      toast: showToast,
+      haptic,
+      confirm: showConfirmModal,
+      setActiveView,
+      syncRoute,
+      activeView: () => state.activeView,
+      lang: () => state.lang,
+      openChat,
+      openConversation,
+      newConversation: startNewConversation,
+      openHistory: () => kit("openHistory"),
+      renderConfirmation: renderConfirmationCard,
+      onTasks: (tasks) => {
+        if (!tasks) return;
+        applyTaskCounts(tasks);
+        latestTasks = tasks;
+      },
+    });
+  }
+
+  /** Command-palette entries for the Work tabs and the agents. */
+  function workspaceItems() {
+    const tabs = [["projects", "Projects", "i-folder"], ["files", "Files", "i-file"], ["research", "Research", "i-globe"], ["tasks", "Tasks", "i-task"], ["outputs", "Outputs", "i-pen"]];
+    const items = tabs.map(([tab, label, ico]) => ({ group: "Work", label, hint: "Work › " + label, icon: ico, run: () => goWork(tab) }));
+    for (const id of ["personal", "research", "documents", "creative", "business", "developer"]) {
+      const name = id.charAt(0).toUpperCase() + id.slice(1) + " agent";
+      items.push({ group: "Agents", label: name, hint: "Open the agent page", icon: "i-bot", run: () => goAgents(id) });
+    }
+    return items;
   }
 
   /** Hands the chat kit (chat-kit.js) the few things it needs from this file. */
@@ -2007,6 +2130,8 @@
       submitComposerInput(text);
     });
 
+    setupChatContextChips();
+
     // Reading back up the thread stops the page following new text; the button takes you to the newest.
     window.addEventListener("scroll", () => {
       followNewest = distanceFromBottom() < NEAR_BOTTOM_PX;
@@ -2036,15 +2161,77 @@
     });
   }
 
+  /** The project chip opens that project; the agent chip lets go of the agent so the chat may use every skill again. */
+  function setupChatContextChips() {
+    document.getElementById("chat-project-chip")?.addEventListener("click", () => {
+      if (state.projectId) goWork("project-" + state.projectId);
+    });
+    document.getElementById("chat-agent-chip")?.addEventListener("click", () => {
+      haptic();
+      state.agentId = null;
+      renderChatContext();
+      showToast("This chat can use every skill again.");
+      el.input.focus();
+    });
+  }
+
+  /** The project and agent chips under the chat title: what the open chat is working in and with. */
+  function renderChatContext() {
+    const wrap = document.getElementById("chat-context");
+    const projectChip = document.getElementById("chat-project-chip");
+    const agentChip = document.getElementById("chat-agent-chip");
+    if (!wrap || !projectChip || !agentChip) return;
+    projectChip.hidden = !state.projectId;
+    if (state.projectId) {
+      const name = workspace()?.projectName(state.projectId);
+      projectChip.textContent = "Project: " + (name || "…");
+      projectChip.dataset.userText = "";
+      projectChip.setAttribute("aria-label", "Project: " + (name || "loading") + ". Open the project.");
+      if (!name) void workspace()?.loadProjects().then(() => renderChatContext());
+    }
+    agentChip.hidden = !state.agentId;
+    if (state.agentId) {
+      const label = state.agentId.charAt(0).toUpperCase() + state.agentId.slice(1);
+      agentChip.textContent = "Agent: " + label + " ✕";
+      agentChip.setAttribute("aria-label", "Agent: " + label + ". Press to use all skills again.");
+    }
+    wrap.hidden = projectChip.hidden && agentChip.hidden;
+  }
+
+  /**
+   * Opens Chat in a context. `fresh` starts a new chat first (so the project/agent apply to it). `attachment` is text from the Files
+   * library, sent with the next message like any attachment; `submit` sends `prompt` at once, otherwise it is only put in the box.
+   */
+  function openChat({ fresh = false, projectId, agentId, prompt = "", submit = false, attachment, displayText } = {}) {
+    if (fresh) startNewConversation();
+    if (projectId !== undefined || fresh) state.projectId = projectId || null;
+    if (agentId !== undefined || fresh) state.agentId = agentId || null;
+    renderChatContext();
+    setActiveView("chat");
+    if (attachment) setPendingAttachment(attachment.name, attachment.text);
+    if (submit) {
+      if (state.pendingAttachment || !displayText) void submitComposerInput(prompt);
+      else void submitUtterance(prompt, false, displayText);
+      return;
+    }
+    el.input.value = prompt;
+    resizeComposer();
+    el.input.focus();
+    el.input.setSelectionRange(prompt.length, prompt.length);
+  }
+
   /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
    * The previous conversation stays on the server. */
   function startNewConversation() {
     if (currentTurnController) cancelCurrentTurn();
     localStorage.removeItem(STORAGE_KEYS.conversationId);
     state.conversationId = null;
+    state.projectId = null;
+    state.agentId = null;
     state.history = [];
     state.firstTurn = true;
     el.conversation.replaceChildren();
+    renderChatContext();
     kit("threadReset");
     syncChatConversationLayout();
     recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
@@ -2183,7 +2370,38 @@
     return localStorage.getItem(STORAGE_KEYS.ttsVoice) || "Kore";
   }
 
+  /** Opens Work on a tab (or project-<id>) and keeps the address in step. */
+  function goWork(sub) {
+    workspace()?.setWorkSub(sub);
+    if (state.activeView === "work") {
+      workspace()?.showWork(sub);
+      syncRoute();
+    } else setActiveView("work");
+  }
+
+  function goAgents(id) {
+    workspace()?.setAgentsSub(id);
+    if (state.activeView === "agents") {
+      workspace()?.showAgents(id);
+      syncRoute();
+    } else setActiveView("agents");
+  }
+
   function setActiveView(view) {
+    // Tasks moved into Work: the old name still opens the right tab.
+    if (view === "tasks") {
+      goWork("tasks");
+      return;
+    }
+    // Choosing the section you are already in, from inside one of its details, goes back to its list.
+    if (view === state.activeView && view === "work" && workspace()?.workSub().startsWith("project-")) {
+      goWork("projects");
+      return;
+    }
+    if (view === state.activeView && view === "agents" && workspace()?.agentsSub()) {
+      goAgents("");
+      return;
+    }
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
     if (view === "developer" && !requireDevAccess("Developer Agent")) return;
     if (view === "metrics" && !requireDevAccess("Usage & Metrics")) return;
@@ -2209,7 +2427,10 @@
 
     if (view === "chat") maybeShowWelcomeGate();
     if (view === "capabilities") renderCapabilities();
-    if (view === "plans") refreshPlans();
+    if (view === "plans") {
+      void refreshPlans();
+      void workspace()?.renderUsage();
+    }
     if (view === "metrics") {
       renderLatencyLog();
       renderMetricsUsage();
@@ -2218,16 +2439,22 @@
       startMetricsPolling();
     }
     if (view === "activity") refreshActivity();
-    if (view === "tasks") void refreshTasksPage();
+    if (view === "work") workspace()?.showWork(workspace().workSub());
+    if (view === "agents") workspace()?.showAgents(workspace().agentsSub());
     if (view === "home") {
       renderHomeGreeting();
+      void workspace()?.refreshHome();
     }
     kit("renderAll"); // the open chat is highlighted in the sidebar only while Chat is showing
-    if (view === "developer") void refreshGithubStatus();
+    if (view === "developer") {
+      void refreshGithubStatus();
+      void refreshDeveloperHistory();
+    }
     if (view === "settings") {
       updateSettingsValues();
       void refreshGithubStatus();
       void loadSettingsSummary();
+      void workspace()?.refreshMemoryValue();
     }
     if (view === "chat") scrollConversationToBottom(true);
     syncRoute();
@@ -2436,6 +2663,7 @@
     if (page === "account") void refreshAccountPanel();
     if (page === "permissions") void renderPermissionCenter();
     if (page === "ai") void renderAiProvider();
+    if (page === "memory") void workspace()?.renderMemory();
     el.settingsPanelBack?.focus?.();
     syncRoute();
   }
@@ -2484,7 +2712,6 @@
     set("voice", state.speak ? "On" : "Off");
     set("language", state.lang === "hi" ? "हिंदी" : "English");
     set("appearance", state.appearance === "dim" ? "Dark" : "Light");
-    set("memory", state.conversationId ? "Saved" : "New");
     if (!state.devAccess) set("developer", "Off");
     const heroName = document.getElementById("profile-hero-name");
     if (heroName) {
@@ -2561,61 +2788,12 @@
     }
   }
 
-  /** Activity is this session's log plus the chat list; Refresh pulls the account's chats again and re-counts open tasks. */
+  /** Activity is the account's feed from the server plus this session's local log; Refresh reads both again and re-counts open tasks. */
   function refreshActivity() {
     applyActivityFilter();
+    void workspace()?.renderActivity();
     void kit("sync", { force: true });
     void refreshTasks();
-  }
-
-  async function refreshTasksPage() {
-    if (!el.taskList) return;
-    const refreshBtn = el.tasksRefreshBtn;
-    if (refreshBtn) refreshBtn.disabled = true;
-    el.taskList.setAttribute("aria-busy", "true");
-    if (!el.taskList.children.length) {
-      const skeleton = document.createElement("div");
-      skeleton.className = "skeleton skeleton-row";
-      skeleton.setAttribute("aria-hidden", "true");
-      el.taskList.appendChild(skeleton);
-    }
-    let tasks = null;
-    try {
-      tasks = await fetchTasks();
-    } catch (err) {
-      console.error(err);
-      tasks = null;
-    }
-    el.taskList.innerHTML = "";
-    if (refreshBtn) refreshBtn.disabled = false;
-    el.taskList.removeAttribute("aria-busy");
-    if (!tasks) {
-      el.taskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
-      applyTaskFilter();
-      return;
-    }
-    if (!tasks.length) {
-      el.taskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here.", {
-        icon: "i-task",
-        action: { label: "Plan a task", onClick: () => document.querySelector('[data-workspace-prompt^="Create a workflow"]')?.click() },
-      }));
-      applyTaskFilter();
-      return;
-    }
-    for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
-    applyTaskFilter();
-  }
-
-  /** The search box narrows the task cards; "No tasks match" shows only when cards exist but none fit. */
-  function applyTaskFilter() {
-    const query = (el.tasksSearch?.value || "").trim().toLowerCase();
-    const cards = el.taskList ? Array.from(el.taskList.querySelectorAll(".task-card")) : [];
-    let shown = 0;
-    for (const card of cards) {
-      card.hidden = !!query && !card.textContent.toLowerCase().includes(query);
-      if (!card.hidden) shown += 1;
-    }
-    if (el.tasksNoMatch) el.tasksNoMatch.hidden = !cards.length || shown > 0;
   }
 
   async function deleteAccount() {
@@ -2657,9 +2835,12 @@
   /** Asks the server for a one-time confirmation of this exact change, then shows it. */
   let lastDeveloperAction = null;
 
+  let developerRepo = "";
+
   async function implementRepo() {
     lastDeveloperAction = implementRepo;
     const repoUrl = el.developerRepoInput.value.trim();
+    developerRepo = repoUrl;
     const requirement = el.developerRequirementInput.value.trim();
     el.developerResult.innerHTML = "";
     if (!repoUrl || !requirement) {
@@ -2673,7 +2854,22 @@
       const body = await res.json().catch(() => ({}));
       if (res.ok && body.kind === "confirmation_required") {
         setDeveloperStage("implement", "Waiting for you", "z-badge-info");
-        renderConfirmationCard(body.confirmation, el.developerResult);
+        setDeveloperStage("confirm", "Needs you", "z-badge-info");
+        el.developerResult.appendChild(developerProposal(repoUrl, requirement));
+        renderConfirmationCard(body.confirmation, el.developerResult, {
+          onResolved: (answer) => {
+            const outcome = answer.outcome || {};
+            setDeveloperStage("confirm", outcome.kind === "confirmation_declined" ? "Declined" : "Confirmed", outcome.kind === "confirmation_declined" ? "z-badge-err" : "z-badge-ok");
+            const ok = outcome.kind === "success";
+            setDeveloperStage("implement", ok ? "Completed" : outcome.kind === "confirmation_declined" ? "Not done" : "Couldn't complete", ok ? "z-badge-ok" : "z-badge-err");
+            renderDeveloperMessage(answer.message || "Done.", ok ? "success" : "error", true, {
+              skillId: "developer.implement",
+              output: ok ? outcome.result.output : null,
+              evidence: answer.result?.verificationEvidence,
+              repoUrl: developerRepo,
+            });
+          },
+        });
         revealDeveloperResult();
         return;
       }
@@ -2714,7 +2910,7 @@
         return;
       }
       setDeveloperStage("analyze", "Completed", "z-badge-ok");
-      renderDeveloperMessage(body.result?.summary || "Analyzed.", "success");
+      renderDeveloperMessage(body.result?.summary || "Analyzed.", "success", true, { skillId: "developer.analyze_repo", output: body.result?.output, evidence: body.structured?.verificationEvidence, repoUrl });
     } catch (err) {
       console.error(err);
       setDeveloperStage("analyze", "Couldn't complete", "z-badge-err");
@@ -2725,7 +2921,33 @@
     }
   }
 
-  function renderDeveloperMessage(message, status, retryable = true) {
+  /** The change that will be proposed, in the words the user typed, shown above the confirmation that names the exact action. */
+  function developerProposal(repoUrl, requirement) {
+    const box = document.createElement("div");
+    box.className = "exec-panel";
+    const title = document.createElement("h4");
+    title.className = "exec-panel-title";
+    title.textContent = "Proposed change";
+    const dl = document.createElement("dl");
+    dl.className = "exec-kv";
+    for (const [label, value] of [["Repository", repoUrl], ["Requirement", requirement]]) {
+      const row = document.createElement("div");
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      dd.dataset.userText = "";
+      row.append(dt, dd);
+      dl.appendChild(row);
+    }
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Nothing is written until you confirm below. ZARVIS creates a new branch and a pull request for your review; it never merges.";
+    box.append(title, dl, note);
+    return box;
+  }
+
+  function renderDeveloperMessage(message, status, retryable = true, details) {
     const widget = document.createElement("div");
     widget.className = "result-widget";
     widget.dataset.kind = "code";
@@ -2740,6 +2962,18 @@
     body.className = "widget-body";
     renderFormattedText(body, message);
     widget.appendChild(body);
+    if (details && details.output && status === "success") {
+      const out = document.createElement("div");
+      out.className = "exec-output";
+      window.ZarvisExec?.renderOutput(out, details.skillId, details.output, { inputPreview: { repoUrl: details.repoUrl } });
+      widget.appendChild(out);
+      const verified = document.createElement("p");
+      verified.className = "muted";
+      verified.textContent = details.skillId === "developer.implement"
+        ? "Verified: GitHub returned the pull request. ZARVIS did not run any tests; use “Check CI results on GitHub” for what your repository's checks report."
+        : "Verified: the analysis returned a result. It reads file names, not code, so it is not a code review.";
+      widget.appendChild(verified);
+    }
 
     if (status === "error" && retryable && lastDeveloperAction) {
       const retry = document.createElement("button");
@@ -2758,10 +2992,51 @@
     // A validation hint (retryable === false) is not a run: no status change, no history entry.
     if (!retryable && status === "error") return;
     setRunStatus(status === "success" ? "completed" : "failed");
-    const line = String(message || "").split("\n").find((text) => text.trim()) || "";
-    const title = line.replace(/[#*`_>]/g, "").trim().slice(0, 90) || (status === "success" ? "Completed" : "Failed");
-    recordActivity("developer", title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
-    appendDeveloperLog(title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
+    // The history beside the page is read back from the server, so it is the same on every device.
+    void refreshDeveloperHistory();
+  }
+
+  /** Recent repository runs, from the execution ledger (not from this tab's memory). */
+  async function refreshDeveloperHistory() {
+    if (!el.developerLog) return;
+    let res;
+    try {
+      res = await apiFetch("/executions?skillIds=developer.analyze_repo,developer.implement&limit=10");
+    } catch (err) {
+      if (!(err instanceof SessionEndedError)) console.warn("Developer history failed:", err);
+      return;
+    }
+    if (!res.ok) {
+      el.developerLog.replaceChildren(Object.assign(document.createElement("li"), { className: "timeline-empty", textContent: "Couldn't load the history." }));
+      return;
+    }
+    const { executions } = await res.json();
+    el.developerLog.replaceChildren();
+    if (!executions.length) {
+      el.developerLog.appendChild(Object.assign(document.createElement("li"), { className: "timeline-empty", textContent: "No runs yet." }));
+      return;
+    }
+    for (const run of executions) {
+      const ok = run.status === "COMPLETED";
+      const item = document.createElement("li");
+      item.className = "timeline-item";
+      item.dataset.tone = ok ? "ok" : run.status === "CONFIRMATION_REQUIRED" ? "" : "error";
+      const dot = document.createElement("span");
+      dot.className = "timeline-dot";
+      dot.appendChild(svgIcon(ok ? "i-check" : run.status === "CONFIRMATION_REQUIRED" ? "i-clock" : "i-x"));
+      const bodyNode = document.createElement("div");
+      bodyNode.className = "timeline-body";
+      const strong = document.createElement("strong");
+      const repo = String(run.inputPreview?.repoUrl || "").replace(/^https?:\/\/(www\.)?github\.com\//, "");
+      strong.textContent = run.skillName + (repo ? " · " + repo : "");
+      strong.dataset.userText = "";
+      const meta = document.createElement("div");
+      meta.className = "timeline-meta";
+      meta.textContent = Logic.toolStatusLabel(run.status) + " · " + formatRelativeTime(run.createdAt);
+      bodyNode.append(strong, meta);
+      item.append(dot, bodyNode);
+      el.developerLog.appendChild(item);
+    }
   }
 
   function revealDeveloperResult() {
@@ -2778,30 +3053,9 @@
     if (label) label.textContent = RUN_STATUS_LABELS[tone] || tone;
   }
 
-  function appendDeveloperLog(title, meta, tone) {
-    if (!el.developerLog) return;
-    const item = document.createElement("li");
-    item.className = "timeline-item";
-    item.dataset.tone = tone;
-    const dot = document.createElement("span");
-    dot.className = "timeline-dot";
-    dot.appendChild(svgIcon(tone === "ok" ? "i-check" : "i-x"));
-    const body = document.createElement("div");
-    body.className = "timeline-body";
-    const strong = document.createElement("strong");
-    strong.textContent = title;
-    const small = document.createElement("div");
-    small.className = "timeline-meta";
-    small.textContent = meta + " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    body.append(strong, small);
-    item.append(dot, body);
-    el.developerLog.querySelector(".timeline-empty")?.remove();
-    el.developerLog.prepend(item);
-  }
-
   function setDeveloperStage(name, label, tone) {
     const runTone = label === "Checking" ? "thinking" : label === "Running" ? "working" : label === "Waiting for you" ? "waiting"
-      : label === "Completed" ? "completed" : /^Couldn't/.test(label) ? "failed" : null;
+      : label === "Completed" ? "completed" : /^Couldn't/.test(label) || label === "Not done" || label === "Declined" ? "failed" : null;
     if (runTone) setRunStatus(runTone);
     const card = document.querySelector(`#developer-stages [data-stage="${name}"] .z-badge`);
     if (!card) return;
@@ -3369,8 +3623,11 @@
 
   /** Applies the chosen filter and search to the chat list, the open-tasks row and this session's timeline. */
   function applyActivityFilter() {
-    kit("syncActivityChats", activityFilter.type, activityFilter.query);
+    workspace()?.setActivityFilter(activityFilter.type, activityFilter.query);
     if (el.activityTasks) el.activityTasks.hidden = !(activityFilter.type === "all" && openTaskCount > 0);
+    // What lives only in this tab (voice, attachments) is shown with "All" only.
+    const local = document.getElementById("activity-session-block");
+    if (local) local.hidden = activityFilter.type !== "all";
     renderActivityTimeline();
   }
 
@@ -3388,16 +3645,21 @@
       return null;
     }
     const { tasks } = await res.json();
-    const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
+    applyTaskCounts(tasks);
+    latestTasks = tasks;
+    return tasks;
+  }
+
+  /** The nav dot and the open-task rows follow the tasks' real lifecycle. Called with every list the server sent. */
+  function applyTaskCounts(tasks) {
+    const activeCount = Logic.openTaskCount(tasks);
     for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
     renderOpenTasks(activeCount);
     for (const item of el.navItems) {
-      if (item.dataset.view !== "tasks") continue;
-      if (activeCount > 0) item.setAttribute("aria-label", "Tasks, " + activeCount + " open");
+      if (item.dataset.view !== "work") continue;
+      if (activeCount > 0) item.setAttribute("aria-label", "Work, " + activeCount + " open task" + (activeCount === 1 ? "" : "s"));
       else item.removeAttribute("aria-label");
     }
-    latestTasks = tasks;
-    return tasks;
   }
 
   let openTaskCount = 0;
@@ -3424,106 +3686,6 @@
     return fetchTasks().catch((err) => {
       if (!(err instanceof SessionEndedError)) console.warn("Task refresh failed:", err);
     });
-  }
-
-  // User-triggerable transitions per status. No task executor exists yet (the backend refuses
-  // resume/retry with task_execution_unavailable), so nothing here offers to start a task:
-  // that would show work that is not happening.
-  const TASK_ACTIONS = {
-    PENDING: [{ action: "cancel", label: "Cancel", cls: "danger" }],
-    RUNNING: [
-      { action: "pause", label: "Pause", cls: "" },
-      { action: "cancel", label: "Cancel", cls: "danger" },
-    ],
-    PAUSED: [{ action: "cancel", label: "Cancel", cls: "danger" }],
-    FAILED: [],
-    DONE: [],
-    CANCELLED: [],
-  };
-
-  function renderTaskCard(task) {
-    const card = document.createElement("div");
-    card.className = "task-card";
-    card.dataset.status = task.status;
-    if (task.status === "RUNNING") card.classList.add("glow-active");
-
-    const top = document.createElement("div");
-    top.className = "task-card-top";
-    const badge = document.createElement("span");
-    badge.className = "task-status-badge";
-    badge.dataset.status = task.status;
-    badge.textContent = task.status;
-    const time = document.createElement("span");
-    time.className = "task-time";
-    time.textContent = formatRelativeTime(task.createdAt);
-    top.append(badge, time);
-    card.appendChild(top);
-
-    const goal = document.createElement("p");
-    goal.className = "task-goal";
-    goal.textContent = task.goal;
-    card.appendChild(goal);
-
-    if (task.steps && task.steps.length > 0) {
-      const doneCount = task.steps.filter((s) => s.status === "DONE").length;
-      const progress = document.createElement("div");
-      progress.className = "task-progress";
-      const bar = document.createElement("div");
-      bar.className = "task-progress-bar";
-      bar.style.width = `${Math.round((doneCount / task.steps.length) * 100)}%`;
-      progress.appendChild(bar);
-      card.appendChild(progress);
-
-      const stepsWrap = document.createElement("div");
-      stepsWrap.className = "task-steps";
-      for (const step of task.steps) {
-        const row = document.createElement("div");
-        row.className = "task-step";
-        row.dataset.status = step.status;
-        const dot = document.createElement("span");
-        dot.className = "task-step-dot";
-        const label = document.createElement("span");
-        label.textContent = step.description;
-        row.append(dot, label);
-        stepsWrap.appendChild(row);
-      }
-      card.appendChild(stepsWrap);
-    }
-
-    const actions = TASK_ACTIONS[task.status] || [];
-    if (actions.length > 0) {
-      const actionsWrap = document.createElement("div");
-      actionsWrap.className = "task-actions";
-      for (const { action, label, cls } of actions) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = cls ? `task-action-btn ${cls}` : "task-action-btn";
-        btn.textContent = label;
-        btn.addEventListener("click", () => performTaskAction(task.id, action));
-        actionsWrap.appendChild(btn);
-      }
-      card.appendChild(actionsWrap);
-    }
-
-    return card;
-  }
-
-  async function performTaskAction(taskId, action) {
-    try {
-      const res = await apiFetch(`/tasks/${taskId}/${action}`, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        console.error(`Task ${action} failed:`, body.error || res.status);
-        showToast("Couldn't update the task. Try again.");
-        return;
-      }
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-      console.error(err);
-      showToast("Couldn't reach ZARVIS. Check your connection.");
-      return;
-    }
-    void refreshTasksPage();
   }
 
   function formatRelativeTime(dateInput) {
@@ -3577,6 +3739,7 @@
     const controller = new AbortController();
     currentTurnController = controller;
     const thinkingNode = addThinkingBubble();
+    const exec = window.ZarvisExec.startTurn(thinkingNode);
     setOrbState("UNDERSTANDING");
     const isFirstTurn = state.firstTurn;
     const startedAt = performance.now();
@@ -3604,6 +3767,9 @@
           conversationId: state.conversationId,
           history: state.history.slice(-12),
           clientTurnId,
+          // A new chat starts in the open project and with the chosen agent; the server ignores them for an existing chat.
+          projectId: state.projectId || undefined,
+          agentId: state.agentId || undefined,
         }),
         signal: controller.signal,
       });
@@ -3684,11 +3850,16 @@
         if (event === "meta" && data?.conversationId) {
           state.conversationId = String(data.conversationId);
           localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
+          // What the server says the chat belongs to is what is shown: a project that is not yours is not claimed.
+          state.projectId = data.projectId || null;
+          if (data.agentId) state.agentId = data.agentId;
+          renderChatContext();
           kit("record", state.conversationId, { title: isFirstTurn ? kit("pendingTitle") : undefined });
           return;
         }
         // Real backend stages only (model step / tool started / tool finished) — no simulated steps.
         if (event === "progress" && data) {
+          exec.progress(data); // the execution card for this tool call, from the same real events
           if (data.type === "tool_started") {
             setOrbState("EXECUTING");
             showProgress(thinkingNode, "Using " + skillDisplayName(data.skillId) + "…");
@@ -3745,7 +3916,7 @@
           state.history = state.history.slice(-12);
           state.firstTurn = false;
           recordLatency(utterance, Math.round(performance.now() - startedAt), true, isVoice);
-          renderToolActivity(data?.toolCalls);
+          exec.finalize(data?.toolCalls, assistantNode?.closest(".bubble"));
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
           if (fullMessage.trim()) kit("afterTurn", { isFirstTurn });
@@ -3790,6 +3961,8 @@
         clearTimeout(ttsStartTimer);
         ttsStartTimer = null;
       }
+      // A tool card still marked "running" when the turn is over (stopped, dropped) must not look busy.
+      exec.abandon("This run didn't finish because the turn was stopped or failed.");
       // Segments that will never be played must release their turn, or later speech would wait forever.
       for (const item of ttsQueue.splice(0)) item.ticket.done();
       for (const streaming of el.conversation.querySelectorAll(".bubble.is-streaming")) streaming.classList.remove("is-streaming");
@@ -3951,6 +4124,11 @@
         saved("Saved");
       });
       actions.appendChild(download);
+      const { button: saveFile } = actionButton("i-folder", "Save to Files");
+      saveFile.addEventListener("click", () => {
+        void workspace()?.saveReplyDialog(bubblePlainText(body) || text, { projectId: state.projectId || undefined });
+      });
+      actions.appendChild(saveFile);
       bubble.appendChild(actions);
     }
     if (role === "user" || role === "assistant") {
@@ -3963,59 +4141,6 @@
     scrollConversationToBottom(role === "user");
     if (role === "assistant") announceChat(text);
     return body;
-  }
-
-  const TOOL_TONES = {
-    COMPLETED: "success",
-    USER_ACTION_REQUIRED: "confirm",
-    CONFIRMATION_REQUIRED: "confirm",
-    PERMISSION_REQUIRED: "confirm",
-    DENIED: "failed",
-    UNSUPPORTED: "failed",
-    FAILED: "failed",
-  };
-
-  /** One row per tool call, from the backend's structured result (blueprint §10). */
-  function renderToolActivity(toolCalls) {
-    if (!Array.isArray(toolCalls) || toolCalls.length === 0) return;
-    for (const call of toolCalls) {
-      if (call?.outcome?.kind === "confirmation_required" && call.outcome.confirmation) {
-        renderConfirmationCard(call.outcome.confirmation);
-        continue;
-      }
-      const statusCode = call?.result?.status || (call?.outcome?.kind === "success" ? "COMPLETED" : "FAILED");
-      const row = document.createElement("div");
-      row.className = "tool-row";
-      row.dataset.status = statusCode;
-      row.dataset.tone = TOOL_TONES[statusCode] || "";
-      const top = document.createElement("div");
-      top.className = "tool-row-top";
-      const title = document.createElement("strong");
-      title.textContent = skillDisplayName(call.skillId);
-      title.title = call.skillId || "";
-      const status = document.createElement("span");
-      status.className = "z-badge";
-      status.textContent = Logic.toolStatusLabel(statusCode);
-      top.append(title, status);
-      row.appendChild(top);
-      const note = document.createElement("p");
-      note.className = "stage-note";
-      const message = call?.result?.userSafeMessage || "";
-      note.textContent = String(message).replace(/\s+/g, " ").slice(0, 220);
-      row.appendChild(note);
-      const where = toolDestination(call.skillId, statusCode);
-      if (where) {
-        const link = document.createElement("button");
-        link.type = "button";
-        link.className = "inline-link tool-row-link";
-        link.dataset.go = where.target;
-        link.textContent = where.label;
-        row.appendChild(link);
-      }
-      el.conversation.appendChild(row);
-      recordActivity("ai", skillDisplayName(call.skillId), Logic.toolStatusLabel(statusCode), statusCode === "COMPLETED" ? "ok" : TOOL_TONES[statusCode] === "failed" ? "error" : "");
-    }
-    scrollConversationToBottom();
   }
 
   /** The page where a finished tool's result can be followed up: tasks live on the Tasks page, repository work in the Developer Agent
@@ -4136,7 +4261,7 @@
   /** A plain informational/error notice with no retry action (unlike addErrorBubble, above)
    * — used for client-side upload validation failures that happen before any turn is
    * submitted, so there's nothing to retry. */
-  function addSystemNotice(copy) {
+  function addSystemNotice(copy, retry) {
     const bubble = document.createElement("div");
     bubble.className = "bubble system";
 
@@ -4149,6 +4274,19 @@
     subtitle.className = "bubble-error-subtitle";
     subtitle.textContent = copy.subtitle;
     bubble.appendChild(subtitle);
+
+    if (typeof retry === "function") {
+      const retryBtn = document.createElement("button");
+      retryBtn.type = "button";
+      retryBtn.className = "bubble-retry-btn";
+      retryBtn.textContent = COPY[state.lang].retry;
+      retryBtn.addEventListener("click", () => {
+        haptic();
+        bubble.remove();
+        retry();
+      });
+      bubble.appendChild(retryBtn);
+    }
 
     el.conversation.appendChild(bubble);
     scrollConversationToBottom();
@@ -4188,11 +4326,18 @@
     return null;
   }
 
+  let readingFile = false;
+
   async function handleFileSelected(event) {
     const file = event.target.files?.[0];
     event.target.value = ""; // lets picking the exact same file again still fire "change"
     if (!file) return;
     haptic();
+    // A second file dropped or pasted while one is being read must not start a second read at the same time.
+    if (readingFile) {
+      showToast("Still reading the last file. Try again in a moment.");
+      return;
+    }
 
     const kind = classifyLocalFile(file);
     if (!kind) {
@@ -4200,64 +4345,43 @@
       return;
     }
 
-    if (kind === "image") {
+    if (kind === "image" || kind === "pdf" || kind === "docx") {
+      // Images and documents are read by the server (a real parser or the vision model).
       if (file.size > MAX_BINARY_UPLOAD_BYTES) {
         addSystemNotice(COPY[state.lang].oversizedFile);
         return;
       }
-      setExtractingState(true, file);
-      try {
-        const formData = new FormData();
-        formData.append("file", file, file.name);
-        const res = await apiFetch("/documents/extract", { method: "POST", body: formData });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          console.error(`Image analysis failed (${res.status}):`, body.error);
-          addSystemNotice(noticeForExtractError(body.error, body.code));
-          return;
-        }
-        const { text } = await res.json();
-        setPendingAttachment(file.name, text);
-      } catch (err) {
-        console.error(err);
-        addSystemNotice(COPY[state.lang].unreadableFile);
-      } finally {
-        setExtractingState(false);
-      }
+      await extractOnServer(file);
       return;
     }
 
-    if (kind === "text") {
-      if (file.size > MAX_TEXT_UPLOAD_BYTES) {
-        addSystemNotice(COPY[state.lang].oversizedFile);
-        return;
-      }
-      let text;
-      try {
-        text = await file.text();
-      } catch (err) {
-        console.error(err);
-        addSystemNotice(COPY[state.lang].unreadableFile);
-        return;
-      }
-      if (!text.trim()) {
-        addSystemNotice(COPY[state.lang].emptyFile);
-        return;
-      }
-      if (new TextEncoder().encode(text).length > MAX_TEXT_UPLOAD_BYTES) {
-        addSystemNotice(COPY[state.lang].oversizedFile);
-        return;
-      }
-      setAttachmentPreview(file);
-      setPendingAttachment(file.name, text);
-      return;
-    }
-
-    // pdf / docx — real extraction happens server-side (see the section doc comment above).
-    if (file.size > MAX_BINARY_UPLOAD_BYTES) {
+    if (file.size > MAX_TEXT_UPLOAD_BYTES) {
       addSystemNotice(COPY[state.lang].oversizedFile);
       return;
     }
+    let text;
+    try {
+      text = await file.text();
+    } catch (err) {
+      console.error(err);
+      addSystemNotice(COPY[state.lang].unreadableFile);
+      return;
+    }
+    if (!text.trim()) {
+      addSystemNotice(COPY[state.lang].emptyFile);
+      return;
+    }
+    if (new TextEncoder().encode(text).length > MAX_TEXT_UPLOAD_BYTES) {
+      addSystemNotice(COPY[state.lang].oversizedFile);
+      return;
+    }
+    setAttachmentPreview(file);
+    setPendingAttachment(file.name, text);
+  }
+
+  /** Sends a PDF, DOCX or image to POST /documents/extract. A failure says why and, when trying again could help, offers it. */
+  async function extractOnServer(file) {
+    readingFile = true;
     setExtractingState(true, file);
     try {
       const formData = new FormData();
@@ -4265,16 +4389,19 @@
       const res = await apiFetch("/documents/extract", { method: "POST", body: formData });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        console.error(`Document extraction failed (${res.status}):`, body.error);
-        addSystemNotice(noticeForExtractError(body.error, body.code));
+        console.error(`File reading failed (${res.status}):`, body.error);
+        const transient = res.status >= 500 || res.status === 429 || body.error === "ai_unavailable";
+        addSystemNotice(noticeForExtractError(body.error, body.code), transient ? () => void extractOnServer(file) : undefined);
         return;
       }
       const { text } = await res.json();
       setPendingAttachment(file.name, text);
     } catch (err) {
+      if (err instanceof SessionEndedError) return;
       console.error(err);
-      addSystemNotice(COPY[state.lang].unreadableFile);
+      addSystemNotice(COPY[state.lang].unreadableFile, () => void extractOnServer(file));
     } finally {
+      readingFile = false;
       setExtractingState(false);
     }
   }

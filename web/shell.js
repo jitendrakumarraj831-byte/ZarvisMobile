@@ -46,9 +46,9 @@
   /* ---------- Search / command palette ---------- */
 
   const PAGES = [
-    ["home", "Home", "i-home"], ["chat", "Chat", "i-chat"], ["capabilities", "Capabilities", "i-grid"],
-    ["tasks", "Tasks", "i-task"], ["activity", "Activity", "i-activity"], ["developer", "Developer Agent", "i-code"],
-    ["metrics", "Usage & Metrics", "i-chart"], ["plans", "Plans", "i-plan"], ["settings", "Settings", "i-settings"],
+    ["home", "Home", "i-home"], ["chat", "Chat", "i-chat"], ["work", "Work", "i-folder"], ["agents", "Agents", "i-bot"],
+    ["activity", "Activity", "i-activity"], ["capabilities", "Capabilities", "i-grid"], ["developer", "Developer Agent", "i-code"],
+    ["metrics", "Usage & Metrics", "i-chart"], ["plans", "Plans & Usage", "i-plan"], ["settings", "Settings", "i-settings"],
   ];
 
   function buildItems() {
@@ -226,7 +226,7 @@
     popoverAnchor = null;
   }
 
-  function showPopover(anchor, title, build) {
+  function showPopover(anchor, title, build, userTitle) {
     if (popoverEl && !popoverEl.hidden && popoverAnchor === anchor) { closePopover(); return; }
     closePalette();
     if (!popoverEl) {
@@ -245,8 +245,18 @@
       });
     }
     popoverEl.replaceChildren();
-    popoverEl.setAttribute("aria-label", title);
-    popoverEl.appendChild(node("p", "popover-title", title));
+    // A menu titled with the user's own words (a file or chat name) is labelled by that title, which the translator skips.
+    const heading = node("p", "popover-title", title);
+    popoverEl.removeAttribute("aria-label");
+    popoverEl.removeAttribute("aria-labelledby");
+    if (userTitle) {
+      heading.id = "shell-popover-title";
+      heading.dataset.userText = "";
+      popoverEl.setAttribute("aria-labelledby", heading.id);
+    } else {
+      popoverEl.setAttribute("aria-label", title);
+    }
+    popoverEl.appendChild(heading);
     build(popoverEl);
     popoverEl.hidden = false;
     popoverAnchor = anchor;
@@ -256,7 +266,20 @@
     popoverEl.style.width = width + "px";
     const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width));
     popoverEl.style.left = left + "px";
-    popoverEl.style.top = Math.round(rect.bottom + 8) + "px";
+    // Fit the menu on screen: below the button when there is room, otherwise above it, and scroll inside if it is still too tall.
+    const gap = 8;
+    const below = window.innerHeight - rect.bottom - gap - 12;
+    const above = rect.top - gap - 12;
+    popoverEl.style.maxHeight = "";
+    const natural = Math.min(popoverEl.offsetHeight, window.innerHeight * 0.7, 520);
+    if (natural > below && above > below) {
+      const room = Math.max(160, Math.min(natural, above));
+      popoverEl.style.maxHeight = room + "px";
+      popoverEl.style.top = Math.max(12, Math.round(rect.top - gap - Math.min(popoverEl.offsetHeight, room))) + "px";
+    } else {
+      popoverEl.style.maxHeight = Math.max(160, Math.min(natural, below)) + "px";
+      popoverEl.style.top = Math.round(rect.bottom + gap) + "px";
+    }
     popoverEl.querySelector("button")?.focus();
   }
 
@@ -295,7 +318,7 @@
       head.appendChild(node("small", null, who.email || (who.guest ? "Link an email in Profile to keep this account on other devices." : "")));
       root.appendChild(head);
       root.appendChild(menuButton("Profile & account", "i-user", "Email link and sign in", () => { api.setActiveView("settings"); api.openSettingsPage("account"); }));
-      root.appendChild(menuButton("Plans & credits", "i-plan", "Your plan and usage", () => api.setActiveView("plans")));
+      root.appendChild(menuButton("Plans & Usage", "i-plan", "Your plan, credits and usage", () => api.setActiveView("plans")));
       if (api.devAccess()) root.appendChild(menuButton("Developer Agent", "i-code", "Analyze a repository", () => api.setActiveView("developer")));
       root.appendChild(menuButton("Settings", "i-settings", "Voice, language, privacy", () => api.setActiveView("settings")));
       const dark = api.getAppearance() === "dim";
@@ -339,7 +362,7 @@
   function menu(anchor, title, items) {
     showPopover(anchor, title, (root) => {
       for (const item of items) root.appendChild(menuButton(item.label, item.icon, item.hint, item.run));
-    });
+    }, true);
   }
 
   window.ZarvisShell = { init, menu };

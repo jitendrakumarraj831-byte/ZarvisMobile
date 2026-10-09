@@ -28,6 +28,9 @@ function client(options: { canPush?: boolean; token?: string } = {}): GitHubClie
     createImplementationBranch: vi.fn(async () => ({ branch: "zarvis/agent-test" })),
     applyImplementationFiles: vi.fn(async () => ({ commitShas: ["commit"] })),
     createPullRequest: vi.fn(async () => ({ number: 7, url: "https://github.com/acme/demo/pull/7" })),
+    getPullRequestStatus: vi.fn(async () => {
+      throw new GitHubApiError(404, "Not Found");
+    }),
   };
 }
 

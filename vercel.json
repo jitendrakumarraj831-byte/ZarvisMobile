@@ -2,7 +2,7 @@
   "version": 2,
   "headers": [
     {
-      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|shell\\.js|chat-kit\\.js|theme-init\\.js|i18n\\.js|styles\\.css|sw\\.js|index\\.html)",
+      "source": "/(app\\.js|logic\\.js|feature-pages\\.js|shell\\.js|chat-kit\\.js|exec-cards\\.js|workspace\\.js|theme-init\\.js|i18n\\.js|styles\\.css|sw\\.js|index\\.html)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -78,6 +78,14 @@
     {
       "src": "^/chat-kit\\.js$",
       "dest": "/web/chat-kit.js"
+    },
+    {
+      "src": "^/exec-cards\\.js$",
+      "dest": "/web/exec-cards.js"
+    },
+    {
+      "src": "^/workspace\\.js$",
+      "dest": "/web/workspace.js"
     },
     {
       "src": "^/theme-init\\.js$",

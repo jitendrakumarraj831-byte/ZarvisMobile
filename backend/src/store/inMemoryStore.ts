@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { PermissionType, Task } from "../domain/types.js";
+import { taskLifecycle, type PermissionType, type Task, type TaskLifecycle } from "../domain/types.js";
+import type { Project, ProjectStatus, ToolExecutionRecord, WorkspaceFile, WorkspaceFileSummary, WorkspaceNote, WorkspaceNoteKind } from "../domain/workspace.js";
 import {
   EmailTakenError,
   GoogleIdentityTakenError,
@@ -41,6 +42,10 @@ export class InMemoryStore implements Store {
   private readonly githubConnections = new Map<string, GitHubConnection>();
   /** Keyed by `${accountId}\u0000${clientTurnId}`. */
   private readonly turnRecords = new Map<string, TurnRecord>();
+  private readonly projects = new Map<string, Project>();
+  private readonly notes = new Map<string, WorkspaceNote>();
+  private readonly files = new Map<string, WorkspaceFile>();
+  private readonly executions = new Map<string, ToolExecutionRecord>();
 
   async createUser(email: string, passwordHash: string, isGuest = false): Promise<User> {
     if (this.usersByEmail.has(email)) {
@@ -231,6 +236,9 @@ export class InMemoryStore implements Store {
     for (const [taskId, task] of this.tasks) {
       if (task.accountId === accountId) this.tasks.delete(taskId);
     }
+    for (const map of [this.projects, this.notes, this.files, this.executions] as Array<Map<string, { accountId: string }>>) {
+      for (const [id, record] of map) if (record.accountId === accountId) map.delete(id);
+    }
     for (let i = this.usageLedger.length - 1; i >= 0; i -= 1) {
       if (this.usageLedger[i]!.accountId === accountId) this.usageLedger.splice(i, 1);
     }
@@ -295,12 +303,13 @@ export class InMemoryStore implements Store {
     return this.usageLedger.filter((entry) => entry.accountId === accountId);
   }
 
-  async createConversation(accountId: string, title?: string): Promise<Conversation> {
+  async createConversation(accountId: string, title?: string, projectId?: string): Promise<Conversation> {
     const now = new Date();
     const conversation: Conversation = {
       id: randomUUID(),
       accountId,
       title: title?.trim().slice(0, 120) || undefined,
+      ...(projectId ? { projectId } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -314,9 +323,17 @@ export class InMemoryStore implements Store {
     return conversation?.accountId === accountId ? conversation : undefined;
   }
 
-  async listConversations(accountId: string, limit?: number): Promise<Conversation[]> {
+  async setConversationProject(accountId: string, conversationId: string, projectId: string | null): Promise<Conversation | undefined> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || conversation.accountId !== accountId) return undefined;
+    if (projectId) conversation.projectId = projectId;
+    else delete conversation.projectId;
+    return conversation;
+  }
+
+  async listConversations(accountId: string, limit?: number, filter: { projectId?: string } = {}): Promise<Conversation[]> {
     const newestFirst = [...this.conversations.values()]
-      .filter((conversation) => conversation.accountId === accountId)
+      .filter((conversation) => conversation.accountId === accountId && (!filter.projectId || conversation.projectId === filter.projectId))
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     return limit === undefined ? newestFirst : newestFirst.slice(0, limit);
   }
@@ -391,23 +408,189 @@ export class InMemoryStore implements Store {
   }
 
   async createTask(task: Task): Promise<Task> {
-    this.tasks.set(task.id, task);
-    return task;
+    const stored: Task = { ...task, updatedAt: task.updatedAt ?? task.createdAt };
+    this.tasks.set(task.id, structuredClone(stored));
+    return stored;
   }
 
   async getTask(taskId: string): Promise<Task | undefined> {
-    return this.tasks.get(taskId);
+    const task = this.tasks.get(taskId);
+    return task ? structuredClone(task) : undefined;
   }
 
   async updateTask(task: Task): Promise<Task> {
     if (!this.tasks.has(task.id)) {
       throw new Error(`Cannot update unknown task '${task.id}'`);
     }
-    this.tasks.set(task.id, task);
-    return task;
+    const stored: Task = { ...task, updatedAt: task.updatedAt ?? new Date() };
+    this.tasks.set(task.id, structuredClone(stored));
+    return stored;
+  }
+
+  async updateTaskIf(task: Task, whileIn: TaskLifecycle[]): Promise<Task | undefined> {
+    const current = this.tasks.get(task.id);
+    if (!current || !whileIn.includes(taskLifecycle(current))) return undefined;
+    const stored: Task = { ...task, updatedAt: task.updatedAt ?? new Date() };
+    this.tasks.set(task.id, structuredClone(stored));
+    return stored;
   }
 
   async listTasksForAccount(accountId: string): Promise<Task[]> {
-    return [...this.tasks.values()].filter((task) => task.accountId === accountId);
+    return [...this.tasks.values()].filter((task) => task.accountId === accountId).map((task) => structuredClone(task));
+  }
+
+  async claimTaskRun(accountId: string, taskId: string, from: TaskLifecycle[], now: Date, staleBefore: Date): Promise<Task | undefined> {
+    const task = this.tasks.get(taskId);
+    if (!task || task.accountId !== accountId) return undefined;
+    const lifecycle = taskLifecycle(task);
+    const midRun = lifecycle === "RUNNING" || lifecycle === "EXECUTING" || lifecycle === "VERIFYING";
+    const lastTouched = (task.updatedAt ?? task.createdAt).getTime();
+    const staleRun = midRun && lastTouched < staleBefore.getTime();
+    if (!from.includes(lifecycle) && !staleRun) return undefined;
+    const claimed: Task = { ...task, lifecycle: "RUNNING", status: "RUNNING", updatedAt: now };
+    this.tasks.set(taskId, claimed);
+    return structuredClone(claimed);
+  }
+
+  async createProject(project: Project): Promise<Project> {
+    this.projects.set(project.id, structuredClone(project));
+    return project;
+  }
+
+  async getProject(accountId: string, projectId: string): Promise<Project | undefined> {
+    const project = this.projects.get(projectId);
+    return project && project.accountId === accountId ? structuredClone(project) : undefined;
+  }
+
+  async listProjects(accountId: string, filter: { status?: ProjectStatus } = {}): Promise<Project[]> {
+    return [...this.projects.values()]
+      .filter((project) => project.accountId === accountId && (!filter.status || project.status === filter.status))
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .map((project) => structuredClone(project));
+  }
+
+  async updateProject(project: Project): Promise<Project> {
+    if (!this.projects.has(project.id)) throw new Error(`Cannot update unknown project '${project.id}'`);
+    this.projects.set(project.id, structuredClone(project));
+    return project;
+  }
+
+  async deleteProject(accountId: string, projectId: string): Promise<boolean> {
+    const project = this.projects.get(projectId);
+    if (!project || project.accountId !== accountId) return false;
+    this.projects.delete(projectId);
+    for (const [id, note] of this.notes) if (note.projectId === projectId) this.notes.delete(id);
+    for (const conversation of this.conversations.values()) if (conversation.projectId === projectId) delete conversation.projectId;
+    for (const task of this.tasks.values()) if (task.projectId === projectId) delete task.projectId;
+    for (const file of this.files.values()) if (file.projectId === projectId) delete file.projectId;
+    for (const execution of this.executions.values()) if (execution.projectId === projectId) delete execution.projectId;
+    return true;
+  }
+
+  async createNote(note: WorkspaceNote): Promise<WorkspaceNote> {
+    this.notes.set(note.id, structuredClone(note));
+    return note;
+  }
+
+  async getNote(accountId: string, noteId: string): Promise<WorkspaceNote | undefined> {
+    const note = this.notes.get(noteId);
+    return note && note.accountId === accountId ? structuredClone(note) : undefined;
+  }
+
+  async listNotes(accountId: string, filter: { projectId?: string | null; kind?: WorkspaceNoteKind } = {}): Promise<WorkspaceNote[]> {
+    return [...this.notes.values()]
+      .filter((note) => note.accountId === accountId)
+      .filter((note) => filter.projectId === undefined || (filter.projectId === null ? !note.projectId : note.projectId === filter.projectId))
+      .filter((note) => !filter.kind || note.kind === filter.kind)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((note) => structuredClone(note));
+  }
+
+  async updateNote(note: WorkspaceNote): Promise<WorkspaceNote> {
+    if (!this.notes.has(note.id)) throw new Error(`Cannot update unknown note '${note.id}'`);
+    this.notes.set(note.id, structuredClone(note));
+    return note;
+  }
+
+  async deleteNote(accountId: string, noteId: string): Promise<boolean> {
+    const note = this.notes.get(noteId);
+    if (!note || note.accountId !== accountId) return false;
+    this.notes.delete(noteId);
+    return true;
+  }
+
+  async deletePersonalMemory(accountId: string): Promise<number> {
+    let removed = 0;
+    for (const [id, note] of this.notes) {
+      if (note.accountId === accountId && note.kind === "memory" && !note.projectId) {
+        this.notes.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  async setMemoryEnabled(accountId: string, enabled: boolean): Promise<Account> {
+    const account = this.accountsById.get(accountId);
+    if (!account) throw new Error(`Cannot update unknown account '${accountId}'`);
+    const updated: Account = { ...account, memoryEnabled: enabled };
+    this.accountsById.set(accountId, updated);
+    return updated;
+  }
+
+  async createFile(file: WorkspaceFile): Promise<WorkspaceFile> {
+    this.files.set(file.id, structuredClone(file));
+    return file;
+  }
+
+  async getFile(accountId: string, fileId: string): Promise<WorkspaceFile | undefined> {
+    const file = this.files.get(fileId);
+    return file && file.accountId === accountId ? structuredClone(file) : undefined;
+  }
+
+  async listFiles(accountId: string, filter: { projectId?: string | null; limit?: number } = {}): Promise<WorkspaceFileSummary[]> {
+    const newestFirst = [...this.files.values()]
+      .filter((file) => file.accountId === accountId)
+      .filter((file) => filter.projectId === undefined || (filter.projectId === null ? !file.projectId : file.projectId === filter.projectId))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map(({ text, ...rest }) => ({ ...structuredClone(rest), textLength: text.length }));
+    return filter.limit === undefined ? newestFirst : newestFirst.slice(0, filter.limit);
+  }
+
+  async updateFile(file: WorkspaceFile): Promise<WorkspaceFile> {
+    if (!this.files.has(file.id)) throw new Error(`Cannot update unknown file '${file.id}'`);
+    this.files.set(file.id, structuredClone(file));
+    return file;
+  }
+
+  async deleteFile(accountId: string, fileId: string): Promise<boolean> {
+    const file = this.files.get(fileId);
+    if (!file || file.accountId !== accountId) return false;
+    this.files.delete(fileId);
+    return true;
+  }
+
+  async recordExecution(record: ToolExecutionRecord): Promise<void> {
+    this.executions.set(record.id, structuredClone(record));
+  }
+
+  async getExecution(accountId: string, executionId: string): Promise<ToolExecutionRecord | undefined> {
+    const record = this.executions.get(executionId);
+    return record && record.accountId === accountId ? structuredClone(record) : undefined;
+  }
+
+  async listExecutions(
+    accountId: string,
+    filter: { conversationId?: string; projectId?: string; taskId?: string; skillIds?: string[]; limit?: number } = {},
+  ): Promise<ToolExecutionRecord[]> {
+    const newestFirst = [...this.executions.values()]
+      .filter((record) => record.accountId === accountId)
+      .filter((record) => !filter.conversationId || record.conversationId === filter.conversationId)
+      .filter((record) => !filter.projectId || record.projectId === filter.projectId)
+      .filter((record) => !filter.taskId || record.taskId === filter.taskId)
+      .filter((record) => !filter.skillIds || filter.skillIds.includes(record.skillId))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((record) => structuredClone(record));
+    return filter.limit === undefined ? newestFirst : newestFirst.slice(0, filter.limit);
   }
 }
