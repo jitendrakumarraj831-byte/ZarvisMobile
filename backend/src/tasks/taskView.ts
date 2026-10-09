@@ -58,7 +58,8 @@ export interface TaskView {
 
 export function taskView(task: Task, now: Date = new Date()): TaskView {
   const lifecycle = taskLifecycle(task);
-  const done = task.steps.filter((step) => step.status === "DONE" || step.status === "SKIPPED").length;
+  // A skipped step (one that was running when the task was cancelled) never finished, so it is not progress.
+  const done = task.steps.filter((step) => step.status === "DONE").length;
   return {
     id: task.id,
     goal: task.goal,

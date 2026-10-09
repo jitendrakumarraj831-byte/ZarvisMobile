@@ -91,6 +91,13 @@ export class WorkspaceService {
         throw new WorkspaceError(400, "invalid_request", "status must be ACTIVE or ARCHIVED.");
       }
       next.status = body.status as ProjectStatus;
+      // Restoring an archived project makes it active again, so it counts against the same cap as creating one.
+      if (next.status === "ACTIVE" && project.status !== "ACTIVE") {
+        const active = await this.store.listProjects(accountId, { status: "ACTIVE" });
+        if (active.length >= LIMITS.maxProjects) {
+          throw new WorkspaceError(409, "limit_reached", `You can keep up to ${LIMITS.maxProjects} active projects. Archive or delete one first.`);
+        }
+      }
     }
     return this.store.updateProject(next);
   }

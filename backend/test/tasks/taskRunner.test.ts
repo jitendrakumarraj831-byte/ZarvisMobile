@@ -218,6 +218,33 @@ describe("TaskRunner: a step is a real turn, and the task says only what happene
     expect((await store.getTask(task.id))!.steps.map((s) => s.status)).toEqual(["SKIPPED", "PENDING"]);
   });
 
+  it("a step that was running when the task was cancelled is skipped and is not counted as progress", async () => {
+    const task = await make(["Slow step", "Next"]);
+    let release!: () => void;
+    script = () => new Promise((resolve) => { release = () => resolve(reply("late result")); });
+    const running = service.resume(task.id);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const cancelled = await service.cancel(task.id);
+    expect(taskView(cancelled, clock).progress).toEqual({ done: 0, total: 2 });
+    release();
+    await running;
+    expect(taskView((await store.getTask(task.id))!, clock).progress).toEqual({ done: 0, total: 2 });
+  });
+
+  it("progress counts only the steps that really finished, even when a later step is cancelled", async () => {
+    const task = await make(["Gather data", "Summarize", "Send"]);
+    await service.resume(task.id); // step 1 finishes and the task waits for the user
+    let release!: () => void;
+    script = () => new Promise((resolve) => { release = () => resolve(reply("late")); });
+    const second = service.resume(task.id);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const cancelled = await service.cancel(task.id);
+    expect(cancelled.steps.map((s) => s.status)).toEqual(["DONE", "SKIPPED", "PENDING"]);
+    expect(taskView(cancelled, clock).progress).toEqual({ done: 1, total: 3 });
+    release();
+    await second;
+  });
+
   it("a run that died is shown as stale and can be retried after a while, but not before", async () => {
     const task = await make(["Step"]);
     const claimed = await store.claimTaskRun(accountId, task.id, ["QUEUED"], clock, new Date(clock.getTime() - 180_000));

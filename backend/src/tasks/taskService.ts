@@ -26,9 +26,17 @@ export interface CreateTaskOptions {
 export class TaskService {
   constructor(
     private readonly store: Store,
-    private readonly runner?: TaskRunnerPort,
+    private runner?: TaskRunnerPort,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /**
+   * The runner needs the orchestrator, which needs the skills, and the automation skills need this service: so the service is
+   * built first and the runner is bound once it exists. Every holder of this one service then cancels, aborts and runs the same way.
+   */
+  bindRunner(runner: TaskRunnerPort): void {
+    this.runner = runner;
+  }
 
   /**
    * `stepDescriptions` lets a caller (e.g. `automation.create_workflow`, SKILLS.md) seed a task with a known step

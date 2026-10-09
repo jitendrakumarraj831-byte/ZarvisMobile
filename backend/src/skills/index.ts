@@ -52,9 +52,8 @@ function searchProvider(): SearchProvider {
  * status of each. Adding one is always this same pattern: write the SkillDefinition,
  * register it here, never touch the Orchestrator.
  */
-export function buildSkillRegistry(store: Store, githubAccess: GitHubAccessService): SkillRegistry {
+export function buildSkillRegistry(store: Store, githubAccess: GitHubAccessService, taskService: TaskService = new TaskService(store)): SkillRegistry {
   const registry = new SkillRegistry();
-  const taskService = new TaskService(store);
 
   registry.register(
     createWebSearchSkill(

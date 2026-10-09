@@ -123,6 +123,29 @@ describe.each(STORES)("projects (API, %s)", (_label, makeStore) => {
     expect(await h.store.listNotes(me.accountId)).toEqual([]);
   });
 
+  it("restoring an archived project counts against the active-project cap, like creating one", async () => {
+    const fill = async () => {
+      for (let i = 0; i < LIMITS.maxProjects; i += 1) {
+        await h.store.createProject({ id: crypto.randomUUID(), accountId: me.accountId, name: "P" + i, description: "", goal: "", status: "ACTIVE", createdAt: new Date(), updatedAt: new Date() });
+      }
+    };
+    await fill();
+    const patch = (id: string, body: Record<string, unknown>) => request(h.app).patch(`/api/v1/projects/${id}`).set(auth(me)).send(body);
+    const list = (await request(h.app).get("/api/v1/projects").set(auth(me))).body.projects as Array<{ id: string }>;
+    // Archive one, create another in its place: the account is at the cap again.
+    expect((await patch(list[0]!.id, { status: "ARCHIVED" })).status).toBe(200);
+    expect((await create({ name: "Takes the slot" })).status).toBe(201);
+    // Restoring the archived one would be the 101st active project: refused, and it stays archived.
+    const refused = await patch(list[0]!.id, { status: "ACTIVE" });
+    expect(refused.status).toBe(409);
+    expect(refused.body.code).toBe("limit_reached");
+    expect((await request(h.app).get(`/api/v1/projects/${list[0]!.id}`).set(auth(me))).body.project.status).toBe("ARCHIVED");
+    // Once there is room it works, and re-saving an already-active project is never blocked.
+    expect((await request(h.app).delete(`/api/v1/projects/${list[1]!.id}`).set(auth(me))).status).toBe(204);
+    expect((await patch(list[0]!.id, { status: "ACTIVE" })).status).toBe(200);
+    expect((await patch(list[0]!.id, { status: "ACTIVE", name: "Renamed while active" })).status).toBe(200);
+  });
+
   it("another account can neither see nor change a project", async () => {
     const id = (await create({ name: "Private" })).body.id;
     const stranger = await newGuest(h.app);

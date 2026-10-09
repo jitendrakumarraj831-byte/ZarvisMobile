@@ -49,7 +49,9 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     secretBox,
     options.githubClientFactory ?? ((token) => new RealGitHubClient(token, env.githubApiBaseUrl)),
   );
-  const registry = buildSkillRegistry(store, githubAccess);
+  // One TaskService for the Tasks API and for the automation skills, so cancelling a workflow in chat also stops a step that is running.
+  const taskService = new TaskService(store);
+  const registry = buildSkillRegistry(store, githubAccess, taskService);
   const entitlementPort = new StoreEntitlementPort(store);
   const usagePort = new StoreUsagePort(store);
   const permissionPort = new StorePermissionPort(store);
@@ -65,7 +67,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
   const googleVerifier = options.googleVerifier ?? (env.googleClientId ? new GoogleIdTokenVerifier(env.googleClientId, env.googleJwksUrl) : null);
   // A task step is an ordinary orchestrator turn, started by the user; the runner is not a second brain.
   const taskRunner = new TaskRunner(store, orchestrator, registry);
-  const taskService = new TaskService(store, taskRunner);
+  taskService.bindRunner(taskRunner);
   const workspace = new WorkspaceService(store);
   const agentCatalog = new AgentCatalog(registry, entitlementPort, store, githubAccess);
   const billingVerifier = env.playBillingServiceAccountJson
