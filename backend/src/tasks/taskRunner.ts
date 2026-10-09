@@ -19,6 +19,9 @@ export interface TaskRunnerPort {
   abort(taskId: string): void;
 }
 
+/** The states a run's own writes happen in. A write made while the task is anywhere else (cancelled, say) is dropped. */
+const IN_RUN: TaskLifecycle[] = ["RUNNING", "EXECUTING", "VERIFYING"];
+
 const MAX_SUMMARY = 1_500;
 const clip = (text: string, max = MAX_SUMMARY) => (text.length > max ? text.slice(0, max - 1) + "…" : text);
 
@@ -124,9 +127,9 @@ export class TaskRunner implements TaskRunnerPort {
   private async touch(taskId: string, lifecycle: TaskLifecycle, message: string, stepId: string): Promise<void> {
     try {
       const fresh = await this.store.getTask(taskId);
-      if (!fresh || !["RUNNING", "EXECUTING", "VERIFYING"].includes(taskLifecycle(fresh))) return;
+      if (!fresh || !IN_RUN.includes(taskLifecycle(fresh))) return;
       const now = this.now();
-      await this.store.updateTask(withEvent(withLifecycle(fresh, lifecycle, now), event(lifecycle.toLowerCase(), message, now, stepId)));
+      await this.store.updateTaskIf(withEvent(withLifecycle(fresh, lifecycle, now), event(lifecycle.toLowerCase(), message, now, stepId)), IN_RUN);
     } catch (err) {
       logger.warn("Could not record task progress", { taskId, error: errorText(err) });
     }
@@ -142,7 +145,7 @@ export class TaskRunner implements TaskRunnerPort {
       const confirmation = pending.outcome.confirmation;
       task = this.patchStep(task, stepId, { resultSummary: clip(`Waiting for your approval: ${confirmation.action}`), evidence: this.evidenceOf(calls) });
       task = withEvent({ ...withLifecycle(task, "CONFIRMATION_REQUIRED", now), pendingConfirmationId: confirmation.id }, event("confirmation_required", `Needs your approval: ${confirmation.action}`, now, stepId));
-      return this.store.updateTask(task);
+      return this.commit(task);
     }
     const failed = calls.find((call) => call.outcome.kind !== "success");
     if (failed) {
@@ -152,11 +155,13 @@ export class TaskRunner implements TaskRunnerPort {
         { ...withLifecycle(task, "FAILED", now), error: { code: failed.result.status.toLowerCase(), message: clip(message, 400), retryable: failed.result.retryable } },
         event("step_failed", message, now, stepId),
       );
-      return this.store.updateTask(task);
+      return this.commit(task);
     }
 
     // The turn ran and no tool failed. Check what it produced before calling the step done.
-    task = await this.store.updateTask(withEvent(withLifecycle(task, "VERIFYING", now), event("verifying", "Checking the result", now, stepId)));
+    const verifying = await this.store.updateTaskIf(withEvent(withLifecycle(task, "VERIFYING", now), event("verifying", "Checking the result", now, stepId)), IN_RUN);
+    if (!verifying) return this.reload(taskId); // the user cancelled in the meantime: that stays
+    task = verifying;
     const evidence = this.evidenceOf(calls);
     const summary = clip(result.message.trim() || "(no reply)");
     task = this.patchStep(task, stepId, { status: "DONE", resultSummary: summary, completedAt: now.toISOString(), evidence });
@@ -169,7 +174,12 @@ export class TaskRunner implements TaskRunnerPort {
         event("completed", "Every step is finished.", now),
       );
     }
-    return this.store.updateTask(task);
+    return this.commit(task);
+  }
+
+  /** Writes a run's result unless the task has left the run since (cancelled): then the stored task is returned as it is. */
+  private async commit(task: Task): Promise<Task> {
+    return (await this.store.updateTaskIf(task, IN_RUN)) ?? this.reload(task.id);
   }
 
   private async failStep(taskId: string, stepId: string, err: unknown, aborted: boolean): Promise<Task> {
@@ -190,7 +200,7 @@ export class TaskRunner implements TaskRunnerPort {
     }
     let next = this.patchStep(task, stepId, { status: "FAILED", error: failure.message, completedAt: now.toISOString() });
     next = withEvent({ ...withLifecycle(next, "FAILED", now), error: failure }, event("step_failed", failure.message, now, stepId));
-    return this.store.updateTask(next);
+    return this.commit(next);
   }
 
   /**
@@ -224,7 +234,8 @@ export class TaskRunner implements TaskRunnerPort {
         if (stepId) task = this.patchStep(task, stepId, { status: "FAILED", error: clip(message, 400), completedAt: now.toISOString() });
         task = withEvent({ ...withLifecycle(task, "FAILED", now), pendingConfirmationId: undefined, error: { code: outcome.kind, message: clip(message, 400), retryable: true } }, event("step_failed", message, now, stepId));
       }
-      await this.store.updateTask(task);
+      // Only while it still waits for this approval: a task cancelled in the meantime stays cancelled.
+      await this.store.updateTaskIf(task, ["CONFIRMATION_REQUIRED"]);
     } catch (err) {
       logger.error("Could not record a task confirmation outcome", { taskId: record.taskId, error: errorText(err) });
     }

@@ -108,16 +108,23 @@ export class TaskService {
   }
 
   async cancel(taskId: string): Promise<Task> {
-    const task = await this.requireTask(taskId);
-    const lifecycle = taskLifecycle(task);
-    if (!CANCELLABLE.includes(lifecycle)) throw new TaskError(`Cannot move task from ${task.status} to CANCELLED`);
-    const now = this.now();
-    this.runner?.abort(taskId);
-    // A step that was running when the user cancelled did not finish: it is skipped, not "done".
-    const steps = task.steps.map((step) => (step.status === "RUNNING" ? { ...step, status: "SKIPPED" as const, error: "Cancelled.", completedAt: now.toISOString() } : step));
-    return this.store.updateTask(
-      withEvent({ ...withLifecycle({ ...task, steps }, "CANCELLED", now), pendingConfirmationId: undefined, completedAt: now.toISOString() }, event("cancelled", "Cancelled by you.", now)),
-    );
+    // The write is conditional on the state we read: if a step finished (or anything else moved the task) in between,
+    // that result is not overwritten, and the cancellation is judged again against what is really stored.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const task = await this.requireTask(taskId);
+      const lifecycle = taskLifecycle(task);
+      if (!CANCELLABLE.includes(lifecycle)) throw new TaskError(`Cannot move task from ${task.status} to CANCELLED`);
+      const now = this.now();
+      this.runner?.abort(taskId);
+      // A step that was running when the user cancelled did not finish: it is skipped, not "done".
+      const steps = task.steps.map((step) => (step.status === "RUNNING" ? { ...step, status: "SKIPPED" as const, error: "Cancelled.", completedAt: now.toISOString() } : step));
+      const written = await this.store.updateTaskIf(
+        withEvent({ ...withLifecycle({ ...task, steps }, "CANCELLED", now), pendingConfirmationId: undefined, completedAt: now.toISOString() }, event("cancelled", "Cancelled by you.", now)),
+        [lifecycle],
+      );
+      if (written) return written;
+    }
+    throw new TaskError("The task changed while it was being cancelled. Look at it again.");
   }
 
   private async requireTask(taskId: string): Promise<Task> {

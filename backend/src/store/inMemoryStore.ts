@@ -427,6 +427,14 @@ export class InMemoryStore implements Store {
     return stored;
   }
 
+  async updateTaskIf(task: Task, whileIn: TaskLifecycle[]): Promise<Task | undefined> {
+    const current = this.tasks.get(task.id);
+    if (!current || !whileIn.includes(taskLifecycle(current))) return undefined;
+    const stored: Task = { ...task, updatedAt: task.updatedAt ?? new Date() };
+    this.tasks.set(task.id, structuredClone(stored));
+    return stored;
+  }
+
   async listTasksForAccount(accountId: string): Promise<Task[]> {
     return [...this.tasks.values()].filter((task) => task.accountId === accountId).map((task) => structuredClone(task));
   }

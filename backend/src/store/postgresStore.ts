@@ -877,6 +877,20 @@ export class PostgresStore implements Store {
     return { ...task, updatedAt };
   }
 
+  async updateTaskIf(task: Task, whileIn: TaskLifecycle[]): Promise<Task | undefined> {
+    if (!isUuid(task.id)) return undefined;
+    const updatedAt = task.updatedAt ?? new Date();
+    // One statement: the state is checked and written together, so two writers cannot both win.
+    const effective = `COALESCE(lifecycle, CASE status WHEN 'PENDING' THEN 'QUEUED' WHEN 'PAUSED' THEN 'WAITING' WHEN 'DONE' THEN 'COMPLETED' ELSE status END)`;
+    const { rowCount } = await this.query(
+      `UPDATE tasks SET goal = $2, status = $3, steps = $4, risk_level = $5, project_id = $6, updated_at = $7, lifecycle = $8, meta = $9
+       WHERE id = $1 AND ${effective} = ANY($10::text[])`,
+      [task.id, task.goal, task.status, JSON.stringify(task.steps), task.riskLevel,
+        task.projectId && isUuid(task.projectId) ? task.projectId : null, updatedAt, task.lifecycle ?? null, JSON.stringify(taskMeta(task)), whileIn],
+    );
+    return rowCount ? { ...task, updatedAt } : undefined;
+  }
+
   async listTasksForAccount(accountId: string): Promise<Task[]> {
     const { rows } = await this.query<TaskRow>(
       "SELECT * FROM tasks WHERE account_id = $1 ORDER BY created_at ASC",

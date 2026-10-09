@@ -325,6 +325,12 @@ export interface Store {
   createTask(task: Task): Promise<Task>;
   getTask(taskId: string): Promise<Task | undefined>;
   updateTask(task: Task): Promise<Task>;
+  /**
+   * Like updateTask, but only when the stored task is still in one of `whileIn`. A write that raced with another (a step
+   * finishing while the user cancelled) therefore never overwrites the other's result. Returns undefined when the task
+   * is missing or has already left those states; the caller then re-reads it.
+   */
+  updateTaskIf(task: Task, whileIn: TaskLifecycle[]): Promise<Task | undefined>;
   listTasksForAccount(accountId: string): Promise<Task[]>;
   /**
    * Atomically moves the account's task to `to` when it is in one of `from`, or when it is mid-run
