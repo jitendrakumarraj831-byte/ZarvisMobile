@@ -2224,7 +2224,7 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
 
 /* The message card: one short row - file, image, the text box, send. It sits at the bottom of the page, just above the tab bar,
    and stays there while the page scrolls under it. */
-.view-home { min-height: calc(100dvh - 190px); }
+.home-first { display: flex; flex-direction: column; min-height: calc(100dvh - 190px - 58px); } /* 58px: the message card, which sits below it */
 .home-card {
   position: sticky; bottom: calc(var(--nav-h) + var(--safe-b) + var(--s3)); z-index: 6; box-sizing: border-box; width: 100%; max-width: 640px;
   margin: 0 auto; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px var(--s2);
@@ -2238,7 +2238,7 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
 .home-prompt-go { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--grad); color: #fff; }
 .home-prompt-go .ico { width: 20px; height: 20px; stroke-width: 2; }
 body.keyboard-open .home-card { bottom: var(--s3); }
-@media (min-width: 700px) { .view-home { min-height: calc(100dvh - var(--appbar-h) - 64px); } .home-card { bottom: var(--s4); } }
+@media (min-width: 700px) { .home-first { min-height: calc(100dvh - var(--appbar-h) - 64px - 58px); } .home-card { bottom: var(--s4); } }
 .view-home .home-section { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
 body[data-orb-state="LISTENING"] #home-orb .orb { animation: orb-listen 1.4s ease-in-out infinite; }
 body[data-orb-state="LISTENING"] #home-orb .orb-ring::before { animation-duration: 8s; }
@@ -2585,6 +2585,36 @@ body.chat-loading .chat-empty { display: none; }
 .home-continue-copy strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-continue-go { width: 16px; height: 16px; flex: none; color: var(--text-3); }
 
+/* The way down to the dashboard: only present when the dashboard has something true to show. */
+.home-more { align-self: center; display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; padding: 0 var(--s4); border-radius: var(--r-pill); font-size: 13px; font-weight: 600; color: var(--text-2); }
+.home-more:hover { color: var(--primary); background: var(--primary-soft); }
+.home-more .ico { width: 16px; height: 16px; }
+@media (min-width: 700px) { .home-dash { scroll-margin-top: calc(var(--appbar-h) + var(--s5)); } }
+/* ---------- Home: "Your workspace" (below the first screen; workspace.js refreshHome) ---------- */
+.home-dash { width: 100%; max-width: var(--content-w); margin: calc(var(--nav-h) + var(--safe-b) + var(--s9) + var(--s8) + var(--s6)) auto 0; scroll-margin-top: calc(var(--topbar-h) + var(--s5)); padding-bottom: calc(58px + var(--s7)); } /* clear of the sticky message card */
+.home-dash-title { margin: 0 0 var(--s3); font-size: var(--fs-sm); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+.dash-grid { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); align-items: start; }
+.dash-card { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; padding: var(--s3) var(--s3) var(--s2); border-radius: var(--r-lg); background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--card-shadow); }
+.dash-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: 0 var(--s1) 0 var(--s2); min-height: 36px; }
+.dash-card-title { margin: 0; font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
+.dash-card-rows { display: flex; flex-direction: column; min-width: 0; }
+.dash-row { display: flex; align-items: center; gap: var(--s3); width: 100%; min-height: 56px; padding: var(--s2); border-radius: var(--r-md); text-align: left; transition: background var(--t-fast) var(--ease); }
+.dash-row:hover { background: var(--primary-soft); }
+.dash-row .row-ico { width: 36px; height: 36px; border-radius: 11px; flex: none; display: grid; place-items: center; }
+.dash-row .row-ico .ico { width: 18px; height: 18px; }
+.dash-row-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dash-row-copy strong { font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-row-copy small { font-size: 12.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-row > .ico { width: 16px; height: 16px; flex: none; color: var(--text-3); }
+.dash-summary { margin: 0; padding: 0 var(--s2) var(--s1); font-size: 13px; font-weight: 600; color: var(--text-2); }
+.dash-note { margin: 0; padding: var(--s2); font-size: 13px; color: var(--text-2); }
+.dash-intro { max-width: 640px; margin-inline: auto; }
+.dash-intro-steps { display: flex; flex-direction: column; }
+.dash-intro > .btn { align-self: flex-start; margin: var(--s1) 0 var(--s2) var(--s2); }
+.dash-failed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s4); padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--warn-soft); color: var(--text-2); font-size: 13px; }
+.dash-failed .ico { width: 16px; height: 16px; color: var(--warn); flex: none; }
+.dash-failed span { flex: 1 1 200px; min-width: 0; }
+
 /* ---------- Back to top ---------- */
 .scroll-top {
   position: fixed; z-index: 27; right: var(--s4); bottom: calc(var(--nav-h) + var(--safe-b) + var(--s4));
@@ -2660,10 +2690,37 @@ body.chat-loading .chat-empty { display: none; }
 .ws-tab[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
 .ws-tab:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
 .ws-tab-sm { padding: 0 var(--s3); font-size: 13px; }
+/* A row that scrolls sideways fades the edge that has more behind it (workspace.js scrollFade), so a cut-off tab reads as "more" and not as a broken word. */
+.scroll-fade[data-fade~="end"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.scroll-fade[data-fade~="start"] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
+.scroll-fade[data-fade~="start"][data-fade~="end"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+/* Five Work tabs fit a 390px phone in English when they are a little tighter; narrower screens (and longer Hindi words) scroll. */
+@media (max-width: 480px) { .ws-tabs .ws-tab { padding: 0 var(--s3); font-size: 13px; } }
+.ws-panel .toolbar .select { min-height: 44px; flex: 0 0 180px; max-width: 100%; }
+.ws-panel .toolbar .search-field { flex: 1 1 140px; min-width: 0; }
 .ws-count {
   display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
   background: var(--primary-soft); color: var(--primary); font-size: 11.5px; font-weight: 700;
 }
+
+/* Tasks: controls and the board. The board scrolls sideways (one column at a time on a phone); cards are the list's own task cards. */
+.ws-controls { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.ws-controls .toolbar { margin-bottom: 0; }
+#tasks-view .seg { display: inline-flex; align-items: center; gap: var(--s2); }
+#tasks-view .seg .ico { width: 16px; height: 16px; }
+#tasks-filters { align-self: flex-start; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+#tasks-filters::-webkit-scrollbar { display: none; }
+#tasks-filters .seg { display: inline-flex; align-items: center; gap: var(--s2); white-space: nowrap; }
+#tasks-filters .ws-count { min-width: 20px; }
+.task-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(84%, 1fr); gap: var(--s3); align-items: start; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; padding-bottom: var(--s2); scrollbar-width: thin; }
+@media (min-width: 700px) { .task-board { grid-auto-columns: minmax(250px, 1fr); scroll-snap-type: none; } }
+.task-col { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; padding: var(--s3); scroll-snap-align: start; border-radius: var(--r-lg); background: var(--surface-2); border: 1px solid var(--line); }
+.task-col-title { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin: 0; font-size: var(--fs-sm); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-2); }
+.task-col-body { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.task-col-empty { margin: 0; padding: var(--s4) 0; text-align: center; font-size: 13px; color: var(--text-3); }
+.task-col .task-card { margin: 0; }
+.ws-task-steps { margin: var(--s2) 0; }
+.ws-task-steps > summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; font-size: 13px; font-weight: 600; color: var(--primary); }
 
 /* Panels */
 .ws-panel, .ws-subpanel, #agents-root, #memory-root { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }

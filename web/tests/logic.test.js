@@ -501,3 +501,107 @@ test("a refused or unanswered payment confirmation never reads as 'payment recei
   }
   for (const o of [rejected, pending, L.paymentVerifyOutcome(0)]) assert.doesNotMatch(o.message, /received|successful|thank/i);
 });
+
+test("projects: search covers name, goal and description; sorts are stable and never invent a project", () => {
+  const mk = (name, goal, openTasks, updatedAt, description = "") => ({ id: name, name, goal, description, counts: { openTasks }, updatedAt });
+  const list = [mk("Website relaunch", "Ship the marketing site", 1, "2026-10-01T10:00:00Z"), mk("apple pie", "Bake", 0, "2026-10-03T10:00:00Z", "Grandma's recipe"), mk("Tax filing", "File returns", 3, "2026-10-02T10:00:00Z"), mk("Project 10", "", 0, "2026-09-01T10:00:00Z"), mk("Project 2", "", 0, "2026-09-02T10:00:00Z")];
+  assert.deepEqual(L.filterProjects(list).map((p) => p.name), ["apple pie", "Tax filing", "Website relaunch", "Project 2", "Project 10"]);
+  assert.deepEqual(L.filterProjects(list, { sort: "name" }).map((p) => p.name), ["apple pie", "Project 2", "Project 10", "Tax filing", "Website relaunch"], "case-insensitive, numbers in order");
+  assert.deepEqual(L.filterProjects(list, { sort: "tasks" }).map((p) => p.name).slice(0, 2), ["Tax filing", "Website relaunch"]);
+  assert.deepEqual(L.filterProjects(list, { query: "  MARKETING " }).map((p) => p.name), ["Website relaunch"], "goal");
+  assert.deepEqual(L.filterProjects(list, { query: "grandma" }).map((p) => p.name), ["apple pie"], "description");
+  assert.deepEqual(L.filterProjects(list, { query: "zzz" }), []);
+  assert.deepEqual(L.filterProjects(list, { sort: "nonsense" }).map((p) => p.name), L.filterProjects(list).map((p) => p.name), "an unknown sort falls back to most recent");
+  assert.equal(list[0].name, "Website relaunch", "the input is not reordered");
+  assert.deepEqual(L.filterProjects(null), []);
+  assert.deepEqual(L.PROJECT_SORTS.map(([key]) => key), ["recent", "name", "tasks"]);
+});
+
+test("tasks: every real lifecycle belongs to exactly one board column, and nothing is flattened or invented", () => {
+  const LIFECYCLES = ["QUEUED", "RUNNING", "WAITING", "CONFIRMATION_REQUIRED", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "CANCELLED", "BLOCKED"]; // backend TaskLifecycle
+  const keys = L.TASK_GROUPS.map(([key]) => key);
+  for (const lifecycle of LIFECYCLES) assert.ok(keys.includes(L.taskGroup({ lifecycle })), lifecycle + " has a column");
+  assert.deepEqual(Object.fromEntries(LIFECYCLES.map((l) => [l, L.taskGroup({ lifecycle: l })])), {
+    QUEUED: "queued", RUNNING: "running", WAITING: "waiting", CONFIRMATION_REQUIRED: "waiting", EXECUTING: "running", VERIFYING: "running", COMPLETED: "finished", FAILED: "stopped", CANCELLED: "finished", BLOCKED: "stopped",
+  });
+  // A run that stopped answering is stopped, not "in progress"; a stale state that is not a run stays where it is.
+  assert.equal(L.taskGroup({ lifecycle: "EXECUTING", stale: true }), "stopped");
+  assert.equal(L.taskGroup({ lifecycle: "QUEUED", stale: true }), "queued");
+  // A lifecycle this client has never heard of is shown as such rather than as one of the known states.
+  assert.equal(L.taskGroup({ lifecycle: "SOMETHING_NEW" }), "unknown");
+  assert.equal(L.taskGroup(null), "unknown");
+  const tasks = [...LIFECYCLES.map((lifecycle, i) => ({ id: lifecycle, lifecycle, goal: "task " + lifecycle, createdAt: "2026-10-0" + (i % 9 + 1) + "T00:00:00Z", steps: [] })), { id: "x", lifecycle: "SOMETHING_NEW", goal: "mystery", steps: [] }];
+  const board = L.taskBoard(tasks);
+  assert.deepEqual(board.map((c) => c.key), [...keys, "unknown"]);
+  assert.equal(board.reduce((n, c) => n + c.tasks.length, 0), tasks.length, "every task is on the board once");
+  assert.deepEqual(board.find((c) => c.key === "unknown").tasks.map((t) => t.id), ["x"]);
+  assert.equal(L.taskBoard(tasks.slice(0, 10)).length, keys.length, "no Other column when there is nothing unknown");
+  assert.deepEqual(L.taskBoard([]).map((c) => c.tasks.length), [0, 0, 0, 0, 0], "an empty board still has its columns");
+});
+
+test("tasks: filters, search and sort work on the server's own words; counts match what each filter shows", () => {
+  const mk = (id, lifecycle, goal, createdAt, extra = {}) => ({ id, lifecycle, goal, createdAt, updatedAt: createdAt, steps: [], ...extra });
+  const tasks = [
+    mk("a", "QUEUED", "Prepare the weekly report", "2026-10-01T00:00:00Z", { projectId: "p1", steps: [{ description: "Collect the numbers" }] }),
+    mk("b", "EXECUTING", "Renew the domain", "2026-10-02T00:00:00Z"),
+    mk("c", "FAILED", "Send invoices", "2026-10-03T00:00:00Z", { error: { message: "SMTP refused the message" } }),
+    mk("d", "COMPLETED", "Plan the launch", "2026-10-04T00:00:00Z", { result: { summary: "Launch plan written" } }),
+    mk("e", "CANCELLED", "Old idea", "2026-10-05T00:00:00Z"),
+    mk("f", "WAITING", "Write the summary", "2026-10-06T00:00:00Z"),
+    mk("g", "RUNNING", "Hung run", "2026-10-07T00:00:00Z", { stale: true }),
+  ];
+  const ids = (list) => list.map((t) => t.id);
+  assert.deepEqual(ids(L.filterTasks(tasks)), ["g", "f", "e", "d", "c", "b", "a"], "recently updated first");
+  assert.deepEqual(ids(L.filterTasks(tasks, { sort: "oldest" })), ["a", "b", "c", "d", "e", "f", "g"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { sort: "newest" })), ["g", "f", "e", "d", "c", "b", "a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "open", sort: "oldest" })), ["a", "b", "f"], "open = not started, in progress, waiting for you");
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "stopped", sort: "oldest" })), ["c", "g"], "a stale run is stopped");
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "finished", sort: "oldest" })), ["d", "e"], "completed and cancelled are history");
+  assert.deepEqual(L.taskCounts(tasks), { all: 7, open: 3, stopped: 2, finished: 2 });
+  for (const filter of ["all", "open", "stopped", "finished"]) assert.equal(L.filterTasks(tasks, { filter }).length, L.taskCounts(tasks)[filter], filter);
+  // Search covers the goal, the steps, the result, the error, the project name and the status wording.
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "COLLECT" })), ["a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "smtp" })), ["c"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "launch plan written" })), ["d"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "website", projectName: (id) => (id === "p1" ? "Website relaunch" : "") })), ["a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "queued", label: (l) => (l === "QUEUED" ? "Queued · not started" : l) })), ["a"]);
+  assert.deepEqual(ids(L.filterTasks(tasks, { query: "zzz" })), []);
+  assert.deepEqual(ids(L.filterTasks(tasks, { filter: "open", query: "report" })), ["a"], "filter and search combine");
+  assert.equal(tasks[0].id, "a", "the input is not reordered");
+  assert.deepEqual(L.filterTasks(undefined), []);
+  assert.deepEqual(L.TASK_FILTERS.map(([k]) => k), ["all", "open", "stopped", "finished"]);
+});
+
+test("Home dashboard: slices real lists, never pads them, and only calls an account new when everything was read and is empty", () => {
+  const project = (id, updatedAt, status = "ACTIVE") => ({ id, name: id, status, updatedAt, counts: {} });
+  const file = (id, createdAt) => ({ id, name: id, createdAt });
+  const task = (id, lifecycle, updatedAt) => ({ id, goal: id, lifecycle, updatedAt, createdAt: updatedAt, steps: [] });
+  const tool = (id, at, type = "tool") => ({ id, type, title: id, at });
+  const d = L.homeDashboard({
+    chats: [{ id: "c1" }, { id: "c2" }, { id: "c3" }, { id: "c4" }],
+    projects: [project("old", "2026-09-01T00:00:00Z"), project("new", "2026-10-05T00:00:00Z"), project("gone", "2026-10-09T00:00:00Z", "ARCHIVED"), project("mid", "2026-10-01T00:00:00Z"), project("older", "2026-08-01T00:00:00Z")],
+    files: [file("f1", "2026-10-01T00:00:00Z"), file("f2", "2026-10-03T00:00:00Z")],
+    tasks: [task("t1", "QUEUED", "2026-10-01T00:00:00Z"), task("t2", "COMPLETED", "2026-10-02T00:00:00Z"), task("t3", "FAILED", "2026-10-03T00:00:00Z"), task("t4", "WAITING", "2026-10-04T00:00:00Z")],
+    tools: [tool("a", "2026-10-01T00:00:00Z"), tool("note", "2026-10-09T00:00:00Z", "note"), tool("b", "2026-10-02T00:00:00Z")],
+  });
+  assert.deepEqual(d.chats.map((c) => c.id), ["c1", "c2", "c3"], "three chats, in the order given");
+  assert.deepEqual(d.projects.map((p) => p.id), ["new", "mid", "old"], "recent first; archived and the fourth are left out");
+  assert.deepEqual(d.files.map((f) => f.id), ["f2", "f1"], "two files are two files, not padded to three");
+  assert.deepEqual(d.tasks.open.map((t) => t.id), ["t4", "t1"], "open tasks only: finished and stopped ones are not offered as work to continue");
+  assert.deepEqual(d.tasks.counts, { all: 4, open: 2, stopped: 1, finished: 1 });
+  assert.deepEqual(d.tools.map((t) => t.id), ["b", "a"], "tool runs only, newest first");
+  assert.equal(d.allKnown, true);
+  assert.equal(d.empty, false);
+
+  const none = L.homeDashboard({ chats: [], projects: [], files: [], tasks: [], tools: [] });
+  assert.equal(none.empty, true, "everything read and nothing there: a new account");
+  assert.equal(L.homeDashboard({ chats: [{ id: "c" }], projects: [], files: [], tasks: [], tools: [] }).empty, false, "one chat is enough to not be new");
+  assert.equal(L.homeDashboard({ chats: [], projects: [project("p", "2026-10-01T00:00:00Z", "ARCHIVED")], files: [], tasks: [], tools: [] }).empty, true, "only an archived project: nothing active to show");
+  // A source that failed to load is unknown, and unknown is never "empty".
+  const partial = L.homeDashboard({ chats: [], projects: [], files: null, tasks: [], tools: [] });
+  assert.equal(partial.files, null);
+  assert.equal(partial.allKnown, false);
+  assert.equal(partial.empty, false, "a failed read must not make the account look new");
+  assert.equal(L.homeDashboard().empty, false, "nothing read at all is not 'empty'");
+  assert.equal(L.homeDashboard({ limit: 1, chats: [{ id: "a" }, { id: "b" }], projects: [], files: [], tasks: [], tools: [] }).chats.length, 1);
+});

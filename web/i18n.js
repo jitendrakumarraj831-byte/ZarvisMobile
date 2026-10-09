@@ -1193,7 +1193,57 @@
     "ZARVIS couldn't identify the build system from the file names.": "ZARVIS फ़ाइलों के नाम से बिल्ड सिस्टम नहीं पहचान सका।",
     "GitHub reports no main language for this repository.": "GitHub इस रिपॉज़िटरी की कोई मुख्य भाषा नहीं बताता।",
     "No GitHub account (public repositories only)": "कोई GitHub खाता नहीं (सिर्फ़ सार्वजनिक रिपॉज़िटरी)",
-    "This run didn't finish": "यह रन पूरा नहीं हुआ"
+    "This run didn't finish": "यह रन पूरा नहीं हुआ",
+    "Table": "तालिका",
+    "Confirming your payment…": "आपके भुगतान की पुष्टि हो रही है…",
+    "Your bank hasn't confirmed this payment yet. Your plan switches on as soon as it does. This page keeps checking.": "आपके बैंक ने अभी इस भुगतान की पुष्टि नहीं की है। पुष्टि होते ही आपका प्लान चालू हो जाएगा। यह पेज जाँचता रहेगा।",
+    "We couldn't verify this payment, so your plan was not changed.": "हम इस भुगतान की पुष्टि नहीं कर सके, इसलिए आपका प्लान नहीं बदला गया।",
+    "We couldn't reach the payment service to confirm your payment. If you were charged, your plan switches on automatically once it is confirmed. This page keeps checking.": "भुगतान की पुष्टि के लिए हम पेमेंट सेवा तक नहीं पहुँच सके। अगर आपसे पैसे कटे हैं, तो पुष्टि होते ही आपका प्लान अपने आप चालू हो जाएगा। यह पेज जाँचता रहेगा।",
+    "Your plan isn't active yet. If you were charged, it switches on once the payment is confirmed. Open this page again in a few minutes.": "आपका प्लान अभी चालू नहीं हुआ है। अगर आपसे पैसे कटे हैं, तो भुगतान की पुष्टि होते ही यह चालू हो जाएगा। कुछ मिनट बाद यह पेज फिर खोलें।",
+    "Pro is active": "Pro चालू है",
+    "Pro is active.": "Pro चालू है।",
+    "Payment failed. Your plan was not changed.": "भुगतान विफल रहा। आपका प्लान नहीं बदला गया।",
+    "Checkout closed. No payment was completed.": "चेकआउट बंद हुआ। कोई भुगतान पूरा नहीं हुआ।",
+    "Payment ID:": "भुगतान आईडी:",
+    "Documents and images ZARVIS has read, with the text it kept.": "ZARVIS ने जो दस्तावेज़ और इमेज पढ़े हैं, और उनसे रखा गया पाठ।",
+    "Web searches with their sources, and notes with citations.": "वेब खोजें उनके स्रोतों के साथ, और संदर्भ वाले नोट।",
+    "Tracked tasks with their real status.": "असली स्थिति वाले ट्रैक किए गए कार्य।",
+    "What ZARVIS wrote for you, saved as files.": "ZARVIS ने आपके लिए जो लिखा, फ़ाइलों के रूप में सहेजा।",
+    "Search projects": "प्रोजेक्ट खोजें",
+    "Sort projects": "प्रोजेक्ट क्रमबद्ध करें",
+    "Most recent": "सबसे हाल का",
+    "Name": "नाम",
+    "No projects match": "कोई प्रोजेक्ट मेल नहीं खाता",
+    "Try another search.": "कोई और खोज आज़माएँ।",
+    "Sort tasks": "कार्य क्रमबद्ध करें",
+    "Task view": "कार्य का दृश्य",
+    "Filter tasks": "कार्य छाँटें",
+    "List": "सूची",
+    "Board": "बोर्ड",
+    "Recently updated": "हाल में अपडेट",
+    "Newest first": "सबसे नया पहले",
+    "Oldest first": "सबसे पुराना पहले",
+    "Stopped": "रुके हुए",
+    "Finished": "पूरे हुए",
+    "Other": "अन्य",
+    "Your workspace": "आपका कार्यक्षेत्र",
+    "Recent files": "हाल की फ़ाइलें",
+    "What ZARVIS did lately": "ZARVIS ने हाल में क्या किया",
+    "Plan and credits": "प्लान और क्रेडिट",
+    "Start here": "यहाँ से शुरू करें",
+    "Nothing is saved yet. Pick one way to begin; ZARVIS only keeps what you make.": "अभी कुछ सहेजा नहीं गया है। शुरू करने का एक तरीका चुनें; ZARVIS सिर्फ़ वही रखता है जो आप बनाते हैं।",
+    "Ask a question": "सवाल पूछें",
+    "Type or speak; chats are saved to your account.": "लिखें या बोलें; चैट आपके खाते में सहेजी जाती हैं।",
+    "Add a file": "फ़ाइल जोड़ें",
+    "ZARVIS reads it and keeps the text, so you can summarize it.": "ZARVIS इसे पढ़कर उसका पाठ रखता है, ताकि आप उसका सार बनवा सकें।",
+    "Start a project": "प्रोजेक्ट शुरू करें",
+    "Keep a goal's chats, files and tasks together.": "किसी लक्ष्य की चैट, फ़ाइलें और कार्य एक साथ रखें।",
+    "Hide this": "इसे छिपाएँ",
+    "No open tasks.": "कोई खुला कार्य नहीं।",
+    "Trial plan": "ट्रायल प्लान",
+    "Free plan": "फ़्री प्लान",
+    "Pro plan": "Pro प्लान",
+    "This is a guest account, so its work stays only while this browser keeps it.": "यह गेस्ट खाता है, इसलिए इसका काम तभी तक रहता है जब तक यह ब्राउज़र उसे रखता है।"
   };
   for (var extra in HI_WORKSPACE) if (Object.prototype.hasOwnProperty.call(HI_WORKSPACE, extra) && !Object.prototype.hasOwnProperty.call(HI, extra)) HI[extra] = HI_WORKSPACE[extra];
 
@@ -1271,7 +1321,32 @@
     [new RegExp("^Agent: (.+)$"), function (m, a) { return "एजेंट: " + tr(a); }],
     [new RegExp("^Work › (.+)$"), "काम › $1"],
     [new RegExp("^Reported by GitHub for pull request #(\\d+) \\((.+?)\\):$"), function (m, n, state) { return "GitHub के अनुसार pull request #" + n + " (" + tr(state) + "):"; }],
-    [new RegExp("^(\\d+) passed · (\\d+) failed · (\\d+) pending$"), "$1 पास · $2 फ़ेल · $3 लंबित"]
+    [new RegExp("^(\\d+) passed · (\\d+) failed · (\\d+) pending$"), "$1 पास · $2 फ़ेल · $3 लंबित"],
+    [new RegExp("^Pro is active until (.+)\\.$"), "Pro $1 तक चालू है।"],
+    [new RegExp("^Payment failed: (.+) Your plan was not changed\\.$"), "भुगतान विफल रहा: $1 आपका प्लान नहीं बदला गया।"],
+    [new RegExp("^(\\d+) projects? shown$"), "$1 प्रोजेक्ट दिख रहे हैं"],
+    [new RegExp("^(\\d+) tasks? shown$"), "$1 कार्य दिख रहे हैं"],
+    [new RegExp("^Steps \\((\\d+)\\)$"), "चरण ($1)"],
+    [new RegExp("^(\\d+) chats?$"), "$1 चैट"],
+    [new RegExp("^(\\d+) files?$"), "$1 फ़ाइल"],
+    [new RegExp("^(\\d+) tasks?$"), "$1 कार्य"],
+    [new RegExp("^(\\d+) decisions?$"), "$1 निर्णय"],
+    [new RegExp("^(\\d+) personal memory items?$"), "$1 निजी मेमोरी आइटम"],
+    [new RegExp("^(\\d+) items?$"), "$1 आइटम"],
+    [new RegExp("^(\\d+) searche?s?$"), "$1 खोज"],
+    [new RegExp("^(\\d+) open$"), "$1 खुले"],
+    [new RegExp("^(\\d+) stopped$"), "$1 रुके"],
+    [new RegExp("^(\\d+) finished$"), "$1 पूरे"],
+    [new RegExp("^Active until (.+)$"), "$1 तक चालू"],
+    [new RegExp("^(See all|Open Activity|Plans & Usage): (.+)$"), function (m, a, b) { return tr(a) + ": " + tr(b); }],
+    [new RegExp("^Some of this is missing: (.+)\\.$"), function (m, list) {
+      var words = { "projects": "प्रोजेक्ट", "files": "फ़ाइलें", "tasks": "कार्य", "recent activity": "हाल की गतिविधि" };
+      var why = { "took too long to answer": "को जवाब देने में बहुत समय लगा", "could not be reached": "तक पहुँचा नहीं जा सका", "could not be loaded": "लोड नहीं हो सकीं" };
+      return "इसका कुछ हिस्सा नहीं आ सका: " + list.split(", ").map(function (item) {
+        var hit = /^(projects|files|tasks|recent activity) (took too long to answer|could not be reached|could not be loaded)$/.exec(item);
+        return hit ? words[hit[1]] + " " + why[hit[2]] : item;
+      }).join(", ") + "।";
+    }]
   ];
 
   function normalise(text) {

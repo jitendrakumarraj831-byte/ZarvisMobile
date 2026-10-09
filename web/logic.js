@@ -498,6 +498,120 @@
     return { kind: "unreachable", tone: "warn", polls: 6, message: "We couldn't reach the payment service to confirm your payment. If you were charged, your plan switches on automatically once it is confirmed. This page keeps checking." };
   }
 
+  // ---- Tasks: groups, filters, sorting and the board ------------------------------------------------------
+  // The server's lifecycle (backend TaskLifecycle) is the only truth about a task. These helpers only decide where a
+  // task is listed; the card always shows its exact lifecycle, so grouping never flattens or renames a state.
+
+  /** The board's columns, left to right: [key, label]. */
+  const TASK_GROUPS = [["queued", "Not started"], ["running", "In progress"], ["waiting", "Waiting for you"], ["stopped", "Stopped"], ["finished", "Finished"]];
+  const LIFECYCLE_GROUP = {
+    QUEUED: "queued",
+    RUNNING: "running", EXECUTING: "running", VERIFYING: "running",
+    WAITING: "waiting", CONFIRMATION_REQUIRED: "waiting",
+    FAILED: "stopped", BLOCKED: "stopped",
+    COMPLETED: "finished", CANCELLED: "finished",
+  };
+  /** The filter buttons of the list: [key, label]. "open" is every group that still needs something to happen. */
+  const TASK_FILTERS = [["all", "All"], ["open", "Open tasks"], ["stopped", "Stopped"], ["finished", "Finished"]];
+  const TASK_SORTS = [["updated", "Recently updated"], ["newest", "Newest first"], ["oldest", "Oldest first"]];
+  const OPEN_TASK_GROUPS = ["queued", "running", "waiting"];
+
+  /** Which group a task belongs to. A run that stopped answering is shown as stopped; a lifecycle this client does not know is "unknown", never guessed. */
+  function taskGroup(task) {
+    const group = LIFECYCLE_GROUP[task && task.lifecycle];
+    if (!group) return "unknown";
+    return group === "running" && task.stale ? "stopped" : group;
+  }
+
+  function taskSearchText(task, projectName, lifecycleLabel) {
+    const steps = (task.steps || []).flatMap((step) => [step.description, step.resultSummary]);
+    return [task.goal, lifecycleLabel, projectName, task.result && task.result.summary, task.error && task.error.message, task.blockedReason, ...steps].filter(Boolean).join("\n").toLowerCase();
+  }
+
+  /** The tasks that match a search and a filter, in the chosen order. `projectName(id)` and `label(lifecycle)` let the page's own words be searched too. */
+  function filterTasks(tasks, { query = "", filter = "all", sort = "updated", projectName = () => "", label = (lifecycle) => lifecycle } = {}) {
+    const q = String(query).trim().toLowerCase();
+    const time = (value) => Date.parse(value) || 0;
+    const list = (Array.isArray(tasks) ? tasks : []).filter((task) => {
+      const group = taskGroup(task);
+      if (filter === "open" && !OPEN_TASK_GROUPS.includes(group)) return false;
+      if ((filter === "stopped" || filter === "finished") && group !== filter) return false;
+      return !q || taskSearchText(task, task.projectId ? projectName(task.projectId) : "", label(task.lifecycle)).includes(q);
+    });
+    const order = {
+      updated: (a, b) => time(b.updatedAt || b.createdAt) - time(a.updatedAt || a.createdAt),
+      newest: (a, b) => time(b.createdAt) - time(a.createdAt),
+      oldest: (a, b) => time(a.createdAt) - time(b.createdAt),
+    };
+    return list.sort(order[sort] || order.updated);
+  }
+
+  /** How many tasks each filter button would show (ignoring the search). */
+  function taskCounts(tasks) {
+    const counts = { all: 0, open: 0, stopped: 0, finished: 0 };
+    for (const task of Array.isArray(tasks) ? tasks : []) {
+      const group = taskGroup(task);
+      counts.all += 1;
+      if (OPEN_TASK_GROUPS.includes(group)) counts.open += 1;
+      else if (group === "stopped" || group === "finished") counts[group] += 1;
+    }
+    return counts;
+  }
+
+  /** The board: one column per group in order (empty ones included, so a column never disappears), plus "Other" only when a task has a lifecycle this client does not know. */
+  function taskBoard(tasks) {
+    const columns = TASK_GROUPS.map(([key, label]) => ({ key, label, tasks: [] }));
+    const other = { key: "unknown", label: "Other", tasks: [] };
+    for (const task of Array.isArray(tasks) ? tasks : []) (columns.find((c) => c.key === taskGroup(task)) || other).tasks.push(task);
+    return other.tasks.length ? [...columns, other] : columns;
+  }
+
+  // ---- Home dashboard -----------------------------------------------------------------------------------
+
+  /**
+   * What Home's "Your workspace" shows, chosen from what the server and this browser really hold. Every list is a
+   * slice of a real list (nothing is padded), and `empty` is only true when every source is known and has nothing;
+   * a source that failed to load is passed as null, which can never make the account look new.
+   *   chats: this browser's chat index (newest first); projects/files/tasks/tools: the server's lists, or null if unread.
+   */
+  function homeDashboard({ chats = [], projects = null, files = null, tasks = null, tools = null, limit = 3 } = {}) {
+    const time = (value) => Date.parse(value) || 0;
+    const known = (list) => Array.isArray(list);
+    const activeProjects = known(projects) ? projects.filter((p) => p.status !== "ARCHIVED").sort((a, b) => time(b.updatedAt) - time(a.updatedAt)) : null;
+    const recentFiles = known(files) ? [...files].sort((a, b) => time(b.createdAt) - time(a.createdAt)) : null;
+    const toolRuns = known(tools) ? tools.filter((entry) => entry.type === "tool").sort((a, b) => time(b.at) - time(a.at)) : null;
+    const open = known(tasks) ? filterTasks(tasks, { filter: "open" }) : null;
+    const sources = [activeProjects, recentFiles, tasks, toolRuns];
+    return {
+      chats: (Array.isArray(chats) ? chats : []).slice(0, limit),
+      projects: activeProjects ? activeProjects.slice(0, limit) : null,
+      files: recentFiles ? recentFiles.slice(0, limit) : null,
+      tasks: known(tasks) ? { counts: taskCounts(tasks), open: open.slice(0, limit), total: tasks.length } : null,
+      tools: toolRuns ? toolRuns.slice(0, limit) : null,
+      allKnown: sources.every(known),
+      empty: sources.every(known) && !(Array.isArray(chats) && chats.length) && !activeProjects.length && !recentFiles.length && !tasks.length && !toolRuns.length,
+    };
+  }
+
+  /** The sorts the Projects list offers, in the order they are shown: [key, label]. */
+  const PROJECT_SORTS = [["recent", "Most recent"], ["name", "Name"], ["tasks", "Open tasks"]];
+
+  /**
+   * The projects that match a search (name, goal and description, case-insensitive) in the chosen order. Pure: the list
+   * itself is whatever the server returned, so nothing here can show a project that does not exist.
+   */
+  function filterProjects(projects, { query = "", sort = "recent" } = {}) {
+    const q = String(query).trim().toLowerCase();
+    const list = (Array.isArray(projects) ? projects : []).filter((p) => !q || [p.name, p.goal, p.description].join("\n").toLowerCase().includes(q));
+    const time = (p) => Date.parse(p.updatedAt) || 0;
+    const byRecent = (a, b) => time(b) - time(a);
+    const order = {
+      name: (a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base", numeric: true }) || byRecent(a, b),
+      tasks: (a, b) => ((b.counts && b.counts.openTasks) || 0) - ((a.counts && a.counts.openTasks) || 0) || byRecent(a, b),
+    };
+    return list.sort(order[sort] || byRecent);
+  }
+
   function riskLabel(risk) {
     return { LOW: "Low risk", MEDIUM: "Medium risk", HIGH: "High risk", VERY_HIGH: "Very high risk" }[risk] || risk;
   }
@@ -831,6 +945,16 @@
     webAccessSummary,
     riskLabel,
     paymentVerifyOutcome,
+    homeDashboard,
+    TASK_GROUPS,
+    TASK_FILTERS,
+    TASK_SORTS,
+    taskGroup,
+    filterTasks,
+    taskCounts,
+    taskBoard,
+    PROJECT_SORTS,
+    filterProjects,
     turnFailureKind,
     createClientTurnId,
     resolveApiBase,

@@ -313,6 +313,74 @@ async function send(page, text) {
     assert.equal((await api(page, "/tasks/" + created.body.id)).body.lifecycle, "CANCELLED");
   });
 
+  await step("Tasks: filters count what they show, the board has one column per real status, and the choice survives a reload", async () => {
+    // State so far: one COMPLETED task and one CANCELLED. Add one QUEUED and one WAITING (a step done, the next waits for the user).
+    const queued = await post(page, "/tasks", { goal: "Board: not started yet" });
+    const waiting = await post(page, "/tasks", { goal: "Board: half done", steps: ["hello", "hello again"] });
+    assert.equal(queued.status, 201);
+    assert.equal(waiting.status, 201);
+    const ran = await post(page, "/tasks/" + waiting.body.id + "/run", {});
+    assert.equal(ran.status, 200, JSON.stringify(ran.body));
+    assert.equal((await api(page, "/tasks/" + waiting.body.id)).body.lifecycle, "WAITING");
+    await page.evaluate(() => localStorage.removeItem("zarvis.tasksView"));
+    await workTab(page, "tasks");
+    await page.click("#tasks-refresh-btn");
+    await page.waitForFunction(() => document.querySelectorAll("#task-list .task-card").length === 4); // the list re-reads; wait for all four, not the two drawn before
+    const cards = async () => (await page.locator("#task-list .task-card .task-goal").allInnerTexts()).map((t) => t.trim());
+    const count = async (key) => (await page.locator(`#tasks-filters [data-filter=${key}] .ws-count`).innerText()).trim();
+    assert.equal((await cards()).length, 4, "list view by default");
+    assert.deepEqual([await count("all"), await count("open"), await count("stopped"), await count("finished")], ["4", "2", "0", "2"]);
+    for (const [filter, expected] of [["open", 2], ["stopped", 0], ["finished", 2], ["all", 4]]) {
+      await page.click(`#tasks-filters [data-filter=${filter}]`);
+      assert.equal((await cards()).length, expected, filter);
+      assert.equal(await page.getAttribute(`#tasks-filters [data-filter=${filter}]`, "aria-pressed"), "true");
+    }
+    await page.click("#tasks-filters [data-filter=stopped]");
+    assert.equal(await page.locator("#tasks-no-match").isVisible(), true, "an empty filter says so");
+    await page.click("#tasks-filters [data-filter=all]");
+    await page.fill("#tasks-search", "half");
+    assert.deepEqual(await cards(), ["Board: half done"]);
+    assert.match(await page.locator("#tasks-status").innerText(), /1 task shown/);
+    await page.fill("#tasks-search", "");
+
+    // Board: five fixed columns in order, each task in the column of its real lifecycle, every card still wearing its exact status.
+    await page.click("#tasks-view [data-view=board]");
+    await page.waitForSelector("#task-list .task-board");
+    const columns = await page.evaluate(() => [...document.querySelectorAll(".task-col")].map((c) => ({ group: c.dataset.group, title: c.querySelector(".task-col-title span").textContent, n: c.querySelectorAll(".task-card").length, lifecycles: [...c.querySelectorAll(".task-card")].map((t) => t.dataset.lifecycle) })));
+    assert.deepEqual(columns.map((c) => c.group), ["queued", "running", "waiting", "stopped", "finished"]);
+    assert.deepEqual(columns.map((c) => c.n), [1, 0, 1, 0, 2]);
+    assert.deepEqual(columns[0].lifecycles, ["QUEUED"]);
+    assert.deepEqual(columns[2].lifecycles, ["WAITING"]);
+    assert.deepEqual(columns[4].lifecycles.sort(), ["CANCELLED", "COMPLETED"]);
+    assert.match(await page.locator('.task-col[data-group="running"]').innerText(), /None/, "an empty column says None");
+    assert.equal(await page.locator("#tasks-filters").isHidden(), true, "the status filter is not offered next to status columns");
+    assert.match(await page.locator('.task-col[data-group="waiting"] .task-card').innerText(), /Waiting for you/);
+    // A board card keeps the real actions; its steps are folded away until asked for.
+    assert.ok(await page.locator('.task-col[data-group="waiting"] .task-card button:has-text("Run next step")').count(), "Run next step is on the card");
+    assert.equal(await page.locator('.task-col[data-group="waiting"] .task-card details.ws-task-steps').getAttribute("open"), null);
+    await page.click('.task-col[data-group="waiting"] .task-card details.ws-task-steps summary');
+    assert.ok(await page.locator('.task-col[data-group="waiting"] .task-card .task-step').count() >= 2, "the steps open");
+    // The board is searchable and does not spill the page sideways.
+    await page.fill("#tasks-search", "Board: not started");
+    assert.equal(await page.locator("#task-list .task-card").count(), 1);
+    await page.fill("#tasks-search", "");
+    assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)) <= 1, "no page overflow with the board open");
+    // The view is remembered across a reload; so is nothing else (filters are per visit).
+    await page.reload();
+    await page.waitForSelector("#task-list .task-board");
+    assert.equal(await page.getAttribute("#tasks-view [data-view=board]", "aria-pressed"), "true");
+    await page.click("#tasks-view [data-view=list]");
+    await page.waitForSelector("#task-list > .task-card");
+    // Sort: oldest first puts the earliest-created task on top.
+    await page.selectOption("#tasks-sort", "oldest");
+    assert.equal((await cards())[0], "Prepare the weekly report");
+    await page.selectOption("#tasks-sort", "newest");
+    assert.equal((await cards())[0], "Board: half done");
+    // Clean up so later steps see the state they expect.
+    await api(page, "/tasks/" + queued.body.id + "/cancel", { method: "POST", body: "{}" });
+    await api(page, "/tasks/" + waiting.body.id + "/cancel", { method: "POST", body: "{}" });
+  });
+
   /* ---------- Agents ---------- */
 
   await step("Agents lists the six agents; each page is built from the real skills", async () => {
@@ -658,6 +726,185 @@ async function send(page, text) {
   });
 
   /* ---------- Navigation, offline and a stalled server ---------- */
+
+  await step("Home dashboard: every card is read back from the server, rows open the real thing, a failed read is named and never looks like an empty account, offline too", async () => {
+    await go(page, "#/home");
+    await page.waitForSelector("#home-dash:not([hidden]) .dash-card");
+    const card = (title) => page.locator("#home-dash .dash-card", { has: page.locator(".dash-card-title", { hasText: new RegExp("^" + title + "$") }) });
+    const titles = await page.locator("#home-dash .dash-card-title").allInnerTexts();
+    for (const expected of ["Recent chats", "Projects", "Tasks", "Recent files", "What ZARVIS did lately", "Plan and credits"]) assert.ok(titles.includes(expected), expected + " in " + titles.join(", "));
+
+    // Projects: the newest active project by update time, as the server holds it.
+    const projects = (await api(page, "/projects?status=ACTIVE")).body.projects.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    assert.equal((await card("Projects").locator(".dash-row strong").first().innerText()).trim(), projects[0].name);
+    // Files: the newest file.
+    const files = (await api(page, "/files")).body.files.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    assert.equal((await card("Recent files").locator(".dash-row strong").first().innerText()).trim(), files[0].name);
+    // Tasks: the summary is the server's own counts; only open tasks are offered to continue.
+    const tasks = (await api(page, "/tasks")).body.tasks;
+    const count = (f) => tasks.filter(f).length;
+    const open = count((t) => ["QUEUED", "RUNNING", "EXECUTING", "VERIFYING", "WAITING", "CONFIRMATION_REQUIRED"].includes(t.lifecycle) && !(t.stale && ["RUNNING", "EXECUTING", "VERIFYING"].includes(t.lifecycle)));
+    const finished = count((t) => ["COMPLETED", "CANCELLED"].includes(t.lifecycle));
+    const summary = (await card("Tasks").locator(".dash-summary").innerText()).trim();
+    assert.match(summary, new RegExp("^" + open + " open"));
+    assert.match(summary, new RegExp(finished + " finished$"));
+    for (const row of await card("Tasks").locator(".dash-row").all()) assert.doesNotMatch(await row.innerText(), /Completed|Cancelled|Failed/, "a finished or failed task is not offered as work to continue");
+    // Plan and credits: the entitlement snapshot, not a number made up here.
+    const plan = (await api(page, "/entitlements/me")).body;
+    assert.match(await card("Plan and credits").innerText(), new RegExp(Number(plan.creditBalance) + " credit"));
+    // Tool runs: only runs the ledger holds, worded by their real outcome.
+    const tools = (await api(page, "/activity?limit=40")).body.activity.filter((e) => e.type === "tool");
+    if (tools.length) assert.equal((await card("What ZARVIS did lately").locator(".dash-row strong").first().innerText()).trim(), tools[0].title);
+
+    // Rows lead somewhere real.
+    await card("Projects").locator(".dash-row").first().click();
+    await page.waitForSelector(".ws-project-title");
+    assert.ok(page.url().includes("#/work/project-" + projects[0].id), page.url());
+    await go(page, "#/home");
+    await page.waitForSelector("#home-dash:not([hidden]) .dash-card");
+    await card("Recent files").locator(".dash-row").first().click();
+    await page.waitForSelector("#viewer-overlay:not([hidden])");
+    assert.match(await page.locator("#viewer-overlay").innerText(), new RegExp(files[0].name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    await page.keyboard.press("Escape");
+    await card("Plan and credits").locator(".dash-card-head .link-btn").click();
+    await page.waitForSelector("#view-plans:not([hidden])");
+
+    // The cue under the prompts brings the dashboard into view.
+    await go(page, "#/home");
+    await page.waitForSelector("#home-more:not([hidden])");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.click("#home-more");
+    await page.waitForFunction(() => document.getElementById("home-dash").getBoundingClientRect().top < innerHeight * 0.6);
+
+    // A read that fails is named, its card is not drawn as if empty, and the rest still shows.
+    page.expectRejections += 1; // the 500 below is provoked on purpose
+    await page.route("**/api/v1/files", (r) => r.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "boom" }) }));
+    await page.evaluate(() => window.ZarvisWorkspace.refreshHome(true));
+    await page.waitForSelector("#home-dash .dash-failed");
+    assert.match(await page.locator("#home-dash .dash-failed").innerText(), /Some of this is missing: files could not be loaded\./);
+    assert.equal(await card("Recent files").count(), 0, "no files card when the files could not be read");
+    assert.ok(await card("Projects").count(), "the cards that did load are still there");
+    assert.equal(await page.locator("#home-dash .dash-intro").count(), 0, "a failed read never turns the account into a new one");
+    await page.unroute("**/api/v1/files");
+    await page.click("#home-dash .dash-failed button");
+    await page.waitForSelector("#home-dash .dash-card .dash-card-title:has-text('Recent files')");
+    assert.equal(await page.locator("#home-dash .dash-failed").count(), 0, "Try again reloads it");
+
+    // Offline: nothing is invented; what this browser itself remembers (its chat list) is still shown.
+    page.expectConsole.push(/net::ERR_INTERNET_DISCONNECTED/); // the browser's own log of the requests that cannot go out
+    await page.context().setOffline(true);
+    await page.evaluate(() => window.ZarvisWorkspace.refreshHome(true));
+    await page.waitForSelector("#home-dash .dash-failed");
+    assert.match(await page.locator("#home-dash .dash-failed").innerText(), /could not be reached/);
+    assert.equal(await page.locator("#home-dash .dash-intro").count(), 0);
+    assert.equal(await card("Projects").count(), 0, "no projects are shown when they could not be read");
+    await page.context().setOffline(false);
+    await page.evaluate(() => window.ZarvisWorkspace.refreshHome(true));
+    await page.waitForSelector("#home-dash .dash-card .dash-card-title:has-text('Projects')");
+    assert.equal(await page.locator("#home-dash .dash-failed").count(), 0);
+
+    // A write on this page makes Home re-read at once (no waiting for the short cache to expire).
+    await go(page, "#/work/projects");
+    await page.click('#work-panel-projects .section-head button:has-text("New project")');
+    await fillDialog(page, { Name: "Dashboard freshness check" });
+    await page.waitForSelector(".ws-project-title");
+    await go(page, "#/home");
+    await page.waitForSelector('#home-dash .dash-row strong:has-text("Dashboard freshness check")');
+    assert.equal((await card("Projects").locator(".dash-row strong").first().innerText()).trim(), "Dashboard freshness check");
+    const fresh = (await api(page, "/projects?status=ACTIVE")).body.projects.find((p) => p.name === "Dashboard freshness check");
+    assert.equal((await api(page, "/projects/" + fresh.id, { method: "DELETE" })).status, 204);
+  });
+
+  await step("Home, a new account: a guide with three real ways to start that can be hidden for good; nothing is shown as if it existed", async () => {
+    const fresh = await newPage(browser);
+    const p = fresh.page;
+    await go(p, "#/home");
+    await p.waitForSelector("#home-dash:not([hidden]) .dash-intro");
+    const text = await p.locator("#home-dash").innerText();
+    assert.match(text, /Start here/);
+    assert.match(text, /Nothing is saved yet/);
+    assert.equal(await p.locator("#home-dash .dash-grid").count(), 0, "no data cards for an account with no data");
+    assert.equal(await p.locator("#home-dash .dash-intro .dash-row").count(), 3);
+    // Each way to start does the real thing.
+    await p.click('#home-dash .dash-row:has-text("Start a project")');
+    await p.waitForSelector("#form-modal:not([hidden])");
+    await p.keyboard.press("Escape");
+    await go(p, "#/home");
+    await p.click('#home-dash .dash-row:has-text("Ask a question")');
+    assert.equal(await p.evaluate(() => document.activeElement.id), "home-prompt-input");
+    await p.click('#home-dash .dash-row:has-text("Add a file")'); // opens the file picker in Chat, like the paper-clip does
+    await p.waitForSelector("#view-chat:not([hidden])");
+    await go(p, "#/home");
+    await p.waitForSelector("#home-dash:not([hidden]) .dash-intro");
+    // "Hide this" is remembered and takes the cue away with it.
+    await p.click('#home-dash button:has-text("Hide this")');
+    assert.equal(await p.locator("#home-dash").isHidden(), true);
+    assert.equal(await p.locator("#home-more").isHidden(), true);
+    await p.reload();
+    await p.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await p.waitForTimeout(800);
+    assert.equal(await p.locator("#home-dash").isHidden(), true, "still hidden after a reload");
+    // Once the account has something, the dashboard appears even though the guide was hidden.
+    await go(p, "#/work/projects");
+    await p.click('#work-panel-projects .section-head button:has-text("New project")');
+    await fillDialog(p, { Name: "First project" });
+    await p.waitForSelector(".ws-project-title");
+    await go(p, "#/home");
+    await p.waitForSelector("#home-dash:not([hidden]) .dash-card .dash-card-title:has-text('Projects')");
+    assert.equal(await p.locator("#home-dash .dash-intro").count(), 0);
+    await fresh.ctx.close();
+  });
+
+  await step("Work: projects can be searched and sorted, each section says what it is, and a row that scrolls fades its edge", async () => {
+    const extra = [];
+    for (const [name, goal] of [["Tax filing", "File returns before the deadline"], ["apple pie", "Bake for the fair"]]) {
+      const made = await post(page, "/projects", { name, goal, description: name === "apple pie" ? "Grandma's recipe" : "" });
+      assert.equal(made.status, 201, JSON.stringify(made.body));
+      extra.push(made.body.id);
+    }
+    await go(page, "#/work/projects");
+    await page.waitForSelector("#projects-search");
+    const names = async () => (await page.locator("#projects-grid .ws-card-title").allInnerTexts()).map((t) => t.trim());
+    assert.equal((await names()).length, 3);
+    assert.match(await page.locator("#work-panel-projects [role=status]").first().innerText(), /3 projects shown/);
+    await page.fill("#projects-search", "grandma"); // the description is searched too
+    assert.deepEqual(await names(), ["apple pie"]);
+    assert.match(await page.locator("#work-panel-projects [role=status]").first().innerText(), /1 project shown/);
+    await page.fill("#projects-search", "zzz");
+    assert.match(await page.locator("#projects-grid").innerText(), /No projects match/);
+    await page.fill("#projects-search", "");
+    await page.selectOption("#projects-sort", "name");
+    assert.deepEqual(await names(), ["apple pie", "Tax filing", "Website relaunch"]);
+    await page.selectOption("#projects-sort", "recent");
+    assert.equal((await names())[0], "apple pie", "most recently created first");
+    // The search box keeps focus while typing (the list is redrawn, the field is not).
+    await page.focus("#projects-search");
+    await page.keyboard.type("tax");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "projects-search");
+    assert.deepEqual(await names(), ["Tax filing"]);
+
+    // Each section has its own one-line description; a project's own page needs none.
+    await go(page, "#/work/files");
+    await page.waitForSelector("#work-tab-files[aria-selected=true]");
+    assert.match(await page.locator("#work-sub").innerText(), /Documents and images ZARVIS has read/);
+    await go(page, "#/work/project-" + project.id);
+    await page.waitForSelector(".ws-project-title");
+    assert.equal(await page.locator("#work-sub").isHidden(), true);
+    await go(page, "#/work/projects");
+    await page.waitForSelector("#projects-search");
+    assert.match(await page.locator("#work-sub").innerText(), /Everything here is stored on the ZARVIS server/);
+
+    // On a narrow phone the five tabs do not fit: the hidden side fades, and the fade follows the scroll.
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.waitForTimeout(250);
+    const fade = () => page.evaluate(() => document.getElementById("work-tabs").dataset.fade || "");
+    assert.equal(await fade(), "end", "more tabs to the right");
+    await page.evaluate(() => { const r = document.getElementById("work-tabs"); r.scrollLeft = r.scrollWidth; });
+    await page.waitForTimeout(200);
+    assert.equal(await fade(), "start", "scrolled to the end: more to the left only");
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const id of extra) assert.equal((await api(page, "/projects/" + id, { method: "DELETE" })).status, 204);
+  });
 
   await step("navigation: tabs are history entries, a reload keeps the tab, and a link to a deleted project says it is gone", async () => {
     await go(page, "#/work/files");

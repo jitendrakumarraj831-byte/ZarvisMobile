@@ -603,7 +603,10 @@ async function send(page, text) {
       assert.equal(await text(label === "phone" ? ".topbar .brand-text" : ".sidebar .brand-text"), "ZARVIS AI", label + ": header name");
       assert.equal(await pageN.title(), "ZARVIS AI", label + ": tab title");
       assert.equal(await pageN.locator(".action-tile, .primary-actions, .home-composer").count(), 0, label + ": the four feature tiles and the bottom message bar are gone");
-      assert.equal(await pageN.locator("#view-home #home-recent, #view-home #home-activity, #view-home [data-nav='activity']").count(), 0, label + ": no activity status on Home");
+      // The first screen stays free of activity status. "Your workspace" (recent chats, projects, files, tasks, tool runs, plan) is a
+      // separate section below it, reached by scrolling or the "Your workspace" cue, and drawn only from what the server returned.
+      assert.equal(await pageN.locator("#view-home .home-first #home-recent, #view-home .home-first #home-activity, #view-home .home-first [data-nav='activity'], #view-home .home-first #home-dash").count(), 0, label + ": no activity status on Home's first screen");
+      assert.equal(await pageN.locator("#view-home > #home-dash").count(), 1, label + ": the workspace section is its own block below the first screen");
 
       const facts = await pageN.evaluate(() => {
         const orb = document.querySelector("#home-orb .orb").getBoundingClientRect();
@@ -1083,7 +1086,8 @@ async function send(page, text) {
     const stray = () => pageH.evaluate(() => {
       const names = /^(ZARVIS|ZARVIS AI|Ctrl K|Pro|PRO|UPI|GitHub|English|AI|Pull request|https:\/\/github\.com\/owner\/repo|ZARVIS AI home)$/;
       const found = [];
-      const consider = (text, where) => { const t = text.replace(/\s+/g, " ").trim(); if (t && /[A-Za-z]{3,}/.test(t) && !/[\u0900-\u097F]/.test(t) && !names.test(t)) found.push(where + ": " + t.slice(0, 60)); };
+      // A line made of " · "-joined parts ("1 chat · 1 खुले कार्य") is read part by part: one translated part must not hide an English one.
+      const consider = (text, where) => { for (const part of text.replace(/\s+/g, " ").trim().split(" · ")) { const t = part.trim(); if (t && /[A-Za-z]{3,}/.test(t) && !/[\u0900-\u097F]/.test(t) && !names.test(t)) found.push(where + ": " + t.slice(0, 60)); } };
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       for (let n; (n = walker.nextNode());) { const el = n.parentElement; if (el && !el.closest("script,style,svg,.bubble,[data-user-text]") && el.checkVisibility && el.checkVisibility({ checkVisibilityCSS: true })) consider(n.textContent, "text"); }
       for (const el of document.querySelectorAll("[aria-label],[title],[placeholder]")) {
@@ -1099,16 +1103,31 @@ async function send(page, text) {
       (await stray()).forEach((x) => problems.push(view + " " + x));
     }
     // Work tabs and an agent page, with a project, a file, a note and a task on the account so their rows are read too.
-    await pageH.evaluate(async () => {
+    const seededProjectId = await pageH.evaluate(async () => {
       const call = (path, body) => fetch("/api/v1" + path, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify(body) }).then((r) => r.json());
       const project = await call("/projects", { name: "Launch", goal: "Ship it", agentId: "research" });
       await call("/notes", { kind: "decision", content: "Use teal", projectId: project.id });
       await call("/files/text", { name: "brief.txt", text: "hello", source: "upload", projectId: project.id });
       await call("/tasks", { goal: "Write the brief", projectId: project.id });
-      window.__projectId = project.id;
+      await call("/tasks", { goal: "Review the draft", steps: ["Read it", "Mark changes"] });
+      await call("/projects", { name: "Tax filing", goal: "File returns" }); // a second project, so the search and sort controls show
+      return project.id;
     });
+    // Home with data (the dashboard) and the task board, read in Hindi too.
+    await pageH.evaluate(() => { location.hash = "#/home"; });
+    await pageH.reload();
+    await pageH.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    await pageH.waitForSelector("#home-dash:not([hidden]) .dash-card");
+    await pageH.waitForTimeout(500);
+    (await stray()).forEach((x) => problems.push("home dashboard " + x));
+    await pageH.evaluate(() => { location.hash = "#/work/tasks"; });
+    await pageH.waitForSelector("#tasks-view [data-view=board]");
+    await pageH.click("#tasks-view [data-view=board]");
+    await pageH.waitForSelector(".task-board");
+    (await stray()).forEach((x) => problems.push("tasks board " + x));
+    await pageH.click("#tasks-view [data-view=list]");
     const hashes = ["#/work/projects", "#/work/files", "#/work/research", "#/work/tasks", "#/work/outputs", "#/agents/research", "#/agents/developer"];
-    hashes.push("#/work/project-" + (await pageH.evaluate(() => window.__projectId)));
+    hashes.push("#/work/project-" + seededProjectId);
     for (const hash of hashes) {
       await pageH.evaluate((h) => { location.hash = h; }, hash);
       await pageH.waitForTimeout(700);

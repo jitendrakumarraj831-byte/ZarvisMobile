@@ -155,6 +155,7 @@
       <main class="views" id="main-views" tabindex="-1">
         <!-- ============ HOME ============ -->
         <section class="view view-home" id="view-home" aria-labelledby="home-title">
+          <div class="home-first">
           <div class="home-hero">
             <p class="home-greet"><span id="home-greeting">Hello</span><span id="home-name"></span></p>
             <button type="button" class="orb-stage" id="home-orb" aria-label="ZARVIS AI — talk by voice">
@@ -192,6 +193,14 @@
             <svg class="ico home-continue-go" aria-hidden="true"><use href="#i-right"/></svg>
           </button>
           </div>
+          <button type="button" class="home-more" id="home-more" hidden><span>Your workspace</span><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg></button>
+          </div>
+
+          <!-- Below the first screen: what the account really holds (drawn by workspace.js refreshHome; hidden until it has something true to say). -->
+          <section class="home-dash" id="home-dash" aria-labelledby="home-dash-title" hidden>
+            <h2 class="home-dash-title" id="home-dash-title">Your workspace</h2>
+            <div class="home-dash-body" id="home-dash-body"></div>
+          </section>
 
           <form class="home-card" id="home-prompt-form" autocomplete="off">
             <button type="button" class="icon-btn tone-amber" data-home-action="upload" aria-label="Upload file" title="Upload file"><svg class="ico" aria-hidden="true"><use href="#i-attach"/></svg></button>
@@ -288,7 +297,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="work-title">Work</h1>
-              <p class="page-sub">Projects, files, research and tasks. Everything here is stored on the ZARVIS server with your account.</p>
+              <p class="page-sub" id="work-sub">Projects, files, research and tasks. Everything here is stored on the ZARVIS server with your account.</p>
             </div>
           </header>
           <div class="ws-tabs" role="tablist" aria-label="Work sections" id="work-tabs">
@@ -309,13 +318,19 @@
                 <button type="button" class="btn btn-secondary" id="tasks-new-btn"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New task</span></button>
               </div>
             </div>
-            <div class="toolbar">
-              <label class="search-field">
-                <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
-                <span class="sr-only">Search tasks</span>
-                <input type="search" id="tasks-search" aria-label="Search tasks" placeholder="Search tasks" autocomplete="off" />
-              </label>
+            <div class="ws-controls" id="tasks-controls">
+              <div class="toolbar">
+                <label class="search-field">
+                  <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+                  <span class="sr-only">Search tasks</span>
+                  <input type="search" id="tasks-search" aria-label="Search tasks" placeholder="Search tasks" autocomplete="off" />
+                </label>
+                <select class="select" id="tasks-sort" aria-label="Sort tasks"></select>
+                <div class="segmented" id="tasks-view" role="group" aria-label="Task view"></div>
+              </div>
+              <div class="segmented" id="tasks-filters" role="group" aria-label="Filter tasks"></div>
             </div>
+            <p class="sr-only" id="tasks-status" role="status"></p>
             <p class="hint">A task is a record with its real status. Nothing runs in the background: a step runs when you press Run, as an ordinary ZARVIS turn, and the task shows what that turn actually did.</p>
             <div class="list" id="task-list" aria-live="polite"></div>
             <div class="empty-state" id="tasks-no-match" hidden><strong>No tasks match</strong><span>Try a different word.</span></div>

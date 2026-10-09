@@ -4030,6 +4030,7 @@
       for (const streaming of el.conversation.querySelectorAll(".bubble.is-streaming")) streaming.classList.remove("is-streaming");
       thinkingNode.remove();
       if (currentTurnController === controller) currentTurnController = null;
+      workspace()?.invalidateHome(); // a turn may have run a tool, saved a file or recorded a task: Home must read again
       updateComposerMode(); // Send/Stop must reflect that no turn is in flight any more
     }
   }
