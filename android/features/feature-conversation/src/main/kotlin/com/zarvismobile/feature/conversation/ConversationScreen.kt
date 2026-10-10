@@ -107,7 +107,8 @@ fun ConversationScreen(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f).padding(start = if (onBack == null) ZarvisSpacing.sm else 0.dp),
                 )
-                TextButton(onClick = viewModel::startNewConversation, enabled = uiState.turns.isNotEmpty()) { Text(tr(UiString.CHAT_NEW)) }
+                // Always enabled: after a failed restore the screen can look empty while the server still holds the conversation, and the user must be able to leave it.
+                TextButton(onClick = viewModel::startNewConversation) { Text(tr(UiString.CHAT_NEW)) }
             }
             uiState.interrupted?.let { action ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
@@ -171,7 +172,8 @@ fun ConversationScreen(
 @Composable
 private fun TurnBubble(turn: ConversationTurn) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
-        Surface(
+        // An answer with no question (a conversation that began with one) shows no empty bubble.
+        if (turn.userText.isNotEmpty()) Surface(
             modifier = Modifier.fillMaxWidth(0.88f).align(Alignment.End),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.primary,

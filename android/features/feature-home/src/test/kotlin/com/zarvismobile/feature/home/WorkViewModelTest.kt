@@ -44,6 +44,7 @@ class WorkViewModelTest {
             },
         )
 
+        vm.refresh()
         val state = vm.uiState.value
         assertEquals(Fetched.Ready(3), state.taskCount)
         assertEquals(true, (state.memory as Fetched.Ready).value.enabled)
@@ -63,6 +64,7 @@ class WorkViewModelTest {
             },
         )
 
+        vm.refresh()
         val state = vm.uiState.value
         assertEquals(Fetched.Ready(1), state.taskCount)
         assertEquals(Fetched.Failed, state.memory)
@@ -72,9 +74,44 @@ class WorkViewModelTest {
     @Test
     fun noTasksIsReadyZeroButAFailedLoadIsNeverZero() {
         val empty = WorkViewModel(api { name -> if (name == "getTasks") TasksResponse(emptyList()) else throw IllegalStateException("x") })
+        empty.refresh()
         assertEquals(Fetched.Ready(0), empty.uiState.value.taskCount)
 
         val failed = WorkViewModel(api { throw IllegalStateException("offline") })
+        failed.refresh()
         assertEquals(Fetched.Failed, failed.uiState.value.taskCount)
+    }
+
+    @Test
+    fun nothingIsLoadedUntilTheScreenAsks() {
+        val vm = WorkViewModel(api { error("must not be called before refresh()") })
+        assertEquals(Fetched.Loading, vm.uiState.value.taskCount)
+    }
+
+    @Test
+    fun showingTheScreenAgainReadsFreshCountsAndAFailureReplacesTheOldNumber() {
+        var tasks = 3
+        var offline = false
+        val vm = WorkViewModel(
+            api { name ->
+                if (offline) throw IllegalStateException("offline")
+                when (name) {
+                    "getTasks" -> TasksResponse((1..tasks).map { task("$it") })
+                    "getMemory" -> MemoryOverviewResponse(enabled = true)
+                    "getEntitlements" -> EntitlementSnapshotResponse(accountId = "a", plan = "TRIAL", trialExpiresAt = null, creditBalance = 50)
+                    else -> error("unexpected $name")
+                }
+            },
+        )
+        vm.refresh()
+        assertEquals(Fetched.Ready(3), vm.uiState.value.taskCount)
+
+        tasks = 1 // a task was removed on the website while this tab was away
+        vm.refresh()
+        assertEquals(Fetched.Ready(1), vm.uiState.value.taskCount)
+
+        offline = true // the old number is not kept as if it were still true
+        vm.refresh()
+        assertEquals(Fetched.Failed, vm.uiState.value.taskCount)
     }
 }

@@ -67,4 +67,14 @@ class StatusLabelsTest {
         assertEquals(StatusTone.NEUTRAL, StatusLabels.taskTone("CANCELLED"))
         assertEquals(StatusTone.NEUTRAL, StatusLabels.taskTone("MYSTERY"))
     }
+
+    @Test
+    fun `no two task states are worded the same in either language`() {
+        val states = listOf(
+            UiString.TASK_QUEUED, UiString.TASK_RUNNING, UiString.TASK_EXECUTING, UiString.TASK_VERIFYING, UiString.TASK_WAITING,
+            UiString.TASK_CONFIRMATION, UiString.TASK_PAUSED, UiString.TASK_COMPLETED, UiString.TASK_FAILED, UiString.TASK_CANCELLED, UiString.TASK_BLOCKED,
+        )
+        assertEquals(states.size, states.map { it.en }.toSet().size, "two task states share English words")
+        assertEquals(states.size, states.map { it.hi }.toSet().size, "two task states share Hindi words")
+    }
 }

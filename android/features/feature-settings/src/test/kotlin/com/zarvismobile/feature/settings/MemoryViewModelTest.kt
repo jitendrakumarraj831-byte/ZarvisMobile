@@ -159,4 +159,25 @@ class MemoryViewModelTest {
         assertTrue(server.calls.any { it.startsWith("setMemoryEnabled") })
         assertEquals(false, vm.uiState.value.overview?.enabled)
     }
+
+    @Test
+    fun aReloadThatFailsAfterASuccessfulDeleteKeepsTheLastListButFlagsItAsOld() {
+        var offline = false
+        val server = Server { name, _ ->
+            when (name) {
+                "getMemory" -> if (offline) throw IllegalStateException("offline") else overview(listOf(note("n1", "I live in Pune")))
+                "deleteNote" -> { offline = true; Unit }
+                else -> error("unexpected $name")
+            }
+        }
+        val vm = MemoryViewModel(server.api)
+        vm.refresh()
+
+        vm.delete("n1")
+
+        // The delete went through but the list could not be read back: the screen must say the list may be out of date, not show it as current.
+        assertTrue(vm.uiState.value.loadFailed)
+        assertFalse(vm.uiState.value.actionFailed)
+        assertEquals(listOf("I live in Pune"), vm.uiState.value.overview?.personal?.map { it.content })
+    }
 }

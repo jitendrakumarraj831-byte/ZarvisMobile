@@ -44,8 +44,8 @@ class UiStringTest {
 
     @Test
     fun `format fills the placeholders and keeps Latin digits`() {
-        assertEquals("Plan: Pro · 12 credits left", UiString.HOME_PLAN_LINE.format("en", "Pro", 12))
-        assertEquals("प्लान: Pro · 12 क्रेडिट बचे", UiString.HOME_PLAN_LINE.format("hi", "Pro", 12))
+        assertEquals("Plan: Pro · credits left: 12", UiString.HOME_PLAN_LINE.format("en", "Pro", 12))
+        assertEquals("प्लान: Pro · बचे क्रेडिट: 12", UiString.HOME_PLAN_LINE.format("hi", "Pro", 12))
     }
 
     /** The emulator tests (android/app/src/androidTest) find these by their English text; changing one breaks them. */

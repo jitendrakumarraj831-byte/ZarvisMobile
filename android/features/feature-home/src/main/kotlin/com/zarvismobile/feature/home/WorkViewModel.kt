@@ -40,12 +40,11 @@ class WorkViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(WorkUiState())
     val uiState: StateFlow<WorkUiState> = _uiState.asStateFlow()
 
-    init {
-        refresh()
-    }
-
+    /**
+     * Reads the three lines again. The screen calls this every time it is shown (the tab and its view model outlive a visit to Memory or
+     * Tasks, so counts read once would go stale). The old lines stay on screen until the new ones arrive.
+     */
     fun refresh() {
-        _uiState.value = WorkUiState()
         viewModelScope.launch {
             val result = fetch { api.getTasks().tasks.size }
             _uiState.update { it.copy(taskCount = result) }

@@ -104,10 +104,15 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     items = navItems,
                     selectedRoute = selectedRoute,
                     onSelect = { route ->
-                        navController.navigate(route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+                        // Tapping the tab that is already highlighted while a screen opened from it (Work > Memory) is showing goes back to the
+                        // tab's own page. Navigating to it would restore the saved stack, which still ends on that child screen.
+                        val backAtTab = route == selectedRoute && currentRoute != route && navController.popBackStack(route, false)
+                        if (!backAtTab) {
+                            navController.navigate(route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
                     },
                 )

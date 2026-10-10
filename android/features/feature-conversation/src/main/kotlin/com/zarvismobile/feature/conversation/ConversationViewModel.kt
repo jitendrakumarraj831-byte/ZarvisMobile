@@ -19,6 +19,7 @@ import com.zarvismobile.domain.capability.CapabilityId
 import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.entity.ToolResultStatus
 import com.zarvismobile.domain.presentation.ConversationSync
+import com.zarvismobile.domain.presentation.TurnText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.measureTimedValue
@@ -92,7 +93,7 @@ class ConversationViewModel @Inject constructor(
             // Show only real, server-persisted history for the conversation this device continues.
             runCatching { orchestrator.restoreConversation() }.getOrNull()?.let { messages ->
                 if (_uiState.value.turns.isEmpty() && messages.isNotEmpty()) {
-                    _uiState.update { it.copy(turns = pairTurns(messages.map { m -> m.role to m.content })) }
+                    _uiState.update { it.copy(turns = turnsOf(ConversationSync.pair(messages.map { m -> m.role to m.content }))) }
                 }
             }
             restoredOnce = true
@@ -103,7 +104,8 @@ class ConversationViewModel @Inject constructor(
             var previous = preferences.conversationId.first()
             preferences.conversationId.collect { current ->
                 if (ConversationSync.startedElsewhere(previous, current, turnInFlight = turnJob?.isActive == true)) {
-                    _uiState.update { it.copy(turns = emptyList(), voiceState = VoiceState.IDLE, error = null, interrupted = null, notice = null) }
+                    // The recovery card and notice are about the app being closed, not about this conversation: they stay.
+                    _uiState.update { it.copy(turns = emptyList(), voiceState = VoiceState.IDLE, error = null) }
                 }
                 previous = current
             }
@@ -111,20 +113,23 @@ class ConversationViewModel @Inject constructor(
     }
 
     /**
-     * Called whenever the screen is shown again. If the server holds more of this conversation than is on screen (the other Chat
-     * screen continued it meanwhile), show the longer history. A turn in flight is never touched, and a shorter server history
-     * never replaces what is on screen.
+     * Called whenever the screen is shown again. If the other Chat screen continued this conversation meanwhile, the exchanges the server
+     * has after the ones shown here are added below them (the ones already shown, with their status chips, are left as they are). A turn in
+     * flight is never touched; and if this screen is not simply the start of the server's conversation (it holds a phone-only exchange the
+     * server never stored), nothing is changed rather than showing a wrong transcript.
      */
     fun syncWithServer() {
         if (!restoredOnce || turnJob?.isActive == true) return
         viewModelScope.launch {
             val messages = runCatching { orchestrator.restoreConversation() }.getOrNull() ?: return@launch
-            val turns = _uiState.value.turns
-            val shown = ConversationSync.messagesOnScreen(turns = turns.size, answeredTurns = turns.count { it.assistantText != null })
-            val held = messages.count { it.role == "user" || it.role == "assistant" }
-            if (ConversationSync.serverHasMore(onScreen = shown, onServer = held, turnInFlight = turnJob?.isActive == true)) {
-                _uiState.update { it.copy(turns = pairTurns(messages.map { m -> m.role to m.content })) }
-            }
+            val shown = _uiState.value.turns
+            val added = ConversationSync.newTurnsAfter(
+                shownUsers = shown.map { it.userText }.filter { it.isNotEmpty() },
+                messages = messages.map { it.role to it.content },
+            )
+            if (added.isNullOrEmpty()) return@launch
+            // Only if nothing changed while the server was answering (a New chat or a new turn in between would make this stale).
+            _uiState.update { if (turnJob?.isActive != true && it.turns.size == shown.size) it.copy(turns = it.turns + turnsOf(added)) else it }
         }
     }
 
@@ -307,22 +312,4 @@ class ConversationViewModel @Inject constructor(
     }
 }
 
-/** Pairs restored user/assistant messages into turns without inventing missing halves. */
-internal fun pairTurns(messages: List<Pair<String, String>>): List<ConversationTurn> {
-    val turns = mutableListOf<ConversationTurn>()
-    var pendingUser: String? = null
-    for ((role, content) in messages) {
-        when (role) {
-            "user" -> {
-                pendingUser?.let { turns += ConversationTurn(it, null) }
-                pendingUser = content
-            }
-            "assistant" -> {
-                turns += ConversationTurn(pendingUser ?: "", content)
-                pendingUser = null
-            }
-        }
-    }
-    pendingUser?.let { turns += ConversationTurn(it, null) }
-    return turns
-}
+private fun turnsOf(texts: List<TurnText>): List<ConversationTurn> = texts.map { ConversationTurn(it.user, it.assistant) }

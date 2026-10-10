@@ -186,4 +186,12 @@ class MarkdownTest {
         assertEquals(1, blocks.size)
         assertTrue(ms < 3_000, "took $ms ms")
     }
+
+    @Test
+    fun `an opening fence can carry more than the language, and only a bare fence closes it`() {
+        assertEquals(
+            listOf(MdBlock.Code("js", "const a = 1;\n```ts"), line(plain("after"))),
+            Markdown.parse("```js title=x\nconst a = 1;\n```ts\n```\nafter"),
+        )
+    }
 }

@@ -37,6 +37,7 @@ class TasksViewModelTest {
     @Test
     fun theListLoads() {
         val vm = TasksViewModel(api { name, _ -> if (name == "getTasks") TasksResponse(listOf(task("1"))) else error(name) })
+        vm.refresh()
         assertEquals(listOf("1"), vm.uiState.value.tasks.map { it.id })
         assertFalse(vm.uiState.value.isLoading)
         assertNull(vm.uiState.value.error)
@@ -45,6 +46,7 @@ class TasksViewModelTest {
     @Test
     fun aListThatCannotBeLoadedIsAnErrorNotAnEmptyList() {
         val vm = TasksViewModel(api { _, _ -> throw IllegalStateException("offline") })
+        vm.refresh()
         assertNotNull(vm.uiState.value.error)
         assertFalse(vm.uiState.value.actionFailed)
         assertTrue(vm.uiState.value.tasks.isEmpty())
@@ -61,6 +63,7 @@ class TasksViewModelTest {
                 }
             },
         )
+        vm.refresh()
         vm.cancel("1")
 
         assertTrue(vm.uiState.value.actionFailed)
@@ -80,6 +83,7 @@ class TasksViewModelTest {
                 }
             },
         )
+        vm.refresh()
         vm.cancel("1")
 
         assertFalse(vm.uiState.value.actionFailed)

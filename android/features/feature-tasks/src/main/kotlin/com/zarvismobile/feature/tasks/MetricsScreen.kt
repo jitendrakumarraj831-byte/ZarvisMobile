@@ -51,7 +51,8 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
 
     val avgLatencyMs = if (latencyLog.isEmpty()) 0L else latencyLog.map { it.durationMs }.average().roundToLong()
     val successRatePercent = if (latencyLog.isEmpty()) 100 else (latencyLog.count { it.success } * 100 / latencyLog.size)
-    val statusCounts = uiState.tasks.groupingBy { it.status }.eachCount()
+    // Counted by the words shown (the server's lifecycle when it sends one), so a chip and the rows under it never disagree.
+    val statusCounts = uiState.tasks.groupingBy { StatusLabels.taskText(it.status, it.lifecycle, locale) }.eachCount()
 
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -105,7 +106,7 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
             if (statusCounts.isNotEmpty()) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                        statusCounts.forEach { (status, count) -> ZarvisChip(label = "${StatusLabels.taskText(status, null, locale)} · $count", onClick = {}) }
+                        statusCounts.forEach { (label, count) -> ZarvisChip(label = "$label · $count", onClick = {}) }
                     }
                 }
             }

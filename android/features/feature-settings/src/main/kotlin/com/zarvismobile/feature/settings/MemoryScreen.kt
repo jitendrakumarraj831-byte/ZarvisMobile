@@ -86,6 +86,13 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
                 CircularProgressIndicator()
             }
         } else {
+            if (state.loadFailed) {
+                // The list below is the last one the server gave: say that it could not be refreshed instead of presenting it as current.
+                GlassSurface(Modifier.fillMaxWidth()) {
+                    Text(tr(UiString.MEMORY_LOAD_ERROR), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+                    ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
+                }
+            }
             GlassSurface(Modifier.fillMaxWidth()) {
                 SettingSwitchRow(
                     title = tr(UiString.MEMORY_USE_TITLE),

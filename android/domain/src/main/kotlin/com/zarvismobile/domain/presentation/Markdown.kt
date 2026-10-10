@@ -41,7 +41,9 @@ sealed interface MdBlock {
  * reply is just characters. An unclosed fence shows the rest of the reply as code.
  */
 object Markdown {
-    private val FENCE = Regex("""^\s*```\s*([\w+#.-]*)\s*$""")
+    // An opening fence names the language first and may carry more ("```js title=x"); only a bare ``` closes it.
+    private val FENCE_OPEN = Regex("""^\s*```\s*([\w+#.-]*)(?:\s+[^`]*)?$""")
+    private val FENCE_CLOSE = Regex("""^\s*```\s*$""")
     private val QUOTE = Regex("""^\s*>\s?(.*)$""")
     private val RULE = Regex("""^\s*(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$""")
     private val HEADING = Regex("""^\s*(#{1,6})\s+(.*)$""")
@@ -70,10 +72,9 @@ object Markdown {
         }
 
         for (line in text.split("\r\n", "\n")) {
-            val fence = FENCE.matchEntire(line)
             val openCode = codeLines
             if (openCode != null) {
-                if (fence != null) {
+                if (FENCE_CLOSE.matches(line)) {
                     out += MdBlock.Code(codeLanguage, openCode.joinToString("\n"))
                     codeLines = null
                 } else {
@@ -81,6 +82,7 @@ object Markdown {
                 }
                 continue
             }
+            val fence = FENCE_OPEN.matchEntire(line)
             if (fence != null) {
                 closeList()
                 closeQuote()

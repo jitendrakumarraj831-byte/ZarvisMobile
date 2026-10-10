@@ -50,7 +50,7 @@ enum class UiString(val en: String, val hi: String) {
     HOME_CAPABILITIES_BODY("See every skill ZARVIS currently has, grouped by category.", "ZARVIS की सभी मौजूदा स्किल श्रेणी के अनुसार देखें।"),
     HOME_BROWSE_SKILLS("Browse skills (%d)", "स्किल देखें (%d)"),
     HOME_SUBSCRIPTION("Subscription", "सब्सक्रिप्शन"),
-    HOME_PLAN_LINE("Plan: %s · %d credits left", "प्लान: %s · %d क्रेडिट बचे"),
+    HOME_PLAN_LINE("Plan: %s · credits left: %d", "प्लान: %s · बचे क्रेडिट: %d"),
     HOME_MANAGE_SUBSCRIPTION("Manage subscription", "सब्सक्रिप्शन देखें"),
     HOME_RECENT_TASKS("Recent Tasks", "हाल के कार्य"),
     HOME_SEE_ALL("See all", "सभी देखें"),
@@ -102,12 +102,12 @@ enum class UiString(val en: String, val hi: String) {
     WORK_PROJECTS_BODY("Projects, saved files and research notes are on the website. They are not in this app yet.", "प्रोजेक्ट, सहेजी फ़ाइलें और रिसर्च नोट वेबसाइट पर हैं। वे अभी इस ऐप में नहीं हैं।"),
     WORK_AGENTS_TITLE("Agents", "एजेंट"),
     WORK_AGENTS_BODY("The agent pages (Personal, Research, Documents and more) are on the website. They are not in this app yet.", "एजेंट पेज (पर्सनल, रिसर्च, दस्तावेज़ और अन्य) वेबसाइट पर हैं। वे अभी इस ऐप में नहीं हैं।"),
-    WORK_SUMMARY_TASKS("%d tasks", "%d कार्य"),
+    WORK_SUMMARY_TASKS("Tasks: %d", "कार्य: %d"),
     WORK_SUMMARY_TASKS_NONE("No tasks yet", "अभी कोई कार्य नहीं"),
     WORK_SUMMARY_MEMORY("%d saved", "%d सहेजे गए"),
     WORK_SUMMARY_MEMORY_NONE("Nothing saved", "कुछ नहीं सहेजा"),
     WORK_SUMMARY_MEMORY_PAUSED("Paused", "रुका हुआ"),
-    WORK_SUMMARY_PLAN("%s · %d credits", "%s · %d क्रेडिट"),
+    WORK_SUMMARY_PLAN("%s · credits: %d", "%s · क्रेडिट: %d"),
     WORK_SUMMARY_UNAVAILABLE("Couldn't load", "लोड नहीं हो सका"),
 
     // ---- Tasks (the Activity tab and Work > Tasks) -----------------------------------------
@@ -137,7 +137,7 @@ enum class UiString(val en: String, val hi: String) {
     TASK_COMPLETED("Completed", "पूरा हुआ"),
     TASK_FAILED("Failed", "विफल"),
     TASK_CANCELLED("Cancelled", "रद्द किया गया"),
-    TASK_BLOCKED("Blocked", "रुका हुआ"),
+    TASK_BLOCKED("Blocked", "अटका हुआ"),
 
     RISK_LOW("Low risk", "कम जोखिम"),
     RISK_MEDIUM("Medium risk", "मध्यम जोखिम"),
@@ -248,7 +248,7 @@ enum class UiString(val en: String, val hi: String) {
     MEMORY_DELETE_ITEM_NAMED("Delete: %s", "हटाएँ: %s"),
     MEMORY_FORGET_ALL("Forget all personal memory", "सारी निजी मेमोरी भूल जाएँ"),
     MEMORY_FORGET_TITLE("Forget all personal memory?", "सारी निजी मेमोरी भूल जाएँ?"),
-    MEMORY_FORGET_BODY("All %d personal memory items will be deleted from the server. Project memory is not touched.", "सभी %d निजी मेमोरी आइटम सर्वर से हटा दिए जाएँगे। प्रोजेक्ट मेमोरी को छुआ नहीं जाएगा।"),
+    MEMORY_FORGET_BODY("All personal memory (%d saved) will be deleted from the server. Project memory is not touched.", "सारी निजी मेमोरी (%d सहेजी) सर्वर से हटा दी जाएगी। प्रोजेक्ट मेमोरी को छुआ नहीं जाएगा।"),
     MEMORY_FORGET_CONFIRM("Forget everything", "सब कुछ भूल जाएँ"),
     MEMORY_DELETE_TITLE("Delete this memory?", "यह मेमोरी हटाएँ?"),
     MEMORY_DELETE_BODY("It is deleted from the server and ZARVIS will no longer use it.", "यह सर्वर से हट जाएगी और ZARVIS इसका इस्तेमाल नहीं करेगा।"),
@@ -259,7 +259,7 @@ enum class UiString(val en: String, val hi: String) {
     ),
     MEMORY_LOAD_ERROR("Couldn't load your memory", "आपकी मेमोरी लोड नहीं हो सकी"),
     MEMORY_ACTION_ERROR("That didn't work. Check your connection and try again.", "यह नहीं हो सका। कनेक्शन जाँचें और फिर कोशिश करें।"),
-    MEMORY_FORGOT("Forgot %d items", "%d आइटम भूल गया"),
+    MEMORY_FORGOT("Items forgotten: %d", "भूले गए आइटम: %d"),
 
     // ---- Welcome pages --------------------------------------------------------------------
     ONBOARDING_1_TITLE("Meet ZARVIS", "ZARVIS से मिलिए"),

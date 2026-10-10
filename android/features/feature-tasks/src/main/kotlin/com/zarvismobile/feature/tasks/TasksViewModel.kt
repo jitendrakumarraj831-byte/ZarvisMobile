@@ -29,10 +29,7 @@ class TasksViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(TasksUiState())
     val uiState: StateFlow<TasksUiState> = _uiState.asStateFlow()
 
-    init {
-        refresh()
-    }
-
+    /** Reads the list. The screen calls this every time it is shown (the tab outlives a visit elsewhere), so the list is never an old one. */
     fun refresh() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, actionFailed = false)
