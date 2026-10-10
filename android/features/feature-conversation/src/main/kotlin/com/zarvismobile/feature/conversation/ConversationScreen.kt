@@ -1,5 +1,6 @@
 package com.zarvismobile.feature.conversation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,14 +29,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.AiOrb
 import com.zarvismobile.core.ui.components.GlowColorsFor
+import com.zarvismobile.core.ui.components.MarkdownText
 import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisComposer
 import com.zarvismobile.core.ui.components.StatusPulseBadge
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisBackground
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.entity.ToolResultStatus
 
 /**
@@ -66,6 +71,16 @@ fun ConversationScreen(
         if (uiState.turns.isNotEmpty()) listState.animateScrollToItem(uiState.turns.size - 1)
     }
 
+    // Back while the microphone is open stops listening first, instead of leaving the chat with the mic still on.
+    BackHandler(enabled = uiState.voiceState == VoiceState.LISTENING) { viewModel.cancelListening() }
+
+    // The Chat tab and a chat opened from Home continue the same server conversation. Coming back to one of them picks up what
+    // the other added, so neither shows a stale half.
+    LifecycleResumeEffect(Unit) {
+        viewModel.syncWithServer()
+        onPauseOrDispose { }
+    }
+
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
         // No Scaffold bottomBar on this route (MASTER_SPEC.md §23 — Conversation is a
         // full-screen destination), so nothing else claims the gesture-nav-bar inset for it;
@@ -80,31 +95,35 @@ fun ConversationScreen(
                 .navigationBarsPadding()
                 .imePadding(),
         ) {
-            if (onBack != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onBack) { Text("Back") }
-                    Text("Chat with ZARVIS", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = viewModel::startNewConversation) { Text("New chat") }
-                }
+            // The header is always there: "New chat" used to exist only on a chat opened from Home, so the Chat tab could never start fresh.
+            // Back is shown only when there is somewhere to go back to (the Chat tab is a tab, and the system Back button leaves it).
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onBack != null) TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
+                Text(
+                    tr(UiString.CHAT_TITLE),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f).padding(start = if (onBack == null) ZarvisSpacing.sm else 0.dp),
+                )
+                TextButton(onClick = viewModel::startNewConversation, enabled = uiState.turns.isNotEmpty()) { Text(tr(UiString.CHAT_NEW)) }
             }
             uiState.interrupted?.let { action ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
-                    Text("ZARVIS was closed before this finished:", style = MaterialTheme.typography.titleSmall)
+                    Text(tr(UiString.CHAT_INTERRUPTED_TITLE), style = MaterialTheme.typography.titleSmall)
                     Text("\"${action.utterance}\"", style = MaterialTheme.typography.bodyLarge)
-                    Text("Nothing was done. Continuing asks for access and confirmation again.", style = MaterialTheme.typography.bodySmall)
+                    Text(tr(UiString.CHAT_INTERRUPTED_BODY), style = MaterialTheme.typography.bodySmall)
                     Row {
-                        TextButton(onClick = viewModel::resumeInterrupted) { Text("Continue") }
-                        TextButton(onClick = viewModel::dismissInterrupted) { Text("Dismiss") }
+                        TextButton(onClick = viewModel::resumeInterrupted) { Text(tr(UiString.CHAT_CONTINUE)) }
+                        TextButton(onClick = viewModel::dismissInterrupted) { Text(tr(UiString.CHAT_DISMISS)) }
                     }
                 }
             }
             uiState.notice?.let { notice ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
                     Text(notice, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = viewModel::dismissNotice) { Text("OK") }
+                    TextButton(onClick = viewModel::dismissNotice) { Text(tr(UiString.COMMON_OK)) }
                 }
             }
             LazyColumn(
@@ -141,6 +160,7 @@ fun ConversationScreen(
                     onValueChange = viewModel::onComposerChange,
                     onSubmit = viewModel::submitComposerText,
                     onMicClick = { if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening() },
+                    placeholder = tr(UiString.CHAT_COMPOSER_HINT),
                     enabled = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.LISTENING || uiState.voiceState == VoiceState.ERROR,
                 )
             }
@@ -172,29 +192,36 @@ private fun TurnBubble(turn: ConversationTurn) {
                         color = if (status == ToolResultStatus.COMPLETED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                     )
                 }
-                Text(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
+                // The reply as the website draws it: headings, lists, links and code are formatted, not shown as raw symbols.
+                MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
 }
 
 /** Blueprint §10 structured status, shown on the reply it belongs to. */
-private fun statusChip(status: ToolResultStatus): String = when (status) {
-    ToolResultStatus.COMPLETED -> "✓ Completed"
-    ToolResultStatus.DENIED -> "Not done — declined"
-    ToolResultStatus.PERMISSION_REQUIRED -> "Needs permission"
-    ToolResultStatus.USER_ACTION_REQUIRED -> "Your action needed"
-    ToolResultStatus.CONFIRMATION_REQUIRED -> "Waiting for your confirmation"
-    ToolResultStatus.UNSUPPORTED -> "Not available"
-    ToolResultStatus.FAILED -> "Failed"
-}
+@Composable
+private fun statusChip(status: ToolResultStatus): String = tr(
+    when (status) {
+        ToolResultStatus.COMPLETED -> UiString.CHAT_STATUS_COMPLETED
+        ToolResultStatus.DENIED -> UiString.CHAT_STATUS_DECLINED
+        ToolResultStatus.PERMISSION_REQUIRED -> UiString.CHAT_STATUS_PERMISSION
+        ToolResultStatus.USER_ACTION_REQUIRED -> UiString.CHAT_STATUS_USER_ACTION
+        ToolResultStatus.CONFIRMATION_REQUIRED -> UiString.CHAT_STATUS_CONFIRMATION
+        ToolResultStatus.UNSUPPORTED -> UiString.CHAT_STATUS_UNSUPPORTED
+        ToolResultStatus.FAILED -> UiString.CHAT_STATUS_FAILED
+    },
+)
 
-private fun statusText(state: VoiceState): String = when (state) {
-    VoiceState.IDLE -> "Tap the orb or type to start"
-    VoiceState.LISTENING -> "Listening…"
-    // Only UNDERSTANDING is used while a request is in flight — no simulated planning steps.
-    VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING -> "Working…"
-    VoiceState.SUCCESS -> "Done"
-    VoiceState.SPEAKING -> "Speaking…"
-    VoiceState.ERROR -> "Something went wrong — try again"
-}
+@Composable
+private fun statusText(state: VoiceState): String = tr(
+    when (state) {
+        VoiceState.IDLE -> UiString.CHAT_STATE_IDLE
+        VoiceState.LISTENING -> UiString.CHAT_STATE_LISTENING
+        // Only UNDERSTANDING is used while a request is in flight — no simulated planning steps.
+        VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING -> UiString.CHAT_STATE_WORKING
+        VoiceState.SUCCESS -> UiString.CHAT_STATE_DONE
+        VoiceState.SPEAKING -> UiString.CHAT_STATE_SPEAKING
+        VoiceState.ERROR -> UiString.CHAT_STATE_ERROR
+    },
+)

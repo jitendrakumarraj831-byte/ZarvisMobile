@@ -18,6 +18,7 @@ import com.zarvismobile.domain.access.RecoveryDecision
 import com.zarvismobile.domain.capability.CapabilityId
 import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.entity.ToolResultStatus
+import com.zarvismobile.domain.presentation.ConversationSync
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.measureTimedValue
@@ -74,6 +75,10 @@ class ConversationViewModel @Inject constructor(
     // The in-flight turn, so tapping the orb interrupts it cleanly (network call or playback).
     private var turnJob: Job? = null
 
+    // Set once the first restore has finished, so the first resume does not ask the server for the same history twice.
+    // (Declared before `init`: the coroutine started there may run right away, and a later initializer would reset it.)
+    private var restoredOnce = false
+
     init {
         viewModelScope.launch {
             // Process-death recovery: offer, never auto-run.
@@ -89,6 +94,36 @@ class ConversationViewModel @Inject constructor(
                 if (_uiState.value.turns.isEmpty() && messages.isNotEmpty()) {
                     _uiState.update { it.copy(turns = pairTurns(messages.map { m -> m.role to m.content })) }
                 }
+            }
+            restoredOnce = true
+        }
+        // The Chat tab and a chat opened from Home share one server conversation. When another of them starts a new chat (or the account
+        // changes), the id is cleared: empty this one too, so it does not keep showing a conversation the device has left.
+        viewModelScope.launch {
+            var previous = preferences.conversationId.first()
+            preferences.conversationId.collect { current ->
+                if (ConversationSync.startedElsewhere(previous, current, turnInFlight = turnJob?.isActive == true)) {
+                    _uiState.update { it.copy(turns = emptyList(), voiceState = VoiceState.IDLE, error = null, interrupted = null, notice = null) }
+                }
+                previous = current
+            }
+        }
+    }
+
+    /**
+     * Called whenever the screen is shown again. If the server holds more of this conversation than is on screen (the other Chat
+     * screen continued it meanwhile), show the longer history. A turn in flight is never touched, and a shorter server history
+     * never replaces what is on screen.
+     */
+    fun syncWithServer() {
+        if (!restoredOnce || turnJob?.isActive == true) return
+        viewModelScope.launch {
+            val messages = runCatching { orchestrator.restoreConversation() }.getOrNull() ?: return@launch
+            val turns = _uiState.value.turns
+            val shown = ConversationSync.messagesOnScreen(turns = turns.size, answeredTurns = turns.count { it.assistantText != null })
+            val held = messages.count { it.role == "user" || it.role == "assistant" }
+            if (ConversationSync.serverHasMore(onScreen = shown, onServer = held, turnInFlight = turnJob?.isActive == true)) {
+                _uiState.update { it.copy(turns = pairTurns(messages.map { m -> m.role to m.content })) }
             }
         }
     }

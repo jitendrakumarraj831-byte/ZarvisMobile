@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,10 +26,16 @@ import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
+import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
+import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.i18n.LocalAppLocale
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.GlowColors
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.TaskDto
+import com.zarvismobile.domain.presentation.StatusLabels
+import com.zarvismobile.domain.presentation.UiString
 import kotlin.math.roundToLong
 
 /**
@@ -37,9 +44,10 @@ import kotlin.math.roundToLong
  * both already-available data, timed/read on the client only. No backend or API change.
  */
 @Composable
-fun MetricsScreen(viewModel: MetricsViewModel = hiltViewModel()) {
+fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     val latencyLog by viewModel.latencyLog.collectAsState()
+    val locale = LocalAppLocale.current
 
     val avgLatencyMs = if (latencyLog.isEmpty()) 0L else latencyLog.map { it.durationMs }.average().roundToLong()
     val successRatePercent = if (latencyLog.isEmpty()) 100 else (latencyLog.count { it.success } * 100 / latencyLog.size)
@@ -52,9 +60,10 @@ fun MetricsScreen(viewModel: MetricsViewModel = hiltViewModel()) {
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
             item {
-                Text(text = "System Metrics", style = MaterialTheme.typography.headlineMedium)
+                if (onBack != null) TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
+                Text(text = tr(UiString.METRICS_TITLE), style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    text = "Latency measured live on this device, and your current task log.",
+                    text = tr(UiString.METRICS_SUBTITLE),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -62,18 +71,18 @@ fun MetricsScreen(viewModel: MetricsViewModel = hiltViewModel()) {
 
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                    StatTile(label = "Avg Latency", value = if (latencyLog.isEmpty()) "—" else "${avgLatencyMs}ms", modifier = Modifier.weight(1f))
-                    StatTile(label = "Turns Logged", value = "${latencyLog.size}", modifier = Modifier.weight(1f))
-                    StatTile(label = "Success Rate", value = if (latencyLog.isEmpty()) "—" else "$successRatePercent%", modifier = Modifier.weight(1f))
+                    StatTile(label = tr(UiString.METRICS_AVG_LATENCY), value = if (latencyLog.isEmpty()) "—" else "${avgLatencyMs}ms", modifier = Modifier.weight(1f))
+                    StatTile(label = tr(UiString.METRICS_TURNS), value = "${latencyLog.size}", modifier = Modifier.weight(1f))
+                    StatTile(label = tr(UiString.METRICS_SUCCESS), value = if (latencyLog.isEmpty()) "—" else "$successRatePercent%", modifier = Modifier.weight(1f))
                 }
             }
 
-            item { Text(text = "Live API Latency", style = MaterialTheme.typography.titleMedium) }
+            item { Text(text = tr(UiString.METRICS_LIVE_LATENCY), style = MaterialTheme.typography.titleMedium) }
 
             if (latencyLog.isEmpty()) {
                 item {
                     Text(
-                        text = "No turns yet this session — ask ZARVIS something on Workspace and it shows up here instantly.",
+                        text = tr(UiString.METRICS_NO_TURNS),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -82,18 +91,21 @@ fun MetricsScreen(viewModel: MetricsViewModel = hiltViewModel()) {
                 items(items = latencyLog, key = { it.id }) { metric -> LatencyRow(metric) }
             }
 
-            item { Text(text = "Task Log", style = MaterialTheme.typography.titleMedium) }
+            item { Text(text = tr(UiString.METRICS_TASK_LOG), style = MaterialTheme.typography.titleMedium) }
 
             if (uiState.isLoading) {
                 item { CircularProgressIndicator() }
             }
-            uiState.error?.let { error ->
-                item { Text(text = error, color = MaterialTheme.colorScheme.error) }
+            if (uiState.error != null) {
+                item {
+                    Text(text = tr(UiString.METRICS_TASKS_ERROR), color = MaterialTheme.colorScheme.error)
+                    ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
+                }
             }
             if (statusCounts.isNotEmpty()) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                        statusCounts.forEach { (status, count) -> ZarvisChip(label = "$status · $count", onClick = {}) }
+                        statusCounts.forEach { (status, count) -> ZarvisChip(label = "${StatusLabels.taskText(status, null, locale)} · $count", onClick = {}) }
                     }
                 }
             }
@@ -136,8 +148,9 @@ private fun LatencyRow(metric: TurnMetric) {
 
 @Composable
 private fun TaskLogRow(task: TaskDto) {
+    val locale = LocalAppLocale.current
     GlassSurface(modifier = Modifier.fillMaxWidth(), contentPadding = ZarvisSpacing.sm) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = task.goal,
                 style = MaterialTheme.typography.bodyMedium,
@@ -145,7 +158,11 @@ private fun TaskLogRow(task: TaskDto) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            RiskBadge(level = RiskBadgeLevel.valueOf(task.riskLevel))
+            Spacer(modifier = Modifier.size(ZarvisSpacing.sm))
+            Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs), verticalAlignment = Alignment.CenterVertically) {
+                StatusBadge(label = StatusLabels.taskText(task.status, task.lifecycle, locale), tone = StatusLabels.taskTone(task.status, task.lifecycle))
+                RiskBadgeLevel.fromWire(task.riskLevel)?.let { RiskBadge(level = it) }
+            }
         }
     }
 }

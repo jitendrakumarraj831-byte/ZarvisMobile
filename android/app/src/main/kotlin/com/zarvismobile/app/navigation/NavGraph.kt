@@ -26,6 +26,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.zarvismobile.core.ui.components.GlassBottomBar
 import com.zarvismobile.core.ui.components.ZarvisNavItem
+import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.domain.presentation.UiString
+import com.zarvismobile.domain.presentation.WorkScreen
 import com.zarvismobile.feature.conversation.ConversationScreen
 import com.zarvismobile.feature.developer.DeveloperScreen
 import com.zarvismobile.feature.home.CapabilitiesScreen
@@ -33,6 +36,7 @@ import com.zarvismobile.feature.home.FeatureDetailScreen
 import com.zarvismobile.feature.home.HomeScreen
 import com.zarvismobile.feature.home.MoreScreen
 import com.zarvismobile.feature.onboarding.OnboardingScreen
+import com.zarvismobile.feature.settings.MemoryScreen
 import com.zarvismobile.feature.settings.SettingsScreen
 import com.zarvismobile.feature.subscription.SubscriptionScreen
 import com.zarvismobile.feature.tasks.MetricsScreen
@@ -49,6 +53,7 @@ object Routes {
     const val CONVERSATION = "conversation"
     const val CONVERSATION_ARG_INITIAL_TEXT = "initialText"
     const val TASKS = "tasks"
+    const val MEMORY = "memory"
     const val DEVELOPER = "developer"
     const val SUBSCRIPTION = "subscription"
     const val SETTINGS = "settings"
@@ -56,33 +61,47 @@ object Routes {
     const val FEATURE_ARG = "featureId"
 }
 
-private val BOTTOM_NAV_ITEMS = listOf(
-    ZarvisNavItem(Routes.HOME, "Home", Icons.Filled.Home),
-    ZarvisNavItem(Routes.CHAT, "Chat", Icons.Filled.ChatBubble),
-    ZarvisNavItem(Routes.CAPABILITIES, "Capabilities", Icons.Filled.Explore),
-    ZarvisNavItem(Routes.ACTIVITY, "Tasks", Icons.AutoMirrored.Filled.List),
-    ZarvisNavItem(Routes.MORE, "Work", Icons.Filled.Apps),
+/** The five tabs (blueprint §4), named in the app's language. */
+@Composable
+private fun bottomNavItems(): List<ZarvisNavItem> = listOf(
+    ZarvisNavItem(Routes.HOME, tr(UiString.NAV_HOME), Icons.Filled.Home),
+    ZarvisNavItem(Routes.CHAT, tr(UiString.NAV_CHAT), Icons.Filled.ChatBubble),
+    ZarvisNavItem(Routes.CAPABILITIES, tr(UiString.NAV_CAPABILITIES), Icons.Filled.Explore),
+    ZarvisNavItem(Routes.ACTIVITY, tr(UiString.NAV_TASKS), Icons.AutoMirrored.Filled.List),
+    ZarvisNavItem(Routes.MORE, tr(UiString.NAV_WORK), Icons.Filled.Apps),
 )
+
+/** The screen each Work card opens. Every route is reachable from the Work tab (NavigationReachabilityTest checks this). */
+private fun routeFor(screen: WorkScreen): String = when (screen) {
+    WorkScreen.TASKS -> Routes.TASKS
+    WorkScreen.MEMORY -> Routes.MEMORY
+    WorkScreen.METRICS -> Routes.METRICS
+    WorkScreen.PLANS -> Routes.SUBSCRIPTION
+    WorkScreen.DEVELOPER -> Routes.DEVELOPER
+    WorkScreen.SETTINGS -> Routes.SETTINGS
+}
 
 @Composable
 fun ZarvisNavGraph(startAtOnboarding: Boolean) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val navItems = bottomNavItems()
+    // The screens opened from the Work tab keep it highlighted (and the tab bar visible) while they are open.
     val selectedRoute = when (currentRoute) {
-        Routes.METRICS, Routes.TASKS -> Routes.ACTIVITY
+        Routes.METRICS, Routes.TASKS, Routes.MEMORY -> Routes.MORE
         else -> currentRoute ?: Routes.HOME
     }
     // The tab bar sits behind the keyboard, so while typing it is only dead space between the composer and the keys: hide it.
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val showBottomBar = BOTTOM_NAV_ITEMS.any { it.route == selectedRoute } && !keyboardOpen
+    val showBottomBar = navItems.any { it.route == selectedRoute } && !keyboardOpen
 
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         bottomBar = {
             if (showBottomBar) {
                 GlassBottomBar(
-                    items = BOTTOM_NAV_ITEMS,
+                    items = navItems,
                     selectedRoute = selectedRoute,
                     onSelect = { route ->
                         navController.navigate(route) {
@@ -139,10 +158,8 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
             }
             composable(Routes.MORE) {
                 MoreScreen(
+                    onOpenScreen = { screen -> navController.navigate(routeFor(screen)) },
                     onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
-                    onOpenDeveloper = { navController.navigate(Routes.DEVELOPER) },
-                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
-                    onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 )
             }
             composable(Routes.ACTIVITY) {
@@ -165,8 +182,15 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     onOpenDeveloper = { navController.navigate(Routes.DEVELOPER) },
                 )
             }
-            composable(Routes.METRICS) { MetricsScreen() }
-            composable(Routes.TASKS) { TasksScreen() }
+            composable(Routes.METRICS) { MetricsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.TASKS) {
+                TasksScreen(
+                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onOpenTasksFeature = { navController.navigate("feature/tasks") },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.MEMORY) { MemoryScreen(onBack = { navController.popBackStack() }) }
             composable(
                 route = "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}={${Routes.CONVERSATION_ARG_INITIAL_TEXT}}&submit={submit}&listen={listen}",
                 arguments = listOf(

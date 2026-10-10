@@ -27,7 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.ZarvisGhostButton
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.domain.presentation.UiString
 
 /**
  * Progressive onboarding — see MASTER_SPEC.md §15. Every page is skippable; permissions are
@@ -58,9 +60,9 @@ fun OnboardingScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            if (uiState.pageIndex > 0) ZarvisGhostButton(text = "Back", onClick = viewModel::previous)
+            if (uiState.pageIndex > 0) ZarvisGhostButton(text = tr(UiString.COMMON_BACK), onClick = viewModel::previous)
             else Text("")
-            ZarvisGhostButton(text = "Skip", onClick = viewModel::skip)
+            ZarvisGhostButton(text = tr(UiString.ONBOARDING_SKIP), onClick = viewModel::skip)
         }
 
         // weight(fill = false) + verticalScroll: takes only the space it needs (preserving
@@ -75,8 +77,8 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
-            Text(text = page.title, style = MaterialTheme.typography.headlineLarge)
-            Text(text = page.body, style = MaterialTheme.typography.bodyLarge)
+            Text(text = tr(page.title), style = MaterialTheme.typography.headlineLarge)
+            Text(text = tr(page.body), style = MaterialTheme.typography.bodyLarge)
         }
 
         Column(
@@ -84,7 +86,7 @@ fun OnboardingScreen(
         ) {
             PageIndicator(count = uiState.pageCount, current = uiState.pageIndex)
             ZarvisPrimaryButton(
-                text = if (uiState.pageIndex == uiState.pageCount - 1) "Get started" else "Next",
+                text = tr(if (uiState.pageIndex == uiState.pageCount - 1) UiString.ONBOARDING_START else UiString.ONBOARDING_NEXT),
                 onClick = viewModel::next,
                 modifier = Modifier.fillMaxWidth(),
             )

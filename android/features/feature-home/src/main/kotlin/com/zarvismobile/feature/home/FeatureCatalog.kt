@@ -32,7 +32,11 @@ data class FeaturePage(
     val phoneActions: List<PhoneAction> = emptyList(),
 )
 
-/** Same capability set as web/feature-pages.js. Copy stays limited to skills in SKILLS.md. */
+/**
+ * The product pages this app has. The website's Capabilities hub (web/feature-pages.js) lists more areas than this (Projects, Files library,
+ * Memory, Pull requests and others), so this is NOT the same set; the Work page says which of those are website-only. Copy stays limited to
+ * skills in SKILLS.md.
+ */
 object FeatureCatalog {
     val pages: List<FeaturePage> = listOf(
         FeaturePage(

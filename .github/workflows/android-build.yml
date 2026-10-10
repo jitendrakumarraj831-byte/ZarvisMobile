@@ -43,6 +43,11 @@ jobs:
       - name: Unit-test auth/session layer
         run: ./gradlew :data:data-remote:testDebugUnitTest :data:data-repository:testDebugUnitTest --stacktrace --console=plain
 
+      # What the Memory, Work and Tasks screens show and do (ViewModels against a stand-in server): a failed call is reported, never shown as
+      # an empty list or a zero, and a failed delete leaves the list as it was.
+      - name: Unit-test the Memory, Work and Tasks view models
+        run: ./gradlew :features:feature-settings:testDebugUnitTest :features:feature-home:testDebugUnitTest :features:feature-tasks:testDebugUnitTest --stacktrace --console=plain
+
       # The dev API host is machine-specific and auto-detected from the build machine's LAN
       # address (see app/build.gradle.kts). A CI runner's address is meaningless to anyone
       # downloading the artifact, so pin it here: the uploaded APK is deterministic and

@@ -43,6 +43,13 @@ class AppStartupViewModel @Inject constructor(
     private val _state = MutableStateFlow<AppStartupState>(AppStartupState.Loading)
     val state: StateFlow<AppStartupState> = _state.asStateFlow()
 
+    /** `"en"` or `"hi"`: the language the app's own labels are drawn in (see LocalAppLocale). */
+    val locale: StateFlow<String> = appPreferences.locale.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        "en",
+    )
+
     val darkTheme: StateFlow<Boolean> = appPreferences.darkTheme.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
