@@ -2070,6 +2070,12 @@ body.modal-open, body.drawer-open { overflow: hidden; }
   body[data-active-view="chat"] .composer { bottom: var(--safe-b); }
 }
 
+/* Developer Agent's four tabs wrapped three and one on a phone ("History" alone on a second line). Two by two stays even at every phone width. */
+@media (max-width: 599px) {
+  .dev-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .dev-tab { padding: 0 var(--s2); }
+}
+
 /* A focused control scrolls to a spot the fixed bars do not cover (keyboard, switch and screen-reader users). */
 html { scroll-padding-top: calc(var(--topbar-h) + var(--s4)); scroll-padding-bottom: calc(var(--nav-h) + var(--safe-b) + var(--s6)); }
 html:has(body[data-active-view="chat"]) { scroll-padding-bottom: 160px; }

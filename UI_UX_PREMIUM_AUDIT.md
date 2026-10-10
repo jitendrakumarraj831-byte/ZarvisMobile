@@ -91,16 +91,18 @@ Results on the final commit (Postgres 16, real backend, headless Chromium; each 
 | --- | --- | --- |
 | Web units | `node --test web/tests/*.test.js` | 64/64 |
 | Phase 1 E2E | `node web/e2e/phase1.e2e.cjs` | 36/36 |
-| Quality E2E | `node web/e2e/quality.e2e.cjs` | 31/31 |
+| Quality E2E | `node web/e2e/quality.e2e.cjs` | 46/46 |
 | Workspace E2E | `node web/e2e/workspace.e2e.cjs` | 46/46 |
-| Backend | `cd backend && npx vitest run` (with `TEST_DATABASE_URL`) | 619 passed, 2 live-API tests skipped (backend untouched) |
+| Backend | `cd backend && npx vitest run` (with `TEST_DATABASE_URL`) | 621 passed, 2 live-API tests skipped |
 | Typecheck | root and `backend` | clean |
 
 **CI note.** Guest sign-ups are limited to 60 an hour per server process. Phase 1 and the quality suite used to share one process in CI;
 with the quality suite's new steps they used the whole budget and its last two steps failed with HTTP 429 (reproduced locally: 29/31 on a
 shared process, 31/31 on its own). `backend-tests.yml` now starts a separate backend for each browser suite.
-The `smoke` check calls the live Vercel preview and the real Gemini API; when Gemini answers `AI_UNAVAILABLE` to the web-search turn it
-fails, whatever the diff. It is not run locally.
+The `smoke` check calls the live Vercel preview and the real Gemini API, so it can go red whatever the diff. A temporary Gemini outage
+(`AI_UNAVAILABLE` with `retryable: true`) is a warning for the chat turn and the web-search turn alike; only a non-retryable failure (a
+missing or rejected key, or no model the key can use) fails it. The provider used to report the fallback model's 404 in place of the
+configured model's 503, which turned an outage into a non-retryable failure; it now keeps the real reason. It is not run locally.
 Not covered by an automated pass/fail: `web/e2e/link-scan.cjs` (an exploratory click-through; it reported no dead control on Home, phone and desktop).
 
 ## 8. Next phase (recommended)

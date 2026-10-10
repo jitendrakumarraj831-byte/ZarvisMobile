@@ -1166,6 +1166,29 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     assert.deepEqual(problems, []);
   });
 
+  await step("Developer Agent tabs: two by two on a phone (never three and one), one row from 600px", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 760 }, hasTouch: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/developer"; });
+    await page.waitForSelector(".dev-tab", { state: "visible" });
+    for (const width of [320, 360, 390, 412, 540, 599, 600, 700, 1280]) {
+      await page.setViewportSize({ width, height: 760 });
+      await page.waitForTimeout(250);
+      const rows = await page.evaluate(() => {
+        const tops = [...document.querySelectorAll(".dev-tab")].filter((n) => n.getClientRects().length).map((n) => Math.round(n.getBoundingClientRect().top));
+        const count = {};
+        for (const t of tops) count[t] = (count[t] || 0) + 1;
+        return Object.values(count);
+      });
+      const want = width < 600 ? [2, 2] : [4];
+      if (JSON.stringify(rows) !== JSON.stringify(want)) problems.push(`${width}px: tabs per row ${JSON.stringify(rows)}, wanted ${JSON.stringify(want)}`);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
   await step("Language: switching it renames the browser tab too, in both directions", async () => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 780 } });
     const page = await pageOf(ctx);

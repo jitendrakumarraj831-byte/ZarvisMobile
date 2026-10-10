@@ -113,7 +113,9 @@ export class GeminiProvider implements AIProvider {
         const text = await res.text().catch(() => "");
         const failure = classifyGeminiFailure(res.status, text, res.headers.get("retry-after"));
         const providerError = toProviderError(label, res.status, res.statusText, failure, text, model);
-        lastError = providerError;
+        // A model that does not exist for this key says nothing about why the one before it failed, so it
+        // must not replace that reason (an overloaded model would be reported as a permanent failure).
+        if (failure.kind !== "not_found" || !lastError) lastError = providerError;
         call.failure = { code: providerError.code, quotaType: providerError.quotaType, ...providerError.evidence };
         if (failure.kind === "fatal") throw lastError;
         const wait = retryDelayMs(failure, attempt);
