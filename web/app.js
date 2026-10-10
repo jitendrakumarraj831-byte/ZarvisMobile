@@ -2424,6 +2424,8 @@
         openFeature(card.dataset.featurePage);
       });
     }
+    // The prompt row scrolls sideways on a phone: it fades the edge that has more, so a chip cut by the screen reads as "more".
+    workspace()?.scrollFade(document.querySelector("#home-quick .chip-row"));
   }
 
   function setupCapabilityPages() {

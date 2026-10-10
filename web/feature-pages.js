@@ -291,6 +291,8 @@
       summary.appendChild(chip);
     }
     container.append(summary, pills, grid);
+    // On a phone the filter row scrolls sideways: it fades the edge that has more (a no-op where the pills wrap).
+    if (typeof window !== "undefined" && window.ZarvisWorkspace && window.ZarvisWorkspace.scrollFade) window.ZarvisWorkspace.scrollFade(pills);
 
     GROUPS.forEach((group, groupIndex) => {
       if (group.title === "Developer" && !withDeveloper) return;

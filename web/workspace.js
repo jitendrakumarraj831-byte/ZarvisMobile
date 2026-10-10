@@ -2841,5 +2841,6 @@
     currentProjectId: () => work.projectId,
     projectName: (id) => projectNameOf(id),
     loadProjects: loadProjectsCache,
+    scrollFade,
   };
 })();

@@ -1415,7 +1415,7 @@ body::before {
 #capability-hub .cap-item.is-off .row-ico .ico { color: var(--text-3); }
 .cap-item .cap-name, .cap-name { color: var(--text); }
 @media (max-width: 560px) {
-  .cap-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--gutter)); padding-inline: var(--gutter); }
+  .cap-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--gutter)); padding-inline: var(--gutter); padding-block: 4px; margin-top: -4px; margin-bottom: calc(var(--s5) - 4px); /* room for the focus ring */ }
   .cap-filters::-webkit-scrollbar { display: none; }
   .cap-pill { flex: none; }
   #capability-hub .cap-grid { grid-template-columns: 1fr 1fr; gap: var(--s3); }
@@ -1668,8 +1668,8 @@ body.palette-open { overflow: hidden; }
 .popover-title { padding: var(--s2) var(--s3); font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); }
 .popover-empty { padding: var(--s3); color: var(--text-2); font-size: 14px; }
 .popover-account { padding: var(--s2) var(--s3) var(--s3); border-bottom: 1px solid var(--line); margin-bottom: var(--s1); }
-.popover-account strong { display: block; font-size: 15px; }
-.popover-account small { color: var(--text-3); font-size: 12.5px; line-height: 1.4; }
+.popover-account strong { display: block; font-size: 15px; overflow-wrap: anywhere; }
+.popover-account small { color: var(--text-3); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; } /* a long e-mail address has no space to break at */
 .popover-item { display: flex; align-items: center; gap: var(--s3); width: 100%; padding: 8px var(--s3); border-radius: 14px; text-align: left; transition: background 160ms; }
 .popover-item:hover, .popover-item:focus-visible { background: var(--primary-soft); }
 .popover-ico { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 11px; background: var(--surface-2); color: var(--primary); }
@@ -2048,6 +2048,28 @@ body.modal-open, body.drawer-open { overflow: hidden; }
 @media (max-width: 699px) { body[data-active-view="chat"] .chat-header { top: var(--banner-h, 0px); } }
 @media (min-width: 700px) { .desk-top { top: var(--banner-h, 0px); } .chat-header { top: calc(var(--banner-h, 0px) + var(--appbar-h)); } }
 
+/* Keyboard focus. The ring above is a box-shadow, and every component that draws a shadow of its own (primary and secondary buttons,
+   chips, cards, the active tab, the desktop search, bell and avatar) set its shadow later in this file and replaced it: Tab moved
+   focus there and nothing showed where it was. An outline cannot be replaced by a shadow rule, so buttons, links and other focusable
+   controls get one; the few that already draw their own ring (tabs, the orb, card and row buttons, the scrollable table) keep it.
+   It is also what a forced-colours (high contrast) theme paints. */
+:is(button, a[href], summary, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])):not(.ws-tab, .orb-stage, .ws-card-open, .ws-row-open, .reply-table-wrap, .nav-fab):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: var(--ring-offset, 2px); box-shadow: none;
+}
+/* The round mic in the tab bar: the ring goes round the orb, not round the square tab it sits in. */
+.nav-fab:focus-visible { outline: none; box-shadow: none; }
+.nav-fab:focus-visible .fab-orb { outline: 3px solid var(--primary); outline-offset: 3px; }
+/* A segmented control clips to its 3px padding (it scrolls sideways when narrow), so its buttons draw the ring inside themselves. */
+.seg { --ring-offset: -2px; }
+
+/* A phone held sideways has 320-375px of height. In Chat the header, the message box and the tab bar (with its overhanging mic) took more
+   than half of it, leaving about 100px for the conversation. Chat has its own back button, so the tab bar steps aside there, as it already
+   does while the keyboard is up. */
+@media (max-height: 480px) and (max-width: 699px) {
+  body[data-active-view="chat"] .bottom-nav { display: none; }
+  body[data-active-view="chat"] .composer { bottom: var(--safe-b); }
+}
+
 /* A focused control scrolls to a spot the fixed bars do not cover (keyboard, switch and screen-reader users). */
 html { scroll-padding-top: calc(var(--topbar-h) + var(--s4)); scroll-padding-bottom: calc(var(--nav-h) + var(--safe-b) + var(--s6)); }
 html:has(body[data-active-view="chat"]) { scroll-padding-bottom: 160px; }
@@ -2224,11 +2246,11 @@ body[data-orb-state="SPEAKING"] #home-orb .orb { animation: orb-speak 0.9s ease-
 @media (max-height: 720px) { #home-orb { margin-top: var(--s6); } }
 .home-lower { display: flex; flex-direction: column; align-items: center; gap: var(--s4); margin: auto 0; padding: var(--s5) 0; text-align: center; }
 .view-home .home-quick { margin: 0; animation: none; }
-.view-home .home-quick .chip-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter); margin-inline: calc(-1 * var(--gutter)); padding: 2px var(--gutter); }
+.view-home .home-quick .chip-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter); margin-inline: calc(-1 * var(--gutter)); padding: 5px var(--gutter); margin-block: -3px; /* room for the focus ring: a row that scrolls clips what is drawn outside it */ }
 .view-home .home-quick .chip-row::-webkit-scrollbar { display: none; }
 .view-home .home-quick .chip { flex: none; min-height: 44px; padding: 0 var(--s4); scroll-snap-align: start; border-radius: var(--r-pill); font-size: 15px; font-weight: 600; }
 .chip[class*="tone-"] .ico { width: 18px; height: 18px; color: var(--tone); }
-@media (min-width: 700px) { .view-home .home-quick .chip-row { flex-wrap: wrap; justify-content: center; overflow: visible; margin-inline: 0; padding: 0; } }
+@media (min-width: 700px) { .view-home .home-quick .chip-row { flex-wrap: wrap; justify-content: center; overflow: visible; margin: 0; padding: 0; } }
 
 /* ---------- Home orb: a neon ring with rippling waves and drifting sparks; "ZARVIS AI" inside ----------
    Same deep-blue glow in both themes. Only the Home orb (#home-orb); the Chat orb is unchanged.
@@ -2821,6 +2843,7 @@ body.chat-loading .chat-empty { display: none; }
 .form-card { max-width: 520px; }
 .form-card .history-head { margin-bottom: var(--s3); }
 .form-fields { display: flex; flex-direction: column; gap: var(--s4); }
+.form-card > p + .form { margin-top: var(--s4); } /* the first label sat flush against the intro sentence */
 .form-card .alert { margin-top: var(--s3); }
 
 /* Uploads */

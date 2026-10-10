@@ -978,6 +978,194 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     });
   }
 
+  await step("Sideways rows: the Home prompts and the Capabilities filters fade the edge that has more, follow the scroll, and fade nothing where they wrap", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 700 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const fadeOf = (selector) => page.evaluate((s) => document.querySelector(s).dataset.fade ?? "(unset)", selector);
+    const scrollTo = async (selector, where) => {
+      await page.evaluate(([s, w]) => { const r = document.querySelector(s); r.scrollLeft = w === "end" ? r.scrollWidth : w; }, [selector, where]);
+      await page.waitForTimeout(250);
+    };
+    for (const [name, selector, open] of [["Home prompts", "#home-quick .chip-row", () => page.evaluate(() => { location.hash = "#/home"; })], ["Capabilities filters", ".cap-filters", () => page.evaluate(() => { location.hash = "#/capabilities"; })]]) {
+      await open();
+      await page.waitForTimeout(800);
+      await scrollTo(selector, 0);
+      const first = await fadeOf(selector);
+      await scrollTo(selector, 200); // far enough that the row's scroll-snap does not pull it back to the start
+      const middle = await fadeOf(selector);
+      await scrollTo(selector, "end");
+      const last = await fadeOf(selector);
+      if (first !== "end") problems.push(`${name}: at the start the fade is "${first}", expected "end"`);
+      if (middle !== "start end") problems.push(`${name}: in the middle the fade is "${middle}", expected "start end"`);
+      if (last !== "start") problems.push(`${name}: at the end the fade is "${last}", expected "start"`);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(400);
+    for (const [name, selector, hash] of [["Home prompts", "#home-quick .chip-row", "#/home"], ["Capabilities filters", ".cap-filters", "#/capabilities"]]) {
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForTimeout(600);
+      const wide = await fadeOf(selector);
+      if (wide !== "") problems.push(`${name}: wrapped on a desktop, yet the fade is "${wide}"`);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  for (const [appearance, routes, width] of [["aurora", ["home", "chat", "work/projects", "work/files", "work/tasks", "agents/research", "settings", "settings/appearance", "plans", "capabilities"], 1280], ["dim", ["home", "work/projects", "settings", "plans"], 1280], ["aurora", ["home", "chat", "settings"], 390]]) {
+    await step(`keyboard: tabbing to any control on ${routes.length} pages at ${width}px shows a focus ring that is not hidden by the control's own shadow or cut by its row (${appearance === "dim" ? "dark" : "light"} theme)`, async () => {
+      const problems = [];
+      const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+      await ctx.addInitScript((a) => { try { localStorage.setItem("zarvis.appearance", a); } catch {} }, appearance);
+      const page = await pageOf(ctx);
+      await ready(page);
+      for (const route of routes) {
+        await page.evaluate((h) => { location.hash = "#/" + h; }, route);
+        await page.waitForTimeout(700);
+        await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });
+        const tried = new Set();
+        for (let i = 0; i < 90; i += 1) {
+          await page.keyboard.press("Tab"); // a real key press: focus-visible is only decided that way
+          const m = await page.evaluate(() => {
+            const el = document.activeElement;
+            if (!el || el === document.body || !el.getClientRects().length) return null;
+            const cs = getComputedStyle(el);
+            const outline = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0;
+            const shadowRing = /0px 0px 0px [234]px/.test(cs.boxShadow);
+            let wrapperRing = false; // a field inside a rounded card: the card shows the ring
+            for (let p = el.parentElement, k = 0; p && k < 4; p = p.parentElement, k += 1) if (p.matches(":focus-within") && /0px 0px 0px [234]px/.test(getComputedStyle(p).boxShadow)) wrapperRing = true;
+            const name = (el.id ? "#" + el.id : "") + "." + String(el.className).trim().split(/\s+/).slice(0, 2).join(".") + ' "' + (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 20) + '"';
+            // the line drawn outside the control must not be cut by a row that scrolls or clips
+            let cut = null;
+            if (outline && cs.position !== "fixed") {
+              const rr = el.getBoundingClientRect();
+              const grow = Math.max(0, parseFloat(cs.outlineOffset) + parseFloat(cs.outlineWidth));
+              for (let p = el.parentElement; p && p !== document.documentElement && p !== document.body; p = p.parentElement) {
+                const o = getComputedStyle(p);
+                if (o.overflowX === "visible" && o.overflowY === "visible") continue;
+                const pr = p.getBoundingClientRect();
+                const top = pr.top + p.clientTop, bottom = top + p.clientHeight, left = pr.left + p.clientLeft, right = left + p.clientWidth;
+                if ((o.overflowY !== "visible" && ((rr.top - grow < top - 0.5 && rr.top >= top - 0.5) || (rr.bottom + grow > bottom + 0.5 && rr.bottom <= bottom + 0.5))) || (o.overflowX !== "visible" && ((rr.left - grow < left - 0.5 && rr.left >= left - 0.5) || (rr.right + grow > right + 0.5 && rr.right <= right + 0.5)))) { cut = (p.id ? "#" + p.id : "") + "." + String(p.className).trim().split(/\s+/).slice(0, 2).join("."); break; }
+              }
+            }
+            // the round mic in the phone tab bar draws its ring on the orb inside the tab
+            const orb = el.matches(".nav-fab") ? el.querySelector(".fab-orb") : null;
+            const orbRing = !!orb && getComputedStyle(orb).outlineStyle !== "none";
+            return { name, visible: outline || shadowRing || wrapperRing || orbRing, cut };
+          });
+          if (!m) continue;
+          if (tried.has(m.name)) break; // went all the way round
+          tried.add(m.name);
+          if (!m.visible && !/skip-link/.test(m.name)) problems.push(`${route}: no focus ring on ${m.name}`);
+          if (m.cut) problems.push(`${route}: the ring of ${m.name} is cut by ${m.cut}`);
+        }
+      }
+      await ctx.close();
+      assert.deepEqual([...new Set(problems)], []);
+    });
+  }
+
+  await step("Phone held sideways: Chat keeps at least 45% of the screen for the conversation (the tab bar steps aside there), other pages keep their tab bar, and an upright phone is unchanged", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 667, height: 375 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const probe = () => page.evaluate(() => {
+      const shown = (s) => { const n = document.querySelector(s); return !!n && n.getClientRects().length > 0; };
+      const top = Math.max(0, ...[".topbar", ".chat-header"].map((s) => { const n = document.querySelector(s); return n && n.getClientRects().length ? n.getBoundingClientRect().bottom : 0; }));
+      const bottom = Math.min(innerHeight, ...["#composer", ".bottom-nav"].map((s) => { const n = document.querySelector(s); return n && n.getClientRects().length ? n.getBoundingClientRect().top : innerHeight; }));
+      const composer = document.getElementById("composer").getBoundingClientRect();
+      return { nav: shown(".bottom-nav"), room: (bottom - top) / innerHeight, composerBottom: composer.bottom, vh: innerHeight };
+    });
+    for (const [width, height] of [[667, 375], [568, 320]]) {
+      await page.setViewportSize({ width, height });
+      await openView(page, "chat");
+      await page.waitForTimeout(600);
+      const chat = await probe();
+      if (chat.nav) problems.push(`${width}x${height}: the tab bar still takes room in Chat`);
+      if (chat.room < 0.45) problems.push(`${width}x${height}: only ${Math.round(chat.room * 100)}% of the screen is left for the conversation`);
+      if (chat.composerBottom > chat.vh + 1) problems.push(`${width}x${height}: the message box runs off the bottom of the screen`);
+      await openView(page, "work");
+      await page.waitForTimeout(400);
+      const work = await page.evaluate(() => { const n = document.querySelector(".bottom-nav"); return !!n && n.getClientRects().length > 0; });
+      if (!work) problems.push(`${width}x${height}: Work lost its tab bar`);
+    }
+    await page.setViewportSize({ width: 390, height: 780 });
+    await openView(page, "chat");
+    await page.waitForTimeout(500);
+    const upright = await probe();
+    if (!upright.nav) problems.push("an upright phone lost the tab bar in Chat");
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("A very long e-mail address stays inside the account menu, Settings, Account and Security on a 320px phone", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const email = `a.very.long.firstname.lastname.with.many.parts.${Date.now()}@a-rather-long-subdomain.example-company-name.co.in`;
+    const linked = await page.evaluate(async (address) => {
+      const res = await fetch("/api/v1/auth/link", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify({ email: address, password: "correct-horse-battery" }) });
+      if (res.ok) { localStorage.setItem("zarvis.email", address); localStorage.setItem("zarvis.isGuest", "false"); }
+      return res.status;
+    }, email);
+    assert.equal(linked, 200, "the account could not be linked to an e-mail");
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 });
+    const outside = () => page.evaluate(() => {
+      const bad = [];
+      if (document.documentElement.scrollWidth > innerWidth) bad.push(`the page is ${document.documentElement.scrollWidth - innerWidth}px wider than the screen`);
+      for (const n of document.querySelectorAll(".view:not([hidden]) *, .shell-popover *")) {
+        if (!n.getClientRects().length || n.children.length || !n.textContent.includes("@")) continue;
+        const r = n.getBoundingClientRect();
+        const box = n.closest(".shell-popover, .panel, .profile-hero, .settings-row") || document.body;
+        const b = box.getBoundingClientRect();
+        if (r.right > b.right + 1 || r.left < b.left - 1 || r.right > innerWidth + 1) bad.push(`the address runs past its box (${Math.round(r.right)} > ${Math.round(Math.min(b.right, innerWidth))})`);
+      }
+      return bad;
+    });
+    for (const route of ["settings", "settings/account", "settings/security"]) {
+      await page.evaluate((h) => { location.hash = "#/" + h; }, route);
+      await page.waitForTimeout(700);
+      for (const b of await outside()) problems.push(`${route}: ${b}`);
+    }
+    await page.evaluate(() => { location.hash = "#/home"; });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => [...document.querySelectorAll('[data-shell="profile"]')].find((n) => n.getClientRects().length).click());
+    await page.waitForSelector(".shell-popover");
+    await page.waitForTimeout(300);
+    for (const b of await outside()) problems.push(`account menu: ${b}`);
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Form dialogs: the first field has the same room under the intro sentence as the fields have between each other", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    for (const [route, button] of [["#/work/projects", "New project"], ["#/work/tasks", "New task"]]) {
+      await page.evaluate((h) => { location.hash = h; }, route);
+      await page.waitForTimeout(700);
+      await page.locator(`button:has-text("${button}"):visible`).first().click();
+      await page.waitForSelector("#form-modal:not([hidden]) .form-fields");
+      const m = await page.evaluate(() => {
+        const intro = document.querySelector("#form-modal .modal-card > p").getBoundingClientRect();
+        const labels = [...document.querySelectorAll("#form-modal .form-fields label")].map((n) => n.getBoundingClientRect());
+        const first = labels[0];
+        const between = labels[1].top - document.querySelector("#form-modal .form-fields input, #form-modal .form-fields textarea").getBoundingClientRect().bottom;
+        return { gap: first.top - intro.bottom, between };
+      });
+      if (m.gap < m.between - 4) problems.push(`${button}: the first field is ${Math.round(m.gap)}px under the intro, the fields are ${Math.round(m.between)}px apart`);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
   await step("Language: switching it renames the browser tab too, in both directions", async () => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 780 } });
     const page = await pageOf(ctx);
