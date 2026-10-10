@@ -148,10 +148,53 @@ data class TaskDto(
     val steps: List<TaskStepDto> = emptyList(),
     val riskLevel: String,
     val createdAt: String,
+    /** What the task is really doing (QUEUED, WAITING, EXECUTING, ...). Older servers do not send it; [status] still reads. */
+    val lifecycle: String? = null,
 )
 
 @Serializable
 data class TasksResponse(val tasks: List<TaskDto>)
+
+/** One saved memory item (GET /api/v1/memory, backend/src/workspace/views.ts noteView). Only what the screen shows is modeled. */
+@Serializable
+data class MemoryNoteDto(
+    val id: String,
+    val projectId: String? = null,
+    val kind: String = "memory",
+    val content: String,
+    /** A paused item stays saved but is not given to the model. */
+    val enabled: Boolean = true,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class MemoryProjectDto(
+    val id: String,
+    val name: String,
+    val status: String? = null,
+    val items: List<MemoryNoteDto> = emptyList(),
+)
+
+@Serializable
+data class MemoryLimitsDto(val conversationMessages: Int = 0, val memoryItemsUsed: Int = 0)
+
+/** What ZARVIS remembers: personal items, each project's items, and the limits that apply. */
+@Serializable
+data class MemoryOverviewResponse(
+    val enabled: Boolean = true,
+    val personal: List<MemoryNoteDto> = emptyList(),
+    val projects: List<MemoryProjectDto> = emptyList(),
+    val limits: MemoryLimitsDto = MemoryLimitsDto(),
+)
+
+@Serializable
+data class MemorySettingsRequest(val enabled: Boolean)
+
+@Serializable
+data class MemorySettingsResponse(val enabled: Boolean)
+
+@Serializable
+data class MemoryForgetResponse(val removed: Int = 0)
 
 @Serializable
 data class DeveloperAnalyzeRequest(val repoUrl: String)

@@ -27,6 +27,10 @@ kotlin {
 }
 
 dependencies {
+    // UiString (the English/Hindi text catalog) and Markdown (the reply parser) live in :domain, where they are unit-tested on the
+    // JVM; this module draws them, and features reach the same types through here.
+    api(project(":domain"))
+
     // This is a Compose component library: every public declaration in it is Compose-typed
     // (@Composable functions taking Modifier/Color, ZarvisNavItem carrying an ImageVector,
     // the ZarvisTheme entry point), so Compose is `api` here and reaches every consumer that

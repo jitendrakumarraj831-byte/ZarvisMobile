@@ -383,6 +383,7 @@ button:disabled { cursor: not-allowed; }
   border-radius: var(--r-md);
   background: var(--surface); border: 1px solid var(--line-2);
   color: var(--text);
+  text-overflow: ellipsis; /* a placeholder or value that does not fit ends in an ellipsis, not a cut-off letter */
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
@@ -458,7 +459,7 @@ textarea.input { resize: vertical; min-height: 92px; line-height: 1.5; }
   flex: 1 1 240px;
 }
 .search-field .ico { width: 18px; height: 18px; color: var(--text-3); }
-.search-field input { flex: 1; min-width: 0; border: 0; background: none; outline: none; min-height: 42px; }
+.search-field input { flex: 1; min-width: 0; border: 0; background: none; outline: none; min-height: 42px; text-overflow: ellipsis; }
 .search-field:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
 
 .switch {
@@ -902,7 +903,9 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
 .stat-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stat-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s4); }
-@media (min-width: 720px) { #metrics-usage, #plans-current { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Four across only when a tile keeps room for its icon and a whole word, also in the widest fallback font (DejaVu Sans on a bare
+   machine): about 205px. The page is 72px of rail narrower up to 1099px and 260px of sidebar narrower from 1100px, so that is 1010px and 1200px. */
+@media (min-width: 1010px) and (max-width: 1099px), (min-width: 1200px) { #metrics-usage, #plans-current { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .stat-tile {
   display: flex; flex-direction: column; gap: 4px; min-width: 0;
   padding: var(--s4); border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-1);
@@ -970,6 +973,7 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
 .detail-head-copy .muted { margin-top: 2px; }
 .detail-head-copy .muted:empty { display: none; }
 .detail-head-value { flex: none; margin-top: 10px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.z-badge.detail-head-value { background: var(--card-bg); box-shadow: inset 0 0 0 1px var(--line-2); }
 .settings-panel .panel { padding: var(--s2) var(--s5); }
 .settings-panel .panel.form, .settings-panel .panel-danger, .settings-panel .panel:has(.panel-title) { padding: var(--s5); }
 .control-row { display: flex; align-items: center; gap: var(--s4); padding: var(--s4) 0; }
@@ -1213,9 +1217,9 @@ pre.reply-code code { display: block; padding: 0; border: 0; background: none; c
 .toast {
   position: fixed; z-index: 60; left: 50%; bottom: calc(var(--nav-h) + var(--safe-b) + 16px);
   transform: translateX(-50%);
-  max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: var(--r-pill);
-  background: var(--text); color: var(--bg); font-size: 14px; font-weight: 600;
-  box-shadow: var(--shadow-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: max-content; max-width: min(calc(100vw - 32px), 460px); padding: 10px 16px; border-radius: var(--r-lg);
+  background: var(--text); color: var(--bg); font-size: 14px; font-weight: 600; line-height: 1.35; text-align: center;
+  box-shadow: var(--shadow-3); overflow-wrap: anywhere;
   animation: toast-in var(--t-med) var(--ease) both;
 }
 .toast.is-leaving { animation: toast-out 200ms var(--ease) both; }
@@ -1379,6 +1383,8 @@ body::before {
 .command-bar { display: flex; align-items: flex-end; gap: 2px; padding: 6px 6px 6px var(--s2); border-radius: 30px; background: var(--input-bg); border: 1px solid var(--line-2); box-shadow: var(--shadow-3); }
 .command-bar .composer-row, .command-bar .composer-tools { display: contents; }
 .command-bar .composer-input { order: 3; flex: 1; min-width: 0; margin: 0; padding: 12px 6px; align-self: center; }
+.composer-input::placeholder { white-space: nowrap; }
+@media (max-width: 340px) { .command-bar { gap: 0; padding-left: var(--s1); } .command-bar .composer-input { padding-left: 2px; padding-right: 2px; } }
 .command-bar #upload-btn { order: 1; }
 .command-bar #image-btn { order: 2; }
 .command-bar #mic-btn { order: 4; }
@@ -1409,7 +1415,7 @@ body::before {
 #capability-hub .cap-item.is-off .row-ico .ico { color: var(--text-3); }
 .cap-item .cap-name, .cap-name { color: var(--text); }
 @media (max-width: 560px) {
-  .cap-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--gutter)); padding-inline: var(--gutter); }
+  .cap-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--gutter)); padding-inline: var(--gutter); padding-block: 4px; margin-top: -4px; margin-bottom: calc(var(--s5) - 4px); /* room for the focus ring */ }
   .cap-filters::-webkit-scrollbar { display: none; }
   .cap-pill { flex: none; }
   #capability-hub .cap-grid { grid-template-columns: 1fr 1fr; gap: var(--s3); }
@@ -1639,7 +1645,7 @@ body.page-hidden .chat-avatar { animation-play-state: paused; }
 .palette { width: min(640px, 100%); max-height: min(70dvh, 560px); display: flex; flex-direction: column; border-radius: 22px; background: var(--surface); border: 1px solid var(--card-border); box-shadow: var(--shadow-3); overflow: hidden; animation: modal-in 260ms var(--ease) both; }
 .palette-input { display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s4); min-height: 58px; border-bottom: 1px solid var(--line); }
 .palette-input .ico { color: var(--text-3); }
-.palette-input input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 16px; min-height: 56px; }
+.palette-input input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 16px; min-height: 56px; text-overflow: ellipsis; }
 .palette-input input:focus-visible { box-shadow: none; }
 .palette-close { min-height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-2); color: var(--text-3); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
 #palette-list { list-style: none; margin: 0; padding: var(--s2); overflow-y: auto; overscroll-behavior: contain; }
@@ -1662,8 +1668,8 @@ body.palette-open { overflow: hidden; }
 .popover-title { padding: var(--s2) var(--s3); font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); }
 .popover-empty { padding: var(--s3); color: var(--text-2); font-size: 14px; }
 .popover-account { padding: var(--s2) var(--s3) var(--s3); border-bottom: 1px solid var(--line); margin-bottom: var(--s1); }
-.popover-account strong { display: block; font-size: 15px; }
-.popover-account small { color: var(--text-3); font-size: 12.5px; line-height: 1.4; }
+.popover-account strong { display: block; font-size: 15px; overflow-wrap: anywhere; }
+.popover-account small { color: var(--text-3); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; } /* a long e-mail address has no space to break at */
 .popover-item { display: flex; align-items: center; gap: var(--s3); width: 100%; padding: 8px var(--s3); border-radius: 14px; text-align: left; transition: background 160ms; }
 .popover-item:hover, .popover-item:focus-visible { background: var(--primary-soft); }
 .popover-ico { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 11px; background: var(--surface-2); color: var(--primary); }
@@ -2036,6 +2042,39 @@ body.modal-open, body.drawer-open { overflow: hidden; }
 @media (max-width: 699px) { .views { padding-left: max(var(--s4), env(safe-area-inset-left, 0px)); padding-right: max(var(--s4), env(safe-area-inset-right, 0px)); } }
 .composer { padding-left: max(var(--s3), env(safe-area-inset-left, 0px)); padding-right: max(var(--s3), env(safe-area-inset-right, 0px)); }
 .offline-banner { padding-top: calc(var(--s2) + env(safe-area-inset-top, 0px)); }
+/* The banner sticks to the top, so whatever else sticks there sits below it (--banner-h is its height, set by the page; 0 while online).
+   Without this the banner covered the app bar when scrolling, and in Chat it was printed over the chat header. */
+.topbar { top: var(--banner-h, 0px); }
+@media (max-width: 699px) { body[data-active-view="chat"] .chat-header { top: var(--banner-h, 0px); } }
+@media (min-width: 700px) { .desk-top { top: var(--banner-h, 0px); } .chat-header { top: calc(var(--banner-h, 0px) + var(--appbar-h)); } }
+
+/* Keyboard focus. The ring above is a box-shadow, and every component that draws a shadow of its own (primary and secondary buttons,
+   chips, cards, the active tab, the desktop search, bell and avatar) set its shadow later in this file and replaced it: Tab moved
+   focus there and nothing showed where it was. An outline cannot be replaced by a shadow rule, so buttons, links and other focusable
+   controls get one; the few that already draw their own ring (tabs, the orb, card and row buttons, the scrollable table) keep it.
+   It is also what a forced-colours (high contrast) theme paints. */
+:is(button, a[href], summary, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])):not(.ws-tab, .orb-stage, .ws-card-open, .ws-row-open, .reply-table-wrap, .nav-fab):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: var(--ring-offset, 2px); box-shadow: none;
+}
+/* The round mic in the tab bar: the ring goes round the orb, not round the square tab it sits in. */
+.nav-fab:focus-visible { outline: none; box-shadow: none; }
+.nav-fab:focus-visible .fab-orb { outline: 3px solid var(--primary); outline-offset: 3px; }
+/* A segmented control clips to its 3px padding (it scrolls sideways when narrow), so its buttons draw the ring inside themselves. */
+.seg { --ring-offset: -2px; }
+
+/* A phone held sideways has 320-375px of height. In Chat the header, the message box and the tab bar (with its overhanging mic) took more
+   than half of it, leaving about 100px for the conversation. Chat has its own back button, so the tab bar steps aside there, as it already
+   does while the keyboard is up. */
+@media (max-height: 480px) and (max-width: 699px) {
+  body[data-active-view="chat"] .bottom-nav { display: none; }
+  body[data-active-view="chat"] .composer { bottom: var(--safe-b); }
+}
+
+/* Developer Agent's four tabs wrapped three and one on a phone ("History" alone on a second line). Two by two stays even at every phone width. */
+@media (max-width: 599px) {
+  .dev-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .dev-tab { padding: 0 var(--s2); }
+}
 
 /* A focused control scrolls to a spot the fixed bars do not cover (keyboard, switch and screen-reader users). */
 html { scroll-padding-top: calc(var(--topbar-h) + var(--s4)); scroll-padding-bottom: calc(var(--nav-h) + var(--safe-b) + var(--s6)); }
@@ -2196,8 +2235,9 @@ pre.reply-code { overscroll-behavior-x: contain; -webkit-overflow-scrolling: tou
 .home-card:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
 .home-card .icon-btn { width: 44px; height: 44px; flex: none; border-radius: 50%; background: var(--tone-soft); }
 .home-card .icon-btn .ico { width: 21px; height: 21px; color: var(--tone); }
-.home-card input { flex: 1; min-width: 0; min-height: 44px; margin: 0 var(--s1); border: 0; outline: none; background: none; font-size: 16px; color: var(--text); }
+.home-card input { flex: 1; min-width: 0; min-height: 44px; margin: 0 var(--s1); border: 0; outline: none; background: none; font-size: 16px; color: var(--text); text-overflow: ellipsis; }
 .home-card input::placeholder { color: var(--text-3); }
+.home-card input:focus-visible { box-shadow: none; }
 .home-prompt-go { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--grad); color: #fff; }
 .home-prompt-go .ico { width: 20px; height: 20px; stroke-width: 2; }
 body.keyboard-open .home-card { bottom: var(--s3); }
@@ -2212,11 +2252,11 @@ body[data-orb-state="SPEAKING"] #home-orb .orb { animation: orb-speak 0.9s ease-
 @media (max-height: 720px) { #home-orb { margin-top: var(--s6); } }
 .home-lower { display: flex; flex-direction: column; align-items: center; gap: var(--s4); margin: auto 0; padding: var(--s5) 0; text-align: center; }
 .view-home .home-quick { margin: 0; animation: none; }
-.view-home .home-quick .chip-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter); margin-inline: calc(-1 * var(--gutter)); padding: 2px var(--gutter); }
+.view-home .home-quick .chip-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter); margin-inline: calc(-1 * var(--gutter)); padding: 5px var(--gutter); margin-block: -3px; /* room for the focus ring: a row that scrolls clips what is drawn outside it */ }
 .view-home .home-quick .chip-row::-webkit-scrollbar { display: none; }
 .view-home .home-quick .chip { flex: none; min-height: 44px; padding: 0 var(--s4); scroll-snap-align: start; border-radius: var(--r-pill); font-size: 15px; font-weight: 600; }
 .chip[class*="tone-"] .ico { width: 18px; height: 18px; color: var(--tone); }
-@media (min-width: 700px) { .view-home .home-quick .chip-row { flex-wrap: wrap; justify-content: center; overflow: visible; margin-inline: 0; padding: 0; } }
+@media (min-width: 700px) { .view-home .home-quick .chip-row { flex-wrap: wrap; justify-content: center; overflow: visible; margin: 0; padding: 0; } }
 
 /* ---------- Home orb: a neon ring with rippling waves and drifting sparks; "ZARVIS AI" inside ----------
    Same deep-blue glow in both themes. Only the Home orb (#home-orb); the Chat orb is unchanged.
@@ -2809,6 +2849,7 @@ body.chat-loading .chat-empty { display: none; }
 .form-card { max-width: 520px; }
 .form-card .history-head { margin-bottom: var(--s3); }
 .form-fields { display: flex; flex-direction: column; gap: var(--s4); }
+.form-card > p + .form { margin-top: var(--s4); } /* the first label sat flush against the intro sentence */
 .form-card .alert { margin-top: var(--s3); }
 
 /* Uploads */

@@ -861,7 +861,7 @@
     "Waiting for you": "आपका इंतज़ार है",
     "Failed": "विफल",
     "Cancelled": "रद्द किया गया",
-    "Blocked": "रुका हुआ",
+    "Blocked": "अटका हुआ",
     "Cancel task": "कार्य रद्द करें",
     "Cancel this task?": "यह कार्य रद्द करें?",
     "No steps yet. Running it carries out the goal as a single step.": "अभी कोई चरण नहीं। चलाने पर लक्ष्य एक ही चरण के रूप में पूरा होता है।",

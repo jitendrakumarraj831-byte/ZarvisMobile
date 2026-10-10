@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -31,6 +32,7 @@ import com.zarvismobile.app.navigation.ZarvisNavGraph
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.theme.ZarvisTheme
 import com.zarvismobile.feature.settings.CredentialsForm
 import dagger.hilt.android.AndroidEntryPoint
@@ -63,30 +65,34 @@ private fun ZarvisRoot(
 ) {
     val startupState by startupViewModel.state.collectAsState()
     val darkTheme by startupViewModel.darkTheme.collectAsState(initial = false)
+    val locale by startupViewModel.locale.collectAsState()
     LifecycleResumeEffect(Unit) {
         permissionViewModel.onResume()
         onPauseOrDispose { }
     }
 
-    ZarvisTheme(darkTheme = darkTheme) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            when (val current = startupState) {
-                is AppStartupState.Loading -> StartupLoading()
-                is AppStartupState.Failed -> StartupError(message = current.message, onRetry = startupViewModel::retry)
-                is AppStartupState.SessionExpired -> SessionExpiredScreen(
-                    state = current,
-                    onSignIn = startupViewModel::signIn,
-                    onNewGuest = startupViewModel::startNewGuest,
-                )
-                is AppStartupState.Ready -> Box(Modifier.fillMaxSize()) {
-                    ZarvisNavGraph(startAtOnboarding = !current.onboardingComplete)
-                    val notice by permissionViewModel.revokedNotice.collectAsState()
-                    notice?.let { RevokedBanner(it, permissionViewModel::dismissNotice) }
+    // Choosing Hindi in Settings redraws every screen that uses tr(...) right away, with no restart.
+    CompositionLocalProvider(LocalAppLocale provides locale) {
+        ZarvisTheme(darkTheme = darkTheme) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                when (val current = startupState) {
+                    is AppStartupState.Loading -> StartupLoading()
+                    is AppStartupState.Failed -> StartupError(message = current.message, onRetry = startupViewModel::retry)
+                    is AppStartupState.SessionExpired -> SessionExpiredScreen(
+                        state = current,
+                        onSignIn = startupViewModel::signIn,
+                        onNewGuest = startupViewModel::startNewGuest,
+                    )
+                    is AppStartupState.Ready -> Box(Modifier.fillMaxSize()) {
+                        ZarvisNavGraph(startAtOnboarding = !current.onboardingComplete)
+                        val notice by permissionViewModel.revokedNotice.collectAsState()
+                        notice?.let { RevokedBanner(it, permissionViewModel::dismissNotice) }
+                    }
                 }
             }
-        }
 
-        ZarvisSystemDialogs(permissionViewModel, confirmationViewModel)
+            ZarvisSystemDialogs(permissionViewModel, confirmationViewModel)
+        }
     }
 }
 

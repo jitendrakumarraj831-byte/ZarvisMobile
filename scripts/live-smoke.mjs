@@ -222,10 +222,13 @@ async function main() {
     report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})`);
   } else if (quota(search.error?.code)) {
     report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised`);
+  } else if (search.error?.code === "AI_UNAVAILABLE" && search.error.retryable) {
+    // Same rule as the model turn above: a temporary outage is reported, not mistaken for a broken API.
+    report("WARN", "web search", "Gemini temporarily unavailable; search not exercised");
   } else if (searches.length === 0 && search.done) {
     report("WARN", "web search", "the model answered without calling web.search; search not exercised");
   } else {
-    report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, result: searches[0]?.result?.status }));
+    report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, retryable: search.error?.retryable, result: searches[0]?.result?.status }));
   }
 
   // ---- File upload ---------------------------------------------------------------------------

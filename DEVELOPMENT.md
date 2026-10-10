@@ -20,6 +20,19 @@
 - Verify UI state against real backend/tool state.
 - Test lifecycle and failure paths, not only happy paths.
 
+### Android screen text, states and replies
+
+- Text a screen shows goes through `UiString` (`android/domain/.../presentation/UiString.kt`): English and Hindi side by side, so an entry cannot exist
+  without its Hindi. Draw it with `tr(UiString.X)` (`trf` when it has `%s`/`%d`). Word it like the website (`web/i18n.js`). A screen that still has
+  plain English literals is not translated, so the Language page says what Hindi covers (`LANGUAGE_SCOPE_BODY`): update it when a screen moves to `tr`.
+- The emulator tests find UI by exact English text (`UiStringTest` pins the ones they use); change those words and the test together.
+- Never show a raw server code (`PENDING`, `DONE`, `LOW`). `StatusLabels` gives the same names as the website, and a code it has never seen is
+  shown readably, not raw.
+- The Work page is `WorkCatalog`: every card opens a real screen or a Chat page that says so, or is labelled "Website only" with no button.
+  Every registered route must be reachable (`NavigationReachabilityTest`).
+- A reply is drawn with `MarkdownText`; the parser (`Markdown`) is the website's safe subset (`web/logic.js` formatReplyHtml) and only keeps http(s) links.
+- A failed call is reported (and retryable), never shown as an empty list or a zero.
+
 ## Current engineering gate
 
 **Phase 1 — Android Mobile Access + Permission Intelligence**

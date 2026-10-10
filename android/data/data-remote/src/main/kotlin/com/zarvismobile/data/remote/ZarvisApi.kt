@@ -9,6 +9,10 @@ import com.zarvismobile.data.remote.dto.DeveloperAnalyzeRequest
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeResponse
 import com.zarvismobile.data.remote.dto.EntitlementSnapshotResponse
 import com.zarvismobile.data.remote.dto.LoginRequest
+import com.zarvismobile.data.remote.dto.MemoryForgetResponse
+import com.zarvismobile.data.remote.dto.MemoryOverviewResponse
+import com.zarvismobile.data.remote.dto.MemorySettingsRequest
+import com.zarvismobile.data.remote.dto.MemorySettingsResponse
 import com.zarvismobile.data.remote.dto.OrchestratorTurnRequest
 import com.zarvismobile.data.remote.dto.OrchestratorTurnResponse
 import com.zarvismobile.data.remote.dto.RefreshRequest
@@ -25,6 +29,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Streaming
 
@@ -87,6 +92,22 @@ interface ZarvisApi {
 
     @POST("api/v1/tasks/{id}/{action}")
     suspend fun transitionTask(@Path("id") id: String, @Path("action") action: String): TaskDto
+
+    /** What ZARVIS remembers (backend/src/api/routes/notes.ts memoryRouter): only what the user saved, never automatic. */
+    @GET("api/v1/memory")
+    suspend fun getMemory(): MemoryOverviewResponse
+
+    /** Pauses or resumes giving saved memory to the model. Saved items are kept either way. */
+    @PUT("api/v1/memory/settings")
+    suspend fun setMemoryEnabled(@Body request: MemorySettingsRequest): MemorySettingsResponse
+
+    /** Forgets every personal memory item (project memory is untouched). */
+    @DELETE("api/v1/memory/personal")
+    suspend fun forgetPersonalMemory(): MemoryForgetResponse
+
+    /** Deletes one note, personal or in a project. The server answers 204. */
+    @DELETE("api/v1/notes/{id}")
+    suspend fun deleteNote(@Path("id") id: String)
 
     @POST("api/v1/developer/analyze")
     suspend fun analyzeRepo(@Body request: DeveloperAnalyzeRequest): DeveloperAnalyzeResponse
