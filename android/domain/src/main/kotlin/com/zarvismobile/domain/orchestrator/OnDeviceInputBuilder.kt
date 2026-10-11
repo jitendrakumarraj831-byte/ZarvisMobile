@@ -43,19 +43,39 @@ object OnDeviceInputBuilder {
      * Deliberately crude, same spirit as the untouched `personal.reminder` case above (which
      * does no stripping at all): this is the offline fallback, not real understanding
      * (AI_ARCHITECTURE.md's tool-calling loop is that).
+     *
+     * For the two contact skills the leftover must be exactly the person's name, because it is searched for in the address book (and a
+     * wrong name rings the wrong person): so they also drop the words people put around a name ("what is mom's number", "mom ka number
+     * batao", "call Rahul on speaker") — see [CONTACT_NOISE_WORDS].
      */
     private fun subject(utterance: String, skill: SkillDefinition): String {
-        var remainder = " ${utterance.lowercase()} "
+        var remainder = " ${normalizePunctuation(utterance.lowercase())} "
         val triggerWords = skill.capabilities + skill.name.lowercase().split(" ")
-        for (word in triggerWords) {
-            if (word.isBlank()) continue
-            remainder = remainder.replace(" ${word.lowercase()} ", " ")
+        for (word in triggerWords) if (word.isNotBlank()) remainder = removeWord(remainder, word.lowercase())
+        for (filler in FILLER_WORDS) remainder = removeWord(remainder, filler)
+        val withoutNoise = if (skill.id in CONTACT_SKILL_IDS) {
+            CONTACT_NOISE_WORDS.fold(remainder) { text, noise -> removeWord(text, noise) }
+        } else {
+            remainder
         }
-        for (filler in FILLER_WORDS) {
-            remainder = remainder.replace(Regex("\\b$filler\\b"), " ")
-        }
-        return remainder.replace(Regex("'s\\b"), "").trim().split(Regex("\\s+")).filter { it.isNotBlank() }.joinToString(" ")
+        // "call mobile" would otherwise lose its only word; a lone noise word is better treated as the name than as nothing.
+        val chosen = if (withoutNoise.isBlank()) remainder else withoutNoise
+        return chosen.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.joinToString(" ")
     }
+
+    /** Whole-word removal that also works for neighbours ("call call") and keeps the spaces the next word needs. */
+    private fun removeWord(text: String, word: String): String =
+        text.replace(Regex("(?<!\\S)" + Regex.escape(word) + "(?!\\S)"), " ")
+
+    /**
+     * Commas and question/exclamation marks are not part of a name; a possessive ("mom's") or a bare trailing apostrophe ("Dennis'") is not
+     * either, while one inside a name ("O'Brien") is. Typographic apostrophes are treated as plain ones.
+     */
+    private fun normalizePunctuation(text: String): String =
+        text.replace('\u2019', '\'')
+            .replace(Regex("[,!?;]"), " ")
+            .replace(Regex("(?<=\\p{L})'s?(?!\\p{L})"), "")
+            .replace(Regex("\\.+\\s*$"), "")
 
     private fun isReminderListRequest(utterance: String): Boolean {
         val lower = utterance.lowercase()
@@ -72,6 +92,22 @@ object OnDeviceInputBuilder {
             else -> ""
         }
     }
+
+    private val CONTACT_SKILL_IDS = setOf("phone.find_contact", "phone.call")
+
+    /**
+     * Words around a person's name in "who is ...", "... ka number batao", "call ... on speaker" that are not part of the name. Removed only
+     * for the contact skills, and only as whole words.
+     */
+    private val CONTACT_NOISE_WORDS = listOf(
+        // what is / give me ... number
+        "what", "whats", "who", "whose", "is", "are", "of", "show", "get", "give", "tell", "search", "lookup", "look",
+        "number", "phone", "mobile", "cell", "contact",
+        // Hinglish: ... ka number batao / dikhao / dhundo
+        "batao", "bata", "bataiye", "dikhao", "dikha", "dhundo", "dhoondo", "khojo", "dedo", "dena", "chahiye", "hai", "kya",
+        // how / when the call is made
+        "now", "abhi", "jaldi", "speaker", "speakerphone", "lagao", "laga", "lagana", "lagado", "karna", "karde", "kardo", "kijiye", "karein",
+    )
 
     private val FILLER_WORDS = listOf(
         "please", "the", "to", "a", "an", "for", "me", "my", "on", "up",

@@ -77,6 +77,16 @@ class DeviceCommandRoutingTest {
     }
 
     @Test
+    fun callMeLaterGoesToTheBrainButARealCallStillRoutes() {
+        assertNull(route("call me later"))
+        assertNull(route("call it a day"))
+        assertEquals("phone.call", route("call Mom"))
+        assertEquals("phone.call", route("call 112"))
+        assertEquals("phone.find_contact", route("what is mom's number"))
+        assertEquals("phone.find_contact", route("mom ka number batao"))
+    }
+
+    @Test
     fun explicitDeviceCommandsStillRouteToTheirSkill() {
         assertEquals("files.pick_document", route("pick a document"))
         assertEquals("files.pick_document", route("choose a file to read"))
