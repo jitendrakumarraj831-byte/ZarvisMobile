@@ -158,3 +158,15 @@ The **Live preview API smoke test** workflow (`.github/workflows/preview-smoke.y
 after each successful Vercel deployment. It calls `/health`, then guest sign-in, then
 `/auth/me`, then a "Hi" chat turn against the live URL. For a deployment behind Vercel
 Deployment Protection, add the repository secret `VERCEL_AUTOMATION_BYPASS_SECRET`.
+
+Reading its AI steps ("a turn that needs the AI model", "web search"). The API reports what the backend knows, not Google's HTTP status:
+
+| Result | What it means | Retried? |
+|---|---|---|
+| PASS "Gemini answered" | A real answer from Gemini. | No |
+| WARN `AI_RATE_LIMITED` | A per-minute limit. Temporary. | Once, after 65 s |
+| WARN `AI_UNAVAILABLE`, `retryable:true` | Google was overloaded or down (408/5xx). Temporary. | Once, after 15 s |
+| WARN `AI_QUOTA_EXCEEDED` | The daily quota is used up; it cannot recover within a run. | No |
+| FAIL `AI_UNAVAILABLE`, `retryable:false` | Not a rate limit and not an outage: Google refused the call or no model is available (key or permission, model name, a rejected request), or no AI key is configured. Check `GEMINI_API_KEY` and `GEMINI_MODEL` for that environment. The function log has the provider status and model: search `stopped by the AI provider` (and `aiCallLog` in `Turn finished`). | No |
+
+A WARN is never counted as a pass. A retry becomes a PASS only if Gemini really answers, and the report says it took a retry and what the first attempt was.
