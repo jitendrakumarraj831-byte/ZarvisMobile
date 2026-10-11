@@ -38,8 +38,15 @@
 - The app language (Settings > Language) sets the labels, voice input and read-aloud. It is not the language of the conversation: replies follow the
   language the user writes or speaks, and the app language only breaks a tie (`detectReplyLanguage` in `backend/src/agents/orchestrator.ts`). The Language
   page says so and lists what is still English; `UiStringTest` keeps that text honest.
-- Chat: the Chat tab and a chat opened from Home are two screens over ONE stored conversation id. `ConversationSync` (domain) decides how they stay in step;
-  `AndroidOrchestratorConversationTest` (agents) pins which id a turn carries, that New chat clears it and that a cancelled turn cannot bring it back.
+- Chat: which server conversation is active is owned by ONE object, `ActiveConversation` (domain). The orchestrator, the Chat tab, a chat opened from Home,
+  Settings (sign-in, sign-out, delete account) and app start-up all go through it; nothing else writes the saved id. Its `state` carries a
+  `ConversationStamp(id, epoch)`; the epoch changes only when the device leaves a conversation (New chat, a conversation the server no longer has, another
+  account) and is never reused, so a screen that missed changes still knows what it shows is stale. Each Chat screen remembers the stamp its transcript belongs to
+  and `ConversationSync` (domain) decides, from that and the server's copy, whether to keep, append to or replace it. A turn is sent under the stamp that was active
+  and its answer is recorded with `adopt`, which refuses it (`Adoption.Stale`) if the device left that conversation meanwhile. New code that starts, ends or switches a
+  conversation must call `ActiveConversation`, never the preference store. Tests: `ActiveConversationTest` and `ChatScreensScenarioTest` (domain),
+  `AndroidOrchestratorConversationTest` (agents), `ConversationViewModelSyncTest` (the real `ConversationViewModel`, two screens, a fake backend) and
+  `ChatSyncTest` (emulator, real backend process).
 - A failed call is reported (and retryable), never shown as an empty list or a zero.
 
 ## Current engineering gate
@@ -47,6 +54,84 @@
 **Phase 1 — Android Mobile Access + Permission Intelligence**
 
 Later capabilities must not weaken this permission, policy and verification foundation.
+
+## Connecting the Android app to a backend
+
+The app has exactly one network destination, `BuildConfig.API_BASE_URL`, fixed at build time (`android/app/build.gradle.kts`). There is no in-app setting for it.
+
+| Build | Base URL | Cleartext HTTP |
+|---|---|---|
+| `debug` | `http://<dev host>:<dev port>/` | Only to private addresses (loopback, RFC1918, link-local, `.local`) and `10.0.2.2`. A debug build cannot talk to an `https://` host. |
+| `release` | `https://zarvismobile.com/` (the production domain) | None. There is no network security config in a release build. |
+
+**Dev host and port, in order of precedence.** Nothing machine-specific is committed; set these on your own machine.
+
+1. `-Pzarvis.devApiHost=<host>` on the command line, or in your personal `~/.gradle/gradle.properties` (outside the repository).
+2. The `ZARVIS_DEV_API_HOST` environment variable.
+3. This machine's own LAN IPv4, detected at build time.
+4. `10.0.2.2`, the emulator's alias for the host machine, when there is no LAN interface. This is useless on a physical phone and the build warns about it.
+
+The port is `-Pzarvis.devApiPort` or `ZARVIS_DEV_API_PORT`, default `3000`. The host must be a bare name or IPv4 address (`192.168.1.20`) and the port a number from 1 to 65535;
+anything else (`http://192.168.1.20`, `192.168.1.20:3000`, a path) stops the build with the reason, instead of producing an app that can never connect.
+The build prints `ZARVIS debug API base URL: ...  [host from ...]` so you can see what was baked in.
+
+### Start the backend
+
+```
+cd backend && npm install && PORT=3000 npm run dev
+```
+
+No `.env` is needed for this: without `POSTGRES_URL` it uses an in-memory store (accounts vanish when it restarts), and outside `NODE_ENV=production` it uses a development-only
+signing secret. Real AI answers need `GEMINI_API_KEY` in the backend's own environment (never in the app); without it the backend uses a mock provider and `GET /health` says
+`"provider":"mock"`. `app.listen(port)` binds every interface, which is what a phone needs.
+
+### Emulator
+
+```
+cd android && ./gradlew :app:installDebug -Pzarvis.devApiHost=10.0.2.2
+```
+
+The emulator reaches the host's loopback as `10.0.2.2`. Nothing else is needed.
+
+### Physical phone over USB (no Wi-Fi involved)
+
+```
+adb reverse tcp:3000 tcp:3000
+cd android && ./gradlew :app:installDebug -Pzarvis.devApiHost=127.0.0.1
+```
+
+`127.0.0.1` on the phone is now the computer's port 3000. Repeat `adb reverse` after reconnecting the cable. This works behind networks that isolate Wi-Fi clients.
+
+### Physical phone on the same Wi-Fi
+
+1. Start the backend as above and run `./scripts/check-dev-backend.sh`. It proves the backend answers on this machine's LAN address and prints the build command. It cannot prove the phone's path.
+2. Build with the LAN address (or leave `devApiHost` unset to auto-detect it): `cd android && ./gradlew :app:installDebug -Pzarvis.devApiHost=<your LAN IP>`.
+3. Open `http://<your LAN IP>:3000/health` in the phone's browser. If that fails, the app will fail too. The usual causes: the phone and computer are on different networks or
+   the network isolates clients (guest, hotel and many office Wi-Fi networks), the computer's firewall blocks inbound TCP 3000, or a VPN is on. Use the USB route instead.
+4. The LAN IP changes with the network; rebuild when it does. The cleartext allowance covers only private addresses, so a public host is deliberately refused.
+
+### The deployed (HTTPS) backend
+
+The only HTTPS destination a build can have is the production domain in the `release` build type, and a release build needs signing credentials that are never in the repository:
+`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD` in the environment, or the same four keys (`storeFile`, `storePassword`, `keyAlias`,
+`keyPassword`) in the git-ignored `android/app/keystore.properties`. Without them `assembleRelease` still builds but the APK is unsigned and cannot be installed. A debug build
+cannot be pointed at a Vercel preview or any other HTTPS host without changing `build.gradle.kts`. A release and a debug build use different signatures, so uninstall one before installing the other.
+Testing against production creates real guest accounts there: use a throwaway one and delete it from Settings > Delete account afterwards.
+
+### What has and has not been proven
+
+- CI (`android-emulator.yml`, `scripts/emulator/verify.sh`) builds the debug APK with `-Pzarvis.devApiHost=10.0.2.2`, installs it on emulators (API 26, 30, 34), starts the real
+  backend (in-memory) on the runner and runs the app against it, including the chat tests in phase F (`ConversationLifecycleTest`: one user turn is one request across rotation and
+  recreation; `ChatSyncTest`: the Chat screen follows a chat or a New chat started elsewhere). That exercises the emulator wiring; it is not a physical phone.
+- `LiveBackendConversationTest` (agents) drives the app's own client layer (`ApiClientFactory`, the orchestrator, the repositories) against a running backend. It is skipped
+  unless `ZARVIS_LIVE_BASE_URL` is set. It creates a guest account, sends greetings (answered without AI), starts a new chat, restores and deletes the account. Run it only
+  against a backend you started locally, never against production:
+
+  ```
+  cd backend && PORT=3300 npm run dev      # one terminal
+  ZARVIS_LIVE_BASE_URL=http://localhost:3300/ ./gradlew :agents:testDebugUnitTest --tests '*LiveBackendConversationTest*'   # another, from android/
+  ```
+- Neither proves a particular phone's network path, a hosted backend's configuration, or the production domain. Those need the steps above, run by a person with the device.
 
 ## Deploying to Vercel
 
