@@ -47,6 +47,18 @@
   conversation must call `ActiveConversation`, never the preference store. Tests: `ActiveConversationTest` and `ChatScreensScenarioTest` (domain),
   `AndroidOrchestratorConversationTest` (agents), `ConversationViewModelSyncTest` (the real `ConversationViewModel`, two screens, a fake backend) and
   `ChatSyncTest` (emulator, real backend process).
+- Deleting a chat is a real delete: `DELETE /api/v1/conversations/:id` (backend, `Store.deleteConversation`) removes the conversation, its messages, the stored results of its turns and the
+  tool runs made in it; runs that belong to a task stay in the task's history but lose the link to the chat. It answers 404 `conversation_not_found` for a chat that does not exist or is
+  another account's, and the clients treat only that code as "already gone" (an old server's bare 404 is a failure, not a delete). The website deletes from the history panel after a confirmation
+  and takes the chat out of its lists only once the server has answered; the Android Chat screen deletes the active chat through `AndroidOrchestrator.deleteConversation()`, which forgets it in
+  `ActiveConversation` (a new epoch) so every screen starts clean. Tests: `conversationDelete.test.ts` (both stores), `phase1.e2e.cjs` (website), `AndroidOrchestratorConversationTest`,
+  `ConversationViewModelSyncTest` and `LiveBackendConversationTest`.
+- Contacts: a spoken name is matched by `ContactMatching` (domain), not by whatever row the phone's database returns first. `ContactLookupPort.search` returns one entry per contact (its default,
+  else a mobile, number); `ContactMatching.bestMatches` keeps only the best-ranked ones (the exact name, then names that start with it, then a word that starts with it, then names that merely
+  contain it). `phone.call` refuses a name that still fits several people (`ambiguous_contact`, naming them) instead of ringing one at random, and `phone.find_contact` lists them. The lookup
+  escapes `%`, `_` and `\` in the name (`ContactMatching.likePattern`). `OnDeviceInputBuilder` leaves only the name in "what is mom's number", "mom ka number batao" or "call Rahul on speaker";
+  `DeviceCommandGate` keeps "call me later" and "call off the meeting" out of the call skill; a bare 3-6 digit number ("112") is dialed as a number, after the usual confirmation.
+  Tests: `ContactMatchingTest`, `PhoneCallSkillFactoryTest`, `PhoneFindContactSkillFactoryTest`, `OnDeviceInputBuilderTest`, `DeviceCommandGateTest`, `DeviceCommandRoutingTest`.
 - A failed call is reported (and retryable), never shown as an empty list or a zero.
 
 ## Current engineering gate
