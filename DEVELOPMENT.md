@@ -93,6 +93,15 @@ cd android && ./gradlew :app:installDebug -Pzarvis.devApiHost=10.0.2.2
 
 The emulator reaches the host's loopback as `10.0.2.2`. Nothing else is needed.
 
+### Phone checklist (both phone routes)
+
+1. On the phone: Settings > About phone > tap "Build number" seven times, then Settings > System > Developer options > turn on "USB debugging". Plug it in and accept "Allow USB debugging?".
+2. On the computer: `adb devices` must list the phone as `device` (not `unauthorized` or `offline`). If an emulator or a second phone is also attached, `installDebug` installs on every attached device; pick one with `ANDROID_SERIAL=<serial from adb devices>` (adb and Gradle both honour it), and use `adb -s <serial> reverse …`.
+3. Gradle prints `ZARVIS debug API base URL: http://<host>:<port>/ [host from …]` while it configures: check that it is the address you meant. If a debug build cannot reach the backend, its start-up error screen shows that address and a hint for it (a release build shows only a generic message).
+4. To build once and install by hand instead: `cd android && ./gradlew :app:assembleDebug -Pzarvis.devApiHost=<host>` then `adb install -r app/build/outputs/apk/debug/app-debug.apk` (`-r` keeps the app's data). If Android refuses because a build with another signature is installed, `adb uninstall com.zarvismobile.app` first; that erases the app's data on the phone.
+
+`scripts/device/verify-device.sh` is a separate, much heavier full verification: it uninstalls ZARVIS, switches notification access, accessibility services and the default assistant during the run and restores them afterwards, and only starts with `ZARVIS_DEVICE_RESET_OK=1`. Read its header before using it; none of the steps in this section need it.
+
 ### Physical phone over USB (no Wi-Fi involved)
 
 ```
