@@ -1,5 +1,6 @@
 package com.zarvismobile.domain.presentation
 
+import com.zarvismobile.domain.conversation.ConversationStamp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -73,25 +74,10 @@ class ConversationSyncTest {
         assertNull(ConversationSync.newTurnsAfter(shownUsers = listOf("x"), messages = server))
     }
 
-    @Test
-    fun `a new chat started elsewhere empties this screen`() {
-        assertTrue(ConversationSync.startedElsewhere(previousId = "abc", currentId = null, turnInFlight = false))
-    }
+    // ---- Which conversation a screen's transcript belongs to ---------------------------------------------------------------------------
 
-    @Test
-    fun `the first message of a chat (no id yet, then an id) is not a new chat`() {
-        assertFalse(ConversationSync.startedElsewhere(previousId = null, currentId = "abc", turnInFlight = false))
-        assertFalse(ConversationSync.startedElsewhere(previousId = null, currentId = null, turnInFlight = false))
-        assertFalse(ConversationSync.startedElsewhere(previousId = "abc", currentId = "abc", turnInFlight = false))
-        assertFalse(ConversationSync.startedElsewhere(previousId = "abc", currentId = "def", turnInFlight = false))
-    }
-
-    @Test
-    fun `a reset never lands in the middle of a turn`() {
-        assertFalse(ConversationSync.startedElsewhere(previousId = "abc", currentId = null, turnInFlight = true))
-    }
-
-    // ---- Two screens over one server conversation: switching to a fresh chat, and no leak from the old one --------------------------------
+    private fun stamp(id: String?, epoch: Long) = ConversationStamp(id, epoch)
+    private fun server(id: String?, epoch: Long, vararg messages: Pair<String, String>) = ServerConversation(stamp(id, epoch), messages.toList())
 
     private val chatA = listOf(m("user", "a1"), m("assistant", "answer a1"), m("user", "a2"), m("assistant", "answer a2"))
     private val chatB = listOf(m("user", "b1"), m("assistant", "answer b1"), m("user", "b2"), m("assistant", "answer b2"))
@@ -99,47 +85,84 @@ class ConversationSyncTest {
     private fun users(turns: List<TurnText>) = turns.map { it.user }
 
     @Test
-    fun `switching to a fresh chat on the other screen shows only the new chat here, never the old one`() {
-        // This screen shows chat A. The other screen taps New chat (the stored id is cleared): this screen empties.
-        var shown = ConversationSync.pair(chatA)
-        assertEquals(listOf("a1", "a2"), users(shown))
-        assertTrue(ConversationSync.startedElsewhere(previousId = "chat-A", currentId = null, turnInFlight = false))
-        shown = emptyList()
-
-        // The other screen then talks in chat B. Coming back here, the server's chat B is shown from its start.
-        val added = ConversationSync.newTurnsAfter(shownUsers = users(shown), messages = chatB)
-        assertEquals(listOf("b1", "b2"), users(added!!))
-        assertTrue((shown + added).none { it.user.startsWith("a") || it.assistant?.contains("a1") == true || it.assistant?.contains("a2") == true }, "nothing of chat A is left")
+    fun `a screen has left its conversation exactly when the epoch differs`() {
+        assertTrue(ConversationSync.leftConversation(stamp("A", 1), stamp(null, 2)))
+        assertTrue(ConversationSync.leftConversation(stamp("A", 1), stamp("B", 3))) // however many changes were missed
+        assertFalse(ConversationSync.leftConversation(stamp(null, 2), stamp("A", 2))) // the first answer gives a chat its id: same conversation
+        assertFalse(ConversationSync.leftConversation(stamp("A", 1), stamp("A", 1)))
+        assertFalse(ConversationSync.leftConversation(null, stamp("A", 1))) // a screen that has not read the conversation yet has nothing to drop
     }
 
     @Test
-    fun `a fresh chat with nothing said yet shows nothing`() {
-        assertEquals(emptyList(), ConversationSync.newTurnsAfter(shownUsers = emptyList(), messages = emptyList()))
+    fun `what the server returns for another conversation than the one shown replaces it`() {
+        val r = ConversationSync.reconcile(
+            shown = stamp("A", 1), shownUsers = listOf("a1", "a2"), shownCount = 2,
+            server = ServerConversation(stamp("B", 2), chatB), active = stamp("B", 2),
+        )
+        assertEquals(Reconciled.Replace(ConversationSync.pair(chatB), stamp("B", 2)), r)
     }
 
     @Test
-    fun `if a reset was missed, another chat's exchanges are never added under this one`() {
-        // This screen still shows chat A, and the server now answers with chat B's messages: the screen is left alone (null), and chat B's
-        // exchanges are not appended below chat A's.
-        assertNull(ConversationSync.newTurnsAfter(shownUsers = listOf("a1", "a2"), messages = chatB))
-        // The same when chat B is longer than what is shown.
-        assertNull(ConversationSync.newTurnsAfter(shownUsers = listOf("a1"), messages = chatB + m("user", "b3") + m("assistant", "answer b3")))
-        // And when it is shorter.
-        assertNull(ConversationSync.newTurnsAfter(shownUsers = listOf("a1", "a2", "a3"), messages = chatB))
+    fun `a screen that never read a conversation shows what the server holds`() {
+        val r = ConversationSync.reconcile(null, emptyList(), 0, ServerConversation(stamp("A", 1), chatA), stamp("A", 1))
+        assertEquals(Reconciled.Replace(ConversationSync.pair(chatA), stamp("A", 1)), r)
     }
 
     @Test
-    fun `continuing the same chat on the other screen adds only the new exchanges`() {
+    fun `a fresh empty chat stays as it is, and one the other screen has begun is shown`() {
+        assertEquals(Reconciled.Keep, ConversationSync.reconcile(stamp(null, 4), emptyList(), 0, ServerConversation(stamp(null, 4), emptyList()), stamp(null, 4)))
+        val r = ConversationSync.reconcile(stamp(null, 4), emptyList(), 0, ServerConversation(stamp("B", 4), chatB), stamp("B", 4))
+        assertEquals(Reconciled.Replace(ConversationSync.pair(chatB), stamp("B", 4)), r)
+    }
+
+    @Test
+    fun `the same conversation continued elsewhere adds only the new exchanges`() {
         val continued = chatA + m("user", "a3") + m("assistant", "answer a3")
-        val added = ConversationSync.newTurnsAfter(shownUsers = listOf("a1", "a2"), messages = continued)
-        assertEquals(listOf(TurnText("a3", "answer a3")), added)
+        val r = ConversationSync.reconcile(stamp("A", 1), listOf("a1", "a2"), 2, ServerConversation(stamp("A", 1), continued), stamp("A", 1))
+        assertEquals(Reconciled.Append(listOf(TurnText("a3", "answer a3")), stamp("A", 1)), r)
+        assertEquals(Reconciled.Keep, ConversationSync.reconcile(stamp("A", 1), listOf("a1", "a2"), 2, ServerConversation(stamp("A", 1), chatA), stamp("A", 1)))
     }
 
     @Test
-    fun `the id changing from one chat straight to another is not treated as a reset`() {
-        // Only a cleared id means "a new chat was started"; a screen never empties itself because of an id it cannot tell apart from its own.
-        assertFalse(ConversationSync.startedElsewhere(previousId = "chat-A", currentId = "chat-B", turnInFlight = false))
-        // Its own New chat, then its own first message: null, then an id, with a turn in flight.
-        assertFalse(ConversationSync.startedElsewhere(previousId = null, currentId = "chat-B", turnInFlight = true))
+    fun `an answer from the server about a conversation the device has since left is ignored`() {
+        // The screen asked about conversation A (epoch 1); by the time the server answered, New chat had made epoch 2 the active one.
+        val r = ConversationSync.reconcile(stamp("A", 1), listOf("a1"), 1, ServerConversation(stamp("A", 1), chatA), stamp(null, 2))
+        assertEquals(Reconciled.Keep, r)
+    }
+
+    @Test
+    fun `a transcript with a phone-only exchange in the same chat is left alone, not replaced`() {
+        // This chat is fresh (no id yet) and holds one exchange the server never stored; the server meanwhile has a chat of its own.
+        val r = ConversationSync.reconcile(stamp(null, 4), listOf("call mum"), 1, ServerConversation(stamp("B", 4), chatB), stamp("B", 4))
+        assertEquals(Reconciled.Keep, r)
+    }
+
+    @Test
+    fun `a conversation the server replaced with a new one replaces what another screen shows`() {
+        // Same epoch, but the id this screen showed is not the active one any more.
+        val r = ConversationSync.reconcile(stamp("old", 5), listOf("a1"), 1, ServerConversation(stamp("new", 5), chatB), stamp("new", 5))
+        assertEquals(Reconciled.Replace(ConversationSync.pair(chatB), stamp("new", 5)), r)
+    }
+
+    @Test
+    fun `the reply to this screen's own turn is shown only if the conversation was not left`() {
+        // Normal: the reply is recorded under the conversation the screen shows.
+        assertEquals(OwnReply.Show(stamp("A", 1)), ConversationSync.finishOwnTurn(stamp("A", 1), stamp("A", 1), false, stamp("A", 1)))
+        // The first answer of a fresh chat gives it an id: still shown, and the screen now belongs to the stamped conversation.
+        assertEquals(OwnReply.Show(stamp("A", 1)), ConversationSync.finishOwnTurn(stamp(null, 1), stamp("A", 1), false, stamp("A", 1)))
+        // An action done on the phone is not part of a server conversation.
+        assertEquals(OwnReply.Show(stamp("A", 1)), ConversationSync.finishOwnTurn(stamp("A", 1), null, false, stamp("A", 1)))
+        // The server answered in a new conversation: only this exchange is shown.
+        assertEquals(OwnReply.Fresh(stamp("N", 1)), ConversationSync.finishOwnTurn(stamp("A", 1), stamp("N", 1), true, stamp("N", 1)))
+    }
+
+    @Test
+    fun `the reply to a turn of a conversation the device left is discarded`() {
+        // New chat elsewhere made epoch 2 active while the turn (sent under epoch 1) was on its way.
+        assertEquals(OwnReply.Discard, ConversationSync.finishOwnTurn(stamp("A", 1), stamp("A", 1), false, stamp(null, 2)))
+        // Even when this screen has already moved to the new conversation, a reply stamped with the old epoch stays out.
+        assertEquals(OwnReply.Discard, ConversationSync.finishOwnTurn(stamp(null, 2), stamp("A", 1), false, stamp(null, 2)))
+        // A phone-only action finishing after the screen moved on.
+        assertEquals(OwnReply.Discard, ConversationSync.finishOwnTurn(stamp("A", 1), null, false, stamp(null, 2)))
     }
 }

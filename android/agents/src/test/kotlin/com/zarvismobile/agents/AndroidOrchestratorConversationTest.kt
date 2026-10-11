@@ -1,15 +1,11 @@
 package com.zarvismobile.agents
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
-import com.zarvismobile.core.tooling.ComposeConfirmationPort
 import com.zarvismobile.data.remote.ZarvisApi
-import com.zarvismobile.domain.access.AccessCoordinator
-import com.zarvismobile.domain.capability.CapabilityRegistry
-import com.zarvismobile.domain.tooling.SkillRegistry
-import com.zarvismobile.domain.tooling.ToolPipeline
-import java.lang.reflect.Proxy
+import com.zarvismobile.domain.conversation.ActiveConversation
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -38,20 +34,8 @@ import retrofit2.Retrofit
 class AndroidOrchestratorConversationTest {
     private lateinit var server: MockWebServer
     private lateinit var store: InMemoryConversationId
+    private lateinit var active: ActiveConversation
     private lateinit var orchestrator: AndroidOrchestrator
-
-    private class InMemoryConversationId(var id: String? = null) : ConversationIdStore {
-        override suspend fun get(): String? = id
-        override suspend fun set(id: String?) {
-            this.id = id
-        }
-    }
-
-    /** A collaborator the conversation path never calls: it fails loudly if it ever is, rather than quietly doing nothing. */
-    private inline fun <reified T : Any> unused(): T =
-        Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, _ ->
-            error("${T::class.java.simpleName}.${method.name} must not be called while talking to the Brain")
-        } as T
 
     @Before
     fun start() {
@@ -62,22 +46,19 @@ class AndroidOrchestratorConversationTest {
             .build()
             .create(ZarvisApi::class.java)
         store = InMemoryConversationId()
-        orchestrator = AndroidOrchestrator(
-            onDeviceRegistry = SkillRegistry(),
-            onDevicePipeline = ToolPipeline(SkillRegistry(), unused(), unused(), unused(), ComposeConfirmationPort(), unused()),
-            api = api,
-            confirmationPort = ComposeConfirmationPort(),
-            capabilities = CapabilityRegistry(emptyList()),
-            access = AccessCoordinator(unused(), unused(), unused(), unused()),
-            pendingActions = unused(),
-            conversations = store,
-            clock = unused(),
-        )
+        active = ActiveConversation(store)
+        orchestrator = OrchestratorFixture.create(api, active)
     }
 
     @After
     fun stop() {
         server.shutdown()
+    }
+
+    /** The device continues conversation [id] (a New chat, then the first answer of that chat). */
+    private suspend fun select(id: String) {
+        val fresh = active.startNew()
+        active.adopt(id, fresh.epoch)
     }
 
     private fun turnReply(message: String, conversationId: String?) =
@@ -131,14 +112,14 @@ class AndroidOrchestratorConversationTest {
     fun restoringShowsOnlyTheCurrentConversationFromItsOwnEndpoint() = runBlocking<Unit> {
         store.id = "chat-A"
         server.enqueue(history("chat-A", "user" to "first question", "assistant" to "first answer"))
-        assertEquals(listOf(RestoredMessage("user", "first question"), RestoredMessage("assistant", "first answer")), orchestrator.restoreConversation())
+        assertEquals(listOf(RestoredMessage("user", "first question"), RestoredMessage("assistant", "first answer")), orchestrator.restoreConversation().messages)
         assertEquals("/api/v1/conversations/chat-A/messages", server.takeRequest(5, TimeUnit.SECONDS)!!.path)
 
         // Switch to chat B: what is restored is B's, and nothing of A's is mixed in.
         orchestrator.startNewConversation()
-        store.id = "chat-B"
+        select("chat-B") // the device is now in chat B
         server.enqueue(history("chat-B", "user" to "second chat", "assistant" to "second answer"))
-        val restored = orchestrator.restoreConversation()
+        val restored = orchestrator.restoreConversation().messages
         assertEquals(listOf(RestoredMessage("user", "second chat"), RestoredMessage("assistant", "second answer")), restored)
         assertEquals("/api/v1/conversations/chat-B/messages", server.takeRequest(5, TimeUnit.SECONDS)!!.path)
         assertTrue(restored.none { it.content.contains("first") })
@@ -148,7 +129,7 @@ class AndroidOrchestratorConversationTest {
     fun afterNewChatThereIsNothingToRestoreAndNothingIsRequested() = runBlocking<Unit> {
         store.id = "chat-A"
         orchestrator.startNewConversation()
-        assertEquals(emptyList<RestoredMessage>(), orchestrator.restoreConversation())
+        assertEquals(emptyList<RestoredMessage>(), orchestrator.restoreConversation().messages)
         assertEquals("no request goes out for a conversation that was left", 0, server.requestCount)
     }
 
@@ -156,7 +137,7 @@ class AndroidOrchestratorConversationTest {
     fun aConversationTheServerNoLongerHasIsForgottenNotShown() = runBlocking<Unit> {
         store.id = "gone"
         server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"not_found"}"""))
-        assertEquals(emptyList<RestoredMessage>(), orchestrator.restoreConversation())
+        assertEquals(emptyList<RestoredMessage>(), orchestrator.restoreConversation().messages)
         assertNull("a 404 clears the stored id, so the next turn starts a new conversation", store.id)
     }
 
@@ -184,5 +165,69 @@ class AndroidOrchestratorConversationTest {
 
         assertTrue(turn.isCancelled)
         assertNull("the late reply must not select the old conversation again", store.id)
+    }
+
+    @Test
+    fun aReplyCarriesTheConversationItWasRecordedUnderAndNewChatChangesIt() = runBlocking<Unit> {
+        server.enqueue(turnReply("Hello!", "chat-A"))
+        server.enqueue(turnReply("Hello again!", "chat-B"))
+        val first = orchestrator.handleTurn("hello there", "acct")
+        assertEquals("chat-A", first.conversation?.id)
+        assertEquals(active.current(), first.conversation)
+        assertTrue(!first.replacedConversation)
+
+        val freshEpoch = orchestrator.startNewConversation().epoch
+        assertTrue("New chat is a different conversation from the one before", freshEpoch != first.conversation!!.epoch)
+        val second = orchestrator.handleTurn("a different topic", "acct")
+        assertEquals("chat-B", second.conversation?.id)
+        assertEquals("a first answer gives the fresh chat its id without leaving it", freshEpoch, second.conversation?.epoch)
+    }
+
+    @Test
+    fun aServerThatDoesNotKnowTheConversationAnswersInANewOneAndTheReplyIsFlagged() = runBlocking<Unit> {
+        store.id = "deleted-on-the-web"
+        server.enqueue(turnReply("Hello!", "brand-new"))
+        val outcome = orchestrator.handleTurn("hello there", "acct")
+        assertEquals("deleted-on-the-web", sentConversationId(server.takeRequest(5, TimeUnit.SECONDS)!!))
+        assertEquals("brand-new", outcome.conversation?.id)
+        assertTrue("the screen must not keep showing the vanished conversation above this reply", outcome.replacedConversation)
+        assertEquals("brand-new", store.id)
+    }
+
+    @Test
+    fun aReplyThatArrivesAfterNewChatKeepsTheStampItWasSentUnderSoEveryScreenCanDiscardIt() = runBlocking<Unit> {
+        store.id = "old"
+        server.enqueue(turnReply("late reply", "old").setHeadersDelay(300, TimeUnit.MILLISECONDS))
+        // A turn that is NOT cancelled (a screen that is not watching): the reply still comes back.
+        val sentUnder = active.current()
+        val turn = async(Dispatchers.IO) { orchestrator.handleTurn("hello there", "acct") }
+        assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+        val fresh = orchestrator.startNewConversation()
+        val outcome = turn.await()
+        assertEquals("old", outcome.conversation?.id)
+        assertEquals("the reply is stamped with the conversation it was sent under", sentUnder.epoch, outcome.conversation?.epoch)
+        assertTrue(outcome.conversation!!.epoch != active.current().epoch)
+        assertEquals("and the late reply did not select the old conversation", fresh, active.current())
+        assertNull(store.id)
+    }
+
+    @Test
+    fun restoringSaysWhichConversationItAskedAbout() = runBlocking<Unit> {
+        store.id = "chat-A"
+        server.enqueue(history("chat-A", "user" to "q", "assistant" to "a"))
+        val restored = orchestrator.restoreConversation()
+        assertEquals(active.current(), restored.conversation)
+        assertEquals("chat-A", restored.conversation.id)
+    }
+
+    @Test
+    fun aVanishedConversationChangesTheEpochSoEveryScreenDropsIt() = runBlocking<Unit> {
+        store.id = "gone"
+        val before = active.current()
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"not_found"}"""))
+        val restored = orchestrator.restoreConversation()
+        assertEquals("the answer is for the conversation that was asked about", before, restored.conversation)
+        assertTrue(active.current().epoch != before.epoch)
+        assertNull(active.current().id)
     }
 }

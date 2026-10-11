@@ -322,8 +322,9 @@ fi
 run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest"
 # E: the Settings UI in a fresh process, independent of D's accessibility-service toggling.
 run_classes E "$APP.SettingsUiTest"
-# F: one user turn = one execution across Activity recreation, rotation and background.
-run_classes F "$APP.ConversationLifecycleTest"
+# F: one user turn = one execution across Activity recreation, rotation and background; and the Chat screen follows the one active conversation
+# (a chat or a New chat started elsewhere), against the real backend.
+run_classes F "$APP.ConversationLifecycleTest,$APP.ChatSyncTest"
 
 [ -n "$GEO_PID" ] && kill "$GEO_PID" 2>/dev/null || true
 sleep 1

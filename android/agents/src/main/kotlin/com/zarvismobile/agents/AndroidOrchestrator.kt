@@ -14,6 +14,9 @@ import com.zarvismobile.domain.access.RecoveryDecision
 import com.zarvismobile.domain.capability.ActionPolicy
 import com.zarvismobile.domain.capability.CapabilityDefinition
 import com.zarvismobile.domain.capability.CapabilityRegistry
+import com.zarvismobile.domain.conversation.ActiveConversation
+import com.zarvismobile.domain.conversation.Adoption
+import com.zarvismobile.domain.conversation.ConversationStamp
 import com.zarvismobile.domain.entity.ActionClass
 import com.zarvismobile.domain.entity.ConfirmationRequest
 import com.zarvismobile.domain.entity.PermissionType
@@ -33,15 +36,23 @@ import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 import java.util.UUID
 
-/** Persists which server conversation this device is continuing (survives process death). */
-interface ConversationIdStore {
-    suspend fun get(): String?
-    suspend fun set(id: String?)
-}
-
-data class TurnOutcome(val message: String, val result: ToolResult? = null)
+/**
+ * The result of one turn. [conversation] is the server conversation the reply was recorded under (`null` for an action done on the phone, which
+ * is not part of one), and [replacedConversation] is true when the server did not know the conversation the turn was sent to and answered in a
+ * new one. A screen compares [conversation] with the active conversation before it shows the reply: if the device left that conversation while
+ * the turn was on its way, the reply is not shown.
+ */
+data class TurnOutcome(
+    val message: String,
+    val result: ToolResult? = null,
+    val conversation: ConversationStamp? = null,
+    val replacedConversation: Boolean = false,
+)
 
 data class RestoredMessage(val role: String, val content: String)
+
+/** The server's messages for the active conversation, and the conversation (the id and epoch) they were asked for. */
+data class RestoredConversation(val conversation: ConversationStamp, val messages: List<RestoredMessage>)
 
 /** Re-issued confirmations (action changed after approval) the user is asked about per turn. */
 private const val MAX_CONFIRMATION_ROUNDS = 3
@@ -66,7 +77,8 @@ class AndroidOrchestrator(
     private val capabilities: CapabilityRegistry,
     private val access: AccessCoordinator,
     private val pendingActions: PendingActionStore,
-    private val conversations: ConversationIdStore,
+    /** The single source of truth for which server conversation is active (see [ActiveConversation]). */
+    val conversation: ActiveConversation,
     private val clock: ClockPort,
 ) {
     private val matcher = KeywordSkillMatcher(onDeviceRegistry)
@@ -85,18 +97,20 @@ class AndroidOrchestrator(
 
     suspend fun dismissInterruptedAction() = pendingActions.clear()
 
-    /** Loads only real, server-persisted history for the conversation this device is continuing. */
-    suspend fun restoreConversation(): List<RestoredMessage> {
-        val id = conversations.get() ?: return emptyList()
+    /** Loads only real, server-persisted history for the conversation this device is continuing, and says which conversation that was. */
+    suspend fun restoreConversation(): RestoredConversation {
+        val asked = conversation.current()
+        val id = asked.id ?: return RestoredConversation(asked, emptyList())
         return try {
-            api.conversationMessages(id).messages.map { RestoredMessage(it.role, it.content) }
+            RestoredConversation(asked, api.conversationMessages(id).messages.map { RestoredMessage(it.role, it.content) })
         } catch (e: retrofit2.HttpException) {
-            if (e.code() == 404) conversations.set(null) // gone (e.g. account changed) — don't fabricate it
-            emptyList()
+            if (e.code() == 404) conversation.forget(id) // gone (e.g. account changed) — leave it, don't fabricate it
+            RestoredConversation(asked, emptyList())
         }
     }
 
-    suspend fun startNewConversation() = conversations.set(null)
+    /** New chat: the device leaves the active conversation, for every screen at once. */
+    suspend fun startNewConversation(): ConversationStamp = conversation.startNew()
 
     private suspend fun handleOnDevice(skill: SkillDefinition, utterance: String, accountId: String, locale: String): TurnOutcome {
         val input = OnDeviceInputBuilder.build(skill, utterance)
@@ -142,22 +156,33 @@ class AndroidOrchestrator(
     }
 
     private suspend fun handleWithBrain(utterance: String, locale: String): TurnOutcome {
+        // The conversation this turn is sent to. The answer is recorded under it only if the device is still in it when the answer arrives.
+        val sent = conversation.current()
+        var recorded = sent
+        var replaced = false
+        fun outcome(message: String, result: ToolResult?) = TurnOutcome(message, result, recorded, replaced)
+
         val response = try {
             api.runTurn(
-                OrchestratorTurnRequest(utterance = utterance, locale = locale, conversationId = conversations.get()),
+                OrchestratorTurnRequest(utterance = utterance, locale = locale, conversationId = sent.id),
             )
         } catch (e: retrofit2.HttpException) {
             // An exhausted AI quota / rate limit is an honest answer, not "check your connection".
             val error = AiServiceErrors.classify(e.code(), e.response()?.errorBody()?.string()) ?: throw e
-            return TurnOutcome(
-                message = error.message,
-                result = ToolResult(false, ToolResultStatus.FAILED, null, "conversation", error.message, error.retryable, null),
+            return outcome(
+                error.message,
+                ToolResult(false, ToolResultStatus.FAILED, null, "conversation", error.message, error.retryable, null),
             )
         }
-        response.conversationId?.let { conversations.set(it) }
+        response.conversationId?.let { id ->
+            val adoption = conversation.adopt(id, sent.epoch)
+            // A reply for a conversation the device left keeps the stamp it was sent under, so every screen can see it is from the past.
+            if (adoption !is Adoption.Stale) recorded = adoption.stamp
+            replaced = adoption is Adoption.Replaced
+        }
         val lastResult = response.toolCalls.lastOrNull()?.result?.toDomain()
         var pending = response.toolCalls.firstNotNullOfOrNull { it.outcome.confirmation }
-            ?: return TurnOutcome(message = response.message, result = lastResult)
+            ?: return outcome(response.message, lastResult)
 
         // If what would run changed after approval (e.g. a different GitHub identity), the
         // server issues a new confirmation naming the new action; the user decides again.
@@ -175,25 +200,25 @@ class AndroidOrchestrator(
             } catch (e: retrofit2.HttpException) {
                 if (e.code() == 409) {
                     // A retried approve: the first one already ran the action exactly once.
-                    return TurnOutcome(
-                        message = "That was already approved: the action ran once and will not run again. Its result is in the conversation.",
-                        result = ToolResult(false, ToolResultStatus.USER_ACTION_REQUIRED, null, pending.skillId, "Already approved; ran once.", false, null),
+                    return outcome(
+                        "That was already approved: the action ran once and will not run again. Its result is in the conversation.",
+                        ToolResult(false, ToolResultStatus.USER_ACTION_REQUIRED, null, pending.skillId, "Already approved; ran once.", false, null),
                     )
                 }
                 if (e.code() == 404) {
-                    return TurnOutcome(
-                        message = "That confirmation expired or was already used, so nothing was run. Ask again if you still want it.",
-                        result = ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Confirmation expired.", true, null),
+                    return outcome(
+                        "That confirmation expired or was already used, so nothing was run. Ask again if you still want it.",
+                        ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Confirmation expired.", true, null),
                     )
                 }
                 throw e
             }
             pending = resolution.outcome?.confirmation
-                ?: return TurnOutcome(message = resolution.message, result = resolution.result.toDomain())
+                ?: return outcome(resolution.message, resolution.result.toDomain())
         }
-        return TurnOutcome(
-            message = "The action kept changing before it could run, so nothing was done. Please ask again.",
-            result = ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Action changed repeatedly.", true, null),
+        return outcome(
+            "The action kept changing before it could run, so nothing was done. Please ask again.",
+            ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Action changed repeatedly.", true, null),
         )
     }
 

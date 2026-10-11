@@ -7,6 +7,7 @@ import com.zarvismobile.data.remote.SessionEvents
 import com.zarvismobile.data.repository.SessionExpiredException
 import com.zarvismobile.data.repository.SessionRepository
 import com.zarvismobile.data.repository.SessionState
+import com.zarvismobile.domain.conversation.ActiveConversation
 import com.zarvismobile.feature.settings.describeAuthError
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -39,6 +40,7 @@ sealed interface AppStartupState {
 class AppStartupViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val appPreferences: AppPreferences,
+    private val activeConversation: ActiveConversation,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AppStartupState>(AppStartupState.Loading)
@@ -86,7 +88,7 @@ class AppStartupViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 block()
-                appPreferences.setConversationId(null)
+                activeConversation.startNew() // another account: no conversation of the old one stays active on any screen
                 _state.value = AppStartupState.Ready(onboardingComplete = appPreferences.onboardingComplete.first())
             } catch (t: CancellationException) {
                 throw t
