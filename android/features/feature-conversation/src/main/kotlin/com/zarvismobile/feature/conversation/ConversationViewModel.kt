@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.agents.AndroidOrchestrator
+import com.zarvismobile.agents.ConversationDeletion
 import com.zarvismobile.core.common.metrics.TurnMetricsStore
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
@@ -55,7 +56,13 @@ data class ConversationUiState(
     /** An action that was waiting on the user when the app process was killed. */
     val interrupted: PendingAction? = null,
     val notice: String? = null,
+    /** True while a delete request for this chat is out; the Delete button is off meanwhile. */
+    val deleting: Boolean = false,
+    /** How the last delete ended, shown until dismissed. */
+    val deleteOutcome: ChatDeleteOutcome? = null,
 )
+
+enum class ChatDeleteOutcome { DELETED, FAILED }
 
 /**
  * Conversation state machine with truthful states only:
@@ -210,6 +217,29 @@ class ConversationViewModel @Inject constructor(
 
     fun dismissNotice() {
         _uiState.update { it.copy(notice = null) }
+    }
+
+    /**
+     * Deletes this chat on the server. The transcript is dropped only after the server confirmed (and then on every Chat screen, through the
+     * active conversation); a failure keeps everything as it was and says so. Not offered while a reply is on its way.
+     */
+    fun deleteConversation() {
+        if (_uiState.value.deleting || turnJob?.isActive == true) return
+        _uiState.update { it.copy(deleting = true, deleteOutcome = null) }
+        viewModelScope.launch {
+            val deletion = runCatching { orchestrator.deleteConversation() }.getOrDefault(ConversationDeletion.FAILED)
+            if (deletion == ConversationDeletion.FAILED) {
+                _uiState.update { it.copy(deleting = false, deleteOutcome = ChatDeleteOutcome.FAILED) }
+                return@launch
+            }
+            val left = orchestrator.conversation.current()
+            if ((shown?.epoch ?: -1L) < left.epoch) shown = left
+            _uiState.update { ConversationUiState(deleteOutcome = if (deletion == ConversationDeletion.DELETED) ChatDeleteOutcome.DELETED else null) }
+        }
+    }
+
+    fun dismissDeleteOutcome() {
+        _uiState.update { it.copy(deleteOutcome = null) }
     }
 
     fun startNewConversation() {

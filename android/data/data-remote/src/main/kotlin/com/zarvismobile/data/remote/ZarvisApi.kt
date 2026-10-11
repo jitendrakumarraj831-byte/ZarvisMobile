@@ -62,6 +62,13 @@ interface ZarvisApi {
     @GET("api/v1/conversations/{id}/messages")
     suspend fun conversationMessages(@Path("id") id: String): ConversationMessagesResponse
 
+    /**
+     * Deletes one of this account's chats for good (backend/src/api/routes/conversations.ts). The server answers 204, or 404 with the code
+     * `conversation_not_found` when that chat does not exist (a server without this route also answers 404, but without that code).
+     */
+    @DELETE("api/v1/conversations/{id}")
+    suspend fun deleteConversation(@Path("id") id: String)
+
     @POST("api/v1/confirmations/{id}/approve")
     suspend fun approveConfirmation(@Path("id") id: String): ConfirmationResolutionResponse
 

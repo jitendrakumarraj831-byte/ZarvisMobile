@@ -19,12 +19,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -61,6 +65,7 @@ fun ConversationScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(initialText, submitInitialText, listenOnStart) {
         // Runs again after rotation / process recreation; the ViewModel handles it only once.
@@ -79,6 +84,20 @@ fun ConversationScreen(
     LifecycleResumeEffect(Unit) {
         viewModel.syncWithServer()
         onPauseOrDispose { }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(tr(UiString.CHAT_DELETE_TITLE)) },
+            text = { Text(tr(UiString.CHAT_DELETE_BODY)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; viewModel.deleteConversation() }) {
+                    Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
+        )
     }
 
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
@@ -109,6 +128,22 @@ fun ConversationScreen(
                 )
                 // Always enabled: after a failed restore the screen can look empty while the server still holds the conversation, and the user must be able to leave it.
                 TextButton(onClick = viewModel::startNewConversation) { Text(tr(UiString.CHAT_NEW)) }
+                // Offered only once there is something to delete, and not while a reply is on its way or a delete is already out.
+                if (uiState.turns.isNotEmpty()) {
+                    val idle = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.SUCCESS || uiState.voiceState == VoiceState.ERROR
+                    TextButton(onClick = { confirmDelete = true }, enabled = idle && !uiState.deleting) {
+                        Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            uiState.deleteOutcome?.let { outcome ->
+                ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
+                    Text(
+                        tr(if (outcome == ChatDeleteOutcome.DELETED) UiString.CHAT_DELETED else UiString.CHAT_DELETE_FAILED),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = viewModel::dismissDeleteOutcome) { Text(tr(UiString.COMMON_OK)) }
+                }
             }
             uiState.interrupted?.let { action ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {

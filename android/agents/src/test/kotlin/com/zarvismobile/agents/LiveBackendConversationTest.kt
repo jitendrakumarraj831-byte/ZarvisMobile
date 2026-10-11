@@ -7,6 +7,7 @@ import com.zarvismobile.domain.conversation.ActiveConversation
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -61,6 +62,16 @@ class LiveBackendConversationTest {
 
             // The first conversation is still there, unchanged.
             assertEquals("hello", api.conversationMessages(firstId).messages.first().content)
+
+            // Delete chat: the active (second) chat is removed on the real server, the device leaves it, and the first chat is untouched.
+            assertEquals(ConversationDeletion.DELETED, orchestrator.deleteConversation())
+            val gone = runCatching { api.conversationMessages(secondId) }.exceptionOrNull()
+            assertTrue("the server must no longer have the deleted chat", gone is retrofit2.HttpException && gone.code() == 404)
+            assertEquals("hello", api.conversationMessages(firstId).messages.first().content)
+            assertNull("nothing is active after the delete", orchestrator.conversation.current().id)
+            // Deleting it again says "already gone", which the client treats as done rather than as a failure.
+            orchestrator.conversation.let { active -> active.adopt(secondId, active.current().epoch) }
+            assertEquals(ConversationDeletion.DELETED, orchestrator.deleteConversation())
 
             // The other calls the screens make decode the backend's real payloads.
             api.getMemory()

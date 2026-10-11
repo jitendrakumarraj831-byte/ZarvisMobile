@@ -230,4 +230,79 @@ class AndroidOrchestratorConversationTest {
         assertTrue(active.current().epoch != before.epoch)
         assertNull(active.current().id)
     }
+
+    // ---- Delete chat: the server must confirm before any screen drops it ------------------------------------------------------------
+
+    @Test
+    fun deletingTheActiveChatAsksTheServerThenEveryScreenLeavesIt() = runBlocking<Unit> {
+        store.id = "chat-A"
+        val before = active.current()
+        server.enqueue(MockResponse().setResponseCode(204))
+        assertEquals(ConversationDeletion.DELETED, orchestrator.deleteConversation())
+        val request = server.takeRequest(5, TimeUnit.SECONDS)!!
+        assertEquals("DELETE", request.method)
+        assertEquals("/api/v1/conversations/chat-A", request.path)
+        assertNull("no conversation is active any more", active.current().id)
+        assertTrue("and the epoch changed, so a screen that missed it still drops what it shows", active.current().epoch != before.epoch)
+        assertNull("and it is not saved", store.id)
+    }
+
+    @Test
+    fun aChatTheServerSaysDoesNotExistIsGoneAndTheDeviceLeavesIt() = runBlocking<Unit> {
+        store.id = "chat-A"
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"Conversation not found","code":"conversation_not_found"}"""))
+        assertEquals(ConversationDeletion.DELETED, orchestrator.deleteConversation())
+        assertNull(active.current().id)
+    }
+
+    @Test
+    fun aServerWithoutTheDeleteRouteIsNotMistakenForADeletedChat() = runBlocking<Unit> {
+        // An older backend answers 404 for the unknown route, with no conversation_not_found code: the chat is still there.
+        store.id = "chat-A"
+        server.enqueue(MockResponse().setResponseCode(404).setBody("<html>Cannot DELETE /api/v1/conversations/chat-A</html>"))
+        assertEquals(ConversationDeletion.FAILED, orchestrator.deleteConversation())
+        assertEquals("chat-A", active.current().id)
+        assertEquals("chat-A", store.id)
+    }
+
+    @Test
+    fun aServerErrorKeepsTheChatWhereItWas() = runBlocking<Unit> {
+        store.id = "chat-A"
+        val before = active.current()
+        server.enqueue(MockResponse().setResponseCode(500).setBody("{}"))
+        assertEquals(ConversationDeletion.FAILED, orchestrator.deleteConversation())
+        assertEquals(before, active.current())
+        assertEquals("chat-A", store.id)
+    }
+
+    @Test
+    fun aLostConnectionKeepsTheChatWhereItWas() = runBlocking<Unit> {
+        store.id = "chat-A"
+        val before = active.current()
+        server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        assertEquals(ConversationDeletion.FAILED, orchestrator.deleteConversation())
+        assertEquals(before, active.current())
+        assertEquals("chat-A", store.id)
+    }
+
+    @Test
+    fun aChatWithNoServerIdHasNothingToDeleteAndNoRequestIsMade() = runBlocking<Unit> {
+        val before = active.current()
+        assertNull(before.id)
+        assertEquals(ConversationDeletion.NOTHING_SAVED, orchestrator.deleteConversation())
+        assertEquals("no request goes out", 0, server.requestCount)
+        assertTrue("but the device starts a fresh chat, so the screen is emptied everywhere", active.current().epoch != before.epoch)
+    }
+
+    @Test
+    fun afterADeleteTheNextMessageStartsAFreshChatAndNeverSendsTheDeletedId() = runBlocking<Unit> {
+        store.id = "chat-A"
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(turnReply("Hello!", "chat-B"))
+        orchestrator.deleteConversation()
+        server.takeRequest(5, TimeUnit.SECONDS)
+        val outcome = orchestrator.handleTurn("hello there", "acct")
+        assertNull("the deleted chat's id is not sent", sentConversationId(server.takeRequest(5, TimeUnit.SECONDS)!!))
+        assertEquals("chat-B", outcome.conversation?.id)
+    }
 }

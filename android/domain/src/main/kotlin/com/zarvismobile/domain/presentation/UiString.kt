@@ -158,6 +158,16 @@ enum class UiString(val en: String, val hi: String) {
     // ---- Chat -----------------------------------------------------------------------------
     CHAT_TITLE("Chat with ZARVIS", "ZARVIS से चैट"),
     CHAT_NEW("New chat", "नई चैट"),
+    CHAT_DELETE_TITLE("Delete this chat?", "यह चैट हटाएँ?"),
+    CHAT_DELETE_BODY(
+        "This chat and all its messages will be permanently deleted from your ZARVIS account, on every device. This can't be undone.",
+        "यह चैट और इसके सभी संदेश आपके ZARVIS खाते से, हर डिवाइस से, हमेशा के लिए हटा दिए जाएँगे। इसे वापस नहीं किया जा सकता।",
+    ),
+    CHAT_DELETED("Chat deleted.", "चैट हटा दी गई।"),
+    CHAT_DELETE_FAILED(
+        "Couldn't delete this chat. Check your connection and try again.",
+        "यह चैट हटाई नहीं जा सकी। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+    ),
     CHAT_COMPOSER_HINT("Type your task", "अपना काम लिखें"),
     CHAT_STATE_IDLE("Tap the orb or type to start", "शुरू करने के लिए ऑर्ब दबाएँ या लिखें"),
     CHAT_STATE_LISTENING("Listening…", "सुन रहा है…"),

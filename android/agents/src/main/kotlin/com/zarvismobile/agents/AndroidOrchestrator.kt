@@ -54,6 +54,18 @@ data class RestoredMessage(val role: String, val content: String)
 /** The server's messages for the active conversation, and the conversation (the id and epoch) they were asked for. */
 data class RestoredConversation(val conversation: ConversationStamp, val messages: List<RestoredMessage>)
 
+/** What deleting the active chat did. */
+enum class ConversationDeletion {
+    /** The server deleted it (or said it no longer has it) and the device has left it. */
+    DELETED,
+
+    /** The chat had no server id yet (nothing was answered), so there was nothing to delete: the device just started a new one. */
+    NOTHING_SAVED,
+
+    /** The server still has it (no connection, an error, or a server without the delete route). Nothing changed on the device. */
+    FAILED,
+}
+
 /** Re-issued confirmations (action changed after approval) the user is asked about per turn. */
 private const val MAX_CONFIRMATION_ROUNDS = 3
 
@@ -111,6 +123,30 @@ class AndroidOrchestrator(
 
     /** New chat: the device leaves the active conversation, for every screen at once. */
     suspend fun startNewConversation(): ConversationStamp = conversation.startNew()
+
+    /**
+     * Deletes the active chat on the server and, only after the server confirmed it, leaves it on this device for every screen. A failure
+     * changes nothing, so a chat is never shown as deleted while the server still has it.
+     */
+    suspend fun deleteConversation(): ConversationDeletion {
+        val id = conversation.current().id
+        if (id == null) {
+            conversation.startNew()
+            return ConversationDeletion.NOTHING_SAVED
+        }
+        val gone = try {
+            api.deleteConversation(id)
+            true
+        } catch (e: retrofit2.HttpException) {
+            // 404 counts as "already gone" only when the server says THIS chat does not exist: a server without the route also answers 404.
+            e.code() == 404 && e.response()?.errorBody()?.string()?.contains("conversation_not_found") == true
+        } catch (e: java.io.IOException) {
+            false
+        }
+        if (!gone) return ConversationDeletion.FAILED
+        conversation.forget(id)
+        return ConversationDeletion.DELETED
+    }
 
     private suspend fun handleOnDevice(skill: SkillDefinition, utterance: String, accountId: String, locale: String): TurnOutcome {
         val input = OnDeviceInputBuilder.build(skill, utterance)

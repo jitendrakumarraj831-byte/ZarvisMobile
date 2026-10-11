@@ -40,6 +40,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -61,6 +62,9 @@ class ConversationViewModelSyncTest {
         val chats = linkedMapOf<String, MutableList<Pair<String, String>>>()
         val turnRequests = mutableListOf<Pair<String, String?>>()
         var slow = mutableMapOf<String, Long>()
+        val deleteRequests = mutableListOf<String>()
+        /** When set, every delete answers with this status instead of deleting (a server error, or an old server's bare 404). */
+        var failDeletesWith: Int? = null
         private var next = 0
 
         @Synchronized
@@ -76,6 +80,14 @@ class ConversationViewModelSyncTest {
                 val reply = MockResponse().setBody("""{"message":"answer to $utterance","toolCalls":[],"conversationId":"$id"}""")
                 slow[utterance]?.let { reply.setHeadersDelay(it, TimeUnit.MILLISECONDS) }
                 return reply
+            }
+            val delete = Regex("^/api/v1/conversations/([^/]+)$").matchEntire(path)
+            if (request.method == "DELETE" && delete != null) {
+                val id = delete.groupValues[1]
+                deleteRequests += id
+                failDeletesWith?.let { return MockResponse().setResponseCode(it).setBody("{}") }
+                return if (chats.remove(id) != null) MockResponse().setResponseCode(204)
+                else MockResponse().setResponseCode(404).setBody("""{"error":"Conversation not found","code":"conversation_not_found"}""")
             }
             val messages = Regex("^/api/v1/conversations/([^/]+)/messages$").matchEntire(path)
             if (request.method == "GET" && messages != null) {
@@ -311,5 +323,89 @@ class ConversationViewModelSyncTest {
         waitFor("the new conversation") { chatTab.users() == listOf("new topic") }
         assertEquals("chat-2", active.state.value?.id)
         assertTrue(chatTab.uiState.value.turns.none { it.userText == "old topic" })
+    }
+
+    // ---- Delete chat ---------------------------------------------------------------------------------------------------------------
+
+    @Test
+    fun deletingAChatRemovesItOnTheServerAndEmptiesEveryChatScreen() {
+        val chatTab = screen()
+        val chatFromHome = screen()
+        chatTab.say("plan my trip")
+        chatFromHome.syncWithServer() // what coming back to that screen does
+        waitFor("the other screen to show the same chat") { chatFromHome.users() == listOf("plan my trip") }
+
+        chatTab.deleteConversation()
+        waitFor("the delete to finish") { chatTab.uiState.value.deleteOutcome == ChatDeleteOutcome.DELETED }
+
+        assertEquals(listOf("chat-1"), backend.deleteRequests)
+        assertTrue("the server no longer has the chat", backend.chats.isEmpty())
+        assertEquals(emptyList<String>(), chatTab.users())
+        waitFor("the other Chat screen to drop it too") { chatFromHome.users().isEmpty() }
+        assertNull("nothing is active", active.state.value?.id)
+        assertNull("and nothing is saved", store.saved)
+        assertFalse("the screen is not left busy", chatTab.uiState.value.deleting)
+    }
+
+    @Test
+    fun aFailedDeleteChangesNothingAndSaysSo() {
+        val chatTab = screen()
+        val chatFromHome = screen()
+        chatTab.say("plan my trip")
+        chatFromHome.syncWithServer() // what coming back to that screen does
+        waitFor("the other screen to show the same chat") { chatFromHome.users() == listOf("plan my trip") }
+        backend.failDeletesWith = 500
+
+        chatTab.deleteConversation()
+        waitFor("the delete to fail") { chatTab.uiState.value.deleteOutcome == ChatDeleteOutcome.FAILED }
+
+        assertEquals("the chat is still on this screen", listOf("plan my trip"), chatTab.users())
+        Thread.sleep(200) // time for a wrongly triggered reset of the other screen to show
+        assertEquals("and on the other one", listOf("plan my trip"), chatFromHome.users())
+        assertEquals("chat-1", active.state.value?.id)
+        assertEquals("chat-1", store.saved)
+        assertFalse(chatTab.uiState.value.deleting)
+
+        // The failure card is dismissed, and a retry once the server works deletes it for real.
+        chatTab.dismissDeleteOutcome()
+        assertNull(chatTab.uiState.value.deleteOutcome)
+        backend.failDeletesWith = null
+        chatTab.deleteConversation()
+        waitFor("the retry to succeed") { chatTab.uiState.value.deleteOutcome == ChatDeleteOutcome.DELETED }
+        assertTrue(backend.chats.isEmpty())
+    }
+
+    @Test
+    fun aServerWithoutTheDeleteRouteIsNotShownAsDeleted() {
+        val chatTab = screen()
+        chatTab.say("plan my trip")
+        backend.failDeletesWith = 404 // an older backend: 404 for the unknown route, no conversation_not_found code
+        chatTab.deleteConversation()
+        waitFor("the delete to fail") { chatTab.uiState.value.deleteOutcome == ChatDeleteOutcome.FAILED }
+        assertEquals(listOf("plan my trip"), chatTab.users())
+        assertEquals("chat-1", active.state.value?.id)
+    }
+
+    @Test
+    fun aChatThatNeverGotAServerIdJustStartsOverWithoutAnyRequest() {
+        val chatTab = screen()
+        chatTab.deleteConversation()
+        waitFor("the screen to settle") { !chatTab.uiState.value.deleting }
+        assertEquals(emptyList<String>(), backend.deleteRequests)
+        assertNull(chatTab.uiState.value.deleteOutcome)
+    }
+
+    @Test
+    fun deleteIsIgnoredWhileAReplyIsOnItsWay() {
+        val chatTab = screen()
+        chatTab.say("first")
+        backend.slow["second"] = 700
+        chatTab.submitInitialText("second")
+        waitFor("the second request to be in flight") { backend.turnRequests.size == 2 }
+        chatTab.deleteConversation()
+        assertFalse("nothing was started", chatTab.uiState.value.deleting)
+        assertEquals("and no delete request went out", emptyList<String>(), backend.deleteRequests)
+        waitFor("the reply to arrive") { chatTab.uiState.value.turns.lastOrNull()?.assistantText != null }
+        assertEquals(listOf("first", "second"), chatTab.users())
     }
 }
