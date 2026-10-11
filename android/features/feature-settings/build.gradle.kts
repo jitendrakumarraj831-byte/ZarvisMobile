@@ -48,4 +48,7 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
     implementation(libs.coroutines.core)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.coroutines.test)
 }

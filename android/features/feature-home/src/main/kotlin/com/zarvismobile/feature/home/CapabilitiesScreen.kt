@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
+import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.ZarvisBackground
@@ -64,11 +66,11 @@ fun CapabilitiesScreen(
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             Column(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg)) {
-                Text(text = "Capabilities", style = MaterialTheme.typography.headlineLarge)
-                Text(text = "AI AGENT HUB", style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.8.sp), color = MaterialTheme.colorScheme.primary)
-                TextButton(onClick = onOpenPlans) { Text("Plans & quotas") }
+                Text(text = tr(UiString.CAPABILITIES_TITLE), style = MaterialTheme.typography.headlineLarge)
+                Text(text = tr(UiString.CAPABILITIES_KICKER), style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.8.sp), color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = onOpenPlans) { Text(tr(UiString.COMMON_PLANS_QUOTAS)) }
                 Text(
-                    text = "Everything ZARVIS can do right now, grouped by category.",
+                    text = tr(UiString.CAPABILITIES_INTRO),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -79,7 +81,10 @@ fun CapabilitiesScreen(
                     CircularProgressIndicator()
                 }
                 uiState.error != null -> Box(modifier = Modifier.fillMaxSize().padding(ZarvisSpacing.lg), contentAlignment = Alignment.Center) {
-                    Text(text = uiState.error ?: "", color = MaterialTheme.colorScheme.error)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+                        Text(text = tr(UiString.CAPABILITIES_ERROR), color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = viewModel::refresh) { Text(tr(UiString.COMMON_TRY_AGAIN)) }
+                    }
                 }
                 else -> {
                     val grouped = uiState.skills.groupBy { it.category }
@@ -89,7 +94,7 @@ fun CapabilitiesScreen(
                         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
                     ) {
                         item {
-                            Text("Browse by product", style = MaterialTheme.typography.titleMedium)
+                            Text(tr(UiString.CAPABILITIES_BROWSE_BY_PRODUCT), style = MaterialTheme.typography.titleMedium)
                         }
                         items(FeatureCatalog.pages.size) { index ->
                             val page = FeatureCatalog.pages[index]
@@ -98,11 +103,11 @@ fun CapabilitiesScreen(
                                 Text(page.title, style = MaterialTheme.typography.titleMedium)
                                 Text(page.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(page.availability, style = MaterialTheme.typography.labelMedium)
-                                ZarvisPrimaryButton(text = "Open", onClick = { onOpenFeature(page.id) }, modifier = Modifier.fillMaxWidth())
+                                ZarvisPrimaryButton(text = tr(UiString.COMMON_OPEN), onClick = { onOpenFeature(page.id) }, modifier = Modifier.fillMaxWidth())
                             }
                         }
                         item {
-                            Text("Skills available right now", style = MaterialTheme.typography.titleMedium)
+                            Text(tr(UiString.CAPABILITIES_SKILLS_NOW), style = MaterialTheme.typography.titleMedium)
                         }
                         grouped.forEach { (category, skills) ->
                             item {
@@ -132,7 +137,7 @@ private fun SkillShowcaseCard(skill: SkillDto, onRun: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(text = skill.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    RiskBadge(level = RiskBadgeLevel.valueOf(skill.riskLevel))
+                    RiskBadgeLevel.fromWire(skill.riskLevel)?.let { RiskBadge(level = it) }
                 }
                 Spacer(modifier = Modifier.size(ZarvisSpacing.xs))
                 Text(
@@ -143,7 +148,7 @@ private fun SkillShowcaseCard(skill: SkillDto, onRun: () -> Unit) {
             }
         }
         Spacer(modifier = Modifier.size(ZarvisSpacing.sm))
-        ZarvisPrimaryButton(text = "Run Agent", onClick = onRun, modifier = Modifier.fillMaxWidth())
+        ZarvisPrimaryButton(text = tr(UiString.CAPABILITIES_RUN), onClick = onRun, modifier = Modifier.fillMaxWidth())
     }
 }
 

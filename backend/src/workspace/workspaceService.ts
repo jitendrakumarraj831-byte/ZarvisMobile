@@ -200,6 +200,13 @@ export class WorkspaceService {
     return conversationView(moved);
   }
 
+  /** Deletes one of the account's chats for good (see Store.deleteConversation for what goes with it). */
+  async deleteConversation(accountId: string, conversationId: string): Promise<void> {
+    if (!(await this.store.deleteConversation(accountId, conversationId))) {
+      throw new WorkspaceError(404, "conversation_not_found", "Conversation not found.");
+    }
+  }
+
   // ---- Notes (decisions, project memory, research notes) and personal memory ---------------
 
   async createNote(accountId: string, body: Record<string, unknown>): Promise<WorkspaceNote> {

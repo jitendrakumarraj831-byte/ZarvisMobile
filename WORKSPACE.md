@@ -77,6 +77,7 @@ them.
 | --- | --- |
 | `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id` | Projects; `GET /projects/:id` returns the whole workspace and the Continue work block in one read |
 | `POST /conversations/:id/project` | Move a chat into or out of a project |
+| `DELETE /conversations/:id` | Delete a chat for good: its messages, the stored results of its turns and the tool runs made in it (a run that belongs to a task keeps the task's history but loses the link to the chat; a task started in the chat loses its "Open chat" link). 204, or 404 `conversation_not_found` (also for another account's chat) |
 | `GET/POST /notes`, `PATCH/DELETE /notes/:id` | Decisions, project memory, research notes (kinds: `decision`, `memory`, `note`, `research`) |
 | `GET /memory`, `PUT /memory/settings`, `DELETE /memory/personal` | The Memory page |
 | `GET /files`, `GET/PATCH/DELETE /files/:id`, `POST /files/text`, `POST /files/upload` | Files |
@@ -111,8 +112,9 @@ planner prompt.
 - **Task writes are conditional.** A step that finishes at the same moment as a Cancel can no longer overwrite it (or
   be erased by it): the loser re-reads what actually happened. If a Cancel keeps losing, it says so instead of
   claiming success.
-- **Chats cannot be renamed, pinned, archived or deleted.** The server has no endpoint for any of those (only list, read, run
-  history and move-into-project), so the web offers none; "Remove from list" only hides a chat on this browser.
+- **Chats can be deleted, but not renamed, pinned or archived.** The trash icon in the chat history and "Delete this chat" in the
+  Chat menu call `DELETE /conversations/:id` and ask first; the chat is removed from the list only after the server confirms, a
+  failure keeps it and says so, and deleting the open chat starts a new one. The server has no endpoint to rename, pin or archive.
 - **Agent pages show each skill's risk, cost, plan availability and confirmation rule**, which the server returns. They do not
   show a per-skill WORKING / PARTIAL status (the registry has none per skill); that lives on the Capabilities page.
 - **Tasks per account are not capped** (as before this phase); every chat turn lists the account's tasks to find the

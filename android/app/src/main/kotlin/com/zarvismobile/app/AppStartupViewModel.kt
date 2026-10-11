@@ -7,6 +7,7 @@ import com.zarvismobile.data.remote.SessionEvents
 import com.zarvismobile.data.repository.SessionExpiredException
 import com.zarvismobile.data.repository.SessionRepository
 import com.zarvismobile.data.repository.SessionState
+import com.zarvismobile.domain.conversation.ActiveConversation
 import com.zarvismobile.feature.settings.describeAuthError
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
@@ -38,10 +40,21 @@ sealed interface AppStartupState {
 class AppStartupViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val appPreferences: AppPreferences,
+    private val activeConversation: ActiveConversation,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AppStartupState>(AppStartupState.Loading)
     val state: StateFlow<AppStartupState> = _state.asStateFlow()
+
+    /**
+     * `"en"` or `"hi"`: the language the app's own labels are drawn in (see LocalAppLocale). `null` until the saved choice has been read,
+     * so the first screen is never drawn in the wrong language.
+     */
+    val locale: StateFlow<String?> = appPreferences.locale.map<String, String?> { it }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        null,
+    )
 
     val darkTheme: StateFlow<Boolean> = appPreferences.darkTheme.stateIn(
         viewModelScope,
@@ -75,7 +88,7 @@ class AppStartupViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 block()
-                appPreferences.setConversationId(null)
+                activeConversation.startNew() // another account: no conversation of the old one stays active on any screen
                 _state.value = AppStartupState.Ready(onboardingComplete = appPreferences.onboardingComplete.first())
             } catch (t: CancellationException) {
                 throw t

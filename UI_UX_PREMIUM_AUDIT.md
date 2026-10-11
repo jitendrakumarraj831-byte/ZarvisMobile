@@ -42,7 +42,7 @@ Hindi and accessibility tests. The work was therefore "find the real gaps agains
 | 3 Design system | Existing aurora-glass system kept. Tokens consolidated and documented ([DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)); type scale and code tokens added; guarded by `css.test.js`. A full de-layering of the stylesheet (204 selectors are still declared more than once) is **not** done: it is risky without a visual-regression suite, and this release adds the guard that makes it safe to do next. |
 | 4 Shell and navigation | Already complete (sidebar, rail, bottom bar, drawer, breadcrumbs, routes, history, shortcuts). Fixed the duplicate back button; section descriptions. |
 | 5 Home | Done, with the limits in §5. |
-| 6 Chat | Markdown (tables, quotes, code colours) added; speech Pause. Everything else listed was already present and tested (copy, regenerate, edit, retry, stop, search, timestamps, attachments, paste and drop, auto-scroll, duplicate-send guard). Rename, pin, archive and delete chats: **the server has no such endpoint**, so none is offered. |
+| 6 Chat | Markdown (tables, quotes, code colours) added; speech Pause. Everything else listed was already present and tested (copy, regenerate, edit, retry, stop, search, timestamps, attachments, paste and drop, auto-scroll, duplicate-send guard). Rename, pin and archive chats: **the server has no such endpoint**, so none is offered. Delete chat now has one (`DELETE /conversations/:id`), used by the trash icon. |
 | 7 Execution status | Already real-event based (cards, reconnect, stored ledger). Unchanged. |
 | 8 Voice | Added pause/resume, the Voice check and fixed the stuck "Speaking". Orb states, waveform, permission guidance and single-utterance recognition already existed. **Not done:** live (interim) transcript, a distinct "Interrupted" state, TTS progress. |
 | 9 Projects | Search/sort added; the rest existed. "Recent" means most recently updated (the server stores no "opened" time). |
@@ -72,7 +72,7 @@ Hindi and accessibility tests. The work was therefore "find the real gaps agains
 ## 5. Honest limits of what was built
 
 * Home and the board only show what the server returned; a list that failed to load is named, not hidden.
-* Chat history rename/pin/archive/delete need server endpoints that do not exist. Only "remove from this browser's list" exists.
+* Chat history rename/pin/archive need server endpoints that do not exist. Delete is real (`DELETE /conversations/:id`).
 * The speech bar and the Voice check were tested with a faked recogniser and stubbed audio in headless Chromium. **Real microphones, real speakers, iOS Safari and a real Gemini voice were not exercised.**
 * Payments were tested with a stubbed Razorpay and stubbed `/billing/*` answers; no real payment, webhook or Play Billing purchase was made.
 * The Android app was not run or changed.
@@ -91,21 +91,23 @@ Results on the final commit (Postgres 16, real backend, headless Chromium; each 
 | --- | --- | --- |
 | Web units | `node --test web/tests/*.test.js` | 64/64 |
 | Phase 1 E2E | `node web/e2e/phase1.e2e.cjs` | 36/36 |
-| Quality E2E | `node web/e2e/quality.e2e.cjs` | 31/31 |
+| Quality E2E | `node web/e2e/quality.e2e.cjs` | 46/46 |
 | Workspace E2E | `node web/e2e/workspace.e2e.cjs` | 46/46 |
-| Backend | `cd backend && npx vitest run` (with `TEST_DATABASE_URL`) | 619 passed, 2 live-API tests skipped (backend untouched) |
+| Backend | `cd backend && npx vitest run` (with `TEST_DATABASE_URL`) | 621 passed, 2 live-API tests skipped |
 | Typecheck | root and `backend` | clean |
 
 **CI note.** Guest sign-ups are limited to 60 an hour per server process. Phase 1 and the quality suite used to share one process in CI;
 with the quality suite's new steps they used the whole budget and its last two steps failed with HTTP 429 (reproduced locally: 29/31 on a
 shared process, 31/31 on its own). `backend-tests.yml` now starts a separate backend for each browser suite.
-The `smoke` check calls the live Vercel preview and the real Gemini API; when Gemini answers `AI_UNAVAILABLE` to the web-search turn it
-fails, whatever the diff. It is not run locally.
+The `smoke` check calls the live Vercel preview and the real Gemini API, so it can go red whatever the diff. A temporary Gemini outage
+(`AI_UNAVAILABLE` with `retryable: true`) is a warning for the chat turn and the web-search turn alike; only a non-retryable failure (a
+missing or rejected key, or no model the key can use) fails it. The provider used to report the fallback model's 404 in place of the
+configured model's 503, which turned an outage into a non-retryable failure; it now keeps the real reason. It is not run locally.
 Not covered by an automated pass/fail: `web/e2e/link-scan.cjs` (an exploratory click-through; it reported no dead control on Home, phone and desktop).
 
 ## 8. Next phase (recommended)
 
-1. Chat rename/pin/archive/delete with real endpoints, then the UI.
+1. Chat rename/pin/archive with real endpoints, then the UI (delete is done).
 2. Per-skill status on agent pages from the registry.
 3. De-layer `styles.css` (merge the "v3 / v4 / premium / page by page / studio" layers) behind a screenshot-diff test.
 4. A real-device pass: iOS Safari, Android Chrome, a real microphone and speaker, a live payment in test mode.

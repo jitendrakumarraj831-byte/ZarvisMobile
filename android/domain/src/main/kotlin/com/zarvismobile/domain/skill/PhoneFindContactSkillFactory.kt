@@ -44,10 +44,24 @@ object PhoneFindContactSkillFactory {
         if (name.isNullOrEmpty()) {
             return@SkillHandler SkillResult.Failure("missing_name", "Whose contact should I look up?")
         }
-        val contact = contacts.findByName(name)
-            ?: return@SkillHandler SkillResult.Failure(
+        val matches = ContactMatching.bestMatches(name, contacts.search(name))
+        if (matches.isEmpty()) {
+            return@SkillHandler SkillResult.Failure(
                 reason = "contact_not_found",
                 userMessage = "I couldn't find a contact matching \"$name\".",
+            )
+        }
+        val contact = matches.singleOrNull()
+            ?: return@SkillHandler SkillResult.Success(
+                // A name that fits several people is answered with all of them (this is read-only), never with whichever came first.
+                output = mapOf(
+                    "count" to matches.size,
+                    "matches" to matches.take(MAX_LISTED).map { mapOf("name" to it.displayName, "phoneNumber" to it.phoneNumber) },
+                ),
+                summary = "${matches.size} contacts match \"$name\": " +
+                    matches.take(MAX_LISTED).joinToString("; ") { "${it.displayName}: ${it.phoneNumber}" } +
+                    if (matches.size > MAX_LISTED) " (and ${matches.size - MAX_LISTED} more)" else "",
+                evidence = mapOf("source" to "ContactsContract"),
             )
         SkillResult.Success(
             output = mapOf("name" to contact.displayName, "phoneNumber" to contact.phoneNumber),
@@ -55,4 +69,6 @@ object PhoneFindContactSkillFactory {
             evidence = mapOf("source" to "ContactsContract"),
         )
     }
+
+    private const val MAX_LISTED = 5
 }

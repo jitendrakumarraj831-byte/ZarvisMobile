@@ -1,8 +1,14 @@
 package com.zarvismobile.domain.skill
 
-/** Platform seam for looking up a device contact by (partial, case-insensitive) name. */
+/**
+ * Platform seam for looking up device contacts by name.
+ *
+ * [search] returns every contact whose name contains [name] (ignoring case): ONE entry per contact, with the number to use for it (see
+ * [ContactMatching.collapse]). It promises no order and does not pick between people: choosing, and refusing to guess when a name fits
+ * several contacts, is [ContactMatching.bestMatches] and the skills' job.
+ */
 fun interface ContactLookupPort {
-    suspend fun findByName(name: String): PhoneContact?
+    suspend fun search(name: String): List<PhoneContact>
 }
 
 data class PhoneContact(val displayName: String, val phoneNumber: String)

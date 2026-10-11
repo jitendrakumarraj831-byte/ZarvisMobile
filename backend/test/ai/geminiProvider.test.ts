@@ -148,6 +148,27 @@ describe("GeminiProvider.streamGenerate", () => {
     warn.mockRestore();
   });
 
+  it("an overloaded model followed by a fallback that does not exist is still reported as retryable", async () => {
+    // The 404 only says the fallback is not available to this key; it must not replace the real reason
+    // the configured model failed (overloaded), or a passing outage is reported as a permanent failure.
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.includes("models/gemini-2.0-flash:")) return new Response("busy", { status: 503, statusText: "Service Unavailable" });
+      return new Response("model not found", { status: 404, statusText: "Not Found" });
+    }));
+
+    const error = await new GeminiProvider("test-key").generate(baseRequest).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ code: "AI_UNAVAILABLE", status: 503, retryable: true, evidence: { model: "gemini-2.0-flash" } });
+  });
+
+  it("when no model exists for the key the error stays non-retryable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("model not found", { status: 404, statusText: "Not Found" })));
+
+    const error = await new GeminiProvider("test-key").generate(baseRequest).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ code: "AI_UNAVAILABLE", status: 404, retryable: false });
+  });
+
   it("yields incremental text deltas parsed from the SSE stream", async () => {
     const sse =
       `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: "Hello " }] } }] })}\n\n` +

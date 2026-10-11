@@ -771,6 +771,35 @@ export class PostgresStore implements Store {
     return rows[0] ? toConversation(rows[0]) : undefined;
   }
 
+  async deleteConversation(accountId: string, conversationId: string): Promise<boolean> {
+    if (!isUuid(conversationId)) return false;
+    await this.ensureSchema();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // The messages go with the conversation (ON DELETE CASCADE). A chat that is not this account's matches nothing.
+      const deleted = await client.query("DELETE FROM conversations WHERE id = $1 AND account_id = $2", [conversationId, accountId]);
+      if (!deleted.rowCount) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      // The stored result of a turn is the reply text, so a deleted chat must not keep it.
+      await client.query("DELETE FROM turn_records WHERE account_id = $1 AND conversation_id = $2", [accountId, conversationId]);
+      // Tool runs made in the chat go with it, except those that are part of a task's history, which only lose the link.
+      await client.query("DELETE FROM tool_executions WHERE account_id = $1 AND conversation_id = $2 AND task_id IS NULL", [accountId, conversationId]);
+      await client.query("UPDATE tool_executions SET conversation_id = NULL WHERE account_id = $1 AND conversation_id = $2", [accountId, conversationId]);
+      // A task started in the chat must not offer to open a chat that is gone; its next step starts a new one.
+      await client.query("UPDATE tasks SET meta = meta - 'conversationId' WHERE account_id = $1 AND meta->>'conversationId' = $2", [accountId, conversationId]);
+      await client.query("COMMIT");
+      return true;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined> {
     if (!isUuid(conversationId)) return undefined;
     const { rows } = await this.query<ConversationRow>(

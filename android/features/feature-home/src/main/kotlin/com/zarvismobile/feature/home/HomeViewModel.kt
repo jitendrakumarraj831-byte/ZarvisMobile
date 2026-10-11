@@ -35,10 +35,7 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
-    init {
-        refresh()
-    }
-
+    /** Reads skills, plan and tasks. The screen calls this every time Home is shown, so the plan and recent tasks are never old. */
     fun refresh() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)

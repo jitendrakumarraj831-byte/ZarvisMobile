@@ -22,6 +22,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -42,10 +46,19 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
 
+    // BackHandler (stop listening before Back leaves the chat).
+    implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
     implementation(libs.coroutines.core)
+
+    // ConversationViewModelSyncTest: the real view model, orchestrator and session against a stand-in backend.
+    testImplementation(libs.junit4)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.retrofit.kotlinx.serialization)
+    testImplementation(libs.kotlinx.serialization.json)
 }

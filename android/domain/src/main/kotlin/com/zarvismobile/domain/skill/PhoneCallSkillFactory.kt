@@ -47,6 +47,9 @@ object PhoneCallSkillFactory {
 
     private fun preparer(contacts: ContactLookupPort) = SkillPreparer { input, _ ->
         val target = (input.values["target"] as? String)?.trim().orEmpty()
+        if (target.isEmpty()) {
+            return@SkillPreparer PreparedAction.Failed(SkillResult.Failure("missing_target", "Who should I call? Tell me a name or a number."))
+        }
         if (looksLikePhoneNumber(target)) {
             val number = normalizeNumber(target)
             return@SkillPreparer PreparedAction.Ready(
@@ -54,9 +57,21 @@ object PhoneCallSkillFactory {
                 input = SkillInput(input.values + mapOf(RESOLVED_NAME to number, RESOLVED_NUMBER to number)),
             )
         }
-        val contact = contacts.findByName(target)
-            ?: return@SkillPreparer PreparedAction.Failed(
+        val matches = ContactMatching.bestMatches(target, contacts.search(target))
+        if (matches.isEmpty()) {
+            return@SkillPreparer PreparedAction.Failed(
                 SkillResult.Failure("contact_not_found", "I couldn't find a contact matching \"$target\", so I didn't call anyone."),
+            )
+        }
+        // "Ram" fits several people: calling one of them at random would ring the wrong person, so ask for the full name instead.
+        val contact = matches.singleOrNull()
+            ?: return@SkillPreparer PreparedAction.Failed(
+                SkillResult.Failure(
+                    "ambiguous_contact",
+                    "More than one contact matches \"$target\": " + matches.take(MAX_NAMED).joinToString(", ") { it.displayName } +
+                        (if (matches.size > MAX_NAMED) " and ${matches.size - MAX_NAMED} more" else "") +
+                        ". Say the full name, so I don't call the wrong person. I didn't call anyone.",
+                ),
             )
         PreparedAction.Ready(
             description = "Call ${contact.displayName} at ${contact.phoneNumber}",
@@ -81,9 +96,16 @@ object PhoneCallSkillFactory {
         )
     }
 
-    /** Digits plus common dialing punctuation, at least 7 digits. */
+    /**
+     * Digits plus common dialing punctuation, at least 7 digits; or a bare short number of 3 to 6 digits, which is how emergency and service
+     * numbers ("112", "100", "1098") are said. A bare short number is dialed as a number, not searched for as a contact's name; the
+     * call still waits for the user's confirmation, which shows exactly what will be dialed.
+     */
     fun looksLikePhoneNumber(target: String): Boolean =
-        target.count { it.isDigit() } >= 7 && target.all { it.isDigit() || it in "+-() " }
+        (target.count { it.isDigit() } >= 7 && target.all { it.isDigit() || it in "+-() " }) ||
+            (target.length in 3..6 && target.all { it.isDigit() })
+
+    private const val MAX_NAMED = 3
 
     private fun normalizeNumber(target: String): String = target.filter { it.isDigit() || it == '+' }
 }

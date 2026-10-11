@@ -65,6 +65,8 @@
       subtitle: "Type, speak, or attach a file.",
       quickActionsLead: "Suggestions",
       placeholder: "Message ZARVIS…",
+      placeholderShort: "Ask ZARVIS",
+      placeholderMin: "Ask…",
       homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
       send: "Send",
       stop: "Stop",
@@ -139,6 +141,8 @@
       subtitle: "लिखें, बोलें या फ़ाइल अटैच करें।",
       quickActionsLead: "सुझाव",
       placeholder: "ZARVIS को संदेश भेजें…",
+      placeholderShort: "ZARVIS से पूछें",
+      placeholderMin: "पूछें…",
       homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
       send: "भेजें",
       stop: "रोकें",
@@ -417,6 +421,7 @@
       ["speech synthesis", setupSpeechSynthesis],
       ["speech bar", setupSpeechBar],
       ["language UI", applyLanguage],
+      ["composer placeholder", watchComposerPlaceholder],
       ["voice toggle", applyVoiceToggleState],
       ["speech recognition", setupSpeechRecognition],
       ["service worker", registerServiceWorker],
@@ -493,7 +498,7 @@
     el.heroSubtitle.textContent = copy.subtitle;
     el.quickActionsLead.textContent = copy.quickActionsLead;
     renderHomeGreeting();
-    el.input.placeholder = copy.placeholder;
+    fitComposerPlaceholder();
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
     el.sendLabel.textContent = copy.send;
@@ -518,11 +523,44 @@
     window.ZarvisI18n?.apply(state.lang);
   }
 
+  // The tool buttons leave a 320-360px phone only 80-120px for the placeholder. A textarea wraps a placeholder that does not
+  // fit (the second line is cut off) and cannot end it with an ellipsis, so the first of three wordings that fits is used.
+  let placeholderProbe = null;
+  function fitComposerPlaceholder() {
+    const copy = COPY[state.lang];
+    const style = getComputedStyle(el.input);
+    const room = el.input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    let text = copy.placeholder;
+    if (room > 0) { // while Chat is hidden there is nothing to measure; the resize observer measures again once it is shown
+      if (!placeholderProbe) {
+        placeholderProbe = document.createElement("span");
+        placeholderProbe.setAttribute("aria-hidden", "true");
+        placeholderProbe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;white-space:nowrap;";
+        document.body.appendChild(placeholderProbe);
+      }
+      for (const property of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing"]) placeholderProbe.style[property] = style[property];
+      const fits = (candidate) => {
+        placeholderProbe.textContent = candidate;
+        return placeholderProbe.getBoundingClientRect().width <= room - 1;
+      };
+      text = [copy.placeholder, copy.placeholderShort, copy.placeholderMin].find(fits) || copy.placeholderMin;
+    }
+    if (el.input.placeholder !== text) el.input.placeholder = text;
+  }
+
+  function watchComposerPlaceholder() {
+    if (typeof ResizeObserver === "function") new ResizeObserver(fitComposerPlaceholder).observe(el.input);
+    document.fonts?.ready?.then(fitComposerPlaceholder);
+  }
+
   /** Settings screen's language pills read/write the same `state.lang`/localStorage key. */
   function setLanguage(lang) {
     state.lang = lang;
     localStorage.setItem(STORAGE_KEYS.lang, state.lang);
     applyLanguage();
+    // The tab and history title were composed in the old language; the page itself has just been translated.
+    const title = pageTitle();
+    document.title = kit("decorateTitle", title) || title;
   }
 
   /** Settings screen's "Spoken replies" button — off by default (see `state.speak`'s init). */
@@ -829,12 +867,16 @@
 
   function setupConnectionState() {
     const banner = document.getElementById("offline-banner");
+    // The sticky bars below the banner start where it ends (0 while online or while it is hidden).
+    const syncBannerHeight = () => document.documentElement.style.setProperty("--banner-h", (banner ? banner.offsetHeight : 0) + "px");
+    if (banner && typeof ResizeObserver === "function") new ResizeObserver(syncBannerHeight).observe(banner);
     const apply = (announce) => {
       const offline = navigator.onLine === false;
       document.body.dataset.offline = offline ? "1" : "0";
       if (banner) {
         banner.hidden = !offline;
         banner.textContent = COPY[state.lang].offlineBanner;
+        syncBannerHeight();
       }
       renderHeroStatus();
       if (announce) showToast(offline ? COPY[state.lang].offlineLabel : COPY[state.lang].backOnline);
@@ -2145,6 +2187,10 @@
         const data = await res.json().catch(() => null);
         return Array.isArray(data?.conversations) ? data.conversations : null;
       },
+      deleteConversation: deleteConversationOnServer,
+      chatDeleted: (id) => {
+        if (state.conversationId === id) startNewConversation({ deleted: true });
+      },
       openConversation,
       newConversation: startNewConversation,
       submit: (text) => submitComposerInput(text),
@@ -2352,9 +2398,29 @@
     el.input.setSelectionRange(prompt.length, prompt.length);
   }
 
+  /**
+   * Deletes a chat on the server. Resolves "deleted" only when the server confirmed it (204) or said the chat does not exist
+   * (404 with its own `conversation_not_found` code: it is gone either way). Anything else, including a 404 that is only a server
+   * without this route, is "failed", so the chat is never shown as deleted while the server still has it.
+   */
+  async function deleteConversationOnServer(id) {
+    try {
+      const res = await apiFetch(`/conversations/${encodeURIComponent(id)}`, { method: "DELETE", timeoutMs: READ_TIMEOUT_MS });
+      if (res.status === 204 || res.status === 200) return "deleted";
+      if (res.status === 404) {
+        const body = await res.json().catch(() => null);
+        if (body?.code === "conversation_not_found") return "deleted";
+      }
+      return "failed";
+    } catch {
+      return "failed";
+    }
+  }
+
   /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
-   * The previous conversation stays on the server. */
-  function startNewConversation() {
+   * The previous conversation stays on the server, unless `{ deleted: true }` says it was just deleted. */
+  function startNewConversation(options) {
+    const wasDeleted = options?.deleted === true;
     if (currentTurnController) cancelCurrentTurn();
     localStorage.removeItem(STORAGE_KEYS.conversationId);
     state.conversationId = null;
@@ -2366,7 +2432,8 @@
     renderChatContext();
     kit("threadReset");
     syncChatConversationLayout();
-    recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
+    if (wasDeleted) recordActivity("conversation", "Deleted a chat", "Removed from your account", "ok");
+    else recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
     updateSettingsValues();
     if (state.activeView !== "chat") setActiveView("chat");
     el.input.focus();
@@ -2382,6 +2449,8 @@
         openFeature(card.dataset.featurePage);
       });
     }
+    // The prompt row scrolls sideways on a phone: it fades the edge that has more, so a chip cut by the screen reads as "more".
+    workspace()?.scrollFade(document.querySelector("#home-quick .chip-row"));
   }
 
   function setupCapabilityPages() {
@@ -2589,6 +2658,7 @@
       void workspace()?.refreshMemoryValue();
     }
     if (view === "chat") scrollConversationToBottom(true);
+    placeToast();
     syncRoute();
   }
 
@@ -2819,6 +2889,28 @@
     showToast(mode === "dim" ? "Dark appearance" : "Light appearance");
   }
 
+  /**
+   * The message box (Chat) and the message card (Home) own the bottom of the screen and move with a growing message or the
+   * keyboard: the toast sits above whichever is showing instead of on top of it. Called when a toast opens and when the
+   * page changes under an open one (an unknown address shows its toast first and opens Home after).
+   */
+  function placeToast() {
+    const toast = document.getElementById("toast");
+    if (!toast || toast.hidden) return;
+    const anchor = [el.composer, document.getElementById("home-prompt-form")].find((node) => node && node.getClientRects().length && ["fixed", "sticky"].includes(getComputedStyle(node).position));
+    if (!anchor) {
+      toast.style.bottom = "";
+      return;
+    }
+    // A page that is still sliding in is measured where it will end up, not where the animation has it for now.
+    let sliding = 0;
+    for (let node = anchor; node && node !== document.body; node = node.parentElement) {
+      const transform = getComputedStyle(node).transform;
+      if (transform && transform !== "none") sliding += new DOMMatrixReadOnly(transform).m42;
+    }
+    toast.style.bottom = Math.round(window.innerHeight - (anchor.getBoundingClientRect().top - sliding) + 8) + "px";
+  }
+
   let toastTimer = null;
   /** A short confirmation that a setting was saved (also announced to screen readers). */
   function showToast(text) {
@@ -2826,6 +2918,7 @@
     if (!toast) return;
     toast.textContent = text;
     toast.hidden = false;
+    placeToast();
     toast.classList.remove("is-leaving");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {

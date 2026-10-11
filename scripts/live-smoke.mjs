@@ -10,7 +10,8 @@
  * it is never counted as a pass in the reports. Any FAIL exits 1.
  *
  * No token, password or secret is ever printed. The sign-up account this creates is deleted at
- * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), 1 TTS request.
+ * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), 1 TTS request, plus at most one extra attempt for an AI
+ * step whose first failure the backend marked temporary (a per-minute limit or a retryable outage); a refusal or a daily quota is never retried.
  */
 
 let BASE = (process.env.BASE_URL || "").replace(/\/$/, "");
@@ -61,6 +62,34 @@ async function turn(token, utterance, extra = {}) {
 }
 
 const quota = (code) => code === "AI_QUOTA_EXCEEDED" || code === "AI_RATE_LIMITED";
+
+/**
+ * A provider failure the backend itself marked temporary: a per-minute rate limit (AI_RATE_LIMITED) or an outage it marked retryable
+ * (AI_UNAVAILABLE with retryable:true, i.e. a 408/5xx from Google). Only those get ONE more attempt. A daily quota (AI_QUOTA_EXCEEDED)
+ * cannot recover within a run, and AI_UNAVAILABLE with retryable:false is a refusal (key or permission, model not found, bad request)
+ * that waiting cannot fix: neither is retried, so a refusal stays a FAIL. A retry can only turn into a PASS if Gemini really answers.
+ */
+const transientAi = (error) => error?.code === "AI_RATE_LIMITED" || (error?.code === "AI_UNAVAILABLE" && error.retryable === true);
+/** A per-minute limit waits out one window; an outage gets a short pause. One retry per step, at most 65 s. */
+const retryWaitMs = (error) => (error?.code === "AI_RATE_LIMITED" ? 65_000 : 15_000);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** What a failed AI turn looked like. Only the structured fields the API sends: no provider text, key or token. */
+const describeAiError = (res) => JSON.stringify({ status: res.status, code: res.error?.code, retryable: res.error?.retryable });
+/** Says what a non-retryable AI_UNAVAILABLE is (and is not), because the API does not send the provider's HTTP status to clients. */
+const REFUSED_HINT =
+  "this is not a rate limit or a temporary outage (those are reported as WARN): the provider refused the call or no model is available " +
+  "(key or permission, model name, or a rejected request). Check GEMINI_API_KEY and GEMINI_MODEL for this environment; the function log has " +
+  'the provider status and model (search "stopped by the AI provider").';
+
+/** One AI turn, with at most one more attempt when, and only when, the first failed in a way the backend marked temporary. */
+async function aiTurn(token, utterance, label) {
+  const first = await turn(token, utterance);
+  if (first.done || !transientAi(first.error)) return { res: first, retried: false, note: "" };
+  const wait = retryWaitMs(first.error);
+  console.log(`     ${label}: attempt 1 failed temporarily ${describeAiError(first)}; waiting ${wait / 1000} s, then one more attempt`);
+  await sleep(wait);
+  return { res: await turn(token, utterance), retried: true, note: ` (after one retry; attempt 1: ${describeAiError(first)})` };
+}
 
 /** A one-page PDF whose text is "ZARVIS smoke test" (valid xref offsets computed below). */
 function tinyPdf() {
@@ -189,43 +218,50 @@ async function main() {
   const replay = await turn(guestToken, "Hi", { clientTurnId });
   report(replay.done?.replayed === true && replay.done?.message === hi.done?.message ? "PASS" : "FAIL", "re-sent turn with the same clientTurnId is replayed, not run again", `replayed=${replay.done?.replayed}`);
 
-  const model = await turn(guestToken, "Reply with the single word OK.");
+  const { res: model, note: modelNote } = await aiTurn(guestToken, "Reply with the single word OK.", "AI model turn");
   if (model.done) {
-    report(provider === "google" ? "PASS" : "FAIL", "a turn that needs the AI model", provider === "google" ? "Gemini answered" : `answered by provider ${provider}, not Gemini`);
+    report(provider === "google" ? "PASS" : "FAIL", "a turn that needs the AI model", provider === "google" ? `Gemini answered${modelNote}` : `answered by provider ${provider}, not Gemini`);
   } else if (quota(model.error?.code)) {
-    report("WARN", "a turn that needs the AI model", `Gemini reachable but out of quota (${model.error.code}); no answer verified`);
+    report("WARN", "a turn that needs the AI model", `Gemini reachable but out of quota (${model.error.code}); no answer verified${modelNote}`);
   } else if (model.error?.code === "AI_UNAVAILABLE" && model.error.retryable) {
-    report("WARN", "a turn that needs the AI model", "Gemini temporarily unavailable; no answer verified");
+    report("WARN", "a turn that needs the AI model", `Gemini temporarily unavailable; no answer verified${modelNote}`);
+  } else if (model.error?.code === "AI_UNAVAILABLE") {
+    report("FAIL", "a turn that needs the AI model", `no answer: ${describeAiError(model)}; ${REFUSED_HINT}`);
   } else {
-    report("FAIL", "a turn that needs the AI model", `no answer: ${JSON.stringify({ status: model.status, code: model.error?.code, retryable: model.error?.retryable })}`);
+    report("FAIL", "a turn that needs the AI model", `no answer: ${describeAiError(model)}`);
   }
 
   // ---- Web Search ----------------------------------------------------------------------------
   const searchPrompt = "Use web search to find the capital city of Australia, then answer in one sentence with the source.";
-  let search = await turn(guestToken, searchPrompt);
+  // At most ONE extra attempt for this step in total: the planner's own temporary failure (aiTurn) or, below, the search skill's per-minute limit.
+  let { res: search, retried: searchRetried, note: searchNote } = await aiTurn(guestToken, searchPrompt, "web search turn");
   let searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
-  if (searches.length === 1 && searches[0].outcome?.result?.reason === "ai_rate_limited") {
+  if (!searchRetried && searches.length === 1 && searches[0].outcome?.result?.reason === "ai_rate_limited") {
     // A per-minute limit, usually from the model calls just before. Respect it: wait out one
     // window and ask once more (a new turn). A daily quota is not retried.
     console.log("     web search hit the per-minute limit; waiting 65 s, then one more attempt");
-    await new Promise((resolve) => setTimeout(resolve, 65_000));
+    await sleep(65_000);
     search = await turn(guestToken, searchPrompt);
     searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+    searchNote = " (after one retry; attempt 1: the search skill hit the per-minute limit)";
   }
   if (searches.length === 1 && searches[0].result?.status === "COMPLETED") {
     const sources = (searches[0].outcome?.result?.output?.results ?? []).length;
-    report(provider === "google" ? "PASS" : "FAIL", "web search ran exactly once and completed", provider === "google" ? `${sources} sources` : `provider ${provider}: not a real search`);
+    report(provider === "google" ? "PASS" : "FAIL", "web search ran exactly once and completed", provider === "google" ? `${sources} sources${searchNote}` : `provider ${provider}: not a real search`);
   } else if (searches.length > 1) {
     report("FAIL", "web search ran exactly once", `${searches.length} executions for one request`);
   } else if (searches.length === 1 && /quota|rate/.test(searches[0].outcome?.result?.reason ?? "")) {
     // The user-facing message carries the provider's advised wait; no secret is in it.
-    report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})`);
+    report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})${searchNote}`);
   } else if (quota(search.error?.code)) {
-    report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised`);
+    report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised${searchNote}`);
+  } else if (search.error?.code === "AI_UNAVAILABLE" && search.error.retryable) {
+    // Same rule as the model turn above: a temporary outage is reported, not mistaken for a broken API.
+    report("WARN", "web search", `Gemini temporarily unavailable; search not exercised${searchNote}`);
   } else if (searches.length === 0 && search.done) {
     report("WARN", "web search", "the model answered without calling web.search; search not exercised");
   } else {
-    report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, result: searches[0]?.result?.status }));
+    report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, retryable: search.error?.retryable, result: searches[0]?.result?.status }) + (search.error?.code === "AI_UNAVAILABLE" ? `; ${REFUSED_HINT}` : ""));
   }
 
   // ---- File upload ---------------------------------------------------------------------------
