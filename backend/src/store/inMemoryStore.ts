@@ -331,6 +331,28 @@ export class InMemoryStore implements Store {
     return conversation;
   }
 
+  async deleteConversation(accountId: string, conversationId: string): Promise<boolean> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || conversation.accountId !== accountId) return false;
+    this.conversations.delete(conversationId);
+    this.conversationMessages.delete(conversationId);
+    // The stored result of a turn is the reply text, so a deleted chat must not keep it (a replayed clientTurnId would show it again).
+    for (const [key, record] of this.turnRecords) {
+      if (record.accountId === accountId && record.conversationId === conversationId) this.turnRecords.delete(key);
+    }
+    // Tool runs made in the chat go with it, except those that are part of a task's history, which only lose the link.
+    for (const [id, execution] of this.executions) {
+      if (execution.accountId !== accountId || execution.conversationId !== conversationId) continue;
+      if (execution.taskId) delete execution.conversationId;
+      else this.executions.delete(id);
+    }
+    // A task started in the chat must not offer to open a chat that is gone; its next step starts a new one.
+    for (const task of this.tasks.values()) {
+      if (task.accountId === accountId && task.conversationId === conversationId) delete task.conversationId;
+    }
+    return true;
+  }
+
   async listConversations(accountId: string, limit?: number, filter: { projectId?: string } = {}): Promise<Conversation[]> {
     const newestFirst = [...this.conversations.values()]
       .filter((conversation) => conversation.accountId === accountId && (!filter.projectId || conversation.projectId === filter.projectId))

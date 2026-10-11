@@ -280,6 +280,13 @@ export interface Store {
   listConversations(accountId: string, limit?: number, filter?: { projectId?: string }): Promise<Conversation[]>;
   /** Moves a chat into a project, or out of every project with `null`. Returns undefined for a chat that is not the account's. */
   setConversationProject(accountId: string, conversationId: string, projectId: string | null): Promise<Conversation | undefined>;
+  /**
+   * Permanently deletes one of the account's chats and everything that holds its text: its messages, the stored results of its turns
+   * (they contain the replies), and the tool runs made in it. A tool run that belongs to a task is kept for the task's history but
+   * loses its link to the chat, and a task that was started in the chat loses its "open chat" link. Returns false, changing nothing,
+   * for a chat that does not exist or is another account's.
+   */
+  deleteConversation(accountId: string, conversationId: string): Promise<boolean>;
   appendConversationMessages(messages: ConversationMessage[]): Promise<void>;
   listConversationMessages(accountId: string, conversationId: string, limit?: number): Promise<ConversationMessage[]>;
 
