@@ -2187,6 +2187,10 @@
         const data = await res.json().catch(() => null);
         return Array.isArray(data?.conversations) ? data.conversations : null;
       },
+      deleteConversation: deleteConversationOnServer,
+      chatDeleted: (id) => {
+        if (state.conversationId === id) startNewConversation({ deleted: true });
+      },
       openConversation,
       newConversation: startNewConversation,
       submit: (text) => submitComposerInput(text),
@@ -2394,9 +2398,29 @@
     el.input.setSelectionRange(prompt.length, prompt.length);
   }
 
+  /**
+   * Deletes a chat on the server. Resolves "deleted" only when the server confirmed it (204) or said the chat does not exist
+   * (404 with its own `conversation_not_found` code: it is gone either way). Anything else, including a 404 that is only a server
+   * without this route, is "failed", so the chat is never shown as deleted while the server still has it.
+   */
+  async function deleteConversationOnServer(id) {
+    try {
+      const res = await apiFetch(`/conversations/${encodeURIComponent(id)}`, { method: "DELETE", timeoutMs: READ_TIMEOUT_MS });
+      if (res.status === 204 || res.status === 200) return "deleted";
+      if (res.status === 404) {
+        const body = await res.json().catch(() => null);
+        if (body?.code === "conversation_not_found") return "deleted";
+      }
+      return "failed";
+    } catch {
+      return "failed";
+    }
+  }
+
   /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
-   * The previous conversation stays on the server. */
-  function startNewConversation() {
+   * The previous conversation stays on the server, unless `{ deleted: true }` says it was just deleted. */
+  function startNewConversation(options) {
+    const wasDeleted = options?.deleted === true;
     if (currentTurnController) cancelCurrentTurn();
     localStorage.removeItem(STORAGE_KEYS.conversationId);
     state.conversationId = null;
@@ -2408,7 +2432,8 @@
     renderChatContext();
     kit("threadReset");
     syncChatConversationLayout();
-    recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
+    if (wasDeleted) recordActivity("conversation", "Deleted a chat", "Removed from your account", "ok");
+    else recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
     updateSettingsValues();
     if (state.activeView !== "chat") setActiveView("chat");
     el.input.focus();

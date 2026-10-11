@@ -42,7 +42,7 @@ Hindi and accessibility tests. The work was therefore "find the real gaps agains
 | 3 Design system | Existing aurora-glass system kept. Tokens consolidated and documented ([DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)); type scale and code tokens added; guarded by `css.test.js`. A full de-layering of the stylesheet (204 selectors are still declared more than once) is **not** done: it is risky without a visual-regression suite, and this release adds the guard that makes it safe to do next. |
 | 4 Shell and navigation | Already complete (sidebar, rail, bottom bar, drawer, breadcrumbs, routes, history, shortcuts). Fixed the duplicate back button; section descriptions. |
 | 5 Home | Done, with the limits in §5. |
-| 6 Chat | Markdown (tables, quotes, code colours) added; speech Pause. Everything else listed was already present and tested (copy, regenerate, edit, retry, stop, search, timestamps, attachments, paste and drop, auto-scroll, duplicate-send guard). Rename, pin, archive and delete chats: **the server has no such endpoint**, so none is offered. |
+| 6 Chat | Markdown (tables, quotes, code colours) added; speech Pause. Everything else listed was already present and tested (copy, regenerate, edit, retry, stop, search, timestamps, attachments, paste and drop, auto-scroll, duplicate-send guard). Rename, pin and archive chats: **the server has no such endpoint**, so none is offered. Delete chat now has one (`DELETE /conversations/:id`), used by the trash icon. |
 | 7 Execution status | Already real-event based (cards, reconnect, stored ledger). Unchanged. |
 | 8 Voice | Added pause/resume, the Voice check and fixed the stuck "Speaking". Orb states, waveform, permission guidance and single-utterance recognition already existed. **Not done:** live (interim) transcript, a distinct "Interrupted" state, TTS progress. |
 | 9 Projects | Search/sort added; the rest existed. "Recent" means most recently updated (the server stores no "opened" time). |
@@ -72,7 +72,7 @@ Hindi and accessibility tests. The work was therefore "find the real gaps agains
 ## 5. Honest limits of what was built
 
 * Home and the board only show what the server returned; a list that failed to load is named, not hidden.
-* Chat history rename/pin/archive/delete need server endpoints that do not exist. Only "remove from this browser's list" exists.
+* Chat history rename/pin/archive need server endpoints that do not exist. Delete is real (`DELETE /conversations/:id`).
 * The speech bar and the Voice check were tested with a faked recogniser and stubbed audio in headless Chromium. **Real microphones, real speakers, iOS Safari and a real Gemini voice were not exercised.**
 * Payments were tested with a stubbed Razorpay and stubbed `/billing/*` answers; no real payment, webhook or Play Billing purchase was made.
 * The Android app was not run or changed.
@@ -107,7 +107,7 @@ Not covered by an automated pass/fail: `web/e2e/link-scan.cjs` (an exploratory c
 
 ## 8. Next phase (recommended)
 
-1. Chat rename/pin/archive/delete with real endpoints, then the UI.
+1. Chat rename/pin/archive with real endpoints, then the UI (delete is done).
 2. Per-skill status on agent pages from the registry.
 3. De-layer `styles.css` (merge the "v3 / v4 / premium / page by page / studio" layers) behind a screenshot-diff test.
 4. A real-device pass: iOS Safari, Android Chrome, a real microphone and speaker, a live payment in test mode.

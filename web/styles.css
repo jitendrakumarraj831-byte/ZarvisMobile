@@ -1025,7 +1025,7 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
   animation: modal-in var(--t-slow) var(--ease) both;
 }
 .modal-card h3 { font-size: 19px; font-weight: 800; }
-.modal-card > p { margin-top: var(--s2); color: var(--text-2); }
+.modal-card > p { margin-top: var(--s2); color: var(--text-2); overflow-wrap: anywhere; } /* a chat title in the delete question can be one long word */
 .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s5); }
 .session-gate-card { text-align: left; }
 .session-gate-card .form { margin-top: var(--s4); }
@@ -2477,6 +2477,8 @@ body.chat-loading .chat-empty { display: none; }
 .chat-row { display: flex; align-items: center; gap: 2px; border-radius: 14px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-1); }
 .chat-row-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s3); min-height: 56px; padding: 8px var(--s3); text-align: left; border-radius: 14px; }
 .chat-row-open:hover { background: var(--primary-soft); }
+.chat-row.is-deleting { opacity: .55; }
+.chat-row.is-deleting .chat-row-open, .chat-row.is-deleting .chat-row-del { cursor: progress; }
 .chat-row-open[aria-current] { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
 .chat-row-open > .ico { width: 16px; height: 16px; flex: none; color: var(--text-3); }
 .chat-row-ico { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 11px; background: var(--primary-soft); color: var(--primary); }
@@ -2516,7 +2518,9 @@ body.chat-loading .chat-empty { display: none; }
 .drop-card small { color: rgba(255, 255, 255, 0.8); }
 
 /* ---------- Chat history panel ---------- */
-.history-overlay { place-items: stretch end; padding: 0; }
+.history-overlay { place-items: stretch end; padding: 0; grid-template-columns: minmax(0, 1fr); }
+/* The one-column track must be capped at the screen's width: an auto track grew to fit the widest unwrapped chat title, the panel
+   (width: min(420px, 100%)) took that width, and on a 360px phone its close and delete buttons were pushed off the right edge. */
 .history-panel {
   display: flex; flex-direction: column; gap: var(--s3); width: min(420px, 100%); height: 100%; padding: var(--s4);
   padding-top: calc(var(--s4) + env(safe-area-inset-top, 0px)); padding-bottom: calc(var(--s4) + var(--safe-b));

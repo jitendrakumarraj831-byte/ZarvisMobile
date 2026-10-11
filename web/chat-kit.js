@@ -25,9 +25,10 @@
   let busy = false;
   let historyOpener = null;
   let hidden = []; // chats the user removed from the list here; the server list must not bring them back
+  const deleting = new Set(); // chats whose delete request is in flight: shown busy, and not deletable twice
   let syncing = false;
   let lastSyncAt = 0;
-  let generation = 0; // bumped on sign-out so a list still in flight cannot reach the next person
+  let generation = 0; // bumped on sign-out and on a chat delete, so a list still in flight cannot reach the next person or bring a deleted chat back
 
   const $ = (id) => document.getElementById(id);
 
@@ -96,12 +97,66 @@
     renderAll();
   }
 
+  /** Hides a chat in this browser only (used when the server says it is gone, so a stale list cannot bring it back). */
   function removeFromList(id) {
     chats = L.removeChat(chats, id);
     hidden = L.hideChat(hidden, id);
     store("set", KEYS.hidden, JSON.stringify(hidden));
     saveChats();
     renderAll();
+  }
+
+  /**
+   * Deletes a chat on the server, and only then takes it out of the lists. A failure keeps the chat exactly where it was and says so,
+   * so the list never claims something is deleted when the server still has it. Deleting the open chat starts a new one.
+   */
+  async function deleteChat(chat) {
+    if (deleting.has(chat.id)) return;
+    const position = historyRowIds().indexOf(chat.id);
+    deleting.add(chat.id);
+    renderAll();
+    let result = "failed";
+    try {
+      result = await api.deleteConversation(chat.id);
+    } catch {
+      result = "failed";
+    }
+    deleting.delete(chat.id);
+    if (result !== "deleted") {
+      renderAll();
+      refocusHistory(position, chat.id);
+      api.toast("Couldn't delete that chat. Check your connection and try again.");
+      return;
+    }
+    // A chat-list refresh that was already on its way was answered before the delete: its list still has this chat, and merging it in
+    // would bring the deleted chat back. Bumping the generation makes sync() drop that answer.
+    generation += 1;
+    chats = L.removeChat(chats, chat.id);
+    hidden = hidden.filter((other) => other !== chat.id);
+    store("set", KEYS.hidden, JSON.stringify(hidden));
+    saveChats();
+    if (chat.id === api.conversationId()) api.chatDeleted(chat.id);
+    renderAll();
+    refocusHistory(position, null);
+    api.toast("Chat deleted");
+  }
+
+  const historyRowIds = () => [...document.querySelectorAll("#history-list .chat-row")].map((row) => row.dataset.chatId);
+
+  /**
+   * The row a keyboard user just acted on is re-drawn (or gone) after a delete, which leaves focus on the page behind the open history
+   * panel. Puts it back inside the panel: on the same chat's delete button when the delete failed, otherwise on the chat that took
+   * the deleted one's place, else on the search box. Does nothing when focus is still somewhere sensible.
+   */
+  function refocusHistory(position, sameChatId) {
+    const overlay = $("history-overlay");
+    if (!overlay || overlay.hidden) return;
+    if (document.activeElement && document.activeElement !== document.body && overlay.contains(document.activeElement)) return;
+    const rows = [...overlay.querySelectorAll("#history-list .chat-row")];
+    const same = sameChatId ? rows.find((row) => row.dataset.chatId === sameChatId) : null;
+    const next = rows[Math.min(Math.max(position, 0), rows.length - 1)];
+    const target = same?.querySelector(".chat-row-del") || next?.querySelector(".chat-row-open") || $("history-search");
+    target?.focus({ preventScroll: true });
   }
 
   /**
@@ -146,6 +201,7 @@
   /** One tappable chat row (title + when), used by the empty Chat page, Activity and the history panel. */
   function chatRow(chat, { onOpen, removable } = {}) {
     const row = node("div", "chat-row");
+    row.dataset.chatId = chat.id;
     const open = node("button", "chat-row-open");
     open.type = "button";
     if (chat.id === api.conversationId()) open.setAttribute("aria-current", "true");
@@ -158,24 +214,31 @@
     open.append(ico, copy, icon("i-right"));
     open.addEventListener("click", () => (onOpen || openChat)(chat.id));
     row.appendChild(open);
+    if (deleting.has(chat.id)) {
+      row.classList.add("is-deleting");
+      row.setAttribute("aria-busy", "true");
+      open.disabled = true;
+    }
     if (removable) {
       const del = node("button", "icon-btn icon-btn-sm chat-row-del");
       del.type = "button";
-      del.setAttribute("aria-label", "Remove from list: " + chat.title);
-      del.title = "Remove from list";
+      del.setAttribute("aria-label", "Delete chat: " + chat.title);
+      del.title = "Delete chat";
+      del.disabled = deleting.has(chat.id);
       del.appendChild(icon("i-trash"));
-      del.addEventListener("click", () => confirmRemove(chat));
+      del.addEventListener("click", () => confirmDelete(chat));
       row.appendChild(del);
     }
     return row;
   }
 
-  function confirmRemove(chat) {
+  function confirmDelete(chat) {
     api.confirm({
-      title: "Remove from list?",
-      body: "“" + chat.title + "” stays on the ZARVIS server. It just won't be listed on this browser any more.",
-      confirmLabel: "Remove",
-      onConfirm: () => removeFromList(chat.id),
+      title: "Delete this chat?",
+      body: "“" + chat.title + "” and all its messages will be permanently deleted from your ZARVIS account, on every device. This can't be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+      onConfirm: () => void deleteChat(chat),
     });
   }
 
@@ -511,6 +574,10 @@
     }
     if (api.conversationId()) {
       items.push({ label: "Copy link to this chat", icon: "i-link", hint: "Opens it when signed in to this account", run: copyChatLink });
+      items.push({
+        label: "Delete this chat", icon: "i-trash", hint: "Permanently, on every device",
+        run: () => confirmDelete(currentChat() || { id: api.conversationId(), title: "This chat" }),
+      });
     }
     items.push({ label: "Keyboard shortcuts", icon: "i-keyboard", hint: "Press ? anywhere", run: openShortcuts });
     window.ZarvisShell?.menu(anchor, "Chat", items);

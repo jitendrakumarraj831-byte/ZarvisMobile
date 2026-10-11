@@ -148,9 +148,10 @@ async function send(page, text) {
     assert.ok(messages.includes("hello"));
   });
 
-  await step("chat list follows the account: a browser that never opened the chat lists it, a removed chat stays removed, and the other browser keeps it", async () => {
+  await step("chat list follows the account, and the trash icon really deletes: gone on the server, gone after a reload, and the other browser cannot open it any more", async () => {
     const conversationId = await ls(pageA, "zarvis.conversationId");
     assert.ok(conversationId, "browser A has a conversation");
+    const status = (page, id) => page.evaluate(async (chat) => (await fetch("/api/v1/conversations/" + chat + "/messages", { headers: { authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") } })).status, id);
     // B signed in a moment ago and never opened this chat: the server list alone must put it in the index.
     await pageB.waitForFunction((id) => (localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
     await nav(pageB, "chat");
@@ -158,20 +159,152 @@ async function send(page, text) {
     const rowB = pageB.locator("#history-list .chat-row", { hasText: "hello" });
     await rowB.first().waitFor();
     assert.equal(await rowB.count(), 1, "one row, not one per sync");
-    // Remove it here, reload: the next sync must not bring it back.
+    assert.equal(await rowB.first().locator(".chat-row-del").getAttribute("aria-label"), "Delete chat: hello", "the icon says what it does");
+    // Cancel changes nothing.
+    await rowB.first().locator(".chat-row-del").click();
+    assert.match(await pageB.innerText("#confirm-modal-body"), /permanently deleted from your ZARVIS account, on every device/);
+    await pageB.click("#confirm-modal-cancel");
+    assert.equal(await status(pageB, conversationId), 200, "cancelling the dialog deletes nothing");
+    // Delete it here: the server really loses it, so a reload cannot bring it back.
     await rowB.first().locator(".chat-row-del").click();
     await pageB.click("#confirm-modal-confirm");
     await pageB.waitForFunction((id) => !(localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
+    assert.equal(await status(pageB, conversationId), 404, "the chat is deleted on the server, not just hidden in this browser");
     await pageB.reload();
     await pageB.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
     await pageB.waitForTimeout(1500);
-    assert.ok(!(await ls(pageB, "zarvis.chats")).includes(conversationId), "removed chat stays out after the sync on reload");
-    assert.ok((await ls(pageB, "zarvis.chatsHidden")).includes(conversationId));
-    // The list on the other browser, and the conversation itself, are untouched.
+    assert.ok(!(await ls(pageB, "zarvis.chats")).includes(conversationId), "a deleted chat does not come back with the sync on reload");
+    // The other browser still had it open: it learns the chat is gone, instead of showing it as if it were alive.
     await pageA.reload();
-    await pageA.waitForFunction((id) => (localStorage.getItem("zarvis.chats") || "").includes(id), conversationId);
-    const stillThere = await pageB.evaluate(async (id) => (await fetch("/api/v1/conversations/" + id + "/messages", { headers: { authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") } })).status, conversationId);
-    assert.equal(stillThere, 200);
+    await pageA.waitForFunction(() => !localStorage.getItem("zarvis.conversationId"), null, { timeout: 15000 });
+    assert.ok(!(await ls(pageA, "zarvis.chats")).includes(conversationId), "the other browser drops the deleted chat when it tries to open it");
+  });
+
+  await step("a failed delete keeps the chat and says so (the list never claims a delete the server did not do)", async () => {
+    await pageB.bringToFront();
+    await pageB.evaluate(async () => {
+      // Start a chat that exists on the server so there is something to try to delete.
+      const token = localStorage.getItem("zarvis.accessToken");
+      await fetch("/api/v1/orchestrator/turn", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + token }, body: JSON.stringify({ utterance: "keep this chat when delete fails" }) });
+    });
+    await pageB.reload();
+    await pageB.waitForFunction(() => (localStorage.getItem("zarvis.chats") || "").includes("keep this chat"), null, { timeout: 15000 });
+    await nav(pageB, "chat");
+    await pageB.click("#chat-history-btn");
+    const row = pageB.locator("#history-list .chat-row", { hasText: "keep this chat when delete fails" });
+    await row.first().waitFor();
+    const errorsBefore = errorsB.length;
+    for (const [label, handler] of [
+      ["the connection drops", (route) => route.abort("failed")],
+      ["a server without this route answers 404 with no chat-specific code", (route) => route.fulfill({ status: 404, contentType: "text/html", body: "Cannot DELETE" })],
+      ["the server errors", (route) => route.fulfill({ status: 500, contentType: "application/json", body: "{}" })],
+    ]) {
+      await pageB.route("**/api/v1/conversations/*", (route) => (route.request().method() === "DELETE" ? handler(route) : route.continue()));
+      try {
+        await row.first().locator(".chat-row-del").click();
+        await pageB.click("#confirm-modal-confirm");
+        // The row shows it is busy while the request is out; wait for that to end (the previous case's toast may still be on screen).
+        await pageB.waitForFunction(() => !document.querySelector("#history-list .chat-row.is-deleting"), null, { timeout: 10000 });
+        assert.match(await pageB.innerText("#toast"), /Couldn't delete that chat/, label + ": it says the delete failed");
+        assert.equal(await row.count(), 1, label + ": the chat is still listed");
+        assert.ok((await ls(pageB, "zarvis.chats")).includes("keep this chat"), label + ": and still in this browser's index");
+        assert.equal(await row.first().locator(".chat-row-del").isDisabled(), false, label + ": and can be tried again");
+      } finally {
+        await pageB.unroute("**/api/v1/conversations/*");
+      }
+    }
+    await pageB.click("#history-close");
+    // The browser logs the three deliberate failures above as console errors. Drop exactly those (and only from this step), so the
+    // final "no console errors" check still catches a real 500 anywhere else.
+    errorsB.splice(errorsBefore, errorsB.length - errorsBefore, ...errorsB.slice(errorsBefore).filter((e) => !/status of (500|404)|net::ERR_FAILED/.test(e)));
+  });
+
+  await step("chat history on a small phone: long titles keep Close and Delete on screen, a delete leaves keyboard focus inside the panel, and a list refresh answered before the delete cannot bring the chat back", async () => {
+    await pageB.bringToFront();
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    try {
+      const longOne = "Plan a weekend trip to the hills with the whole family and a long list of things to pack";
+      const longWord = "y".repeat(60);
+      const victim = "stale refresh victim chat";
+      await pageB.evaluate(async (texts) => {
+        const token = localStorage.getItem("zarvis.accessToken");
+        for (const utterance of texts) {
+          const res = await fetch("/api/v1/orchestrator/turn", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + token }, body: JSON.stringify({ utterance }) });
+          await res.text();
+        }
+      }, [longOne, longWord, victim]);
+      await pageB.reload();
+      await pageB.waitForFunction(() => (localStorage.getItem("zarvis.chats") || "").includes("stale refresh victim"), null, { timeout: 15000 });
+      // The next page load's chat-list request is answered by the server now, but held back until the test lets it through.
+      let held = false;
+      await pageB.route("**/api/v1/conversations?*", async (route) => {
+        if (held || route.request().method() !== "GET") return route.continue();
+        held = true;
+        const response = await route.fetch();
+        await gate;
+        await route.fulfill({ response }).catch(() => {}); // already handled when the step failed early and removed the route
+      });
+      await pageB.reload();
+      await pageB.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await pageB.waitForTimeout(1500);
+      assert.equal(held, true, "the chat-list request is in flight, answered with the chat still on the server");
+      await pageB.setViewportSize({ width: 360, height: 740 });
+      await pageB.click(".bottom-nav .nav-fab"); // on a phone the Chat button is the one in the bottom bar
+      await pageB.click("#chat-history-btn");
+      const rowOf = (text) => pageB.locator("#history-list .chat-row", { hasText: text });
+      await rowOf("Plan a weekend").first().waitFor();
+      // The panel slides in; measure once it has stopped (the page's endless pulsing animations are not waited for).
+      await pageB.evaluate(() => Promise.all(document.getAnimations().filter((animation) => animation.effect.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {}))));
+      const fit = await pageB.evaluate(() => {
+        const width = document.documentElement.clientWidth;
+        const inside = (el) => { const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= width + 0.5; };
+        return {
+          close: inside(document.getElementById("history-close")),
+          deletes: [...document.querySelectorAll("#history-list .chat-row-del")].map(inside),
+          noteInside: inside(document.querySelector("#history-overlay .history-note")),
+          pageScrolls: document.documentElement.scrollWidth > width,
+        };
+      });
+      assert.equal(fit.close, true, "the Close button is on screen even with long chat titles");
+      assert.ok(fit.deletes.length >= 4 && fit.deletes.every(Boolean), "every Delete button is on screen even with long chat titles: " + JSON.stringify(fit.deletes));
+      assert.equal(fit.noteInside, true, "the note under the list fits the screen");
+      assert.equal(fit.pageScrolls, false, "the page does not scroll sideways");
+      // The delete question stays inside the dialog when the title is one long word.
+      await rowOf("yyyy").first().locator(".chat-row-del").click();
+      const dialog = await pageB.evaluate(() => { const card = document.querySelector("#confirm-modal .modal-card"); return { scroll: card.scrollWidth, client: card.clientWidth }; });
+      assert.ok(dialog.scroll <= dialog.client, "the confirm text does not spill out of the dialog: " + JSON.stringify(dialog));
+      await pageB.click("#confirm-modal-cancel");
+      // Deleting from the keyboard: focus stays in the panel (on the chat that took the deleted one's place), not on the page behind it.
+      for (const text of ["yyyy", "Plan a weekend"]) {
+        await rowOf(text).first().locator(".chat-row-del").focus();
+        await pageB.keyboard.press("Enter");
+        await pageB.click("#confirm-modal-confirm");
+        await pageB.waitForFunction((t) => ![...document.querySelectorAll("#history-list .chat-row")].some((row) => row.textContent.includes(t)), text, { timeout: 10000 });
+        const focus = await pageB.evaluate(() => ({ inPanel: !!document.activeElement?.closest("#history-overlay"), tag: document.activeElement?.tagName }));
+        assert.ok(focus.inPanel && focus.tag !== "BODY", "after deleting \"" + text + "\" focus is inside the history panel: " + JSON.stringify(focus));
+      }
+      // Delete the last one while the chat-list request from before is still held, then let that stale answer through.
+      const victimId = await pageB.evaluate((t) => JSON.parse(localStorage.getItem("zarvis.chats")).find((chat) => chat.title.includes(t))?.id, victim);
+      assert.ok(victimId, "the chat is in this browser's list");
+      await rowOf(victim).first().locator(".chat-row-del").click();
+      await pageB.click("#confirm-modal-confirm");
+      await pageB.waitForFunction((id) => !(localStorage.getItem("zarvis.chats") || "").includes(id), victimId);
+      assert.equal(await pageB.evaluate(async (id) => (await fetch("/api/v1/conversations/" + id + "/messages", { headers: { authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") } })).status, victimId), 404);
+      release();
+      await pageB.waitForTimeout(1200);
+      assert.ok(!(await ls(pageB, "zarvis.chats")).includes(victimId), "the stale list did not put the deleted chat back in this browser's index");
+      assert.equal(await rowOf(victim).count(), 0, "nor in the history panel");
+      await pageB.unroute("**/api/v1/conversations?*");
+      await pageB.click("#history-close");
+    } finally {
+      // Whatever happened above, the steps after this one need the desktop-size window and a page that answers normally.
+      release();
+      await pageB.evaluate(() => { if (!document.getElementById("history-overlay").hidden) document.getElementById("history-close").click(); }).catch(() => {});
+      await pageB.waitForTimeout(300);
+      await pageB.unroute("**/api/v1/conversations?*").catch(() => {});
+      await pageB.setViewportSize({ width: 1280, height: 720 });
+    }
   });
 
   await step("refresh failure from a network error keeps the same account (no silent replacement)", async () => {
