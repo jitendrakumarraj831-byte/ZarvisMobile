@@ -220,14 +220,16 @@ enum class UiString(val en: String, val hi: String) {
     SETTINGS_SUB_PROTECTION("What this build actually enforces", "यह बिल्ड असल में क्या लागू करता है"),
     SETTINGS_SUB_DEVELOPER("Repository analysis", "रिपॉज़िटरी विश्लेषण"),
     SETTINGS_SUBPAGE_KICKER("ZARVIS settings", "ZARVIS सेटिंग्स"),
-    LANGUAGE_ENGLISH_SUB("App labels and request language", "ऐप के लेबल और अनुरोध की भाषा"),
-    LANGUAGE_HINDI_SUB("App labels and request language", "ऐप के लेबल और अनुरोध की भाषा"),
+    LANGUAGE_ENGLISH_SUB("Menus and labels, voice input and read-aloud", "मेन्यू और लेबल, बोलकर लिखना और ज़ोर से पढ़ना"),
+    LANGUAGE_HINDI_SUB("Menus and labels, voice input and read-aloud", "मेन्यू और लेबल, बोलकर लिखना और ज़ोर से पढ़ना"),
     LANGUAGE_SCOPE_TITLE("What Hindi changes today", "आज हिंदी में क्या बदलता है"),
     LANGUAGE_SCOPE_BODY(
-        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Settings, Memory and the welcome pages, and ZARVIS is asked to reply in Hindi. " +
-            "Longer explanations, Permissions & Device Access, Plans, Developer Agent and some Settings pages are still in English.",
-        "हिंदी चुनने पर होम, चैट, काम, कार्य, सेटिंग्स, मेमोरी और स्वागत पन्नों के मेन्यू, शीर्षक और बटन हिंदी में हो जाते हैं, और ZARVIS से हिंदी में जवाब देने को कहा जाता है। " +
-            "लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और कुछ सेटिंग्स पन्ने अभी अंग्रेज़ी में हैं।",
+        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, the Settings list and this page, and the welcome pages. It also sets the language for voice input and read-aloud. " +
+            "It does not decide the language of your conversation: ZARVIS answers in the language you write or speak in, and uses this setting only when that is not clear, such as a plain \"hi\". " +
+            "Error messages, longer explanations, Permissions & Device Access, Plans, Developer Agent and the other Settings pages are still in English.",
+        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, सेटिंग्स की सूची और यह पन्ना, तथा स्वागत पन्नों के मेन्यू, शीर्षक और बटन हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
+            "यह आपकी बातचीत की भाषा तय नहीं करता: ZARVIS उसी भाषा में जवाब देता है जिसमें आप लिखते या बोलते हैं, और यह सेटिंग तभी काम आती है जब भाषा साफ़ न हो, जैसे सिर्फ़ \"hi\"। " +
+            "त्रुटि संदेश, लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और सेटिंग्स के बाकी पन्ने अभी अंग्रेज़ी में हैं।",
     ),
 
     // ---- Memory (Settings > Memory and Work > Memory) -------------------------------------

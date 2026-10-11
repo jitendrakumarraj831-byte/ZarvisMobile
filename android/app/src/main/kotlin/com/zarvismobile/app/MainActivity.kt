@@ -72,10 +72,11 @@ private fun ZarvisRoot(
     }
 
     // Choosing Hindi in Settings redraws every screen that uses tr(...) right away, with no restart.
-    CompositionLocalProvider(LocalAppLocale provides locale) {
+    CompositionLocalProvider(LocalAppLocale provides (locale ?: "en")) {
         ZarvisTheme(darkTheme = darkTheme) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                when (val current = startupState) {
+                // Until the saved language has been read only the spinner is drawn, so a Hindi user never sees English flash first.
+                when (val current = if (locale == null) AppStartupState.Loading else startupState) {
                     is AppStartupState.Loading -> StartupLoading()
                     is AppStartupState.Failed -> StartupError(message = current.message, onRetry = startupViewModel::retry)
                     is AppStartupState.SessionExpired -> SessionExpiredScreen(

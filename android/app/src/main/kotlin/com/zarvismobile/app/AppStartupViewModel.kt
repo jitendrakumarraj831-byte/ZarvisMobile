@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
@@ -43,11 +44,14 @@ class AppStartupViewModel @Inject constructor(
     private val _state = MutableStateFlow<AppStartupState>(AppStartupState.Loading)
     val state: StateFlow<AppStartupState> = _state.asStateFlow()
 
-    /** `"en"` or `"hi"`: the language the app's own labels are drawn in (see LocalAppLocale). */
-    val locale: StateFlow<String> = appPreferences.locale.stateIn(
+    /**
+     * `"en"` or `"hi"`: the language the app's own labels are drawn in (see LocalAppLocale). `null` until the saved choice has been read,
+     * so the first screen is never drawn in the wrong language.
+     */
+    val locale: StateFlow<String?> = appPreferences.locale.map<String, String?> { it }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        "en",
+        null,
     )
 
     val darkTheme: StateFlow<Boolean> = appPreferences.darkTheme.stateIn(

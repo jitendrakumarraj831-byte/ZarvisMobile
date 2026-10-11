@@ -31,6 +31,15 @@
 - The Work page is `WorkCatalog`: every card opens a real screen or a Chat page that says so, or is labelled "Website only" with no button.
   Every registered route must be reachable (`NavigationReachabilityTest`).
 - A reply is drawn with `MarkdownText`; the parser (`Markdown`) is the website's safe subset (`web/logic.js` formatReplyHtml) and only keeps http(s) links.
+  It runs on the main thread while a screen is composed, so it must never throw or stall: the rule and fence checks are character scans (a regex with a
+  repeated group threw StackOverflowError on a line of a few thousand hyphens), inline matches are found once per rule and link text/addresses have a length limit,
+  and a line over 20,000 characters, a reply over 100,000 characters or one with more than 2,000 lines/list items is shown as plain text (nothing is cut).
+  A new piece of syntax needs a bounded scan or regex and a case in `MarkdownRobustnessTest` (it floods every token at 30,000 characters).
+- The app language (Settings > Language) sets the labels, voice input and read-aloud. It is not the language of the conversation: replies follow the
+  language the user writes or speaks, and the app language only breaks a tie (`detectReplyLanguage` in `backend/src/agents/orchestrator.ts`). The Language
+  page says so and lists what is still English; `UiStringTest` keeps that text honest.
+- Chat: the Chat tab and a chat opened from Home are two screens over ONE stored conversation id. `ConversationSync` (domain) decides how they stay in step;
+  `AndroidOrchestratorConversationTest` (agents) pins which id a turn carries, that New chat clears it and that a cancelled turn cannot bring it back.
 - A failed call is reported (and retryable), never shown as an empty list or a zero.
 
 ## Current engineering gate

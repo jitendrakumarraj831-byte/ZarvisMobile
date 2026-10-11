@@ -41,6 +41,7 @@ import com.zarvismobile.app.ActivityBridge
 import com.zarvismobile.app.ConfirmationViewModel
 import com.zarvismobile.app.PermissionMonitorViewModel
 import com.zarvismobile.app.ZarvisSystemDialogs
+import com.zarvismobile.core.ui.components.MarkdownText
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.theme.ZarvisTheme
 import com.zarvismobile.feature.conversation.ConversationViewModel
@@ -117,7 +118,9 @@ private fun AssistPanel(
                 Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.turns.takeLast(2).forEach { turn ->
                         Text(turn.userText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text(turn.assistantText ?: "…", style = MaterialTheme.typography.bodyMedium)
+                        // The reply as the Chat screen draws it (headings, lists, links and code formatted), not raw symbols.
+                        val reply = turn.assistantText
+                        if (reply == null) Text("…", style = MaterialTheme.typography.bodyMedium) else MarkdownText(text = reply, style = MaterialTheme.typography.bodyMedium)
                     }
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }

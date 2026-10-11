@@ -66,6 +66,27 @@ class UiStringTest {
     }
 
     @Test
+    fun `the Language page keeps the app language apart from the language of the conversation`() {
+        val en = UiString.LANGUAGE_SCOPE_BODY.en
+        val hi = UiString.LANGUAGE_SCOPE_BODY.hi
+        // Replies follow the language of the message; the app language is only a tie-breaker (backend/src/agents/orchestrator.ts detectReplyLanguage).
+        assertTrue("does not decide the language of your conversation" in en, en)
+        assertTrue("you write or speak in" in en, en)
+        assertTrue("बातचीत की भाषा तय नहीं करता" in hi, hi)
+        // The earlier text said ZARVIS "is asked to reply in Hindi" and the rows said "Replies and app copy": neither is what happens.
+        assertFalse("asked to reply" in en, en)
+        assertFalse("reply in Hindi" in en, en)
+        for (row in listOf(UiString.LANGUAGE_ENGLISH_SUB, UiString.LANGUAGE_HINDI_SUB)) {
+            assertFalse(row.en.contains("repl", ignoreCase = true), row.en)
+            assertFalse(row.en.contains("request", ignoreCase = true), row.en)
+        }
+        // Voice input and read-aloud do follow the app language (ConversationViewModel passes hi-IN or en-US), and the page says so.
+        assertTrue("voice input and read-aloud" in en, en)
+        // What is still English is named.
+        assertTrue("Error messages" in en && "Permissions & Device Access" in en && "Plans" in en && "Developer Agent" in en, en)
+    }
+
+    @Test
     fun `the welcome pages only promise what the app does`() {
         // Export does not exist (Settings > Data says so); viewing and deleting memory does (Settings > Memory).
         val promise = UiString.ONBOARDING_5_BODY.en.lowercase()

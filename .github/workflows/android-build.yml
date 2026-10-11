@@ -48,6 +48,11 @@ jobs:
       - name: Unit-test the Memory, Work and Tasks view models
         run: ./gradlew :features:feature-settings:testDebugUnitTest :features:feature-home:testDebugUnitTest :features:feature-tasks:testDebugUnitTest --stacktrace --console=plain
 
+      # Which server conversation a turn belongs to (the real orchestrator against a stand-in server): New chat clears it, the next turn starts a
+      # fresh conversation, restore shows only the current one, and a turn that New chat cancelled cannot bring the old one back.
+      - name: Unit-test the orchestrator's conversation handling
+        run: ./gradlew :agents:testDebugUnitTest --stacktrace --console=plain
+
       # The dev API host is machine-specific and auto-detected from the build machine's LAN
       # address (see app/build.gradle.kts). A CI runner's address is meaningless to anyone
       # downloading the artifact, so pin it here: the uploaded APK is deterministic and

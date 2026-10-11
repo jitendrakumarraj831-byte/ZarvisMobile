@@ -20,8 +20,11 @@ import com.zarvismobile.app.Device.evidence
 import com.zarvismobile.app.Device.eventually
 import com.zarvismobile.app.Device.shell
 import com.zarvismobile.app.Device.ui
+import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.domain.notification.NotificationMode
 import com.zarvismobile.domain.notification.NotificationPrivacySettings
+import com.zarvismobile.domain.presentation.UiString
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -72,11 +75,12 @@ class SettingsUiTest {
         compose.waitForIdle()
     }
 
-    private fun openSettings() {
+    /** [language] is the app language the screens are drawn in ("en" or "hi"): the words to look for are the ones UiString holds for it. */
+    private fun openSettings(language: String = "en") {
         // While a Compose test rule is active, the app's frame clock only advances inside Compose
         // test calls, so Home is driven through them too (UI Automator waits would see no frames).
-        val skip = hasText("Skip")
-        val settings = hasContentDescription("Settings")
+        val skip = hasText(UiString.ONBOARDING_SKIP.text(language))
+        val settings = hasContentDescription(UiString.COMMON_SETTINGS.text(language))
         val close = hasText("Close")
         compose.waitUntil(20_000) {
             listOf(skip, settings, close).any { compose.onAllNodes(it).fetchSemanticsNodes().isNotEmpty() }
@@ -87,7 +91,7 @@ class SettingsUiTest {
         if (compose.onAllNodes(skip).fetchSemanticsNodes().isNotEmpty()) compose.onAllNodes(skip).onFirst().performClick()
         compose.waitUntil(20_000) { compose.onAllNodes(settings).fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodes(settings).onFirst().performClick()
-        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Settings")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(UiString.COMMON_SETTINGS.text(language))).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test
@@ -124,6 +128,35 @@ class SettingsUiTest {
         }
         runBlocking { entry.notificationSettings().update { NotificationPrivacySettings() } }
         assertEquals(false, runBlocking { entry.notificationSettings().current().speakEnabled })
+    }
+
+    /**
+     * Choosing Hindi in Settings > Language redraws the page the user is on at once (no restart), and the choice is still applied when the
+     * app is opened again: a new Activity reads the saved language. The saved choice is put back to English at the end, whatever happens.
+     */
+    @Test
+    fun hindiChosenInSettingsRedrawsAtOnceAndIsKeptWhenTheAppOpensAgain() {
+        val preferences = AppPreferences(Device.app) // the same DataStore file the app reads
+        runBlocking { preferences.setLocale("en") }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                openSettings()
+                tap("Language")
+                tap("हिंदी")
+                // No restart: this page was English a moment ago.
+                reveal(UiString.LANGUAGE_SCOPE_TITLE.hi)
+                assertTrue(eventually { runBlocking { preferences.locale.first() } == "hi" })
+                evidence("ui settings>language Hindi chosen -> page redrawn in Hindi, saved locale=hi")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use {
+                openSettings("hi")
+                reveal(UiString.SETTINGS_LANGUAGE_LINE.format("hi", "हिंदी"))
+                evidence("ui settings>language app opened again -> Home and Settings drawn in Hindi")
+            }
+        } finally {
+            runBlocking { preferences.setLocale("en") }
+        }
+        assertEquals("en", runBlocking { preferences.locale.first() })
     }
 
     @Test

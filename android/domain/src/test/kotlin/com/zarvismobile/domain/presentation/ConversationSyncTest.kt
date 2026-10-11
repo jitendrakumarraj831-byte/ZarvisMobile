@@ -90,4 +90,56 @@ class ConversationSyncTest {
     fun `a reset never lands in the middle of a turn`() {
         assertFalse(ConversationSync.startedElsewhere(previousId = "abc", currentId = null, turnInFlight = true))
     }
+
+    // ---- Two screens over one server conversation: switching to a fresh chat, and no leak from the old one --------------------------------
+
+    private val chatA = listOf(m("user", "a1"), m("assistant", "answer a1"), m("user", "a2"), m("assistant", "answer a2"))
+    private val chatB = listOf(m("user", "b1"), m("assistant", "answer b1"), m("user", "b2"), m("assistant", "answer b2"))
+
+    private fun users(turns: List<TurnText>) = turns.map { it.user }
+
+    @Test
+    fun `switching to a fresh chat on the other screen shows only the new chat here, never the old one`() {
+        // This screen shows chat A. The other screen taps New chat (the stored id is cleared): this screen empties.
+        var shown = ConversationSync.pair(chatA)
+        assertEquals(listOf("a1", "a2"), users(shown))
+        assertTrue(ConversationSync.startedElsewhere(previousId = "chat-A", currentId = null, turnInFlight = false))
+        shown = emptyList()
+
+        // The other screen then talks in chat B. Coming back here, the server's chat B is shown from its start.
+        val added = ConversationSync.newTurnsAfter(shownUsers = users(shown), messages = chatB)
+        assertEquals(listOf("b1", "b2"), users(added!!))
+        assertTrue((shown + added).none { it.user.startsWith("a") || it.assistant?.contains("a1") == true || it.assistant?.contains("a2") == true }, "nothing of chat A is left")
+    }
+
+    @Test
+    fun `a fresh chat with nothing said yet shows nothing`() {
+        assertEquals(emptyList(), ConversationSync.newTurnsAfter(shownUsers = emptyList(), messages = emptyList()))
+    }
+
+    @Test
+    fun `if a reset was missed, another chat's exchanges are never added under this one`() {
+        // This screen still shows chat A, and the server now answers with chat B's messages: the screen is left alone (null), and chat B's
+        // exchanges are not appended below chat A's.
+        assertNull(ConversationSync.newTurnsAfter(shownUsers = listOf("a1", "a2"), messages = chatB))
+        // The same when chat B is longer than what is shown.
+        assertNull(ConversationSync.newTurnsAfter(shownUsers = listOf("a1"), messages = chatB + m("user", "b3") + m("assistant", "answer b3")))
+        // And when it is shorter.
+        assertNull(ConversationSync.newTurnsAfter(shownUsers = listOf("a1", "a2", "a3"), messages = chatB))
+    }
+
+    @Test
+    fun `continuing the same chat on the other screen adds only the new exchanges`() {
+        val continued = chatA + m("user", "a3") + m("assistant", "answer a3")
+        val added = ConversationSync.newTurnsAfter(shownUsers = listOf("a1", "a2"), messages = continued)
+        assertEquals(listOf(TurnText("a3", "answer a3")), added)
+    }
+
+    @Test
+    fun `the id changing from one chat straight to another is not treated as a reset`() {
+        // Only a cleared id means "a new chat was started"; a screen never empties itself because of an id it cannot tell apart from its own.
+        assertFalse(ConversationSync.startedElsewhere(previousId = "chat-A", currentId = "chat-B", turnInFlight = false))
+        // Its own New chat, then its own first message: null, then an id, with a turn in flight.
+        assertFalse(ConversationSync.startedElsewhere(previousId = null, currentId = "chat-B", turnInFlight = true))
+    }
 }
