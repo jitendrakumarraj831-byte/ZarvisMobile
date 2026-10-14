@@ -15,7 +15,9 @@
  * The voice checks (about 25 requests, see voiceChecks) go to the Edge voice service, which needs no key and costs
  * nothing; they print a VOICE SUMMARY at the end. If Edge refuses the deployment and the server's fallback voice
  * (Gemini, X-Zarvis-TTS: gemini) answers instead, the audio is still checked but the result is a WARN, never a
- * PASS: spoken replies work, and Edge being down stays visible. (It does cost a few Gemini voice requests then.)
+ * PASS: spoken replies work, and Edge being down stays visible. Gemini's speech quota is small and metered, so
+ * once Edge has been seen to be down only English, Hindi and Hinglish are asked of it (6 requests); the checks of the
+ * Edge path itself (a long reply, the longest WAV, cancelling, choosing a voice) are reported as WARN "not run".
  *
  * `ONLY=tts` runs just the health check, a guest session and the voice checks: against any
  * deployment, a preview or production, without spending any AI quota or creating any other account.
@@ -303,6 +305,12 @@ async function voiceChecks(token) {
     return;
   }
 
+  // The fallback voice is metered (Gemini's speech quota is small: about a dozen requests in two minutes were enough to
+  // be told to wait). The remaining checks are about the Edge path, so with Edge down they would only spend that quota.
+  const fallbackActive = Boolean(firstWav.fallback || firstStreamCheck.fallback);
+  const notRun = (names, name) =>
+    vreport(names, "WARN", name, "not run: Edge did not answer, so the fallback voice (metered by Gemini's speech quota) is speaking; this check of the Edge path would only spend that quota");
+
   // ---- Hindi and Hinglish, on both endpoints.
   for (const [group, key, label] of [["hindi", "hi", "Hindi"], ["hinglish", "hinglish", "Hinglish"]]) {
     const wav = checkWav(await unary({ text: VOICE_TEXT[key] }), VOICE_TEXT[key], EXPECT_VOICE[key]);
@@ -312,9 +320,10 @@ async function voiceChecks(token) {
   }
 
   // ---- A long reply: does the stream arrive progressively, or in one piece at the end?
-  const long = await streamCall(token, { text: LONG_STREAM_TEXT });
-  const longCheck = checkStream(long, LONG_STREAM_TEXT, EXPECT_VOICE.en);
-  if (!longCheck.ok) vreport(["streaming"], "FAIL", "voice: long text, stream endpoint", longCheck.why);
+  const long = fallbackActive ? undefined : await streamCall(token, { text: LONG_STREAM_TEXT });
+  const longCheck = long ? checkStream(long, LONG_STREAM_TEXT, EXPECT_VOICE.en) : undefined;
+  if (!long) notRun(["streaming"], "voice: long text, stream endpoint");
+  else if (!longCheck.ok) vreport(["streaming"], "FAIL", "voice: long text, stream endpoint", longCheck.why);
   else if (longCheck.seconds > 20 && long.firstByteMs > long.totalMs * 0.9) {
     // The audio is right, but the platform held it back: the client's first sound would wait for all of it.
     vreport(["streaming"], "WARN", "voice: long text, stream endpoint", `${longCheck.detail}; the first byte came at ${long.firstByteMs} of ${long.totalMs} ms, so the platform is probably delivering the stream in one piece`);
@@ -324,30 +333,34 @@ async function voiceChecks(token) {
   // 4.5 MB as the most a function answers in one piece, and a function has a maximum duration, so this is where
   // a limit of the platform would show. (On the first preview it did not: 5.1 MB came back in one response.)
   // If it ever does, it is said plainly.
-  const longUnary = await unary({ text: LONG_UNARY_TEXT }, 120_000);
-  const longWav = checkWav(longUnary, LONG_UNARY_TEXT, EXPECT_VOICE.en);
-  if (longWav.ok) vreport(["unary"], outcome(longWav), "voice: longest text, WAV endpoint", longWav.detail);
+  const longUnary = fallbackActive ? undefined : await unary({ text: LONG_UNARY_TEXT }, 120_000);
+  const longWav = longUnary ? checkWav(longUnary, LONG_UNARY_TEXT, EXPECT_VOICE.en) : undefined;
+  if (!longUnary) notRun(["unary"], "voice: longest text, WAV endpoint");
+  else if (longWav.ok) vreport(["unary"], outcome(longWav), "voice: longest text, WAV endpoint", longWav.detail);
   else if ([413, 502, 504].includes(longUnary.status) && (longUnary.headers.get("x-vercel-error") || !longUnary.json)) {
     vreport(["unary"], "WARN", "voice: longest text, WAV endpoint", `the platform refused it (${whyNot(longUnary)}); about ${Math.round(LONG_UNARY_TEXT.length / 15)} s of speech does not fit in one response here, so a long Listen will fail`);
   } else vreport(["unary"], "FAIL", "voice: longest text, WAV endpoint", longWav.why);
 
   // ---- A client that walks away. Six streams abandoned after the first bytes, two WAV requests dropped
   // while the voice is working, and then the service must still serve the next request.
-  let abandoned = 0;
-  const otherAnswers = [];
-  for (let i = 0; i < 6; i += 1) {
-    const dropped = await streamCall(token, { text: LONG_STREAM_TEXT }, { abortAfterBytes: 4000 }).catch((error) => ({ failure: error instanceof Error ? error.name : "error" }));
-    if (dropped?.aborted) abandoned += 1;
-    else otherAnswers.push(dropped?.status ?? dropped?.failure ?? "no answer");
+  if (fallbackActive) notRun(["cancellation"], "voice: cancelling mid-stream");
+  else {
+    let abandoned = 0;
+    const otherAnswers = [];
+    for (let i = 0; i < 6; i += 1) {
+      const dropped = await streamCall(token, { text: LONG_STREAM_TEXT }, { abortAfterBytes: 4000 }).catch((error) => ({ failure: error instanceof Error ? error.name : "error" }));
+      if (dropped?.aborted) abandoned += 1;
+      else otherAnswers.push(dropped?.status ?? dropped?.failure ?? "no answer");
+    }
+    const headers = { "content-type": "application/json", authorization: `Bearer ${token}`, ...(BYPASS ? { "x-vercel-protection-bypass": BYPASS } : {}) };
+    for (let i = 0; i < 2; i += 1) {
+      await fetch(`${BASE}/api/v1/tts/synthesize`, { method: "POST", headers, body: JSON.stringify({ text: LONG_UNARY_TEXT }), signal: AbortSignal.timeout(400) }).catch(() => undefined);
+    }
+    const after = await streamCall(token, { text: VOICE_TEXT.en });
+    const afterCheck = checkStream(after, VOICE_TEXT.en, EXPECT_VOICE.en);
+    if (abandoned === 6 && afterCheck.ok) vreport(["cancellation"], outcome(afterCheck), "voice: cancelling mid-stream", `6 streams abandoned after their first bytes and 2 WAV requests dropped; the next request was served in ${after.totalMs} ms`);
+    else vreport(["cancellation"], "FAIL", "voice: cancelling mid-stream", abandoned === 6 ? `the next request after the cancellations failed: ${afterCheck.why}` : `only ${abandoned} of 6 streams could be abandoned mid-way (the others: ${otherAnswers.join(", ")})`);
   }
-  const headers = { "content-type": "application/json", authorization: `Bearer ${token}`, ...(BYPASS ? { "x-vercel-protection-bypass": BYPASS } : {}) };
-  for (let i = 0; i < 2; i += 1) {
-    await fetch(`${BASE}/api/v1/tts/synthesize`, { method: "POST", headers, body: JSON.stringify({ text: LONG_UNARY_TEXT }), signal: AbortSignal.timeout(400) }).catch(() => undefined);
-  }
-  const after = await streamCall(token, { text: VOICE_TEXT.en });
-  const afterCheck = checkStream(after, VOICE_TEXT.en, EXPECT_VOICE.en);
-  if (abandoned === 6 && afterCheck.ok) vreport(["cancellation"], outcome(afterCheck), "voice: cancelling mid-stream", `6 streams abandoned after their first bytes and 2 WAV requests dropped; the next request was served in ${after.totalMs} ms`);
-  else vreport(["cancellation"], "FAIL", "voice: cancelling mid-stream", abandoned === 6 ? `the next request after the cancellations failed: ${afterCheck.why}` : `only ${abandoned} of 6 streams could be abandoned mid-way (the others: ${otherAnswers.join(", ")})`);
 
   // ---- Bad requests get plain answers, and a caller's voice is honoured only from the allow-list.
   const noToken = await call("POST", "/api/v1/tts/synthesize", { body: { text: "Hello" } });
@@ -356,12 +369,18 @@ async function voiceChecks(token) {
   vreport(["streaming"], empty.status === 400 ? "PASS" : "FAIL", "voice: empty text is 400 (stream endpoint)", `HTTP ${empty.status}`);
   const silent = await unary({ text: "... !!!" });
   vreport(["unary"], silent.status === 400 && silent.json?.code === "tts_invalid_request" ? "PASS" : "FAIL", "voice: text with nothing to say is 400 tts_invalid_request", `HTTP ${silent.status} ${silent.json?.code ?? ""}`);
-  const chosen = await unary({ text: VOICE_TEXT.en, voice: "en-US-GuyNeural" });
-  const chosenCheck = checkWav(chosen, VOICE_TEXT.en, "en-US-GuyNeural");
-  vreport(["english", "unary"], outcome(chosenCheck), "voice: a caller can choose an allowed voice", evidence(chosenCheck));
-  const refused = await unary({ text: VOICE_TEXT.en, voice: "xx-XX-NotARealNeural" });
-  const refusedCheck = checkWav(refused, VOICE_TEXT.en, EXPECT_VOICE.en);
-  vreport(["english", "unary"], outcome(refusedCheck), "voice: an unknown voice is ignored, the usual one speaks", evidence(refusedCheck));
+  if (fallbackActive) {
+    // Edge's voice names mean nothing to Gemini, which ignores them: there is nothing to learn from spending its quota.
+    notRun(["english", "unary"], "voice: a caller can choose an allowed voice");
+    notRun(["english", "unary"], "voice: an unknown voice is ignored, the usual one speaks");
+  } else {
+    const chosen = await unary({ text: VOICE_TEXT.en, voice: "en-US-GuyNeural" });
+    const chosenCheck = checkWav(chosen, VOICE_TEXT.en, "en-US-GuyNeural");
+    vreport(["english", "unary"], outcome(chosenCheck), "voice: a caller can choose an allowed voice", evidence(chosenCheck));
+    const refused = await unary({ text: VOICE_TEXT.en, voice: "xx-XX-NotARealNeural" });
+    const refusedCheck = checkWav(refused, VOICE_TEXT.en, EXPECT_VOICE.en);
+    vreport(["english", "unary"], outcome(refusedCheck), "voice: an unknown voice is ignored, the usual one speaks", evidence(refusedCheck));
+  }
 
   printVoiceSummary(groups, verdict);
 }
