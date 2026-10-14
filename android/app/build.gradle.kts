@@ -321,6 +321,8 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
+    // Reads a photo's rotation (EXIF) before it is sent to be described (app/.../photo/ApiPhotoDescriber.kt).
+    implementation(libs.exifinterface)
     implementation(libs.navigation.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
