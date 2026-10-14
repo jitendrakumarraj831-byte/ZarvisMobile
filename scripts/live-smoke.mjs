@@ -245,11 +245,18 @@ function fallbackVoice(engine, expectedEngine, voice) {
   return { ok: true };
 }
 
-/** A check that heard audio from the fallback is a WARN: spoken replies work, but Edge does not accept this deployment. */
-const outcome = (check) => (!check.ok ? "FAIL" : check.fallback ? "WARN" : "PASS");
+/**
+ * A check that heard audio from the fallback is a WARN: spoken replies work, but Edge does not accept this deployment.
+ * One refused with 503 after the fallback has already spoken is a WARN too ("not exercised"): its speech quota is small and
+ * metered, like the AI's when "a turn that needs the AI model" is reported as out of quota. If the first English check
+ * is refused, nothing has spoken: both voices are down, and that is a FAIL.
+ */
+const outcome = (check) => (!check.ok ? (check.meteredOut ? "WARN" : "FAIL") : check.fallback ? "WARN" : "PASS");
 const evidence = (check) => (check.ok ? check.detail : check.why);
 
 async function voiceChecks(token) {
+  let fallbackActive = false; // set once an English answer has come from the fallback voice (Edge is down)
+  const isMeteredOut = (res) => fallbackActive && res.status === 503 && res.json?.code === "tts_unavailable";
   const groups = { reach: [], english: [], hindi: [], hinglish: [], streaming: [], unary: [], cancellation: [] };
   const verdict = (statuses) => (statuses.length === 0 ? "NOT RUN" : statuses.includes("FAIL") ? "FAIL" : statuses.includes("WARN") ? "WARN" : "PASS");
   const vreport = (names, status, name, detail) => {
@@ -261,7 +268,9 @@ async function voiceChecks(token) {
   const checkWav = (res, text, expected) => {
     const wav = wavFacts(res.bytes);
     const voice = res.headers.get("x-zarvis-tts-voice");
-    if (res.status !== 200 || !/audio\/wav/.test(res.headers.get("content-type") || "") || !wav) return { ok: false, why: `${whyNot(res)} ${wav ? "" : "(not a WAV file)"}` };
+    if (res.status !== 200 || !/audio\/wav/.test(res.headers.get("content-type") || "") || !wav) {
+      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${wav ? "" : "(not a WAV file)"}${isMeteredOut(res) ? "; the fallback voice's speech quota is probably spent, so this was not exercised" : ""}` };
+    }
     if (wav.sampleRate !== PCM_RATE || wav.channels !== 1 || wav.bits !== 16) return { ok: false, why: `WAV is ${JSON.stringify(wav)}, not 24 kHz mono 16-bit` };
     if (!lengthPlausible(text, wav.seconds)) return { ok: false, why: `${text.length} characters came back as ${wav.seconds.toFixed(1)} s of audio` };
     const engine = res.headers.get("x-zarvis-tts");
@@ -273,7 +282,9 @@ async function voiceChecks(token) {
   const checkStream = (res, text, expected) => {
     const type = res.headers.get("content-type") || "";
     const voice = res.headers.get("x-zarvis-tts-voice");
-    if (res.status !== 200 || !/audio\/l16/.test(type) || !/rate=24000/.test(type)) return { ok: false, why: `${whyNot(res)} ${type}` };
+    if (res.status !== 200 || !/audio\/l16/.test(type) || !/rate=24000/.test(type)) {
+      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${type}${isMeteredOut(res) ? "; the fallback voice's speech quota is probably spent, so this was not exercised" : ""}` };
+    }
     if (res.bytes.length === 0 || res.bytes.length % 2 !== 0 || res.bytes.subarray(0, 4).toString("ascii") === "RIFF") return { ok: false, why: `${res.bytes.length} bytes is not headerless 16-bit PCM` };
     const seconds = res.bytes.length / 2 / PCM_RATE;
     if (!lengthPlausible(text, seconds)) return { ok: false, why: `${text.length} characters came back as ${seconds.toFixed(1)} s of audio` };
@@ -292,6 +303,7 @@ async function voiceChecks(token) {
     return;
   }
   const firstWav = checkWav(first, VOICE_TEXT.en, EXPECT_VOICE.en);
+  if (firstWav.fallback) fallbackActive = true; // so that a quota refusal of the stream check below is read as one
   vreport(["reach", "english", "unary"], outcome(firstWav), "voice: English, WAV endpoint", evidence(firstWav));
   const firstStream = await streamCall(token, { text: VOICE_TEXT.en });
   const firstStreamCheck = checkStream(firstStream, VOICE_TEXT.en, EXPECT_VOICE.en);
@@ -307,7 +319,7 @@ async function voiceChecks(token) {
 
   // The fallback voice is metered (Gemini's speech quota is small: about a dozen requests in two minutes were enough to
   // be told to wait). The remaining checks are about the Edge path, so with Edge down they would only spend that quota.
-  const fallbackActive = Boolean(firstWav.fallback || firstStreamCheck.fallback);
+  fallbackActive = fallbackActive || Boolean(firstStreamCheck.fallback);
   const notRun = (names, name) =>
     vreport(names, "WARN", name, "not run: Edge did not answer, so the fallback voice (metered by Gemini's speech quota) is speaking; this check of the Edge path would only spend that quota");
 

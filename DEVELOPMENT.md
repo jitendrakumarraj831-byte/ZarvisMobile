@@ -202,7 +202,12 @@ Devanagari, Hinglish, or English. Edge's service is unofficial, so a second voic
 if it fails before it has produced any sound, Gemini's speech model says the same text (needs
 `GEMINI_API_KEY`; the response header `X-Zarvis-TTS` says `gemini` or `gemini-stream` when that
 happened, and the live smoke test and the browser audit report it as a **WARN**, because the voice
-works but Edge does not accept that deployment). The browser's own `speechSynthesis` is deliberately
+works but Edge does not accept that deployment). Gemini's speech quota is small and per key, so with
+Edge down only English, Hindi and Hinglish are asked of it by the smoke test; once the fallback has
+spoken and is then refused with 503 the remaining checks are WARN "not exercised" (like the AI's, when it
+is out of quota), and if the very first English check is refused too, both voices are down and it is a
+FAIL. The two live workflows take turns (one `concurrency` group) because they share that quota. The
+browser's own `speechSynthesis` is deliberately
 not a fallback, and the phone's built-in speaker (`NotificationSpeaker`, for spoken notifications) is
 a separate, on-device thing that this does not touch.
 

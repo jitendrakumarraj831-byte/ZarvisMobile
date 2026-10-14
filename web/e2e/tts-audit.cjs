@@ -18,6 +18,9 @@
  * The voice is Edge's. If Edge refuses the deployment, the server answers with its fallback voice
  * (Gemini: `X-Zarvis-TTS: gemini-stream`, voice `gemini:Kore`). That is sound the user hears, so the
  * audio is still checked in full, but the step is a WARN, never a PASS: Edge is down on this deployment.
+ * That voice is metered by a small Gemini speech quota. Once it has spoken, a scenario that is then refused
+ * with 503 is a WARN ("not completed: the quota is spent"), like the real-AI scenario when the AI has no quota,
+ * and the scenarios after it, which need the voice, are reported as not run instead of waiting out their timeouts.
  *
  * Environment:
  *   ZARVIS_URL / BASE_URL   the deployment (default http://localhost:3100)
@@ -156,6 +159,12 @@ const results = [];
 
 /** Voices heard from the fallback engine during the current step: a step that heard one is a WARN. */
 const fallbackVoices = new Set();
+/** The fallback voice is metered. After it has spoken on this deployment, a 503 from the voice means its quota is spent. */
+let fallbackSpoke = false;
+let meteredOut = false;
+let stepQuotaHits = 0;
+/** A step that makes the browser fail the voice itself: the 503s it sees are its own and say nothing about quota. */
+let interceptingTts = false;
 const isFallbackSpeech = (entry, engine) => entry.engine === engine && /^gemini:[A-Za-z]+$/.test(entry.voice || "");
 /** The engine and voice that spoke one request: Edge's, as configured, or (noted, and reported as a WARN) the fallback's. */
 function expectVoice(entry, edgeEngine, fallbackEngine, voice) {
@@ -167,11 +176,20 @@ function expectVoice(entry, edgeEngine, fallbackEngine, voice) {
   assert.equal(entry.voice, voice, `the voice that spoke was ${entry.voice}, not ${voice}`);
 }
 
-async function step(name, fn) {
+async function step(name, fn, { voice = true } = {}) {
   if (ONLY && !ONLY.test(name)) return;
+  if (voice && meteredOut) {
+    const why = "not run: the fallback voice's speech quota was spent in an earlier scenario, so this one would only wait out its timeouts";
+    results.push({ name, status: "WARN" });
+    console.log("WARN", name, "—", why);
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning::${name}: ${why}`);
+    return;
+  }
   const started = Date.now();
   const took = () => `${((Date.now() - started) / 1000).toFixed(1)} s`;
   fallbackVoices.clear();
+  stepQuotaHits = 0;
+  interceptingTts = false;
   try {
     const outcome = (await fn()) || {};
     if (!outcome.warn && fallbackVoices.size) {
@@ -186,6 +204,15 @@ async function step(name, fn) {
       console.log("PASS", name, outcome.detail ? `— ${outcome.detail}` : "", `(${took()})`);
     }
   } catch (err) {
+    if (stepQuotaHits > 0 && fallbackSpoke) {
+      // Edge is down, the fallback voice spoke earlier on this deployment and is now refusing: its quota is the likely cause.
+      const first = err && err.message ? err.message.split("\n")[0] : String(err);
+      const why = `not completed: the fallback voice answered 503 after speaking earlier (its speech quota is probably spent), so this scenario could not be exercised (${first})`;
+      results.push({ name, status: "WARN" });
+      console.log("WARN", name, "—", why);
+      if (process.env.GITHUB_ACTIONS) console.log(`::warning::${name}: ${why}`);
+      return;
+    }
     results.push({ name, status: "FAIL" });
     const message = err && err.message ? err.message.split("\n").slice(0, 18).join("\n    ") : String(err);
     console.log("FAIL", name, `(${took()})\n    ${message}`);
@@ -242,6 +269,11 @@ function trackTts(page) {
     entry.type = headers["content-type"];
     entry.engine = headers["x-zarvis-tts"];
     entry.voice = headers["x-zarvis-tts-voice"];
+    if (/^gemini(-stream)?$/.test(entry.engine || "")) fallbackSpoke = true;
+    else if (entry.status === 503 && fallbackSpoke && !interceptingTts) {
+      stepQuotaHits += 1;
+      meteredOut = true;
+    }
   });
   page.on("requestfinished", (request) => {
     const entry = byRequest.get(request);
@@ -551,6 +583,7 @@ async function main() {
       const failing = (name, fulfil) =>
         step(name, () =>
           scenario(browser, { replies: [SENTENCES.en, SECOND_REPLY] }, async ({ page, tts }) => {
+            interceptingTts = Boolean(fulfil);
             if (fulfil) await page.route("**/api/v1/tts/**", fulfil);
             await say(page, "tell me something", 1);
             await page.waitForFunction(() => [...document.querySelectorAll(".bubble.assistant .bubble-body")].some((node) => (node.textContent || "").length > 100), null, { timeout: 30_000 });
@@ -581,6 +614,7 @@ async function main() {
             const kinds = [...new Set(run.tts.map((entry) => entry.status || entry.failed))].join("/");
             return { detail: `${run.tts.length} voice requests failed (${kinds}); the reply is on screen, the orb is idle, the next message was answered` };
           }),
+          { voice: false },
         );
       if (FAILURES === "natural") {
         await failing("the server's voice is failing: the reply still appears and the conversation goes on", undefined);
