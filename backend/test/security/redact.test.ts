@@ -101,3 +101,19 @@ describe("the logger applies both layers to everything it writes", () => {
     expect(all.match(/\[REDACTED\]/g)?.length).toBeGreaterThanOrEqual(5);
   });
 });
+
+describe("redaction stays linear on hostile input", () => {
+  it("scans a long run of JWT-looking starts in well under a second (it took 15 s at 160k characters)", () => {
+    const hostile = "-eyJ".repeat(50_000) + "%E0%A4%A";
+    const started = Date.now();
+    redactString(hostile);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("still redacts a real JWT and a JWT whose first segment is long", () => {
+    const real = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+    expect(redactString(`x ${real} y`)).toBe("x [REDACTED] y");
+    const longHeader = `eyJ${"a".repeat(1500)}.${"b".repeat(20)}.${"c".repeat(20)}`;
+    expect(redactString(longHeader)).toBe("[REDACTED]");
+  });
+});

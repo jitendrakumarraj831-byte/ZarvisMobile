@@ -35,15 +35,32 @@ function contentGenerator(gateway: ModelGateway, label: string, systemPrompt: st
   return createContentGenerator(gateway, label, systemPrompt, { isProduction: env.isProduction, requires });
 }
 
-/** Gemini grounding first; OpenRouter's web search as fallback (or alone when Gemini isn't configured). */
-function searchProvider(): SearchProvider {
-  const openRouter = env.openRouterApiKey ? new OpenRouterSearchProvider(env.openRouterApiKey, env.openRouterModel) : undefined;
-  if (env.geminiApiKey) {
-    const gemini = new GeminiSearchProvider(env.geminiApiKey, env.geminiModel);
-    return openRouter ? new FallbackSearchProvider(gemini, openRouter) : gemini;
+export interface SearchProviderSettings {
+  geminiApiKey?: string;
+  geminiModel: string;
+  openRouterApiKey?: string;
+  openRouterModel?: string;
+  /** Raw `AI_FALLBACK_PROVIDER`; `none` / `off` / `disabled` means a query must not go to a second provider. */
+  aiFallbackProvider?: string;
+  isProduction: boolean;
+}
+
+const fallbackDisabled = (raw: string | undefined) => ["none", "off", "disabled"].includes(raw?.trim().toLowerCase() ?? "");
+
+/**
+ * Gemini grounding first; OpenRouter's web search as fallback, or alone when Gemini isn't configured.
+ * Search is not routed through the gateway (only Gemini's grounding returns real sources), so it honours
+ * the one gateway switch that is about where a user's text may go: with `AI_FALLBACK_PROVIDER=none` a
+ * search query is never sent to OpenRouter while Gemini is configured.
+ */
+export function searchProvider(settings: SearchProviderSettings = env): SearchProvider {
+  const openRouter = settings.openRouterApiKey ? new OpenRouterSearchProvider(settings.openRouterApiKey, settings.openRouterModel) : undefined;
+  if (settings.geminiApiKey) {
+    const gemini = new GeminiSearchProvider(settings.geminiApiKey, settings.geminiModel);
+    return openRouter && !fallbackDisabled(settings.aiFallbackProvider) ? new FallbackSearchProvider(gemini, openRouter) : gemini;
   }
   if (openRouter) return openRouter;
-  return env.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();
+  return settings.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();
 }
 
 /**

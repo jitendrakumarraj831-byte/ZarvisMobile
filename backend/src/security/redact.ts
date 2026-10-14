@@ -25,7 +25,7 @@ const SECRET_VALUE_PATTERNS: readonly RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, // an Authorization header value
   /\bgh[pousr]_[A-Za-z0-9]{20,}/g, // GitHub tokens
   /github_pat_[A-Za-z0-9_]{20,}/g,
-  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, // a JWT
+  /\beyJ[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, // a JWT; the first segment is bounded so a long run of "-eyJ" cannot make the scan quadratic
 ];
 
 /** A secret shorter than this is not registered: replacing common short strings would corrupt logs. */
