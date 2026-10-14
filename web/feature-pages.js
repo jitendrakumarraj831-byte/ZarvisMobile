@@ -173,10 +173,10 @@
     ] },
     { title: "Voice", items: [
       { icon: "i-mic", name: "Voice input", short: "Talk naturally", desc: "Tap the orb or microphone to speak. No wake word. Depends on your browser's speech recognition.", status: ["PARTIAL", "Browser dependent"], action: ["voice", "Talk"], feature: "voice" },
-      { icon: "i-wave", name: "Spoken replies", short: "Hear replies aloud", desc: "ZARVIS reads replies aloud with Gemini voices. Needs the server's AI key and quota.", status: ["WORKING", "Needs the AI key"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
+      { icon: "i-wave", name: "Spoken replies", short: "Hear replies aloud", desc: "ZARVIS reads replies aloud with a neural voice, chosen from the text (Hindi, Hinglish or English). It needs no AI key, but it is an unofficial voice service with no guarantee.", status: ["PARTIAL", "Unofficial voice service"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
     ] },
     { title: "Vision", items: [
-      { icon: "i-image", name: "Image understanding", short: "Ask about photos", desc: "Attach a photo or screenshot and ask about it. Needs the server's vision model.", status: ["PARTIAL", "Needs the vision model"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-image", name: "Image understanding", short: "Ask about photos", desc: "Attach a photo or screenshot, or take one with the camera, and ask about it. Needs the server's vision model.", status: ["PARTIAL", "Needs the vision model"], action: ["attach", "Upload"], feature: "documents" },
       { icon: "i-sparkle", name: "Image generation", short: "Not part of this version", desc: "Creating images is designed but not active in this version.", status: ["PLANNED"] },
     ] },
     { title: "Files", items: [
