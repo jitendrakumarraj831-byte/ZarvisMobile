@@ -111,14 +111,24 @@ const isServed = (method: string | null, path: string) => {
 };
 
 describe("client ↔ backend API contract", () => {
-  it("every Android ZarvisApi endpoint exists with the same HTTP method", () => {
+  it("every Android ZarvisApi endpoint exists with the same HTTP method", async () => {
     const source = readFileSync(join(repo, "android/data/data-remote/src/main/kotlin/com/zarvismobile/data/remote/ZarvisApi.kt"), "utf8");
     const calls = [...source.matchAll(/@(GET|POST|PUT|PATCH|DELETE)\("([^"]+)"\)/g)].map((m) => ({
       method: m[1] ?? "",
       path: "/" + (m[2] ?? "").replace(/\{[^}]+\}/g, VAR),
     }));
     expect(calls.length).toBeGreaterThan(15);
-    const missing = calls.filter((c) => !isServed(c.method, c.path)).map((c) => `${c.method} ${c.path.replaceAll(VAR, "{var}")}`);
+    const missing: string[] = [];
+    for (const c of calls) {
+      if (isServed(c.method, c.path)) continue;
+      // The documents router is mounted lazily; probe it instead of reading its routes (the web check below does the same).
+      // An unauthenticated POST answers 401 where the route exists and 404 where it does not.
+      if (c.method === "POST" && c.path.startsWith("/api/v1/documents/")) {
+        const res = await request(app).post(c.path.replaceAll(VAR, "x")).send({});
+        if (res.status !== 404) continue;
+      }
+      missing.push(`${c.method} ${c.path.replaceAll(VAR, "{var}")}`);
+    }
     expect(missing).toEqual([]);
   });
 
