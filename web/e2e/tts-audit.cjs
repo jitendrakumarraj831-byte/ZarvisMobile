@@ -21,6 +21,9 @@
  * That voice is metered by a small Gemini speech quota. Once it has spoken, a scenario that is then refused
  * with 503 is a WARN ("not completed: the quota is spent"), like the real-AI scenario when the AI has no quota,
  * and the scenarios after it, which need the voice, are reported as not run instead of waiting out their timeouts.
+ * Before any browser scenario one short sentence is asked of the voice directly; if both voices refuse it (Edge is
+ * not accepted and the fallback is out of quota or not configured) that is one FAIL with the reason, and the
+ * scenarios that need the voice are reported as not run, instead of nine timeouts that say nothing.
  *
  * Environment:
  *   ZARVIS_URL / BASE_URL   the deployment (default http://localhost:3100)
@@ -165,6 +168,8 @@ let meteredOut = false;
 let stepQuotaHits = 0;
 /** A step that makes the browser fail the voice itself: the 503s it sees are its own and say nothing about quota. */
 let interceptingTts = false;
+/** Set when a direct request found the voice refusing on this deployment (see voicePreflight). */
+let voiceDown = "";
 const isFallbackSpeech = (entry, engine) => entry.engine === engine && /^gemini:[A-Za-z]+$/.test(entry.voice || "");
 /** The engine and voice that spoke one request: Edge's, as configured, or (noted, and reported as a WARN) the fallback's. */
 function expectVoice(entry, edgeEngine, fallbackEngine, voice) {
@@ -178,6 +183,13 @@ function expectVoice(entry, edgeEngine, fallbackEngine, voice) {
 
 async function step(name, fn, { voice = true } = {}) {
   if (ONLY && !ONLY.test(name)) return;
+  if (voice && voiceDown) {
+    const why = `not run: the voice refused a direct request (${voiceDown}), so this scenario could only wait out its timeouts`;
+    results.push({ name, status: "FAIL" });
+    console.log("FAIL", name, "—", why);
+    if (process.env.GITHUB_ACTIONS) console.log(`::error::${name}: ${why}`);
+    return;
+  }
   if (voice && meteredOut) {
     const why = "not run: the fallback voice's speech quota was spent in an earlier scenario, so this one would only wait out its timeouts";
     results.push({ name, status: "WARN" });
@@ -458,11 +470,49 @@ async function speakWholeReply(browser, language, voice) {
   });
 }
 
+/**
+ * One short sentence, asked of the voice directly (no browser), so that a deployment whose voice is down says why in one
+ * line. Only a definite refusal from the voice counts (502 / 503 / 504 with a tts_ code); anything else (no network, a
+ * protected deployment, an unexpected answer) is left to the scenarios, which will say what they see.
+ */
+async function voicePreflight() {
+  const headers = { "content-type": "application/json" };
+  if (BYPASS) headers["x-vercel-protection-bypass"] = BYPASS;
+  const guest = await fetch(`${BASE}/api/v1/auth/guest`, { method: "POST", headers, body: "{}", signal: AbortSignal.timeout(30_000) });
+  const token = (await guest.json().catch(() => ({}))).accessToken;
+  if (!token) return { definite: false };
+  try {
+    const res = await fetch(`${BASE}/api/v1/tts/synthesize-stream`, {
+      method: "POST",
+      headers: { ...headers, authorization: `Bearer ${token}` },
+      body: JSON.stringify({ text: "Hello from ZARVIS." }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const engine = res.headers.get("x-zarvis-tts") || "";
+    if (res.status === 200) {
+      await res.body?.cancel().catch(() => undefined);
+      return { definite: false, engine };
+    }
+    const code = (await res.json().catch(() => ({}))).code || "";
+    return { definite: [502, 503, 504].includes(res.status) && /^tts_/.test(code), status: res.status, code };
+  } finally {
+    await fetch(`${BASE}/api/v1/account`, { method: "DELETE", headers: { ...headers, authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).catch(() => undefined);
+  }
+}
+
 async function main() {
   console.log(`Deployment: ${BASE}  (${LIVE ? "a deployed site" : "local"}${BYPASS ? ", protection bypass configured" : ""})`);
   const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
   try {
     if (FAILURES !== "natural") {
+      const pre = await voicePreflight().catch(() => ({ definite: false }));
+      if (pre.definite) {
+        voiceDown = `HTTP ${pre.status} ${pre.code}`;
+        const why = `the voice refused a direct request (${voiceDown}): Edge is not accepted here and the fallback voice is out of quota or not configured, so nothing can speak`;
+        results.push({ name: "the voice answers a direct request", status: "FAIL" });
+        console.log("FAIL the voice answers a direct request —", why);
+        if (process.env.GITHUB_ACTIONS) console.log(`::error::the voice answers a direct request: ${why}`);
+      }
       await step("an English reply is spoken, in the English voice", () => speakWholeReply(browser, "en", EXPECT.en));
       await step("a Hindi reply is spoken, in the Hindi voice", () => speakWholeReply(browser, "hi", EXPECT.hi));
       await step("a Hinglish reply is spoken, in the Hinglish voice", () => speakWholeReply(browser, "hinglish", EXPECT.hinglish));

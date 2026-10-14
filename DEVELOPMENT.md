@@ -206,7 +206,10 @@ works but Edge does not accept that deployment). Gemini's speech quota is small 
 Edge down only English, Hindi and Hinglish are asked of it by the smoke test; once the fallback has
 spoken and is then refused with 503 the remaining checks are WARN "not exercised" (like the AI's, when it
 is out of quota), and if the very first English check is refused too, both voices are down and it is a
-FAIL. The two live workflows take turns (one `concurrency` group) because they share that quota. The
+FAIL. The browser audit asks the voice for one sentence directly before any scenario, so a deployment
+where both voices refuse says so in one line (and the scenarios that need the voice are reported as not
+run) instead of through nine timeouts. The two live workflows take turns (one `concurrency` group)
+because they share that quota. The
 browser's own `speechSynthesis` is deliberately
 not a fallback, and the phone's built-in speaker (`NotificationSpeaker`, for spoken notifications) is
 a separate, on-device thing that this does not touch.
