@@ -8,6 +8,7 @@ import {
   WebSocketEdgeTransport,
   edgeTimestamp,
   listEdgeVoices,
+  SEC_MS_GEC_VERSION,
   secMsGec,
   type WebSocketTransportOptions,
 } from "../../src/tts/edgeTransport.js";
@@ -64,22 +65,24 @@ async function failureOf(iterable: AsyncIterable<Buffer>): Promise<{ chunks: Buf
 const SSML = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='en-US-JennyNeural'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>Hello.</prosody></voice></speak>";
 
 describe("the Sec-MS-GEC token", () => {
-  // Computed with the reference implementation (the community edge-tts library's algorithm).
-  it("matches the reference algorithm: SHA-256 of the five-minute window in Windows ticks plus the client token", () => {
-    expect(secMsGec(1_700_000_000_000)).toBe("42301B335578FEFDAE2637DED1ABD614505D432559EC08032B82048483726AFF");
-    expect(secMsGec(1_790_000_000_000)).toBe("CA99F0B37F2EAC6F5D719AE4BA7C98978842B3F335D9F42979070A8DB149F0A5");
-    expect(secMsGec(0)).toBe("7ECB79D14E3AA576D2D79E6D487A1388156D91E614B1BE11C64226A29BC8DD8C");
+  // Computed by the upstream Python implementation (the community edge-tts library, version 2 of the token); the
+  // algorithm itself, and many more such tokens, are checked in edgeToken.test.ts.
+  it("is the reference's version-2 token for the five-minute window", () => {
+    expect(secMsGec(1_700_000_000_000)).toBe("2CD23A2CA0B2595A-F3C846C370E05F9CC83ACC5F995C5F5D87A4D0F14CE8936A0F902E64099E38A2");
+    expect(secMsGec(1_790_000_000_000)).toBe("D4216A7D3DE0C94F-91D741832FD084A110FDAD52BE2FFA569C6EA5F7D06A9429380A398738F4559A");
+    expect(secMsGec(0)).toBe("52BC7A17B50DFEC9-28C4394775C8751CD2F6859C030C06DB1489ACAB3B3A7651831FC26895177ED6");
   });
 
   it("is constant inside a five-minute window and changes at its edge", () => {
     expect(secMsGec(1_700_000_099_000)).toBe(secMsGec(1_700_000_000_000));
     expect(secMsGec(1_700_000_099_999)).toBe(secMsGec(1_700_000_000_000));
-    expect(secMsGec(1_700_000_100_000)).toBe("AE4CF72E466874182A75878E20EADA83D29A1C12CAD9C3E0E014CCE0BFA55880");
+    expect(secMsGec(1_700_000_100_000)).toBe("0919602B5750900A-EC9DD394F23CB5635CF62A0E8E24136DCD32B26D10C543B10082E482D7516397");
     expect(secMsGec(1_790_000_299_000)).toBe(secMsGec(1_790_000_300_000));
   });
 
-  it("is upper-case hex of 64 characters", () => {
-    expect(secMsGec(Date.now())).toMatch(/^[0-9A-F]{64}$/);
+  it("is <16 hex>-<64 hex>, upper case, and is sent with the version that goes with it", () => {
+    expect(secMsGec(Date.now())).toMatch(/^[0-9A-F]{16}-[0-9A-F]{64}$/);
+    expect(SEC_MS_GEC_VERSION).toBe(`2-${CHROMIUM_FULL_VERSION}`);
   });
 });
 
@@ -102,7 +105,7 @@ describe("WebSocketEdgeTransport: the conversation", () => {
     expect(url.searchParams.get("TrustedClientToken")).toBe(TRUSTED_CLIENT_TOKEN);
     expect(url.searchParams.get("ConnectionId")).toMatch(/^[0-9a-f]{32}$/);
     expect(url.searchParams.get("Sec-MS-GEC")).toBe(secMsGec(now));
-    expect(url.searchParams.get("Sec-MS-GEC-Version")).toBe(`1-${CHROMIUM_FULL_VERSION}`);
+    expect(url.searchParams.get("Sec-MS-GEC-Version")).toBe(SEC_MS_GEC_VERSION);
     expect(headers.origin).toBe("chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold");
     expect(headers["user-agent"]).toMatch(/Chrome\/143\.0\.0\.0 Safari\/537\.36 Edg\/143\.0\.0\.0$/);
     expect(headers.cookie).toMatch(/^muid=[0-9A-F]{32};$/);
@@ -410,7 +413,7 @@ describe("listEdgeVoices", () => {
     expect(url.origin + url.pathname).toBe("https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list");
     expect(url.searchParams.get("trustedclienttoken")).toBe(TRUSTED_CLIENT_TOKEN);
     expect(url.searchParams.get("Sec-MS-GEC")).toBe(secMsGec(1_790_000_200_000));
-    expect(url.searchParams.get("Sec-MS-GEC-Version")).toBe(`1-${CHROMIUM_FULL_VERSION}`);
+    expect(url.searchParams.get("Sec-MS-GEC-Version")).toBe(SEC_MS_GEC_VERSION);
   });
 
   it("fails loudly when the list cannot be fetched", async () => {

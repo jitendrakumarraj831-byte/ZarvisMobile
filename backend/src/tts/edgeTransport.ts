@@ -7,7 +7,9 @@
  * Why it is written here and not taken from an npm package: the maintained Edge packages are
  * AGPL, GPL or non-commercial licensed, or (the one MIT package) have no timeouts, no way to cancel
  * one request, no XML escaping and a tree of 39 packages. The protocol is small, and the
- * community `edge-tts` project documents it. Only `ws` is needed.
+ * community `edge-tts` project documents it. Only `ws` is needed. The one part that is not written
+ * from the protocol's description but ported from that project's source is the `Sec-MS-GEC` token
+ * (`edgeToken.ts`, LGPL-3.0, which says so).
  *
  * This is an unofficial service: Microsoft does not publish it as an API, gives no guarantee, and
  * has changed what it requires before (the `Sec-MS-GEC` token, the browser version it expects).
@@ -15,9 +17,10 @@
  * them, and keep `EdgeTransport` the only thing the rest of the code depends on, so the transport
  * can move to a separate service (or be replaced by an official one) without touching the routes.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type WebSocket from "ws";
 import type { RawData } from "ws";
+import { secMsGecV2 } from "./edgeToken.js";
 import { TtsProviderError, abortError } from "./provider.js";
 
 export const EDGE_SERVICE_URL = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
@@ -26,6 +29,12 @@ export const EDGE_VOICES_URL = "https://speech.platform.bing.com/consumer/speech
 export const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 /** The Edge version the service expects to be talking to. Update with the service's requirements. */
 export const CHROMIUM_FULL_VERSION = "143.0.3650.75";
+/**
+ * `Sec-MS-GEC-Version`. The first digit is the version of the token (`edgeToken.ts`). The community project moved from
+ * `1-...` to `2-...` on 2026-10-13, and this server's Preview was refused (HTTP 403) from about then; the live smoke
+ * test says whether the service accepts this one.
+ */
+export const SEC_MS_GEC_VERSION = `2-${CHROMIUM_FULL_VERSION}`;
 /** The only audio format the service offers that is not a container of its own: 24 kHz, 48 kbit/s, mono MP3. */
 export const EDGE_OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
 
@@ -35,15 +44,11 @@ export interface EdgeTransport {
 }
 
 /**
- * The `Sec-MS-GEC` value: SHA-256 of the current time as Windows file time (100 ns ticks since
- * 1601), rounded down to five minutes, followed by the trusted client token; upper-case hex.
- * BigInt, because the tick count (about 1.3e17) is beyond what a double holds exactly.
+ * The `Sec-MS-GEC` value for `nowMs`: the current five-minute window as Windows file time, with the trusted client
+ * token, hashed the way the service wants it today (`<16 hex>-<64 hex>`; see `edgeToken.ts`).
  */
 export function secMsGec(nowMs: number): string {
-  let seconds = Math.floor(nowMs / 1000) + 11_644_473_600;
-  seconds -= seconds % 300;
-  const ticks = BigInt(seconds) * 10_000_000n;
-  return createHash("sha256").update(`${ticks}${TRUSTED_CLIENT_TOKEN}`, "ascii").digest("hex").toUpperCase();
+  return secMsGecV2(nowMs, TRUSTED_CLIENT_TOKEN);
 }
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -207,7 +212,7 @@ export class WebSocketEdgeTransport implements EdgeTransport {
       TrustedClientToken: TRUSTED_CLIENT_TOKEN,
       ConnectionId: randomBytes(16).toString("hex"),
       "Sec-MS-GEC": secMsGec(this.now() + this.clockSkewMs),
-      "Sec-MS-GEC-Version": `1-${CHROMIUM_FULL_VERSION}`,
+      "Sec-MS-GEC-Version": SEC_MS_GEC_VERSION,
     });
     return `${this.url}?${params.toString()}`;
   }
@@ -372,7 +377,7 @@ export interface EdgeVoiceInfo {
  */
 export async function listEdgeVoices(options: { now?: () => number; fetchImpl?: typeof fetch } = {}): Promise<EdgeVoiceInfo[]> {
   const now = options.now ?? Date.now;
-  const query = new URLSearchParams({ trustedclienttoken: TRUSTED_CLIENT_TOKEN, "Sec-MS-GEC": secMsGec(now()), "Sec-MS-GEC-Version": `1-${CHROMIUM_FULL_VERSION}` });
+  const query = new URLSearchParams({ trustedclienttoken: TRUSTED_CLIENT_TOKEN, "Sec-MS-GEC": secMsGec(now()), "Sec-MS-GEC-Version": SEC_MS_GEC_VERSION });
   const headers = { "User-Agent": userAgent(), Accept: "*/*", "Accept-Language": "en-US,en;q=0.9", Cookie: `muid=${randomBytes(16).toString("hex").toUpperCase()};` };
   const response = await (options.fetchImpl ?? fetch)(`${EDGE_VOICES_URL}?${query.toString()}`, { headers, signal: AbortSignal.timeout(20_000) });
   if (!response.ok) throw new Error(`The voice list answered HTTP ${response.status}`);
