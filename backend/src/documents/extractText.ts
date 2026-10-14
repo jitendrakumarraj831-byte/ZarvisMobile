@@ -1,5 +1,13 @@
 import mammoth from "mammoth";
 import { extractText as extractPdfText, getDocumentProxy } from "unpdf";
+import {
+  assertPdfWithinBudget,
+  assertZipWithinBudget,
+  DocumentTooLargeError,
+  MalformedDocumentError,
+} from "./expansionGuard.js";
+
+export { DocumentTooLargeError } from "./expansionGuard.js";
 
 /**
  * Real text extraction for the composer's document-upload flow (`api/routes/documents.ts`)
@@ -17,6 +25,13 @@ import { extractText as extractPdfText, getDocumentProxy } from "unpdf";
  * (v1.10.100) truncated real multi-sentence text unpredictably.
  */
 export type SupportedDocumentType = "pdf" | "docx";
+
+/**
+ * More pages than this cannot fit one document (`MAX_EXTRACTED_CHARS` is about 25 pages of text), and
+ * extraction time and memory do not grow in step with the page count: measured on a 2 MB PDF of empty
+ * pages, 1,000 pages took 0.4 s, 4,000 took 3 s, and 20,000 held the whole server for 105 s at 4.6 GB.
+ */
+export const MAX_PDF_PAGES = 300;
 
 const PDF_EXTENSIONS = [".pdf"];
 const DOCX_EXTENSIONS = [".docx"];
@@ -42,16 +57,31 @@ export class DocumentExtractionError extends Error {
   }
 }
 
+/**
+ * Real text from a PDF or DOCX. Throws `DocumentTooLargeError` for a file that unpacks to far more than
+ * one document can hold (see `expansionGuard.ts`) and `DocumentExtractionError` for anything else it
+ * cannot read.
+ */
 export async function extractDocumentText(buffer: Buffer, type: SupportedDocumentType): Promise<string> {
+  try {
+    if (type === "pdf") await assertPdfWithinBudget(buffer);
+    else await assertZipWithinBudget(buffer);
+  } catch (err) {
+    if (err instanceof DocumentTooLargeError) throw err;
+    if (err instanceof MalformedDocumentError) throw new DocumentExtractionError(err.message, err);
+    throw new DocumentExtractionError(`Failed to check the size of the ${type} document`, err);
+  }
   try {
     if (type === "pdf") {
       const pdf = await getDocumentProxy(new Uint8Array(buffer));
+      if (pdf.numPages > MAX_PDF_PAGES) throw new DocumentTooLargeError(`pdf: ${pdf.numPages} pages`);
       const { text } = await extractPdfText(pdf, { mergePages: true });
       return text;
     }
     const result = await mammoth.extractRawText({ buffer });
     return result.value;
   } catch (err) {
+    if (err instanceof DocumentTooLargeError) throw err;
     throw new DocumentExtractionError(`Failed to extract text from ${type} document`, err);
   }
 }

@@ -1,7 +1,12 @@
 import { AIProviderError, providerErrorPayload } from "../ai/geminiErrors.js";
 import type { ModelGateway } from "../ai/modelGateway.js";
 import { logger } from "../security/redact.js";
-import { classifyDocumentType, DocumentExtractionError, extractDocumentText } from "./extractText.js";
+import {
+  classifyDocumentType,
+  DocumentExtractionError,
+  DocumentTooLargeError,
+  extractDocumentText,
+} from "./extractText.js";
 
 /** Matches the web client's own cap for a pasted/typed document, and what one turn carries. */
 export const MAX_EXTRACTED_CHARS = 60_000;
@@ -69,6 +74,12 @@ export async function processUpload(file: UploadedFile, deps: { gateway?: ModelG
   try {
     text = await extractDocumentText(file.buffer, type);
   } catch (err) {
+    if (err instanceof DocumentTooLargeError) {
+      // A small upload that unpacks to far more than a document can hold: the same answer as text
+      // that is too long, reached before the parser has spent memory on it.
+      logger.warn("Document refused: it unpacks to more than the limit", { type, sizeBytes: file.size });
+      return { ok: false, status: 413, body: { error: "document_too_long", maxChars: MAX_EXTRACTED_CHARS } };
+    }
     const cause = err instanceof DocumentExtractionError ? err.cause : err;
     logger.error("Document extraction failed", {
       type,
