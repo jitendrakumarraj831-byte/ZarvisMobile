@@ -103,12 +103,12 @@ export interface FakeProviderBehaviour {
   /** Never speaks until the signal aborts. */
   hang?: boolean;
   /** The voice the provider reports through `onResolved`, as the real one does before it speaks. */
-  resolved?: { voice: string; language: SpeechLanguage };
+  resolved?: { voice: string; language: SpeechLanguage; engine?: string };
 }
 
 /** A scripted `TtsProvider` for the route tests. */
 export class FakeTtsProvider implements TtsProvider {
-  readonly id = "fake";
+  id = "fake";
   readonly calls: Array<{ kind: "unary" | "stream"; text: string; voice: unknown; signal?: AbortSignal }> = [];
   /** Streams whose generator ran its `finally`. */
   finalized = 0;

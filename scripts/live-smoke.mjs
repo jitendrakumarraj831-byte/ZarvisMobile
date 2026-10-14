@@ -13,7 +13,9 @@
  * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), plus at most one extra attempt for an AI
  * step whose first failure the backend marked temporary (a per-minute limit or a retryable outage); a refusal or a daily quota is never retried.
  * The voice checks (about 25 requests, see voiceChecks) go to the Edge voice service, which needs no key and costs
- * nothing; they print a VOICE SUMMARY at the end.
+ * nothing; they print a VOICE SUMMARY at the end. If Edge refuses the deployment and the server's fallback voice
+ * (Gemini, X-Zarvis-TTS: gemini) answers instead, the audio is still checked but the result is a WARN, never a
+ * PASS: spoken replies work, and Edge being down stays visible. (It does cost a few Gemini voice requests then.)
  *
  * `ONLY=tts` runs just the health check, a guest session and the voice checks: against any
  * deployment, a preview or production, without spending any AI quota or creating any other account.
@@ -168,6 +170,11 @@ function classifyRedirect(status, location) {
 // on both endpoints, then Hindi, then Hinglish; does a long reply stream progressively; does the WAV
 // endpoint cope with the longest text it accepts; does a client that walks away mid-stream leave the
 // service able to serve the next request; do bad requests get plain answers.
+//
+// Edge is the voice. If it fails before any sound the server asks Gemini's voice instead and says so in
+// X-Zarvis-TTS (`gemini`, `gemini-stream`) and X-Zarvis-TTS-Voice (`gemini:Kore`). That is audio the user
+// can hear, so it is checked as audio (format, length) but it is reported as WARN: the thing this script
+// exists to prove is that Edge accepts this deployment, and here it does not.
 
 const VOICE_TEXT = {
   en: "Hello from ZARVIS. The weather is clear today, and the voice should sound natural and calm.",
@@ -229,6 +236,17 @@ async function streamCall(token, body, { abortAfterBytes, timeoutMs = 90_000 } =
   }
 }
 
+/** Whether the engine header names the fallback voice, and says so with a voice name that cannot be mistaken for Edge's. */
+function fallbackVoice(engine, expectedEngine, voice) {
+  if (engine !== expectedEngine) return { ok: false };
+  if (!/^gemini:[A-Za-z]+$/.test(voice || "")) return { ok: false, why: `X-Zarvis-TTS was ${engine} but the voice was ${voice}, not gemini:<name>` };
+  return { ok: true };
+}
+
+/** A check that heard audio from the fallback is a WARN: spoken replies work, but Edge does not accept this deployment. */
+const outcome = (check) => (!check.ok ? "FAIL" : check.fallback ? "WARN" : "PASS");
+const evidence = (check) => (check.ok ? check.detail : check.why);
+
 async function voiceChecks(token) {
   const groups = { reach: [], english: [], hindi: [], hinglish: [], streaming: [], unary: [], cancellation: [] };
   const verdict = (statuses) => (statuses.length === 0 ? "NOT RUN" : statuses.includes("FAIL") ? "FAIL" : statuses.includes("WARN") ? "WARN" : "PASS");
@@ -244,9 +262,11 @@ async function voiceChecks(token) {
     if (res.status !== 200 || !/audio\/wav/.test(res.headers.get("content-type") || "") || !wav) return { ok: false, why: `${whyNot(res)} ${wav ? "" : "(not a WAV file)"}` };
     if (wav.sampleRate !== PCM_RATE || wav.channels !== 1 || wav.bits !== 16) return { ok: false, why: `WAV is ${JSON.stringify(wav)}, not 24 kHz mono 16-bit` };
     if (!lengthPlausible(text, wav.seconds)) return { ok: false, why: `${text.length} characters came back as ${wav.seconds.toFixed(1)} s of audio` };
-    if (res.headers.get("x-zarvis-tts") !== "edge") return { ok: false, why: `X-Zarvis-TTS was ${res.headers.get("x-zarvis-tts")}, not edge` };
-    if (expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
-    return { ok: true, detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}` };
+    const engine = res.headers.get("x-zarvis-tts");
+    const fallback = fallbackVoice(engine, "gemini", voice);
+    if (engine !== "edge" && !fallback.ok) return { ok: false, why: fallback.why ?? `X-Zarvis-TTS was ${engine}, not edge` };
+    if (engine === "edge" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
+    return { ok: true, fallback: engine !== "edge", detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}${engine !== "edge" ? " (FALLBACK: Edge did not answer)" : ""}` };
   };
   const checkStream = (res, text, expected) => {
     const type = res.headers.get("content-type") || "";
@@ -255,9 +275,11 @@ async function voiceChecks(token) {
     if (res.bytes.length === 0 || res.bytes.length % 2 !== 0 || res.bytes.subarray(0, 4).toString("ascii") === "RIFF") return { ok: false, why: `${res.bytes.length} bytes is not headerless 16-bit PCM` };
     const seconds = res.bytes.length / 2 / PCM_RATE;
     if (!lengthPlausible(text, seconds)) return { ok: false, why: `${text.length} characters came back as ${seconds.toFixed(1)} s of audio` };
-    if (res.headers.get("x-zarvis-tts") !== "edge-stream") return { ok: false, why: `X-Zarvis-TTS was ${res.headers.get("x-zarvis-tts")}, not edge-stream` };
-    if (expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
-    return { ok: true, seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}` };
+    const engine = res.headers.get("x-zarvis-tts");
+    const fallback = fallbackVoice(engine, "gemini-stream", voice);
+    if (engine !== "edge-stream" && !fallback.ok) return { ok: false, why: fallback.why ?? `X-Zarvis-TTS was ${engine}, not edge-stream` };
+    if (engine === "edge-stream" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
+    return { ok: true, fallback: engine !== "edge-stream", seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}${engine !== "edge-stream" ? " (FALLBACK: Edge did not answer)" : ""}` };
   };
 
   // ---- Is the voice service reachable from here at all? English first; the rest is pointless if not.
@@ -268,10 +290,10 @@ async function voiceChecks(token) {
     return;
   }
   const firstWav = checkWav(first, VOICE_TEXT.en, EXPECT_VOICE.en);
-  vreport(["reach", "english", "unary"], firstWav.ok ? "PASS" : "FAIL", "voice: English, WAV endpoint", firstWav.ok ? firstWav.detail : firstWav.why);
+  vreport(["reach", "english", "unary"], outcome(firstWav), "voice: English, WAV endpoint", evidence(firstWav));
   const firstStream = await streamCall(token, { text: VOICE_TEXT.en });
   const firstStreamCheck = checkStream(firstStream, VOICE_TEXT.en, EXPECT_VOICE.en);
-  vreport(["reach", "english", "streaming"], firstStreamCheck.ok ? "PASS" : "FAIL", "voice: English, stream endpoint", firstStreamCheck.ok ? firstStreamCheck.detail : firstStreamCheck.why);
+  vreport(["reach", "english", "streaming"], outcome(firstStreamCheck), "voice: English, stream endpoint", evidence(firstStreamCheck));
   if (!firstWav.ok && !firstStreamCheck.ok) {
     // Nothing else can be learned, and every further attempt could wait out the service's timeouts.
     for (const [group, name] of [["hindi", "Hindi"], ["hinglish", "Hinglish"]]) vreport([group, "streaming", "unary"], "FAIL", `voice: ${name}`, "not run: English failed on both endpoints, so the voice is not usable here (see above)");
@@ -284,9 +306,9 @@ async function voiceChecks(token) {
   // ---- Hindi and Hinglish, on both endpoints.
   for (const [group, key, label] of [["hindi", "hi", "Hindi"], ["hinglish", "hinglish", "Hinglish"]]) {
     const wav = checkWav(await unary({ text: VOICE_TEXT[key] }), VOICE_TEXT[key], EXPECT_VOICE[key]);
-    vreport([group, "unary"], wav.ok ? "PASS" : "FAIL", `voice: ${label}, WAV endpoint`, wav.ok ? wav.detail : wav.why);
+    vreport([group, "unary"], outcome(wav), `voice: ${label}, WAV endpoint`, evidence(wav));
     const stream = checkStream(await streamCall(token, { text: VOICE_TEXT[key] }), VOICE_TEXT[key], EXPECT_VOICE[key]);
-    vreport([group, "streaming"], stream.ok ? "PASS" : "FAIL", `voice: ${label}, stream endpoint`, stream.ok ? stream.detail : stream.why);
+    vreport([group, "streaming"], outcome(stream), `voice: ${label}, stream endpoint`, evidence(stream));
   }
 
   // ---- A long reply: does the stream arrive progressively, or in one piece at the end?
@@ -296,7 +318,7 @@ async function voiceChecks(token) {
   else if (longCheck.seconds > 20 && long.firstByteMs > long.totalMs * 0.9) {
     // The audio is right, but the platform held it back: the client's first sound would wait for all of it.
     vreport(["streaming"], "WARN", "voice: long text, stream endpoint", `${longCheck.detail}; the first byte came at ${long.firstByteMs} of ${long.totalMs} ms, so the platform is probably delivering the stream in one piece`);
-  } else vreport(["streaming"], "PASS", "voice: long text, stream endpoint", `${longCheck.detail} (progressive: first audio at ${Math.round((100 * long.firstByteMs) / long.totalMs)}% of the time)`);
+  } else vreport(["streaming"], outcome(longCheck), "voice: long text, stream endpoint", `${longCheck.detail} (progressive: first audio at ${Math.round((100 * long.firstByteMs) / long.totalMs)}% of the time)`);
 
   // ---- The longest text the WAV endpoint accepts: about two minutes of speech, 5 to 6 MB. Vercel documents about
   // 4.5 MB as the most a function answers in one piece, and a function has a maximum duration, so this is where
@@ -304,7 +326,7 @@ async function voiceChecks(token) {
   // If it ever does, it is said plainly.
   const longUnary = await unary({ text: LONG_UNARY_TEXT }, 120_000);
   const longWav = checkWav(longUnary, LONG_UNARY_TEXT, EXPECT_VOICE.en);
-  if (longWav.ok) vreport(["unary"], "PASS", "voice: longest text, WAV endpoint", longWav.detail);
+  if (longWav.ok) vreport(["unary"], outcome(longWav), "voice: longest text, WAV endpoint", longWav.detail);
   else if ([413, 502, 504].includes(longUnary.status) && (longUnary.headers.get("x-vercel-error") || !longUnary.json)) {
     vreport(["unary"], "WARN", "voice: longest text, WAV endpoint", `the platform refused it (${whyNot(longUnary)}); about ${Math.round(LONG_UNARY_TEXT.length / 15)} s of speech does not fit in one response here, so a long Listen will fail`);
   } else vreport(["unary"], "FAIL", "voice: longest text, WAV endpoint", longWav.why);
@@ -324,7 +346,7 @@ async function voiceChecks(token) {
   }
   const after = await streamCall(token, { text: VOICE_TEXT.en });
   const afterCheck = checkStream(after, VOICE_TEXT.en, EXPECT_VOICE.en);
-  if (abandoned === 6 && afterCheck.ok) vreport(["cancellation"], "PASS", "voice: cancelling mid-stream", `6 streams abandoned after their first bytes and 2 WAV requests dropped; the next request was served in ${after.totalMs} ms`);
+  if (abandoned === 6 && afterCheck.ok) vreport(["cancellation"], outcome(afterCheck), "voice: cancelling mid-stream", `6 streams abandoned after their first bytes and 2 WAV requests dropped; the next request was served in ${after.totalMs} ms`);
   else vreport(["cancellation"], "FAIL", "voice: cancelling mid-stream", abandoned === 6 ? `the next request after the cancellations failed: ${afterCheck.why}` : `only ${abandoned} of 6 streams could be abandoned mid-way (the others: ${otherAnswers.join(", ")})`);
 
   // ---- Bad requests get plain answers, and a caller's voice is honoured only from the allow-list.
@@ -336,17 +358,17 @@ async function voiceChecks(token) {
   vreport(["unary"], silent.status === 400 && silent.json?.code === "tts_invalid_request" ? "PASS" : "FAIL", "voice: text with nothing to say is 400 tts_invalid_request", `HTTP ${silent.status} ${silent.json?.code ?? ""}`);
   const chosen = await unary({ text: VOICE_TEXT.en, voice: "en-US-GuyNeural" });
   const chosenCheck = checkWav(chosen, VOICE_TEXT.en, "en-US-GuyNeural");
-  vreport(["english", "unary"], chosenCheck.ok ? "PASS" : "FAIL", "voice: a caller can choose an allowed voice", chosenCheck.ok ? chosenCheck.detail : chosenCheck.why);
+  vreport(["english", "unary"], outcome(chosenCheck), "voice: a caller can choose an allowed voice", evidence(chosenCheck));
   const refused = await unary({ text: VOICE_TEXT.en, voice: "xx-XX-NotARealNeural" });
   const refusedCheck = checkWav(refused, VOICE_TEXT.en, EXPECT_VOICE.en);
-  vreport(["english", "unary"], refusedCheck.ok ? "PASS" : "FAIL", "voice: an unknown voice is ignored, the usual one speaks", refusedCheck.ok ? refusedCheck.detail : refusedCheck.why);
+  vreport(["english", "unary"], outcome(refusedCheck), "voice: an unknown voice is ignored, the usual one speaks", evidence(refusedCheck));
 
   printVoiceSummary(groups, verdict);
 }
 
 function printVoiceSummary(groups, verdict, note = "") {
   const rows = [
-    ["Live voice service reached (this deployment to Microsoft)", "reach"],
+    ["Live voice service reached (WARN = only the fallback voice)", "reach"],
     ["English", "english"],
     ["Hindi", "hindi"],
     ["Hinglish", "hinglish"],
@@ -358,7 +380,7 @@ function printVoiceSummary(groups, verdict, note = "") {
   for (const [label, key] of rows) console.log(`  ${label.padEnd(58)} ${verdict(groups[key])}`);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const table = rows.map(([label, key]) => `| ${label} | ${verdict(groups[key])} |`).join("\n");
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Voice (Edge neural voices) on ${BASE}\n\n| Check | Result |\n| --- | --- |\n${table}\n\n`);
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Voice (Edge neural voices, Gemini fallback) on ${BASE}\n\n| Check | Result |\n| --- | --- |\n${table}\n\n`);
   }
 }
 

@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseCatalogJson } from "../../src/ai/modelCatalog.js";
 import { resolveAIConfig } from "../../src/config/aiConfig.js";
+import { logger } from "../../src/security/redact.js";
 import { resolveTtsConfig } from "../../src/config/ttsConfig.js";
+import { DEFAULT_GEMINI_TTS_MODEL, DEFAULT_GEMINI_TTS_VOICE } from "../../src/tts/geminiTtsProvider.js";
 
 /**
  * `backend/.env.example` is documentation operators copy from. It must (1) never hold a real
@@ -56,22 +58,37 @@ describe("backend/.env.example", () => {
   });
 
   it("documents the voice variables, every one of them is read by config/env.ts, and the commented values are the ones the voice config accepts without a warning", () => {
-    const documented = [...new Set(assignments.map((entry) => entry.name).filter((name) => /^TTS_/.test(name)))].sort();
-    expect(documented).toEqual(["TTS_EN_VOICE", "TTS_HINGLISH_VOICE", "TTS_HI_VOICE", "TTS_PROVIDER"]);
+    const documented = [...new Set(assignments.map((entry) => entry.name).filter((name) => /^(TTS_|GEMINI_TTS_)/.test(name)))].sort();
+    expect(documented).toEqual(["GEMINI_TTS_MODEL", "GEMINI_TTS_VOICE", "TTS_EN_VOICE", "TTS_FALLBACK_PROVIDER", "TTS_HINGLISH_VOICE", "TTS_HI_VOICE", "TTS_PROVIDER"]);
     for (const name of documented) expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
 
     const uncomment = (name: string) => assignments.find((entry) => entry.name === name && entry.commented)?.value.replace(/\s+#.*$/, "");
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     const config = resolveTtsConfig({
       ttsProvider: uncomment("TTS_PROVIDER"),
+      ttsFallbackProvider: uncomment("TTS_FALLBACK_PROVIDER"),
       ttsHindiVoice: uncomment("TTS_HI_VOICE"),
       ttsEnglishVoice: uncomment("TTS_EN_VOICE"),
       ttsHinglishVoice: uncomment("TTS_HINGLISH_VOICE"),
+      geminiTtsModel: uncomment("GEMINI_TTS_MODEL"),
+      geminiTtsVoice: uncomment("GEMINI_TTS_VOICE"),
     });
-    expect(config).toEqual({ provider: "edge", voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" } });
+    expect(warn).not.toHaveBeenCalled();
+    expect(config).toEqual({
+      provider: "edge",
+      fallback: "gemini",
+      voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" },
+      gemini: { model: DEFAULT_GEMINI_TTS_MODEL, voice: DEFAULT_GEMINI_TTS_VOICE },
+    });
   });
 
-  it("no longer documents the Gemini voice, which is gone", () => {
-    expect(example).not.toMatch(/GEMINI_TTS|GOOGLE_TTS|TTS_PRIMARY_PROVIDER/);
+  it("tells the operator that the fallback voice sends the sentence to Google, and how to switch it off", () => {
+    expect(example).toMatch(/sends the\s+# ?sentence to Google|sends the sentence to Google/);
+    expect(example).toMatch(/TTS_FALLBACK_PROVIDER=none/);
+  });
+
+  it("does not bring back the retired Gemini voice model or a second provider setting", () => {
+    expect(example).not.toMatch(/gemini-2\.5-flash-preview-tts|GOOGLE_TTS|TTS_PRIMARY_PROVIDER/);
   });
 
   it("the commented defaults and the catalog example are accepted by the startup validation", () => {

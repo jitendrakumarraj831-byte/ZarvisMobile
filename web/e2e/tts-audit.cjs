@@ -15,6 +15,10 @@
  * cancel the reply being spoken; does the Listen button (the WAV endpoint) play; and when the voice
  * fails, does the AI's reply still appear and the next one still work.
  *
+ * The voice is Edge's. If Edge refuses the deployment, the server answers with its fallback voice
+ * (Gemini: `X-Zarvis-TTS: gemini-stream`, voice `gemini:Kore`). That is sound the user hears, so the
+ * audio is still checked in full, but the step is a WARN, never a PASS: Edge is down on this deployment.
+ *
  * Environment:
  *   ZARVIS_URL / BASE_URL   the deployment (default http://localhost:3100)
  *   BYPASS                  Vercel Deployment Protection bypass secret; sent only to that origin
@@ -94,6 +98,8 @@ const SHORT = { en: "Hello, this is a short reply. ", hi: "नमस्ते, �
 /** Runs in the page before its own scripts: a fake microphone, and eyes on the audio and the orb. */
 const INIT = `
   localStorage.setItem("zarvis.speak", "on");
+  // A first-time guest is shown the "Sign in or continue as guest" card over the chat; it would cover every button the audit clicks.
+  localStorage.setItem("zarvis.welcomeDismissed", "1");
   class FakeRecognition extends EventTarget {
     start() { window.__recognitionStarts = (window.__recognitionStarts || 0) + 1; window.__recognition = this; }
     stop() { this.dispatchEvent(new Event("end")); }
@@ -148,12 +154,29 @@ const INIT = `
 
 const results = [];
 
+/** Voices heard from the fallback engine during the current step: a step that heard one is a WARN. */
+const fallbackVoices = new Set();
+const isFallbackSpeech = (entry, engine) => entry.engine === engine && /^gemini:[A-Za-z]+$/.test(entry.voice || "");
+/** The engine and voice that spoke one request: Edge's, as configured, or (noted, and reported as a WARN) the fallback's. */
+function expectVoice(entry, edgeEngine, fallbackEngine, voice) {
+  if (isFallbackSpeech(entry, fallbackEngine)) {
+    fallbackVoices.add(entry.voice);
+    return;
+  }
+  assert.equal(entry.engine, edgeEngine);
+  assert.equal(entry.voice, voice, `the voice that spoke was ${entry.voice}, not ${voice}`);
+}
+
 async function step(name, fn) {
   if (ONLY && !ONLY.test(name)) return;
   const started = Date.now();
   const took = () => `${((Date.now() - started) / 1000).toFixed(1)} s`;
+  fallbackVoices.clear();
   try {
     const outcome = (await fn()) || {};
+    if (!outcome.warn && fallbackVoices.size) {
+      outcome.warn = `spoken, but by the fallback voice (${[...fallbackVoices].join(", ")}), not Edge: Edge did not answer this deployment${outcome.detail ? `; ${outcome.detail}` : ""}`;
+    }
     if (outcome.warn) {
       results.push({ name, status: "WARN" });
       console.log("WARN", name, "—", outcome.warn);
@@ -367,8 +390,7 @@ function checkSpoken(run, { voice, requests }) {
   for (const entry of streams) {
     assert.equal(entry.status, 200, `a stream request answered ${entry.status} (${entry.failed || "no failure"})`);
     assert.equal(entry.type, "audio/l16; codec=pcm; rate=24000");
-    assert.equal(entry.engine, "edge-stream");
-    assert.equal(entry.voice, voice, `the voice that spoke was ${entry.voice}, not ${voice}`);
+    expectVoice(entry, "edge-stream", "gemini-stream", voice);
     assert.ok(entry.bytes > 0 && entry.bytes % 2 === 0, `a stream body of ${entry.bytes} bytes is not whole 16-bit samples`);
     if (LIVE) assert.ok(seconds(entry.bytes) >= entry.text.length / 40, `${entry.text.length} characters came back as only ${seconds(entry.bytes).toFixed(1)} s of audio`);
   }
@@ -489,7 +511,8 @@ async function main() {
           assert.equal(lateOld.length, 0, `${lateOld.length} voice requests for the old reply started after the new message`);
           const newReply = run.tts.filter((entry) => fresh.has(entry.text.trim()));
           assert.ok(newReply.length >= 1, "the new reply was never asked for");
-          assert.ok(newReply.every((entry) => entry.status === 200 && entry.voice === EXPECT.hi), "the new reply was not spoken in the Hindi voice");
+          assert.ok(newReply.every((entry) => entry.status === 200 && (entry.voice === EXPECT.hi || isFallbackSpeech(entry, "gemini-stream"))), "the new reply was not spoken in the Hindi voice");
+          for (const entry of newReply) if (isFallbackSpeech(entry, "gemini-stream")) fallbackVoices.add(entry.voice);
           return { detail: `${run.stops} sources stopped; ${newReply.length} requests for the new reply, in ${EXPECT.hi}` };
         }),
       );
@@ -500,7 +523,7 @@ async function main() {
             await page.fill("#text-input", "Please answer");
             await page.click("#send-btn");
             await page.waitForSelector(".bubble.assistant .bubble-actions button");
-            await page.locator(".bubble.assistant .bubble-actions button", { hasText: /Listen|सुनें/ }).first().click();
+            await page.locator(".bubble.assistant .bubble-actions").getByRole("button", { name: /Listen|सुनें/ }).first().click();
             await page.waitForFunction(() => window.__media.ended >= 1, null, { timeout: LIVE ? 90_000 : 30_000 });
             await waitOrb(page, "IDLE", 10_000);
             await page.waitForTimeout(100); // the orb is sampled every 20 ms
@@ -510,8 +533,7 @@ async function main() {
             const [entry] = wavs;
             assert.equal(entry.status, 200, `the WAV endpoint answered ${entry.status}`);
             assert.match(entry.type || "", /audio\/wav/);
-            assert.equal(entry.engine, "edge");
-            assert.equal(entry.voice, EXPECT[language], `the voice that spoke was ${entry.voice}`);
+            expectVoice(entry, "edge", "gemini", EXPECT[language]);
             const received = (await page.evaluate(() => window.__wavs))[0];
             assert.ok(received, "the page received no WAV");
             const wav = wavHead(Buffer.from(received.head), received.bytes);
@@ -537,6 +559,11 @@ async function main() {
             assert.ok(bubbles.some((text) => text.includes(SENTENCES.en[0].slice(0, 30))), "the reply text is not on screen");
             const run = await snapshot(page, tts);
             assert.ok(run.tts.length >= 1, "the page never asked for the voice");
+            if (!fulfil && run.tts.every((entry) => isFallbackSpeech(entry, "gemini-stream") && entry.status === 200)) {
+              // The server's own voice was meant to be failing, but its fallback voice answered: there is no failure to observe.
+              for (const entry of run.tts) fallbackVoices.add(entry.voice);
+              return { warn: "the primary voice failed and the fallback voice spoke, so the failure path could not be observed; use AUDIT_FAILURES=intercept to test it" };
+            }
             if (fulfil) {
               // The browser made every request fail, so none may have succeeded and no sound may have started.
               // (A server that fails for real may still have sent part of a sentence before it failed.)
@@ -544,7 +571,7 @@ async function main() {
               assert.equal(run.sources.length, 0, "audio was scheduled although the voice failed");
             }
             // The Listen button says so in words instead of staying silent.
-            await page.locator(".bubble.assistant .bubble-actions button", { hasText: /Listen|सुनें/ }).first().click();
+            await page.locator(".bubble.assistant .bubble-actions").getByRole("button", { name: /Listen|सुनें/ }).first().click();
             await page.waitForFunction(() => { const toast = document.getElementById("toast"); return !!toast && !toast.hidden && /Spoken reply|बोलकर जवाब/.test(toast.textContent || ""); }, null, { timeout: 15_000 });
             // And the conversation goes on: the next message is answered.
             await page.fill("#text-input", "Second question, please");

@@ -7,8 +7,9 @@ import { buildContainer } from "../../src/container.js";
 import { logger } from "../../src/security/redact.js";
 import { buildServer } from "../../src/server.js";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
+import { FallbackTtsProvider } from "../../src/tts/fallbackTtsProvider.js";
 import { TtsProviderError, type TtsOptions, type TtsProvider } from "../../src/tts/provider.js";
-import { FakeTtsProvider, parseWav, pcmTone } from "./helpers.js";
+import { FakeTtsProvider, parseWav, pcmTone, unavailable } from "./helpers.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -387,5 +388,67 @@ describe("a voice that fails never takes the reply with it", () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain("event: done");
     expect(provider.calls).toHaveLength(0); // the turn itself never asks for speech
+  });
+});
+
+describe("when the fallback voice speaks", () => {
+  /** Edge-like primary that is down, and a Gemini-like secondary that answers and names itself. */
+  function edgeDownGeminiUp(secondary: FakeTtsProvider = geminiVoice()) {
+    const primary = new FakeTtsProvider({ error: unavailable("edge is down"), resolved: { voice: "en-US-JennyNeural", language: "en" } });
+    primary.id = "edge";
+    return { primary, secondary, provider: new FallbackTtsProvider(primary, secondary) };
+  }
+  function geminiVoice(behaviour: ConstructorParameters<typeof FakeTtsProvider>[0] = {}) {
+    const voice = new FakeTtsProvider({ resolved: { voice: "gemini:Kore", language: "en", engine: "gemini" }, ...behaviour });
+    voice.id = "gemini";
+    return voice;
+  }
+
+  it("streams the fallback's audio and says in the headers that Gemini spoke, not Edge", async () => {
+    const tone = pcmTone(0.2, 600);
+    const { provider } = edgeDownGeminiUp(geminiVoice({ pcm: [tone] }));
+    const app = appWith(provider);
+    const res = await post(app, STREAM, await guestToken(app), { text: "Hello there" });
+    expect(res.status).toBe(200);
+    expect((res.body as Buffer).equals(tone)).toBe(true);
+    expect(res.headers["x-zarvis-tts"]).toBe("gemini-stream");
+    expect(res.headers["x-zarvis-tts-voice"]).toBe("gemini:Kore");
+  });
+
+  it("does the same for the WAV endpoint", async () => {
+    const tone = pcmTone(0.2, 600);
+    const { provider } = edgeDownGeminiUp(geminiVoice({ pcm: [tone] }));
+    const app = appWith(provider);
+    const res = await post(app, UNARY, await guestToken(app), { text: "Hello there" });
+    expect(res.status).toBe(200);
+    expect(parseWav(res.body as Buffer).pcm.equals(tone)).toBe(true);
+    expect(res.headers["x-zarvis-tts"]).toBe("gemini");
+    expect(res.headers["x-zarvis-tts-voice"]).toBe("gemini:Kore");
+  });
+
+  it("leaves the headers as Edge's when Edge spoke, even though a fallback is configured", async () => {
+    const tone = pcmTone(0.2, 600);
+    const primary = new FakeTtsProvider({ pcm: [tone], resolved: { voice: "en-US-JennyNeural", language: "en" } });
+    primary.id = "edge";
+    const secondary = geminiVoice();
+    const app = appWith(new FallbackTtsProvider(primary, secondary));
+    const res = await post(app, STREAM, await guestToken(app), { text: "Hello there" });
+    expect(res.status).toBe(200);
+    expect(res.headers["x-zarvis-tts"]).toBe("edge-stream");
+    expect(res.headers["x-zarvis-tts-voice"]).toBe("en-US-JennyNeural");
+    expect(secondary.calls).toHaveLength(0);
+  });
+
+  it("when both voices are down the client gets the ordinary voice error, once, and the log names the fallback", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { provider } = edgeDownGeminiUp(geminiVoice({ error: unavailable("gemini is down") }));
+    const app = appWith(provider);
+    const res = await post(app, STREAM, await guestToken(app), { text: "Hello there" });
+    expect(res.status).toBe(503);
+    expect(json(res)).toMatchObject({ code: "tts_unavailable", retryable: true });
+    expect(res.headers["x-zarvis-tts"]).toBeUndefined();
+    expect(JSON.stringify(warn.mock.calls)).toContain("Primary voice failed");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Hello there");
   });
 });

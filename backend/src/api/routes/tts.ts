@@ -78,7 +78,7 @@ export function ttsRouter(provider: TtsProvider | null): Router {
         "Content-Type": "audio/l16; codec=pcm; rate=24000",
         "Cache-Control": "no-cache, no-transform",
         "X-Accel-Buffering": "no",
-        "X-Zarvis-TTS": `${provider.id}-stream`,
+        "X-Zarvis-TTS": `${spoken.engine() ?? provider.id}-stream`,
         ...spoken.headers(),
       });
       res.flushHeaders?.();
@@ -150,7 +150,7 @@ export function ttsRouter(provider: TtsProvider | null): Router {
         return;
       }
       res.off("close", onClose);
-      res.set({ "Content-Type": "audio/wav", "X-Zarvis-TTS": provider.id, ...spoken.headers() });
+      res.set({ "Content-Type": "audio/wav", "X-Zarvis-TTS": spoken.engine() ?? provider.id, ...spoken.headers() });
       res.send(wav);
     }),
   );
@@ -164,13 +164,17 @@ export function ttsRouter(provider: TtsProvider | null): Router {
  * outside: the live smoke test asserts it for Hindi and for English. A provider that does not
  * report its voice simply sends no header.
  */
-function voiceReport(): { onResolved: NonNullable<TtsOptions["onResolved"]>; headers: () => Record<string, string> } {
+function voiceReport(): { onResolved: NonNullable<TtsOptions["onResolved"]>; headers: () => Record<string, string>; engine: () => string | undefined } {
   let voice: string | undefined;
+  let engine: string | undefined;
   return {
+    // The last call is the voice that spoke: a fallback voice reports after the one that failed.
     onResolved: (info) => {
       voice = info.voice;
+      engine = info.engine;
     },
     headers: (): Record<string, string> => (voice ? { "X-Zarvis-TTS-Voice": voice } : {}),
+    engine: () => engine,
   };
 }
 

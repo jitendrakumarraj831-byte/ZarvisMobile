@@ -259,7 +259,7 @@ What each kind of request needs, and where it can go:
 | Streamed text | streaming | yes | yes | yes |
 | A prompt larger than the model's context | context fits | yes (1M) | no, unless a larger `OPENROUTER_MODEL_CONTEXT_TOKENS` is declared | same |
 | Web search | Google Search grounding | yes, **outside the gateway** | never | never |
-| Text to speech | Edge's neural voices (§2.14) | **outside the gateway**: no AI provider speaks | never | never |
+| Text to speech | Edge's neural voices (§2.14), then Gemini's speech model if Edge fails before any sound | **outside the gateway**: its own boundary, its own one-hop fallback; no chat quota or cooldown is shared | never | never |
 | Greeting, creator-identity answer | nothing | no model call at all | | |
 
 The token estimate is deliberately pessimistic (3 characters per token, Hindi needs more than
@@ -372,8 +372,10 @@ they are never copied into a skill output (skill outputs are sent to clients).
   `image_analysis_unavailable`) or returns the real provider error.
 - **Web search** stays Gemini with Google Search grounding, because only that returns real sources.
   It is never answered by a model that did not search, and never claimed if it did not run.
-- **Text to speech** is not an AI provider call at all any more: it is Edge's neural voices on its own
-  routes, behind its own boundary (§2.14). Neither Gemini nor OpenRouter is involved.
+- **Text to speech** is not an AI provider call: it is Edge's neural voices on its own routes, behind
+  its own boundary (§2.14). OpenRouter is never involved. Gemini's speech model is only the second
+  voice, asked after Edge has failed, and is independent of the gateway (its quota, cooldown and
+  models are not shared with chat).
 
 ### 2.14 Spoken replies (text to speech)
 
@@ -382,10 +384,12 @@ voice: `POST /api/v1/tts/synthesize` returns a WAV file (Android, the web Listen
 `POST /api/v1/tts/synthesize-stream` returns 24 kHz 16-bit mono PCM as it is produced (the web
 client's spoken replies). Both take `{ text, voice? }`, need a Bearer token, are limited to 40
 requests a minute per account, and cut the text to 2,000 and 1,200 characters. No AI provider is
-involved, so a spent Gemini or OpenRouter quota never silences the voice and a failing voice never
-touches a reply. Each answer names its engine in `X-Zarvis-TTS` (`edge`, `edge-stream`) and the voice
-that spoke in `X-Zarvis-TTS-Voice` (for example `hi-IN-SwaraNeural`: a voice name, nothing of the
-text), so a deployment can be checked, from outside, for the voice it really used.
+involved in the main voice, so a spent Gemini or OpenRouter quota never silences it (a spent Gemini
+quota can only take away the fallback voice below) and a failing voice never touches a reply. Each
+answer names its engine in `X-Zarvis-TTS` (`edge`, `edge-stream`; `gemini`, `gemini-stream` when the
+fallback voice spoke) and the voice that spoke in `X-Zarvis-TTS-Voice` (for example
+`hi-IN-SwaraNeural`, or `gemini:Kore` for the fallback: a voice name, nothing of the text), so a
+deployment can be checked, from outside, for the voice it really used.
 
 **The voice** is Microsoft Edge's neural voices (the service behind Edge's Read Aloud), reached by
 `tts/edgeTtsProvider.ts` behind the `TtsProvider` interface (`tts/provider.ts`): the routes ask for
@@ -401,7 +405,9 @@ no billing**, so there is no secret to configure.
 | `tts/mp3Decoder.ts` | MP3 to 24 kHz 16-bit mono PCM (mpg123 compiled to WebAssembly: no native module, no system binary) |
 | `tts/guard.ts` | a cap on syntheses in flight and a circuit breaker |
 | `tts/edgeTtsProvider.ts` | puts those together behind `TtsProvider` |
-| `config/ttsConfig.ts` | reads `TTS_PROVIDER` and the voice settings |
+| `tts/geminiTtsProvider.ts` | the second voice: Gemini's speech model (`streamGenerateContent`, 24 kHz PCM), with the shared Gemini retry policy |
+| `tts/fallbackTtsProvider.ts` | Edge first; Gemini only if Edge failed before any sound |
+| `config/ttsConfig.ts` | reads `TTS_PROVIDER`, `TTS_FALLBACK_PROVIDER`, the voice settings and Gemini's model and voice |
 
 **Which voice.** Chosen from the text, locally, with no API call. Devanagari anywhere: the Hindi voice
 (`hi-IN-SwaraNeural`). Latin letters only, with enough common Hindi words (`aaj kya karna hai`): the
@@ -431,8 +437,22 @@ the web client and is unchanged, apart from two fixes to how a spoken turn ends 
 
 **Failure and cancelling.** A part is tried at most twice (one short pause), only after a failure that
 can be temporary, and only if it has produced no sound yet: audio is never repeated, and a failure
-after sound began ends the stream there. There is no other voice to fall back to and none is
-invented. A closed connection or a client's `Stop` aborts the request, which closes the upstream
+after sound began ends the stream there. **The fallback voice.** Edge is unofficial and has changed what
+it requires before, so when it fails before any sound (any `TtsProviderError` except "nothing to say",
+and never a cancellation) `FallbackTtsProvider` asks `GeminiTtsProvider` for the same text: one hop,
+never back, never in the middle of a reply (two voices are not mixed, and nothing is said twice), and
+for the WAV endpoint also after a part had started, because nothing has left the server yet. It needs
+`GEMINI_API_KEY` (the one chat uses) and is off with `TTS_FALLBACK_PROVIDER=none` or without the key;
+`TTS_PROVIDER=gemini` uses it alone. Gemini is asked with the shared retry policy (`ai/geminiErrors.ts`):
+a temporary failure is retried briefly, a daily quota never, and a missing model or an exhausted one
+moves to the next speech model (`GEMINI_TTS_MODEL`, then `gemini-3.8-flash-tts`, then
+`gemini-3.8-flash-lite-tts`; speech quotas are per model). Its audio must be 24 kHz 16-bit mono like
+Edge's and any other rate is refused (`BAD_AUDIO`). The server log records each fall back
+(`Primary voice failed; using the fallback voice`, with the kind of failure and no text); the headers say
+which voice spoke, and the live smoke test and the browser audit report a fallback answer as a WARN,
+not a PASS, so Edge being down stays visible. The web picker's old names (`Kore`, `Puck`, `Charon`,
+`Aoede`, `Fenrir`) are real Gemini voice names, so a caller's choice carries over; an Edge voice name is
+ignored by Gemini and the configured one (`GEMINI_TTS_VOICE`, default `Kore`) speaks. A closed connection or a client's `Stop` aborts the request, which closes the upstream
 WebSocket and frees the decoder; that is never logged as a failure. A 403 on connect is read as a
 disagreement about the clock: the service's `Date` header is used to correct it and the connection
 is tried once more. Timeouts: 10 s to connect, 15 s of silence, 60 s for one synthesis.
@@ -457,9 +477,10 @@ through to see whether the service is back; without this, a service that is down
 sentence of every reply a full timeout, because the client keeps asking for the next one. Both are
 per process, like the rate limiter.
 
-**Privacy.** The text a person asks to hear is sent to Microsoft's speech service: not to Gemini,
-not to OpenRouter. Nothing else goes with it (no account, no key); Microsoft sees the server's
-address. The logs record the engine, the voice, the language, sizes and timings, never the text or the
+**Privacy.** The text a person asks to hear is sent to Microsoft's speech service, never to OpenRouter.
+Nothing else goes with it (no account, no key); Microsoft sees the server's address. If the fallback
+voice is on (a `GEMINI_API_KEY` and no `TTS_FALLBACK_PROVIDER=none`) and Edge fails before any sound,
+that text is sent to Google instead; `PRIVACY.md` says so for the public notice. The logs record the engine, the voice, the language, sizes and timings, never the text or the
 audio. Caching is deliberately not done: replies are private and rarely repeat, and a shared cache of
 them would be a leak.
 
@@ -734,7 +755,7 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 | Preview works, Production does not (or the reverse) | the variable exists in only one environment | set it for both, redeploy, compare `/health` |
 | An image is not read on fallback | the OpenRouter model has no `vision`, or the image is HEIC/HEIF | declare `vision`; HEIC/HEIF are only read by Gemini |
 | The web app's Listen says "Spoken reply isn't available right now", or sentences are not spoken | the voice failed and the toast does not say why | the function log's `TTS failed before audio` line names the kind (`UNAVAILABLE`, `TIMEOUT`, `REJECTED`, `NO_AUDIO`, `BAD_AUDIO`). The reply is unaffected: it is a separate request, made after the text is on screen |
-| Every spoken reply fails: `REJECTED` (HTTP 403, "refused the connection") | Microsoft's service refused this server's connection: it blocks the address, or it changed what it requires (the `Sec-MS-GEC` token, the browser version it expects). Retrying does not help; the connection is retried only once, for a clock disagreement. The log line says by how much the clocks still differed after the correction ("HTTP 403 twice; ... still N s"): a large N is a clock problem, about zero is a blocked address or a changed protocol | run the Edge TTS live probe (§5): if it passes, the service refuses Vercel's network and not the code; if it fails too, the protocol changed and the constants in `tts/edgeTransport.ts` need updating. Meanwhile `TTS_PROVIDER=none` makes the app say honestly that voice is off |
+| Every spoken reply fails: `REJECTED` (HTTP 403, "refused the connection") | Microsoft's service refused this server's connection: it blocks the address, or it changed what it requires (the `Sec-MS-GEC` token, the browser version it expects). Retrying does not help; the connection is retried only once, for a clock disagreement. The log line says by how much the clocks still differed after the correction ("HTTP 403 twice; ... still N s"): a large N is a clock problem, about zero is a blocked address or a changed protocol | run the Edge TTS live probe (§5): if it passes, the service refuses Vercel's network and not the code; if it fails too, the protocol changed and the constants in `tts/edgeTransport.ts` need updating. Meanwhile, with `GEMINI_API_KEY` set, replies are spoken by Gemini's voice (`X-Zarvis-TTS: gemini`; the log says `Primary voice failed; using the fallback voice`; the smoke test and the audit show WARN), and `TTS_PROVIDER=none` makes the app say honestly that voice is off |
 | Spoken replies stop for half a minute after a few failures | the circuit breaker: three requests in a row failed, so requests fail at once (`503 tts_unavailable`, with `Retry-After`) until one is let through | it closes by itself when the service answers; the failures before it are in the log |
 | `503 tts_unavailable` straight away, with no failures in the log | this instance already has 8 syntheses running and 16 waiting (a burst), so it said busy at once | retry after the `Retry-After`; it is per instance |
 | `BAD_AUDIO` | the service sent audio ZARVIS will not play: not MP3, or not 24 kHz (it is never played at the wrong speed) | the service changed its output format; the log line gives the sample rate |
@@ -762,7 +783,9 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 | `test/tts/edgeTransport.test.ts` | the wire against a local fake of the service: the handshake (token checked against the reference algorithm, headers), the two messages, audio frames in order, streaming, simultaneous syntheses kept apart, the 403 clock correction (once), 429/5xx/4xx, no listener, connect/idle/total timeouts, early close, no audio, malformed frames, cancelling at every stage |
 | `test/tts/edgeTtsProvider.test.ts` | the provider with a scripted wire and the real decoder: which voice, what is sent, text that cannot be spoken, parts spoken in order, WAV equal to the stream, bounded retries and which failures get one, no repeated audio, cancelling, the cap and the breaker, simultaneous replies not mixed, nothing of the text logged |
 | `test/tts/ttsRoutes.test.ts` | the real routes with a scripted voice: WAV and PCM contracts, validation and auth, every failure kind's status and code, a failure before and after sound, a client that disconnects, a slow reader, simultaneous streams, the 40-a-minute limit, and a turn that finishes while the voice is broken |
-| `test/tts/ttsConfig.test.ts` | the settings, a wrong value reported and replaced, `none`, the WAV header |
+| `test/tts/ttsConfig.test.ts` | the settings, a wrong value reported and replaced, `none`, `gemini` and the fallback setting, which provider is built, the WAV header |
+| `test/tts/geminiTtsProvider.test.ts` | the fallback voice against a scripted Gemini: the request (key in a header only, voice, text made speakable), streamed and WAV audio equal, odd chunks, other sample rates refused, refusals not retried and never leaking the key, a 503 retried, a spent daily quota moving to the next model, timeouts, cancelling (the upstream response is cancelled) |
+| `test/tts/fallbackTtsProvider.test.ts` | when the second voice is asked and when it is not: after a failure before any sound, never after sound began (stream), never for "nothing to say" or a cancellation, the WAV endpoint after a started part, one hop, what is logged |
 | `test/live/edgeTts.live.test.ts` | opt-in only (`ZARVIS_LIVE_TESTS=1`): the real service, from the Edge TTS live probe workflow |
 | `web/e2e/tts-audit.cjs` (workflow *Edge TTS live audit (browser)*; not in the regular CI, because it depends on a service that is not ours) | the spoken reply end to end in real Chromium against a running server or a deployment: three languages and their voices, a long reply in order, Stop, a new message (typed and spoken), the Listen button, a failing voice (answered 503, unreachable, or failing for real) with the AI's reply still on screen and the next message answered |
 | `scripts/live-smoke.mjs` (voice section; workflow *Live preview API smoke test*) | the same from the API side, on a deployment: both endpoints, three languages, the voice header, a long stream, the longest WAV, cancellation, bad requests, and the VOICE SUMMARY |

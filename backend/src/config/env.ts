@@ -50,13 +50,21 @@ export const env = {
    * Voice output (see ../tts/edgeTtsProvider.ts): Microsoft Edge's neural voices. It needs no key,
    * so there is no secret here. Read raw; `config/ttsConfig.ts` validates and resolves them, and a
    * bad value is reported and replaced by the default rather than stopping the server.
-   * `TTS_PROVIDER` is `edge` (default) or `none` (no spoken replies from this server).
+   * `TTS_PROVIDER` is `edge` (default), `gemini` (Gemini's voice only) or `none` (no spoken replies from this server).
    */
   ttsProvider: process.env.TTS_PROVIDER,
   ttsHindiVoice: process.env.TTS_HI_VOICE,
   ttsEnglishVoice: process.env.TTS_EN_VOICE,
   /** The voice for Hindi written in Latin letters (Hinglish). Defaults to the Hindi voice. */
   ttsHinglishVoice: process.env.TTS_HINGLISH_VOICE,
+  /**
+   * The voice behind Edge's. If Edge fails before it has produced any sound, Gemini's voice speaks
+   * instead (same GEMINI_API_KEY, no extra credential). `TTS_FALLBACK_PROVIDER` is `gemini` (default)
+   * or `none`; the model and voice are Gemini's own names. Read raw; `config/ttsConfig.ts` resolves them.
+   */
+  ttsFallbackProvider: process.env.TTS_FALLBACK_PROVIDER,
+  geminiTtsModel: process.env.GEMINI_TTS_MODEL,
+  geminiTtsVoice: process.env.GEMINI_TTS_VOICE,
   /**
    * OpenRouter, the AI Model Gateway's second provider (see ../../AI_MODEL_GATEWAY.md). Server-side
    * only, like every provider key: never sent to a client, a log or an error response.

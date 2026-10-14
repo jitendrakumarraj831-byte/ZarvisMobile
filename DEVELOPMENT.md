@@ -170,7 +170,8 @@ environment that must work, including Preview:
 | `POSTGRES_CA_CERT` or `POSTGRES_SSL_MODE=no-verify` | when the database's TLS certificate is not publicly trusted (for example a provider's own CA) | Certificate verification is on by default, so every query fails. `/health` → 503 `database: tls_certificate_untrusted`; guest sign-in → 500. |
 | `GEMINI_API_KEY` | for real AI, image analysis and web search | Without it (and without OpenRouter) AI features fail closed with honest errors; image upload → 503 `image_analysis_unavailable`. |
 | `OPENROUTER_API_KEY` | optional: the AI fallback (and the only AI if there is no Gemini key) | No fallback; ZARVIS runs on Gemini alone. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) for `OPENROUTER_MODEL`, `OPENROUTER_MODEL_CAPABILITIES`, `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER` and the rest. |
-| `TTS_PROVIDER`, `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | optional: spoken replies use Edge's neural voices and need **no key**; these only change the voices (`TTS_PROVIDER=none` switches voice off) | The defaults speak: `hi-IN-SwaraNeural` for Hindi, `en-US-JennyNeural` for English. A wrong value is logged and replaced by the default. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14. |
+| `TTS_PROVIDER`, `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | optional: spoken replies use Edge's neural voices and need **no key**; these only change the voices (`TTS_PROVIDER=none` switches voice off, `gemini` uses Gemini's voice alone) | The defaults speak: `hi-IN-SwaraNeural` for Hindi, `en-US-JennyNeural` for English. A wrong value is logged and replaced by the default. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14. |
+| `TTS_FALLBACK_PROVIDER`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | optional: when Edge's voice fails before any sound, Gemini's voice speaks instead, with the same `GEMINI_API_KEY` as chat (`TTS_FALLBACK_PROVIDER=none` turns that off, and keeps the text off Google) | No `GEMINI_API_KEY`: Edge alone, as before. Replies say which voice spoke in `X-Zarvis-TTS` / `X-Zarvis-TTS-Voice`. See [PRIVACY.md](./PRIVACY.md). |
 | `INTEGRATION_ENCRYPTION_KEY` | for GitHub connections in production | GitHub connection is reported unavailable. |
 
 Set the AI variables in **Production and Preview**, then redeploy (a changed variable applies to new
@@ -197,9 +198,13 @@ Spoken replies are made on the server, not by the browser or the phone: `POST /a
 (a WAV file) and `POST /api/v1/tts/synthesize-stream` (24 kHz PCM) use Microsoft Edge's neural
 voices, which need no key or account (`backend/src/tts/`; the whole story is in
 [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14). The voice is chosen from the text: Hindi in
-Devanagari, Hinglish, or English. The browser's own `speechSynthesis` is deliberately not a fallback,
-and the phone's built-in speaker (`NotificationSpeaker`, for spoken notifications) is a separate,
-on-device thing that this does not touch.
+Devanagari, Hinglish, or English. Edge's service is unofficial, so a second voice stands behind it:
+if it fails before it has produced any sound, Gemini's speech model says the same text (needs
+`GEMINI_API_KEY`; the response header `X-Zarvis-TTS` says `gemini` or `gemini-stream` when that
+happened, and the live smoke test and the browser audit report it as a **WARN**, because the voice
+works but Edge does not accept that deployment). The browser's own `speechSynthesis` is deliberately
+not a fallback, and the phone's built-in speaker (`NotificationSpeaker`, for spoken notifications) is
+a separate, on-device thing that this does not touch.
 
 ## Photos and the camera
 
@@ -228,8 +233,9 @@ a person uses it: `ONLY=tts BASE_URL=https://… node scripts/live-smoke.mjs` pr
 (English, Hindi, Hinglish, streaming, unary, cancellation), and
 `ZARVIS_URL=https://… node web/e2e/tts-audit.cjs` plays spoken replies in a real Chromium (needs
 Playwright); both run by themselves after each Preview deployment. It is an unofficial service with no guarantee: if it stops working,
-`TTS_PROVIDER=none` makes the app say so honestly, and the provider boundary
-(`backend/src/tts/provider.ts`) is where another voice would plug in.
+the Gemini voice covers it (and the smoke test warns), `TTS_PROVIDER=none` makes the app say honestly
+that there is no voice, and the provider boundary (`backend/src/tts/provider.ts`) is where another
+voice would plug in.
 
 Reading its AI steps ("a turn that needs the AI model", "web search"). The API reports what the backend knows, not Google's HTTP status:
 

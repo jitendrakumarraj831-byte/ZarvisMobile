@@ -26,8 +26,13 @@ export interface TtsOptions {
    * Told which voice will speak, once it is chosen and before any audio is produced (not called
    * when there is nothing to say). The route reports it in `X-Zarvis-TTS-Voice`, so a deployment
    * can be checked for which voice it really used. It must not throw.
+   *
+   * It may be called more than once for one request: a provider that fails before any sound and is
+   * replaced by another (see `fallbackTtsProvider.ts`) is followed by the replacement's own call, and
+   * the last call is the voice that spoke. `engine` names the provider when it is not the route's own
+   * (the fallback says `gemini`), so `X-Zarvis-TTS` can say which engine really answered.
    */
-  onResolved?: (info: { voice: string; language: SpeechLanguage }) => void;
+  onResolved?: (info: { voice: string; language: SpeechLanguage; engine?: string }) => void;
 }
 
 export interface TtsProvider {

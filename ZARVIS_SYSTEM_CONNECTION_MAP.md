@@ -10,6 +10,10 @@
 > W9, W10 and E3 describe the earlier Gemini voice; the voice is now Edge's neural voices behind
 > `backend/src/tts/` (see [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14). The routes, their
 > contract and the clients are unchanged. The rest of this map is as it was.
+>
+> **Update 2026-10-14.** Gemini's speech model is back, but only as the second voice: if Edge's voice
+> fails before any sound, `FallbackTtsProvider` asks `GeminiTtsProvider` (same `GEMINI_API_KEY`, models
+> `GEMINI_TTS_MODEL`) for the same text, and `X-Zarvis-TTS` says which one spoke. Edge is still first.
 
 `main` (`e010c12`) is **not** described here. It is 86 commits behind PR #78 and is missing most
 of what is below: server-side confirmations, sessions, the capability registry, quota handling
