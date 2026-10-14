@@ -12,7 +12,9 @@
  * - Only before the first sound. Once the primary has yielded audio, a failure surfaces and the
  *   stream ends there: two voices are never mixed in one reply, and nothing is repeated.
  * - Not for a request that is not the primary's fault: there is nothing to say (`INVALID_REQUEST`:
- *   the secondary would say the same), or the request was cancelled (never a failure).
+ *   the secondary would say the same), the request was cancelled (never a failure), or this server
+ *   is full (`local`: its own limit on syntheses in flight says nothing about the primary service,
+ *   and a crowd here must not become a crowd of texts sent to the second service).
  * - The unary WAV endpoint is different in one way only: it returns nothing until it is complete, so
  *   it may fall back even after the primary had started, because no audio has left the server.
  * - Nothing the user said is logged: only the engines and the kind of failure.
@@ -65,7 +67,7 @@ export class FallbackTtsProvider implements TtsProvider {
   /** Throws `error` itself when the secondary would not help; returns when it should be tried. */
   private rethrowUnlessFallbackWorthy(error: unknown, options: TtsOptions): void {
     if (options.signal?.aborted || isAbortError(error)) throw error;
-    if (error instanceof TtsProviderError && error.kind === "INVALID_REQUEST") throw error;
+    if (error instanceof TtsProviderError && (error.kind === "INVALID_REQUEST" || error.local)) throw error;
   }
 
   private logFallback(error: unknown): void {

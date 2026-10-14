@@ -13,8 +13,9 @@
  * under the GNU LGPL v3 (https://www.gnu.org/licenses/lgpl-3.0.html) and was read on 2026-10-14. The
  * constants and the order of the operations are the ones in that file; nothing here is original
  * cryptography, and no attempt is made to explain why the service wants it. This file is therefore a
- * derivative of LGPL-3.0 code: keep this notice with it, and check what that means for you before the
- * source of this repository is ever handed to anyone else (running it as a server is not that).
+ * derivative of LGPL-3.0 code: keep this notice with it. This repository is public, so the source of this
+ * file is already available to anyone; THIRD_PARTY_NOTICES.md records what upstream's licence says, what
+ * the repository does about it and what is not settled, and LICENSES/ holds the LGPL-3.0 and GPL-3.0 texts.
  *
  * How it is checked. `test/tts/edgeToken.test.ts` holds tokens that the upstream Python function produced
  * for fixed times (the file's own `generate_sec_ms_gec_v2`, run unmodified); this port gave the same token

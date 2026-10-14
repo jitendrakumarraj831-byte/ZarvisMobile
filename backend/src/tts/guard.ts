@@ -39,7 +39,7 @@ export class Semaphore {
       return Promise.resolve(this.releaser());
     }
     if (this.waiting.length >= this.maxQueue) {
-      return Promise.reject(new TtsProviderError("Voice synthesis is busy; try again in a moment", "UNAVAILABLE", true, { retryAfterMs: 1000 }));
+      return Promise.reject(new TtsProviderError("Voice synthesis is busy; try again in a moment", "UNAVAILABLE", true, { retryAfterMs: 1000, local: true }));
     }
     return new Promise<() => void>((resolve, reject) => {
       const entry = {

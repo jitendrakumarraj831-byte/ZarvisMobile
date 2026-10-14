@@ -50,6 +50,8 @@ export interface GeminiTtsProviderOptions {
   fetchImpl?: typeof fetch;
   /** How long to wait for the response headers of one try (default 60 s). */
   timeoutMs?: number;
+  /** How long the audio may go quiet once it has started before the call is given up (default 20 s). */
+  idleTimeoutMs?: number;
   maxConcurrent?: number;
   maxQueued?: number;
   /** Longest text one call accepts (default 4000 characters), a limit behind the route's own. */
@@ -72,6 +74,7 @@ export class GeminiTtsProvider implements TtsProvider {
   private readonly fetchImpl: typeof fetch;
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly idleTimeoutMs: number;
   private readonly maxTextChars: number;
   private readonly retryDelayMs: typeof defaultRetryDelayMs;
   private readonly now: () => number;
@@ -80,6 +83,7 @@ export class GeminiTtsProvider implements TtsProvider {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.baseUrl = (options.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
     this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.idleTimeoutMs = options.idleTimeoutMs ?? 20_000;
     this.maxTextChars = options.maxTextChars ?? 4000;
     this.retryDelayMs = options.retryDelayMs ?? defaultRetryDelayMs;
     this.now = options.now ?? Date.now;
@@ -214,6 +218,30 @@ export class GeminiTtsProvider implements TtsProvider {
     throw lastError ?? new TtsProviderError("The Gemini voice failed", "UNAVAILABLE", true);
   }
 
+  /**
+   * One read of the answer, given up if nothing arrives for `idleTimeoutMs`. The header timer stops once
+   * the headers are in, so without this a service that sends one chunk and then goes quiet would hold
+   * its slot, and the reply's voice, until the client gave up.
+   */
+  private readWithIdleLimit(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]>>> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new TtsProviderError("The Gemini voice stopped sending audio", "TIMEOUT", true)),
+        this.idleTimeoutMs,
+      );
+      reader.read().then(
+        (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
   /** The SSE answer as 16-bit mono PCM at 24 kHz, in order, never splitting a sample between two chunks. */
   private async *readPcm(response: Response, signal?: AbortSignal): AsyncGenerator<Buffer> {
     if (!response.body) throw new TtsProviderError("The Gemini voice answered with no body", "NO_AUDIO", false);
@@ -256,9 +284,10 @@ export class GeminiTtsProvider implements TtsProvider {
         if (signal?.aborted) throw abortError();
         let read: Awaited<ReturnType<typeof reader.read>>;
         try {
-          read = await reader.read();
+          read = await this.readWithIdleLimit(reader);
         } catch (error) {
           if (signal?.aborted || isAbortError(error)) throw abortError();
+          if (error instanceof TtsProviderError) throw error;
           throw new TtsProviderError("The Gemini voice stream was cut off", "UNAVAILABLE", true, { cause: error });
         }
         if (read.done) break;

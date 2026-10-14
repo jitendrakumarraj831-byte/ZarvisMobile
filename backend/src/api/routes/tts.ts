@@ -10,6 +10,14 @@ export const MAX_STREAM_TEXT_CHARS = 1200;
 export const MAX_UNARY_TEXT_CHARS = 2000;
 
 /**
+ * How long a client may leave the stream unread (its socket full, "drain" not fired) before the response
+ * is dropped. A synthesis holds a slot, a socket and a decoder for as long as the response is open, so a
+ * client that stops reading would otherwise hold them until it chose to leave. Real playback reads far
+ * faster than audio is produced; this is only reached by a client that has stopped.
+ */
+export const DEFAULT_WRITE_STALL_MS = 15_000;
+
+/**
  * POST /api/v1/tts/synthesize — speaks a reply and returns a WAV file (Android, the web Listen
  * button). POST /api/v1/tts/synthesize-stream — the same voice as headerless 24 kHz 16-bit mono
  * PCM, sent as it is produced (the web client's spoken replies). Both take `{ text, voice? }` and a
@@ -22,7 +30,7 @@ export const MAX_UNARY_TEXT_CHARS = 2000;
  * `X-Zarvis-TTS`. A failed voice never touches the reply: this is a separate request, made after
  * the text is already on screen.
  */
-export function ttsRouter(provider: TtsProvider | null): Router {
+export function ttsRouter(provider: TtsProvider | null, { writeStallMs = DEFAULT_WRITE_STALL_MS }: { writeStallMs?: number } = {}): Router {
   const router = Router();
   const limit = rateLimit({ name: "tts", windowMs: 60 * 1000, max: 40, keyBy: "account" });
 
@@ -86,9 +94,16 @@ export function ttsRouter(provider: TtsProvider | null): Router {
       const writeChunk = async (chunk: Buffer) => {
         if (res.destroyed || !chunk.length) return;
         if (res.write(chunk)) return;
-        // "drain" never fires once the client is gone, so also wake up on "close".
+        // "drain" never fires once the client is gone, so also wake up on "close". And a client that is
+        // still connected but no longer reading is dropped after `writeStallMs`: destroying the response
+        // fires "close", which stops the synthesis and gives its slot back.
         await new Promise<void>((resolve) => {
+          const stalled = setTimeout(() => {
+            logger.warn("TTS client stopped reading; dropping the response", { engine: provider.id, stallMs: writeStallMs });
+            res.destroy();
+          }, writeStallMs);
           const done = () => {
+            clearTimeout(stalled);
             res.off("drain", done);
             res.off("close", done);
             resolve();
@@ -178,13 +193,23 @@ function voiceReport(): { onResolved: NonNullable<TtsOptions["onResolved"]>; hea
   };
 }
 
-/** What stopped a voice, for whoever reads the log: the kind, our message, and the system error under it (never the text spoken). */
+/**
+ * What stopped a voice, for whoever reads the log: the kind, our message, and the system error under it.
+ * Never the text spoken: when the cause is a service's own error (it carries an HTTP status, and its message
+ * holds a slice of the response body, which a service may build from the request), only its code and status are logged.
+ */
 function logFailure(message: string, error: unknown): void {
-  const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message.slice(0, 200) : undefined;
+  const cause = error instanceof Error ? error.cause : undefined;
+  const causeFields =
+    cause instanceof Error
+      ? "status" in cause && typeof cause.status === "number"
+        ? { causeStatus: cause.status, ...("code" in cause && typeof cause.code === "string" ? { causeCode: cause.code } : {}) }
+        : { cause: cause.message.slice(0, 200) }
+      : {};
   logger.error(message, {
     ...(error instanceof TtsProviderError ? { kind: error.kind } : {}),
     error: error instanceof Error ? error.message.slice(0, 200) : String(error),
-    ...(cause ? { cause } : {}),
+    ...causeFields,
   });
 }
 

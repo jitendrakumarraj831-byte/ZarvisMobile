@@ -61,14 +61,21 @@ export class TtsProviderError extends Error {
     readonly kind: TtsErrorKind,
     /** Whether asking again later can succeed. Sent to clients as `retryable`. */
     readonly retryable: boolean,
-    options: { cause?: unknown; retryAfterMs?: number } = {},
+    options: { cause?: unknown; retryAfterMs?: number; local?: boolean } = {},
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "TtsProviderError";
     this.retryAfterMs = options.retryAfterMs;
+    this.local = options.local === true;
   }
 
   readonly retryAfterMs?: number;
+  /**
+   * This server declined the request to protect itself (too many syntheses in flight), which says
+   * nothing about the voice service. A fallback voice must not be asked, or a crowd on our side would
+   * send everyone's text to the second service.
+   */
+  readonly local: boolean;
 }
 
 /** A cancelled request, however it was cancelled (a client disconnect, `Stop`, a newer turn). */
