@@ -38,7 +38,9 @@ Tool execution should expose truthful states such as COMPLETED, DENIED, PERMISSI
 - Keys are sent only in request headers (never in a URL).
 - The logger redacts by key name and by value: key-shaped strings (OpenRouter, Google, OpenAI-style,
   GitHub, `Bearer ...`, JWT) and the exact keys configured for this process are replaced even inside
-  an upstream error message. Provider error bodies are not copied into messages.
+  an upstream error message. A provider's error body is cut to 300 characters (Gemini) or 600
+  (OpenRouter, key-scrubbed first) inside an internal error message that only reaches the server log,
+  where a provider that echoes request text could show it; clients only ever get fixed texts.
 - A present-but-invalid AI setting stops startup with a message that names the variable and never
   its value; an OpenRouter address must be https (http only for localhost) and must not contain
   credentials.

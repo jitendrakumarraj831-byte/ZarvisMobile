@@ -29,6 +29,29 @@ OTP, banking and authentication alerts are not spoken by default.
 
 Every permission request should explain why access is needed, what access/data is involved, what ZARVIS will not do automatically, and how the user can revoke access.
 
+## Where your data goes (as built)
+
+What each kind of data does in the current code, so that the product's public privacy notice can say the
+same. "Server" is the ZARVIS backend. Checked against the code on 2026-10-14; what a third party does
+with data once it has it is that third party's policy, and was not verified here (see the end of this
+section).
+
+| Data | Where it goes | Does ZARVIS keep it? |
+|---|---|---|
+| Messages you send, and the text of anything you attach | The server, then Gemini (Google). OpenRouter and the model provider behind it, only when the optional fallback is configured (see below). | The conversation is stored in ZARVIS's database. |
+| A photo: from the camera sheet, the Android photo picker, or "Attach an image" | The server (`POST /api/v1/documents/extract` or `/api/v1/files/upload`, 4 MB limit), which holds it in memory and sends the picture to Gemini's vision model (or to an OpenRouter vision model if one is declared) to describe it. | The picture is **not** stored by the server. The description text is: in the conversation if it is attached to a message, or in Files if it is saved there (Files keeps text only). |
+| A PDF or DOCX | The server reads it in memory (never written to disk); the extracted text then goes where message text goes. | Only the extracted text, as above. |
+| Metadata inside a photo (EXIF, including location when the camera recorded it) | A photo taken with the web camera sheet is re-encoded in the browser and carries none. A photo **picked from the gallery or a file** on the web is sent as it is, metadata included, to the server and on to the vision model. The Android app re-encodes the photo in memory before sending (from the code; not run on a device in this review). | Not stored with the picture, because the picture is not stored. |
+| A reply read aloud ("Spoken replies") | The text to be spoken goes to Microsoft's speech service. If that fails before any sound and `GEMINI_API_KEY` is set (and `TTS_FALLBACK_PROVIDER` is not `none`), the same text goes to Google's Gemini speech model instead. | No. The server keeps no audio and logs no spoken text. |
+| A web search | Google (Gemini with Google Search grounding); OpenRouter as the search's own fallback (see below). | The query is part of the conversation. |
+| Your voice, when you dictate | The browser's or the phone's own speech recogniser handles the audio, and depending on the browser or device that may be a cloud service of its vendor. The ZARVIS server has no endpoint that accepts audio and receives only the recognised text. | No audio reaches ZARVIS. |
+| Logs | Structured and redacted: keys, tokens and credential-shaped strings are removed. Message, document, photo and spoken text are not logged. A provider's error reply is cut to 300 or 600 characters inside an internal error message that can reach the server log; a provider that echoes part of a request into an error could therefore put a fragment of it there. Voice errors log only a code and a status. | Per the host's log retention. |
+
+Not verified here, because the sites could not be reached from the review environment: what Google,
+Microsoft and OpenRouter do with data they receive (retention, human review, use to improve products),
+and whether that differs between free and paid Gemini plans. Read Google's Gemini API terms and the
+data policy of the plan the production key belongs to before publishing the notice.
+
 ## AI providers (third parties)
 
 ZARVIS sends conversation content to an AI provider to answer. Gemini (Google) is the primary
@@ -42,7 +65,12 @@ receive a request.
   off explicitly.
 - A fallback is never silent internally (the server log names the provider and the reason), but the
   user interface does not currently tell the user which model answered.
-- Text to speech and web search are never sent to OpenRouter.
+- Text to speech is never sent to OpenRouter.
+- **Web search is not routed through the gateway** and has its own fallback. A search query goes to
+  Gemini (with Google Search grounding) first. If `OPENROUTER_API_KEY` is set and
+  `AI_FALLBACK_PROVIDER` is not `none`, the query is sent to OpenRouter's web-search model when
+  Gemini fails for any reason, and it goes there directly when no Gemini key is set.
+  `AI_FALLBACK_PROVIDER=none` keeps a search query on Gemini.
 - Spoken replies: the text a person asks to hear is sent to Microsoft's speech service (the one behind
   Edge's Read Aloud, reached without an account or a key), not to OpenRouter. Nothing else goes with
   it, but Microsoft sees the server's address. It is an unofficial service, used here without a

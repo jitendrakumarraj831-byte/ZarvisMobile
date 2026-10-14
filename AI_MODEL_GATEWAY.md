@@ -48,7 +48,7 @@ turns (`AiServiceErrors.kt`, keyed on `AI_QUOTA_EXCEEDED`, `AI_RATE_LIMITED`, `A
 
 | Path | Where | Provider coupling |
 |---|---|---|
-| Web search | `skills/webSearch.ts` `GeminiSearchProvider` | Gemini only: needs Google Search **grounding** to return real sources |
+| Web search | `skills/index.ts` `searchProvider()`: `GeminiSearchProvider`, then `OpenRouterSearchProvider` (`skills/webSearch.ts`) | Gemini first: Google Search **grounding** returns real sources. OpenRouter's `:online` web search is its own second provider (any Gemini error, or alone with no Gemini key), unless `AI_FALLBACK_PROVIDER=none` while Gemini is configured. Not behind the gateway |
 | Image analysis | `api/routes/documents.ts` `analyzeImageWithGemini` (39) | A private Gemini loop inside the route; gated on `env.geminiApiKey` **per request** |
 | Text to speech | `api/routes/tts.ts` → `ai/geminiTts.ts` `GeminiTtsProvider` (since replaced by Edge's voices, see §2.14) | Gemini only, independent of the chat path |
 | Content generation skills | `skills/index.ts` `contentGenerator` (32) | pins `{provider: "google"}` and gates on `env.geminiApiKey` |
@@ -141,7 +141,8 @@ shipped client, and neither calls an AI provider.
           │                  │
    Gemini models      free / paid models         (a router such as openrouter/free picks its own)
 
-   Not behind the gateway, by design:   web search (Gemini + Google Search grounding)
+   Not behind the gateway, by design:   web search (Gemini + Google Search grounding, with its own
+                                        OpenRouter web-search fallback, see 2.13)
                                         text to speech (Edge neural voices, tts/, see 2.14)
 ```
 
@@ -258,7 +259,7 @@ What each kind of request needs, and where it can go:
 | Image analysis, heic / heif | vision + MIME type | yes | no | **never** (not accepted by OpenRouter vision models) |
 | Streamed text | streaming | yes | yes | yes |
 | A prompt larger than the model's context | context fits | yes (1M) | no, unless a larger `OPENROUTER_MODEL_CONTEXT_TOKENS` is declared | same |
-| Web search | Google Search grounding | yes, **outside the gateway** | never | never |
+| Web search | Google Search grounding | yes, **outside the gateway** | only as search's own fallback (any Gemini error), or alone with no Gemini key; never when `AI_FALLBACK_PROVIDER=none` and Gemini is configured | same |
 | Text to speech | Edge's neural voices (§2.14), then Gemini's speech model if Edge fails before any sound | **outside the gateway**: its own boundary, its own one-hop fallback; no chat quota or cooldown is shared | never | never |
 | Greeting, creator-identity answer | nothing | no model call at all | | |
 
@@ -294,7 +295,8 @@ reached its AI usage limit for today ..." (a daily quota) or "... the current AI
 - OpenRouter not configured: ZARVIS runs on Gemini exactly as before.
 - Gemini not configured: OpenRouter answers, but only for requests its model declares it can serve
   (so, with no declared `tools`, a tool-using chat turn fails with a capability error and nothing is
-  sent; plain generation works). Web search and voice are unavailable (Gemini only).
+  sent; plain generation works). Web search then runs on OpenRouter's own web search, and the Gemini
+  fallback voice is unavailable (Edge's voice does not need Gemini).
 - Neither configured: in production every model call fails honestly with `AI_UNAVAILABLE` (503) and
   `/health` says `provider: none`. The labelled deterministic mock exists only outside production and
   only when nothing real is configured. It is never a fallback and never used when a real provider
@@ -344,7 +346,7 @@ inside an upstream error message. Provider error bodies are not copied into mess
 | Server, same `clientTurnId` | a finished turn is replayed (no model call, tool or charge); a running one gets `turn_in_progress`; a failed one runs again and reuses tool results that already succeeded | `turnIdempotency.test.ts`, `gatewayTurns.test.ts` (in-memory and real Postgres) |
 | Orchestrator | 5 steps at most; the same skill with the same input does not run twice; a failed skill is not re-run; a spent quota ends the turn | `turnExecution.test.ts` |
 | Gateway | no hedging (the fallback starts only after the primary failed), one fallback hop, no return, bounded retries, quota cooldown | `modelGateway.test.ts` ("request economy") |
-| Client disconnect | the turn aborts: no fallback request, no further model call, no tool | `gatewayTurns.test.ts`, `gatewayApi.test.ts` (a real HTTP disconnect) |
+| Client disconnect | the turn aborts: no fallback request, no further model call, no tool. **Planner calls only**: see the known limit "No abort signal below the planner" | `gatewayTurns.test.ts`, `gatewayApi.test.ts` (a real HTTP disconnect) |
 
 A fallback adds a provider request, never a second generation: the failed attempt produced no
 answer. Note the honest limit: a client that sends no `clientTurnId` (Android, curl) has no
@@ -370,8 +372,11 @@ they are never copied into a skill output (skill outputs are sent to clients).
   type. The route's MIME validation, 4 MB limit and error mapping are unchanged. An image is never
   sent to a text-only model; if nothing can read it the route says so (503
   `image_analysis_unavailable`) or returns the real provider error.
-- **Web search** stays Gemini with Google Search grounding, because only that returns real sources.
-  It is never answered by a model that did not search, and never claimed if it did not run.
+- **Web search** is Gemini with Google Search grounding first, because only that returns real sources.
+  It has its own fallback outside the gateway: OpenRouter's web search (the model's `:online`
+  variant, which also returns sources), tried after any Gemini error, or used alone when there is no
+  Gemini key. `AI_FALLBACK_PROVIDER=none` removes it while Gemini is configured. It is never answered
+  by a model that did not search, and never claimed if it did not run.
 - **Text to speech** is not an AI provider call: it is Edge's neural voices on its own routes, behind
   its own boundary (§2.14). OpenRouter is never involved. Gemini's speech model is only the second
   voice, asked after Edge has failed, and is independent of the gateway (its quota, cooldown and
@@ -440,7 +445,8 @@ the web client and is unchanged, apart from two fixes to how a spoken turn ends 
 can be temporary, and only if it has produced no sound yet: audio is never repeated, and a failure
 after sound began ends the stream there. **The fallback voice.** Edge is unofficial and has changed what
 it requires before, so when it fails before any sound (any `TtsProviderError` except "nothing to say",
-and never a cancellation) `FallbackTtsProvider` asks `GeminiTtsProvider` for the same text: one hop,
+this server's own "busy" answer (`local`: a crowd here is not a failure of Edge, and must not become a
+crowd of texts sent to Google), and never a cancellation) `FallbackTtsProvider` asks `GeminiTtsProvider` for the same text: one hop,
 never back, never in the middle of a reply (two voices are not mixed, and nothing is said twice), and
 for the WAV endpoint also after a part had started, because nothing has left the server yet. It needs
 `GEMINI_API_KEY` (the one chat uses) and is off with `TTS_FALLBACK_PROVIDER=none` or without the key;
@@ -448,7 +454,10 @@ for the WAV endpoint also after a part had started, because nothing has left the
 a temporary failure is retried briefly, a daily quota never, and a missing model or an exhausted one
 moves to the next speech model (`GEMINI_TTS_MODEL`, then `gemini-3.8-flash-tts`, then
 `gemini-3.8-flash-lite-tts`; speech quotas are per model). Its audio must be 24 kHz 16-bit mono like
-Edge's and any other rate is refused (`BAD_AUDIO`). The server log records each fall back
+Edge's and any other rate is refused (`BAD_AUDIO`). Once its audio has started it may go quiet for
+at most 20 s (`idleTimeoutMs`) before the call is given up (`TIMEOUT`); the header timeout alone would not
+cover a stalled body. A web client that stops reading the stream is dropped after 15 s
+(`DEFAULT_WRITE_STALL_MS`), which stops its synthesis and gives its slot back. The server log records each fall back
 (`Primary voice failed; using the fallback voice`, with the kind of failure and no text); the headers say
 which voice spoke, and the live smoke test and the browser audit report a fallback answer as a WARN,
 not a PASS, so Edge being down stays visible. The web picker's old names (`Kore`, `Puck`, `Charon`,
@@ -573,6 +582,7 @@ that must work, and **redeploy**: a changed variable applies to new deployments 
 | `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL_CONTEXT_TOKENS`, `OPENROUTER_TIMEOUT_MS` | optional | optional | |
 | `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER`, `AI_QUOTA_COOLDOWN_MS`, `AI_MODEL_CATALOG_JSON` | optional | optional | |
 | `TTS_PROVIDER`, `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | optional (the defaults speak) | optional | none is a secret; Edge's voices need no key. `TTS_PROVIDER=none` switches spoken replies off |
+| `TTS_FALLBACK_PROVIDER`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | optional (default: Gemini's voice behind Edge's, when `GEMINI_API_KEY` is set) | optional | none is a secret. `TTS_FALLBACK_PROVIDER=none` keeps spoken text on Microsoft's service only: with Edge refusing the deployment, replies then stay text-only (checked: the reply is shown, the next turn works) |
 
 Runtime facts, from the code and `vercel.json` (a real Vercel build was not run from this
 environment): `vercel.json` is unchanged and needs no change. The new files are imported, directly
@@ -743,7 +753,7 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 | No fallback for chat turns only; content skills do fall back | the OpenRouter model does not declare `tools` (the safe default) | verify the model supports function calling, then `OPENROUTER_MODEL_CAPABILITIES=tools` |
 | Nothing falls back, and logs show `AI_PROVIDER_AUTH_ERROR` | a provider rejects its key (never a fallback reason) | fix the key; `AI call failed` names which provider |
 | `/health` 500 `ai_provider_config_invalid` | a present-but-wrong AI variable | read the function log's "Invalid AI configuration: ..." (it names the variable) |
-| Only `OPENROUTER_API_KEY` is set and chat fails | tool support not declared | declare `tools`; web search and voice need Gemini |
+| Only `OPENROUTER_API_KEY` is set and chat fails | tool support not declared | declare `tools`; the Gemini fallback voice needs Gemini |
 | `AI_PROVIDER_CAPABILITY_UNSUPPORTED` | the request needs something no configured model declares (tools, vision, coding, a larger context, a HEIC image) | declare the capability, change the model, or configure Gemini |
 | OpenRouter 402 | the OpenRouter balance is empty (it blocks free models too) | add credits; it is reported as a spent quota, never retried |
 | OpenRouter 429 | free-model caps (OpenRouter documents per-minute and per-day limits that depend on the account's credit history: https://openrouter.ai/docs) | retried once if the wait is short; a daily cap is not retried |
@@ -902,8 +912,18 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 - **Billing records** do not store the provider or model (a database change); the logs do.
 - **Gemini's own model fallback** (`gemini-3.8-flash`) still runs before the gateway moves to
   another provider, so a Gemini outage costs up to about 7 s of backoff before OpenRouter is asked.
-- **Web search** is unavailable without Gemini; the planner is still told it exists. It fails
-  honestly, once, and is not retried.
+- **Web search** has its own provider order (Gemini, then OpenRouter's web search; §2.13), not the
+  gateway's. It does not appear in the turn's `aiProviders` / `aiFallbackCalls` summary, takes no
+  abort signal, and when Gemini rejects the request (a 4xx, including a rejected key) it still tries
+  OpenRouter: set `AI_FALLBACK_PROVIDER=none` to prevent that. With neither key, in production, it
+  fails honestly, once, and is not retried.
+- **No abort signal below the planner.** Calls made inside skills (`ContentGenerator`), image
+  analysis in the upload route, and web search take no `AbortSignal`. If the client leaves during
+  one of them, its retries, a fallback and the credit charge still happen. Only planner calls stop.
+- **Unlisted 4xx statuses fall back.** Only the statuses listed in §2.4 are treated as "request is
+  wrong, do not fall back"; any other status (409, 418, 451, 501, ...) is treated as an outage.
+- **A model can name any registered skill**, not only the ones offered this turn. Permission,
+  entitlement and confirmation checks still apply, but the offered list is not an allow-list.
 - **No token streaming** to clients yet (unchanged): the gateway can stream, the orchestrator does
   not use it.
 - **Android sends no `clientTurnId`** (§1.2), so a request replayed at the HTTP level would run
