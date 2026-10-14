@@ -229,3 +229,7 @@ data class RepoStructureDto(
     val fileCount: Int,
     val topLevelDirs: List<String>,
 )
+
+/** Answer of `POST /api/v1/documents/extract`: the text read from the file (an image is described) and its kind. */
+@Serializable
+data class DocumentExtractResponse(val text: String? = null, val kind: String? = null)

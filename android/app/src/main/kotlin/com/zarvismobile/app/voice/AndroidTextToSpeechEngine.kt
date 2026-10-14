@@ -35,12 +35,12 @@ class AndroidTextToSpeechEngine(
         val response = api.synthesizeSpeech(TtsSynthesizeRequest(text, voice))
         if (!response.isSuccessful) {
             response.errorBody()?.close()
-            throw IOException("Gemini TTS HTTP " + response.code())
+            throw IOException("Voice service HTTP " + response.code())
         }
         // synthesizeSpeech is @Streaming: bytes() reads from the socket. The caller runs on the
         // main thread (viewModelScope), where that throws NetworkOnMainThreadException.
         val bytes = withContext(Dispatchers.IO) { response.body()?.use { it.bytes() } }
-            ?: throw IOException("Gemini TTS returned empty audio")
+            ?: throw IOException("Voice service returned empty audio")
         playWav(bytes, onPlaybackStarted)
     }
 
@@ -57,7 +57,7 @@ class AndroidTextToSpeechEngine(
             player.setOnErrorListener { mp, _, _ ->
                 activePlayer = null
                 mp.release()
-                if (continuation.isActive) continuation.resumeWith(Result.failure(IOException("Gemini audio playback failed")))
+                if (continuation.isActive) continuation.resumeWith(Result.failure(IOException("Audio playback failed")))
                 true
             }
             player.prepare()

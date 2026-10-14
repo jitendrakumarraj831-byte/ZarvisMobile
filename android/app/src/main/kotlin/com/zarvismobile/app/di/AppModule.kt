@@ -13,6 +13,7 @@ import com.zarvismobile.app.access.SpeakOutcome
 import com.zarvismobile.domain.notification.NotificationSpeechPreview
 import com.zarvismobile.app.access.ZarvisAccessibilityService
 import com.zarvismobile.app.access.ZarvisNotificationListener
+import com.zarvismobile.app.photo.ApiPhotoDescriber
 import com.zarvismobile.app.voice.AndroidSpeechToTextEngine
 import com.zarvismobile.app.voice.AndroidTextToSpeechEngine
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
@@ -57,6 +58,7 @@ import com.zarvismobile.skills.SpecialAccessPorts
 import com.zarvismobile.domain.skill.AssistantRolePort
 import com.zarvismobile.domain.skill.NotificationReaderPort
 import com.zarvismobile.domain.skill.NotificationSettingsPort
+import com.zarvismobile.domain.skill.PhotoDescriberPort
 import com.zarvismobile.domain.skill.ScreenAccessPort
 import com.zarvismobile.domain.skill.UsageStatsPort
 import com.zarvismobile.feature.conversation.ChatPreferences
@@ -221,6 +223,10 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun providePhotoDescriber(@ApplicationContext context: Context, api: ZarvisApi): PhotoDescriberPort = ApiPhotoDescriber(context, api)
+
+    @Provides
+    @Singleton
     fun provideOnDeviceSkillRegistry(
         reminderDao: ReminderDao,
         @ApplicationContext context: Context,
@@ -229,12 +235,14 @@ object AppModule {
         screen: ScreenAccessPort,
         usage: UsageStatsPort,
         assistantRole: AssistantRolePort,
+        photoDescriber: PhotoDescriberPort,
     ): SkillRegistry =
         OnDeviceSkillRegistryFactory.create(
             reminderDao,
             context,
             ActivityPorts(documents = ActivityBridge, photos = ActivityBridge, camera = ActivityBridge),
             SpecialAccessPorts(notifications, notificationSettings, screen, usage, assistantRole),
+            photoDescriber,
         )
 
     @Provides

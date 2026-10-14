@@ -7,6 +7,7 @@ import com.zarvismobile.data.remote.dto.IdentityResponse
 import com.zarvismobile.data.remote.dto.CreateTaskRequest
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeRequest
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeResponse
+import com.zarvismobile.data.remote.dto.DocumentExtractResponse
 import com.zarvismobile.data.remote.dto.EntitlementSnapshotResponse
 import com.zarvismobile.data.remote.dto.LoginRequest
 import com.zarvismobile.data.remote.dto.MemoryForgetResponse
@@ -23,13 +24,16 @@ import com.zarvismobile.data.remote.dto.TasksResponse
 import com.zarvismobile.data.remote.dto.TtsSynthesizeRequest
 import com.zarvismobile.data.remote.dto.UsageChargeRequest
 import com.zarvismobile.data.remote.dto.UsageChargeResponse
+import okhttp3.MultipartBody
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.PUT
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Streaming
 
@@ -125,4 +129,13 @@ interface ZarvisApi {
     @Streaming
     @POST("api/v1/tts/synthesize")
     suspend fun synthesizeSpeech(@Body request: TtsSynthesizeRequest): Response<ResponseBody>
+
+    /**
+     * Reads one uploaded file on the server and answers with its text. For an image the server's vision
+     * model describes it (HTTP 503 `image_analysis_unavailable` when no configured model can). The file is
+     * not stored. The caller reads the status itself, so a refusal is a [Response], not an exception.
+     */
+    @Multipart
+    @POST("api/v1/documents/extract")
+    suspend fun extractDocument(@Part file: MultipartBody.Part): Response<DocumentExtractResponse>
 }

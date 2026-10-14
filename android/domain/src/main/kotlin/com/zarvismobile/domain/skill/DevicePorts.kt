@@ -17,6 +17,23 @@ fun interface PhotoPickerPort {
     suspend fun pickPhoto(): PickResult
 }
 
+/** What the server's vision model made of the one photo the user chose. */
+sealed interface PhotoDescription {
+    data class Described(val text: String) : PhotoDescription
+
+    /** [reason] is a short machine-readable cause; [message] is honest text safe to show the user. */
+    data class Failed(val reason: String, val message: String) : PhotoDescription
+}
+
+/**
+ * Sends the ONE photo the user just picked to the ZARVIS server, where an AI model that can see
+ * images describes it. Nothing is kept there. The uri is the content URI the system photo picker
+ * granted for this single pick.
+ */
+fun interface PhotoDescriberPort {
+    suspend fun describe(uri: String, mimeType: String?): PhotoDescription
+}
+
 sealed interface CaptureResult {
     data class Captured(val width: Int, val height: Int) : CaptureResult
     data object Cancelled : CaptureResult

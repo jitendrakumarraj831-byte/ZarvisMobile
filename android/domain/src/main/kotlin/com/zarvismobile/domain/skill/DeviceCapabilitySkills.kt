@@ -79,6 +79,40 @@ object DeviceCapabilitySkills {
         handler = SkillHandler { _, _ -> pickResult(picker.pickPhoto(), "photo") },
     )
 
+    /**
+     * Pick one photo, then have the server's vision model describe it. This is the one photo skill
+     * that sends data off the phone, so the summary always says so, and nothing is sent unless the
+     * user chose a photo in the system picker for this request.
+     */
+    fun describePhoto(picker: PhotoPickerPort, describer: PhotoDescriberPort) = base(
+        id = "photos.describe_photo",
+        name = "Describe a photo",
+        description = "Choose one photo and have ZARVIS describe what is in it, e.g. \"describe a photo\".",
+        capabilities = listOf(
+            "describe a photo", "describe this photo", "describe the photo", "describe a picture", "describe this picture",
+            "what is in this photo", "what's in this photo", "what is in this picture", "what's in this picture",
+            "photo describe karo", "photo mein kya hai", "photo me kya hai", "tasveer batao", "फोटो में क्या है",
+        ),
+        capabilityId = "photos",
+        risk = RiskLevel.MEDIUM,
+        actionClass = ActionClass.READ_ONLY,
+        handler = SkillHandler { _, _ ->
+            when (val picked = picker.pickPhoto()) {
+                PickResult.Cancelled -> SkillResult.Failure("cancelled", "No photo was picked, so nothing was sent or described.")
+                is PickResult.Unavailable -> SkillResult.Failure("unavailable", picked.reason)
+                is PickResult.Picked -> when (val described = describer.describe(picked.uri, picked.mimeType)) {
+                    is PhotoDescription.Described -> SkillResult.Success(
+                        output = mapOf("displayName" to picked.displayName, "description" to described.text.trim()),
+                        summary = "Here is what is in \"${picked.displayName}\": ${described.text.trim()}\n\n" +
+                            "The photo was sent to ZARVIS's server to be described by an AI model, and was not stored.",
+                        evidence = mapOf("pickerReturnedUri" to picked.uri, "describedBy" to "server vision model"),
+                    )
+                    is PhotoDescription.Failed -> SkillResult.Failure(described.reason, described.message)
+                }
+            }
+        },
+    )
+
     private fun pickResult(result: PickResult, kind: String): SkillResult = when (result) {
         is PickResult.Picked -> SkillResult.Success(
             output = mapOf("displayName" to result.displayName, "mimeType" to result.mimeType, "sizeBytes" to result.sizeBytes),
