@@ -2600,6 +2600,7 @@
         return;
       }
       const mine = ++attempt;
+      stopStream(); // a camera still on from an earlier open must not be left running behind the new one
       errorBox.hidden = true;
       choose.hidden = true;
       shoot.disabled = true;
@@ -2638,8 +2639,11 @@
       canvas.height = size.height;
       canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
       shoot.disabled = true;
+      const shot = attempt;
       canvas.toBlob(
         (blob) => {
+          // Cancel (or Escape, or leaving the tab) pressed while the JPEG was being made means "no photo".
+          if (shot !== attempt) return;
           close();
           if (!blob) {
             showToast("The photo could not be taken. Try again.");
@@ -2668,11 +2672,21 @@
       event.stopPropagation();
       close();
     });
+    // Escape also works when focus is on the page behind the sheet (after a tap on the backdrop, say).
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || sheet.hidden || event.defaultPrevented) return;
+      close();
+    });
     // A camera must never stay on behind a tab the person has left.
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && !sheet.hidden) close();
     });
-    window.addEventListener("pagehide", stopStream);
+    // Close the whole sheet, not just the stream: a page restored from the back/forward cache would
+    // otherwise show an open sheet whose Take photo button no longer has a camera behind it.
+    window.addEventListener("pagehide", close);
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted && !sheet.hidden) close();
+    });
   }
 
   function resizeComposer() {

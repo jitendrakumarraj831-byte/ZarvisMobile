@@ -126,6 +126,49 @@ const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
     await ctx.close();
   });
 
+  await step("camera: Cancel pressed while the photo is being made sends nothing, and Escape works with focus on the page behind", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["camera"] });
+    const page = await pageOf(ctx);
+    const sent = await stubExtract(page);
+    await ready(page);
+    // Make JPEG encoding slow, so there is a moment between Take photo and the photo existing.
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) { setTimeout(() => original.call(this, callback, ...rest), 600); };
+    });
+    await page.click("#camera-btn");
+    await page.waitForSelector("#camera-sheet:not([hidden])");
+    await page.waitForFunction(() => { const v = document.querySelector("#camera-video"); return v && v.videoWidth > 0 && v.readyState >= 2; }, null, { timeout: 15000 });
+    await page.click("#camera-shoot");
+    await page.click("#camera-cancel");
+    await page.waitForSelector("#camera-sheet", { state: "hidden" });
+    await page.waitForTimeout(1200);
+    assert.equal(sent.length, 0, "a photo whose Cancel came first is not sent");
+    assert.equal(await page.evaluate(() => document.querySelector("#attachment-chip").hidden), true, "and is not attached");
+
+    await page.click("#camera-btn");
+    await page.waitForSelector("#camera-sheet:not([hidden])");
+    await page.waitForFunction(() => document.querySelector("#camera-video")?.srcObject);
+    await page.evaluate(() => { window.__tracks = document.querySelector("#camera-video").srcObject.getTracks(); document.activeElement && document.activeElement.blur(); });
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#camera-sheet", { state: "hidden" });
+    const states = await page.evaluate(() => window.__tracks.map((t) => t.readyState));
+    assert.deepEqual([...new Set(states)], ["ended"], `Escape from the page behind the sheet stops the camera (${states})`);
+    await ctx.close();
+  });
+
+  await step("camera: the preview shows the whole frame that is sent", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, permissions: ["camera"] });
+    const page = await pageOf(ctx);
+    await stubExtract(page);
+    await ready(page);
+    await page.click("#camera-btn");
+    await page.waitForSelector("#camera-sheet:not([hidden])");
+    const fit = await page.evaluate(() => getComputedStyle(document.querySelector("#camera-video")).objectFit);
+    assert.equal(fit, "contain", "object-fit: contain, so no part of the sent frame is cropped out of the preview");
+    await ctx.close();
+  });
+
   await step("camera: opens and closes from the keyboard, focus goes in and comes back, and the sheet has no serious axe violation", async () => {
     const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, permissions: ["camera"] });
     const page = await pageOf(ctx);
