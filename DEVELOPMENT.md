@@ -201,6 +201,26 @@ Devanagari, Hinglish, or English. The browser's own `speechSynthesis` is deliber
 and the phone's built-in speaker (`NotificationSpeaker`, for spoken notifications) is a separate,
 on-device thing that this does not touch.
 
+## Photos and the camera
+
+ZARVIS can describe a picture; the AI Model Gateway sends it to whichever configured provider has a vision model
+(`backend/src/ai/modelGateway.ts` `analyzeImage`). With no such provider the upload answers `503 image_analysis_unavailable`
+and the client says so; nothing is invented. The picture itself is never stored: only the text that describes it is kept,
+and only if you save it to Files.
+
+- **Web:** the camera button in the Chat composer ("Take a photo") opens a camera sheet (`getUserMedia`), takes a JPEG no larger
+  than 1600 px on its longer side, and attaches it like any other image (`POST /api/v1/documents/extract`). The camera is
+  started only on that tap and switched off when the photo is taken, the sheet is closed, or the tab is hidden. Where the page
+  has no camera access (not https, an old browser) the button opens the phone's own camera through a file input. The page may
+  use the camera because `Permissions-Policy` allows it for this origin only (`backend/src/security/headers.ts`, mirrored in
+  `vercel.json`; a test keeps them equal). Checked by `web/e2e/camera.e2e.cjs` (Chromium with a simulated camera).
+- **Android:** the skill `photos.describe_photo` ("describe a photo") opens the system photo picker (no media permission),
+  shrinks the one photo you pick to a JPEG of at most 1600 px (`app/.../photo/ApiPhotoDescriber.kt`), and sends it to the same
+  endpoint. The answer is turned into words by `PhotoDescriptionResults` (pure Kotlin, unit-tested). A photo taken with the
+  camera app is still preview-only on Android; the registry says so.
+
+Neither has been run on a real phone, so the capability registry keeps both at `PARTIAL`, never `WORKING`.
+
 To try the real service from a machine that can reach it:
 `ZARVIS_LIVE_TESTS=1 npx vitest run test/live/edgeTts.live.test.ts` (in `backend/`), or run the
 **Edge TTS live probe** workflow. To check a deployed site (a Vercel preview, or production) the way

@@ -24,12 +24,20 @@ export const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+/**
+ * Browser features the page may use. The microphone is for the Speak button; the camera is for
+ * "Take a photo" in the composer. Both are asked for by the browser only after a tap (never at
+ * load), and only this origin may use them: no embedded frame can. Location stays off.
+ * Mirrored in vercel.json (a test keeps the two equal).
+ */
+export const PERMISSIONS_POLICY = "camera=(self), geolocation=(), microphone=(self)";
+
 export function securityHeaders(req: Request, res: Response, next: NextFunction): void {
   res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)");
+  res.setHeader("Permissions-Policy", PERMISSIONS_POLICY);
   // Only over HTTPS (req.secure honours the proxy's X-Forwarded-Proto): sent on plain HTTP it is ignored by browsers.
   if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000");
   next();

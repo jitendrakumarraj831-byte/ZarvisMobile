@@ -439,6 +439,7 @@
       ["developer", setupDeveloper],
       ["github", setupGithubConnect],
       ["modals", setupModalManager],
+      ["camera", setupCamera],
       ["connection", setupConnectionState],
       ["history", setupHistory],
       ["menu drawer", setupNavDrawer],
@@ -2542,6 +2543,136 @@
   function openFilePicker(imagesOnly = false) {
     setFilePickerAccept(imagesOnly);
     el.fileInput.click();
+  }
+
+  // ---- Camera: "Take a photo" in the composer ------------------------------------------------
+  // The camera is asked for only when this button is pressed, shown live in a sheet, and switched
+  // off the moment the photo is taken or the sheet is closed. The photo then goes through the same
+  // path as any attached image (handleFileSelected -> POST /documents/extract), where the server's
+  // vision model describes it; it is not stored. Where the page has no camera access at all (not on
+  // https, an old browser) the button opens the phone's own camera through a file input instead.
+  const CAMERA_MAX_SIDE_PX = 1600; // keeps a photo far below the 4 MB upload limit
+  const CAMERA_FAILURE_TEXT = {
+    blocked: "The camera is blocked for this site. Allow it in your browser's site settings, or choose a photo instead.",
+    none: "No camera was found on this device. You can choose a photo instead.",
+    busy: "The camera is in use by another app. Close that app and try again, or choose a photo instead.",
+    other: "The camera could not be started. You can choose a photo instead.",
+  };
+
+  function setupCamera() {
+    const button = document.getElementById("camera-btn");
+    const sheet = document.getElementById("camera-sheet");
+    const video = document.getElementById("camera-video");
+    const shoot = document.getElementById("camera-shoot");
+    const cancel = document.getElementById("camera-cancel");
+    const choose = document.getElementById("camera-choose");
+    const errorBox = document.getElementById("camera-error");
+    const fallbackInput = document.getElementById("camera-input");
+    if (!button || !sheet || !video || !shoot || !cancel || !choose || !errorBox || !fallbackInput) return;
+
+    let stream = null;
+    let attempt = 0; // a late answer from the browser for a sheet that was already closed must not switch the camera on
+
+    function stopStream() {
+      if (stream) for (const track of stream.getTracks()) track.stop();
+      stream = null;
+      video.srcObject = null;
+    }
+
+    function close() {
+      attempt += 1;
+      stopStream();
+      shoot.disabled = true;
+      sheet.hidden = true;
+    }
+
+    function showFailure(kind) {
+      errorBox.textContent = CAMERA_FAILURE_TEXT[kind] || CAMERA_FAILURE_TEXT.other;
+      errorBox.hidden = false;
+      choose.hidden = false;
+      shoot.disabled = true;
+    }
+
+    async function open() {
+      haptic();
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+        fallbackInput.click();
+        return;
+      }
+      const mine = ++attempt;
+      errorBox.hidden = true;
+      choose.hidden = true;
+      shoot.disabled = true;
+      sheet.hidden = false;
+      try {
+        const opened = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } },
+          audio: false,
+        });
+        if (mine !== attempt || sheet.hidden) {
+          for (const track of opened.getTracks()) track.stop();
+          return;
+        }
+        stream = opened;
+        video.srcObject = opened;
+        await video.play().catch(() => {});
+        shoot.disabled = false;
+        shoot.focus({ preventScroll: true });
+      } catch (err) {
+        if (mine !== attempt) return;
+        const kind = Logic.cameraFailureKind(err);
+        if (kind === "unsupported") {
+          close();
+          fallbackInput.click();
+          return;
+        }
+        showFailure(kind);
+      }
+    }
+
+    function takePhoto() {
+      if (!stream || !video.videoWidth || !video.videoHeight) return;
+      const size = Logic.fitWithin(video.videoWidth, video.videoHeight, CAMERA_MAX_SIDE_PX);
+      const canvas = document.createElement("canvas");
+      canvas.width = size.width;
+      canvas.height = size.height;
+      canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
+      shoot.disabled = true;
+      canvas.toBlob(
+        (blob) => {
+          close();
+          if (!blob) {
+            showToast("The photo could not be taken. Try again.");
+            return;
+          }
+          const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+          const file = new File([blob], "photo-" + stamp + ".jpg", { type: "image/jpeg" });
+          void handleFileSelected({ target: { files: [file], value: "" } });
+        },
+        "image/jpeg",
+        0.85,
+      );
+    }
+
+    button.addEventListener("click", () => void open());
+    shoot.addEventListener("click", takePhoto);
+    cancel.addEventListener("click", close);
+    choose.addEventListener("click", () => {
+      close();
+      openFilePicker(true);
+    });
+    fallbackInput.addEventListener("change", handleFileSelected);
+    sheet.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    });
+    // A camera must never stay on behind a tab the person has left.
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && !sheet.hidden) close();
+    });
+    window.addEventListener("pagehide", stopStream);
   }
 
   function resizeComposer() {
