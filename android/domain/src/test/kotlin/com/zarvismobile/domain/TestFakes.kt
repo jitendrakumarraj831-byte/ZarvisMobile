@@ -70,8 +70,9 @@ class InMemoryReminderScheduler : ReminderSchedulerPort {
 }
 
 class FakeContactLookupPort(private val contacts: List<PhoneContact> = emptyList()) : ContactLookupPort {
-    override suspend fun findByName(name: String): PhoneContact? =
-        contacts.firstOrNull { it.displayName.contains(name, ignoreCase = true) }
+    /** Like the phone's database: every contact whose name contains the text, with no ranking. */
+    override suspend fun search(name: String): List<PhoneContact> =
+        contacts.filter { it.displayName.contains(name, ignoreCase = true) }
 }
 
 class FakeAppLauncherPort(private val installedApps: Set<String> = emptySet()) : AppLauncherPort {

@@ -43,6 +43,16 @@ jobs:
       - name: Unit-test auth/session layer
         run: ./gradlew :data:data-remote:testDebugUnitTest :data:data-repository:testDebugUnitTest --stacktrace --console=plain
 
+      # What the Memory, Work and Tasks screens show and do (ViewModels against a stand-in server): a failed call is reported, never shown as
+      # an empty list or a zero, and a failed delete leaves the list as it was.
+      - name: Unit-test the Memory, Work and Tasks view models
+        run: ./gradlew :features:feature-settings:testDebugUnitTest :features:feature-home:testDebugUnitTest :features:feature-tasks:testDebugUnitTest --stacktrace --console=plain
+
+      # Which server conversation a turn belongs to (the real orchestrator against a stand-in server): New chat clears it, the next turn starts a
+      # fresh conversation, restore shows only the current one, and a turn that New chat cancelled cannot bring the old one back.
+      - name: Unit-test the orchestrator's conversation handling
+        run: ./gradlew :agents:testDebugUnitTest --stacktrace --console=plain
+
       # The dev API host is machine-specific and auto-detected from the build machine's LAN
       # address (see app/build.gradle.kts). A CI runner's address is meaningless to anyone
       # downloading the artifact, so pin it here: the uploaded APK is deterministic and
@@ -134,6 +144,63 @@ jobs:
             echo "::error::a public host was granted a cleartext exemption"; exit 1
           fi
           echo "OK: exemption tracks the configured LAN host; public hosts stay HTTPS-only"
+
+      # The rules for the dev API host and port, checked through Gradle itself (the logic lives in app/build.gradle.kts): which hosts may be
+      # reached over cleartext HTTP, that a malformed value stops the build with a reason instead of building an unreachable URL, that the
+      # port and the environment variables are honoured, and that -P wins over the environment.
+      - name: Assert the dev API host and port rules
+        run: |
+          set -euo pipefail
+          exempted_hosts() { sed -n 's/.*<domain[^>]*>\(.*\)<\/domain>.*/\1/p' "$1"; }
+          nsc() { find app/build/generated -name network_security_config.xml | head -n 1; }
+          build_nsc() { ./gradlew :app:generateDebugNetworkSecurityConfig -q --console=plain "$@" > /dev/null 2>&1; }
+
+          expect_cleartext() { # host, yes|no
+            build_nsc "-Pzarvis.devApiHost=$1" || { echo "::error::the build failed for dev host $1"; exit 1; }
+            if grep -Fxq "$1" <<<"$(exempted_hosts "$(nsc)")"; then got=yes; else got=no; fi
+            [ "$got" = "$2" ] || { echo "::error::cleartext for $1: expected $2, got $got"; exit 1; }
+            echo "ok: cleartext for $1 = $got"
+          }
+          for host in 10.1.2.3 172.16.0.1 172.31.255.255 192.168.0.1 169.254.1.1 my-laptop.local; do expect_cleartext "$host" yes; done
+          for host in 172.15.255.255 172.32.0.1 192.169.0.1 8.8.8.8 example.com; do expect_cleartext "$host" no; done
+
+          expect_rejected() { # reason text, then the environment/arguments that make the value
+            local out
+            if out=$(env "$@" ./gradlew :app:generateDebugNetworkSecurityConfig -q --console=plain 2>&1); then
+              echo "::error::the build accepted: $*"; exit 1
+            fi
+            grep -q "ZARVIS: the dev API" <<<"$out" || { echo "::error::no ZARVIS reason for: $*"; echo "$out" | tail -n 20; exit 1; }
+            echo "ok: rejected $*"
+          }
+          expect_rejected_p() { # a -P value that must stop the build
+            local out
+            if out=$(./gradlew :app:generateDebugNetworkSecurityConfig -q --console=plain "$@" 2>&1); then
+              echo "::error::the build accepted: $*"; exit 1
+            fi
+            grep -q "ZARVIS: the dev API" <<<"$out" || { echo "::error::no ZARVIS reason for: $*"; echo "$out" | tail -n 20; exit 1; }
+            echo "ok: rejected $*"
+          }
+          expect_rejected_p "-Pzarvis.devApiHost=http://192.168.1.20"
+          expect_rejected_p "-Pzarvis.devApiHost=192.168.1.20:3000"
+          expect_rejected_p "-Pzarvis.devApiHost=192.168.1.20/api"
+          expect_rejected_p "-Pzarvis.devApiHost=10.0.2.2" "-Pzarvis.devApiPort=70000"
+          expect_rejected_p "-Pzarvis.devApiHost=10.0.2.2" "-Pzarvis.devApiPort=abc"
+          expect_rejected ZARVIS_DEV_API_HOST=192.168.1.20:3000
+
+          # The port is part of the URL the app dials.
+          ./gradlew :app:generateDebugBuildConfig -q --console=plain -Pzarvis.devApiHost=10.0.2.2 -Pzarvis.devApiPort=3100 > /dev/null 2>&1
+          CONFIG=$(find app/build/generated -path '*debug*' -name BuildConfig.java | head -n 1)
+          grep -q 'API_BASE_URL = "http://10.0.2.2:3100/"' "$CONFIG" || { echo "::error::-Pzarvis.devApiPort is not in API_BASE_URL"; grep API_BASE_URL "$CONFIG"; exit 1; }
+          ZARVIS_DEV_API_PORT=3200 ./gradlew :app:generateDebugBuildConfig -q --console=plain -Pzarvis.devApiHost=10.0.2.2 > /dev/null 2>&1
+          grep -q 'API_BASE_URL = "http://10.0.2.2:3200/"' "$CONFIG" || { echo "::error::ZARVIS_DEV_API_PORT is not in API_BASE_URL"; grep API_BASE_URL "$CONFIG"; exit 1; }
+
+          # ZARVIS_DEV_API_HOST is honoured, and -P wins over it.
+          ZARVIS_DEV_API_HOST=192.168.1.61 ./gradlew :app:generateDebugNetworkSecurityConfig -q --console=plain > /dev/null 2>&1
+          grep -Fxq 192.168.1.61 <<<"$(exempted_hosts "$(nsc)")" || { echo "::error::ZARVIS_DEV_API_HOST was not used"; exit 1; }
+          ZARVIS_DEV_API_HOST=192.168.1.61 ./gradlew :app:generateDebugNetworkSecurityConfig -q --console=plain -Pzarvis.devApiHost=192.168.1.62 > /dev/null 2>&1
+          grep -Fxq 192.168.1.62 <<<"$(exempted_hosts "$(nsc)")" || { echo "::error::-Pzarvis.devApiHost was not used"; exit 1; }
+          if grep -Fxq 192.168.1.61 <<<"$(exempted_hosts "$(nsc)")"; then echo "::error::the environment variable beat -Pzarvis.devApiHost"; exit 1; fi
+          echo "OK: dev API host and port rules hold"
 
       # Proves the cleartext permission is debug-only: it must be present in the merged
       # DEBUG manifest and absent from the merged RELEASE manifest. Guards against anyone

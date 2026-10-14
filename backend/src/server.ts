@@ -5,6 +5,11 @@ import express, { type Express, type Router } from "express";
 import { rateLimit as apiRateLimit } from "express-rate-limit";
 import type { Container } from "./container.js";
 import { accountRouter } from "./api/routes/account.js";
+import { activityRouter, executionsRouter } from "./api/routes/activity.js";
+import { agentsRouter } from "./api/routes/agents.js";
+import { filesRouter } from "./api/routes/files.js";
+import { memoryRouter, notesRouter } from "./api/routes/notes.js";
+import { projectsRouter } from "./api/routes/projects.js";
 import { authRouter } from "./api/routes/auth.js";
 import { billingRouter } from "./api/routes/billing.js";
 import { capabilitiesRouter } from "./api/routes/capabilities.js";
@@ -54,7 +59,24 @@ function getDocumentsRouter(): Promise<Router | null> {
  * per character (~270 kB), well above express.json()'s 100 kB default. 1 MB fits it in any
  * script and stays far below the platform's own request limit.
  */
-const jsonBody = express.json({ limit: "1mb" });
+const jsonBody = express.json({
+  limit: "1mb",
+  // Keep the exact bytes: the Razorpay webhook signature is an HMAC over the raw body.
+  verify: (req, _res, buf) => {
+    (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+  },
+});
+
+const WEB_ASSET = /^\/(?:index\.html|app\.js|logic\.js|shell\.js|chat-kit\.js|exec-cards\.js|workspace\.js|feature-pages\.js|theme-init\.js|i18n\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[\w.-]+)$/;
+
+/** `req.path` is still percent-encoded, while express.static decodes it: compare the decoded form. */
+function isWebAsset(path: string): boolean {
+  try {
+    return WEB_ASSET.test(decodeURIComponent(path));
+  } catch {
+    return false;
+  }
+}
 
 /** Builds the Express app from a wired [Container] — versioned under /api/v1, see MASTER_SPEC.md §25. */
 export function buildServer(container: Container): Express {
@@ -71,6 +93,11 @@ export function buildServer(container: Container): Express {
   app.use(requestIdMiddleware);
   app.use(securityHeaders);
   app.use(corsMiddleware);
+  // Tokens, accounts and conversations travel in these responses: no browser, proxy or CDN may keep a copy.
+  app.use(["/api/v1", "/health"], (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
   // Vercel's Node.js runtime (api/index.ts) can pre-parse a JSON request body onto `req.body`
   // and drain the underlying stream before Express ever sees the request — a well-known
   // Express-on-Vercel gotcha. If that already happened, `express.json()` would try to read
@@ -96,6 +123,10 @@ export function buildServer(container: Container): Express {
   // Separate per-IP ceiling for the non-API handlers that touch the database or the file system
   // (/health, the web client fallback), so monitoring never shares the /api/v1 budget.
   const publicLimit = apiRateLimit({ windowMs: 60 * 1000, limit: 600, standardHeaders: "draft-7", legacyHeaders: false });
+  // The client's own files count on a ceiling of their own. One visit fetches about a dozen of them, and the
+  // service worker fetches the same set again to precache the shell, so sharing the ceiling above locked out
+  // phones behind one carrier or office address (and rapid browser tests) with a "Too many requests" page.
+  const assetLimit = apiRateLimit({ windowMs: 60 * 1000, limit: 6000, standardHeaders: "draft-7", legacyHeaders: false });
 
   app.get("/health", publicLimit, async (_req, res) => {
     const database = (await container.store.healthCheck?.()) ?? "not_configured";
@@ -123,22 +154,29 @@ export function buildServer(container: Container): Express {
     }),
   );
 
-  app.use("/api/v1/auth", authRouter(container.authService));
+  app.use("/api/v1/auth", authRouter(container.authService, container.googleVerifier));
   app.use("/api/v1/account", accountRouter(container.store));
   app.use("/api/v1/skills", skillsRouter(container.registry, container.entitlementPort));
   app.use("/api/v1/orchestrator", orchestratorRouter(container.orchestrator));
   app.use("/api/v1/entitlements", entitlementsRouter(container.entitlementPort));
-  app.use("/api/v1/tasks", tasksRouter(container.taskService));
-  app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort));
-  app.use("/api/v1/developer", developerRouter(container.pipeline, container.registry));
+  app.use("/api/v1/tasks", tasksRouter(container.taskService, container.store));
+  app.use("/api/v1/usage", usageRouter(container.registry, container.usagePort, container.store));
+  app.use("/api/v1/developer", developerRouter(container.pipeline, container.registry, container.githubAccess));
   app.use(
     "/api/v1/confirmations",
-    confirmationsRouter(container.confirmationService, container.pipeline, container.registry, container.store),
+    confirmationsRouter(container.confirmationService, container.pipeline, container.registry, container.store, container.taskRunner),
   );
   app.use("/api/v1/integrations", integrationsRouter(container.githubAccess));
   app.use("/api/v1/capabilities", capabilitiesRouter());
-  app.use("/api/v1/conversations", conversationsRouter(container.store));
-  app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store));
+  app.use("/api/v1/conversations", conversationsRouter(container.store, container.workspace));
+  app.use("/api/v1/projects", projectsRouter(container.workspace));
+  app.use("/api/v1/notes", notesRouter(container.workspace));
+  app.use("/api/v1/memory", memoryRouter(container.workspace));
+  app.use("/api/v1/files", filesRouter(container.workspace, container.store));
+  app.use("/api/v1/activity", activityRouter(container.workspace));
+  app.use("/api/v1/executions", executionsRouter(container.store));
+  app.use("/api/v1/agents", agentsRouter(container.agentCatalog));
+  app.use("/api/v1/billing", billingRouter(container.billingVerifier, container.store, container.paymentService));
   app.use("/api/v1/tts", ttsRouter(container.ttsProvider));
   // Keep document parsing isolated from the startup-critical API. If its dependencies cannot
   // load in a particular deployment, document upload returns 503 instead of taking the entire
@@ -157,7 +195,10 @@ export function buildServer(container: Container): Express {
   // the same origin/domain as the API — no separate static host needed for
   // https://zarvismobile.com to run the full product in a browser.
   if (webRoot) {
-    app.use(publicLimit, express.static(webRoot));
+    // Only the files of the shipped client (the same list as vercel.json's routes). The folder also holds
+    // browser tests and package metadata that are not part of the product and must not be downloadable.
+    const staticFiles = express.static(webRoot);
+    app.use(assetLimit, (req, res, next) => (isWebAsset(req.path) ? staticFiles(req, res, next) : next()));
     app.get(/^(?!\/api\/).*/, publicLimit, (_req, res) => res.sendFile(join(webRoot, "index.html")));
   }
 

@@ -2,8 +2,12 @@ import { Router } from "express";
 import type { EntitlementLevel } from "../../domain/types.js";
 import type { PlayBillingVerifier } from "../../billing/playBillingVerifier.js";
 import type { Store } from "../../store/store.js";
+import type { PaymentService } from "../../billing/paymentService.js";
+import { PaymentError } from "../../billing/paymentService.js";
+import { logger } from "../../security/redact.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 
 /**
  * Maps a Play Console subscription product ID to the plan it grants. MASTER_SPEC.md §19
@@ -18,8 +22,73 @@ const PRODUCT_ID_TO_PLAN: Record<string, EntitlementLevel> = {
 };
 
 /** POST /api/v1/billing/webhook — Play Billing verification callback. See SUBSCRIPTIONS.md. */
-export function billingRouter(verifier: PlayBillingVerifier, store: Store): Router {
+export function billingRouter(verifier: PlayBillingVerifier, store: Store, payments: PaymentService): Router {
   const router = Router();
+  const orderLimit = rateLimit({ name: "billing-orders", windowMs: 60 * 1000, max: 10, keyBy: "account" });
+  const verifyLimit = rateLimit({ name: "billing-verify", windowMs: 60 * 1000, max: 20, keyBy: "account" });
+  const webhookLimit = rateLimit({ name: "billing-webhook", windowMs: 60 * 1000, max: 120, keyBy: "ip" });
+
+  /** Plans, prices (INR) and whether payments are switched on. Prices are server-side only. */
+  router.get(
+    "/plans",
+    requireAuth,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      res.json(await payments.catalogue(req.auth!.accountId));
+    }),
+  );
+
+  /** Creates a Razorpay order for a plan key (the client never sends an amount). */
+  router.post(
+    "/orders",
+    requireAuth,
+    orderLimit,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      try {
+        res.json(await payments.createOrder(req.auth!.accountId, req.body?.planKey));
+      } catch (error) {
+        sendPaymentError(res, error);
+      }
+    }),
+  );
+
+  /** Checkout success callback: verifies the signature and the payment with Razorpay, then grants the plan once. */
+  router.post(
+    "/verify",
+    requireAuth,
+    verifyLimit,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      const { orderId, paymentId, signature } = req.body ?? {};
+      try {
+        res.json(await payments.confirmCheckout(req.auth!.accountId, orderId, paymentId, signature));
+      } catch (error) {
+        sendPaymentError(res, error);
+      }
+    }),
+  );
+
+  /** Razorpay webhook: grants a purchase whose tab closed after paying. Public, but never trusts its body. */
+  router.post(
+    "/razorpay/webhook",
+    webhookLimit,
+    asyncHandler(async (req, res) => {
+      try {
+        const granted = await payments.handleWebhook({
+          rawBody: (req as unknown as { rawBody?: Buffer }).rawBody,
+          signature: req.header("x-razorpay-signature") ?? undefined,
+          body: req.body,
+        });
+        res.json({ ok: true, granted });
+      } catch (error) {
+        if (error instanceof PaymentError && error.status < 500) {
+          res.status(error.status).json({ error: error.message, code: error.code });
+          return;
+        }
+        logger.error("Razorpay webhook failed", { error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
+        // 5xx makes Razorpay retry later.
+        res.status(500).json({ error: "Webhook could not be processed", code: "webhook_failed" });
+      }
+    }),
+  );
 
   router.post(
     "/webhook",
@@ -51,4 +120,12 @@ export function billingRouter(verifier: PlayBillingVerifier, store: Store): Rout
   );
 
   return router;
+}
+
+function sendPaymentError(res: import("express").Response, error: unknown): void {
+  if (error instanceof PaymentError) {
+    res.status(error.status).json({ error: error.message, code: error.code });
+    return;
+  }
+  throw error;
 }

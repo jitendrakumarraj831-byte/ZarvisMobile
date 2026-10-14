@@ -2,7 +2,10 @@ import { Orchestrator } from "./agents/orchestrator.js";
 import { getModelGateway } from "./ai/providerFactory.js";
 import type { ModelGateway } from "./ai/modelGateway.js";
 import { AuthService } from "./auth/authService.js";
+import { GoogleIdTokenVerifier } from "./auth/googleIdToken.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
+import { PaymentService } from "./billing/paymentService.js";
+import { RazorpayClient } from "./billing/razorpay.js";
 import { FailClosedPlayBillingVerifier, GooglePlayBillingVerifier, MockPlayBillingVerifier } from "./billing/playBillingVerifier.js";
 import { env } from "./config/env.js";
 import { buildTtsProvider } from "./config/ttsConfig.js";
@@ -14,7 +17,10 @@ import { buildSkillRegistry } from "./skills/index.js";
 import { InMemoryStore } from "./store/inMemoryStore.js";
 import { PostgresStore } from "./store/postgresStore.js";
 import type { Store } from "./store/store.js";
+import { TaskRunner } from "./tasks/taskRunner.js";
 import { TaskService } from "./tasks/taskService.js";
+import { AgentCatalog } from "./agents/agentCatalog.js";
+import { WorkspaceService } from "./workspace/workspaceService.js";
 import { ToolPipeline } from "./tooling/toolPipeline.js";
 
 /**
@@ -31,6 +37,8 @@ export interface ContainerOptions {
   githubClientFactory?: GitHubClientFactory;
   /** Test seam: the AI Model Gateway. Production uses the process-wide one built from the environment. */
   modelGateway?: ModelGateway;
+  /** Test seam: a Google ID-token verifier with a fake key set. Production builds one from GOOGLE_CLIENT_ID. */
+  googleVerifier?: GoogleIdTokenVerifier | null;
 }
 
 /**
@@ -47,21 +55,35 @@ export function buildContainer(store: Store = defaultStore(), options: Container
   // Every AI call in the process goes through this one gateway (ai/modelGateway.ts). Building it
   // validates the AI configuration, so a bad setting stops startup here with a clear message.
   const modelGateway = options.modelGateway ?? getModelGateway();
-  const registry = buildSkillRegistry(store, githubAccess, modelGateway);
+  // One TaskService for the Tasks API and for the automation skills, so cancelling a workflow in chat also stops a step that is running.
+  const taskService = new TaskService(store);
+  const registry = buildSkillRegistry(store, githubAccess, modelGateway, taskService);
   const entitlementPort = new StoreEntitlementPort(store);
   const usagePort = new StoreUsagePort(store);
   const permissionPort = new StorePermissionPort(store);
   const confirmationService = new ServerConfirmationService(store);
 
-  const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationService);
+  // Every call the pipeline evaluates leaves a row in the executions ledger (Activity, Research, Developer read it).
+  const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationService, undefined, {
+    record: (record) => store.recordExecution(record),
+  });
   const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, modelGateway, modelGateway.defaultModelConfig(), store);
   const authService = new AuthService(store);
-  const taskService = new TaskService(store);
+  const googleVerifier = options.googleVerifier ?? (env.googleClientId ? new GoogleIdTokenVerifier(env.googleClientId, env.googleJwksUrl) : null);
+  // A task step is an ordinary orchestrator turn, started by the user; the runner is not a second brain.
+  const taskRunner = new TaskRunner(store, orchestrator, registry);
+  taskService.bindRunner(taskRunner);
+  const workspace = new WorkspaceService(store);
+  const agentCatalog = new AgentCatalog(registry, entitlementPort, store, githubAccess);
   const billingVerifier = env.playBillingServiceAccountJson
     ? new GooglePlayBillingVerifier(env.playBillingServiceAccountJson, env.playBillingPackageName)
     : env.isProduction
       ? new FailClosedPlayBillingVerifier()
       : new MockPlayBillingVerifier();
+  const razorpay = env.razorpayKeyId && env.razorpayKeySecret
+    ? new RazorpayClient(env.razorpayKeyId, env.razorpayKeySecret, env.razorpayWebhookSecret, env.razorpayApiBaseUrl)
+    : null;
+  const paymentService = new PaymentService(store, razorpay);
   // Spoken replies: Edge's neural voices (tts/edgeTtsProvider.ts). It needs no key; nothing is
   // contacted until a voice is asked for. `null` only when TTS_PROVIDER=none.
   const ttsProvider = buildTtsProvider(env);
@@ -72,10 +94,15 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     pipeline,
     orchestrator,
     authService,
+    googleVerifier,
     entitlementPort,
     usagePort,
     taskService,
+    taskRunner,
+    workspace,
+    agentCatalog,
     billingVerifier,
+    paymentService,
     ttsProvider,
     confirmationService,
     githubAccess,

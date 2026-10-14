@@ -1,5 +1,6 @@
 import { beginModelCall } from "../ai/callTrace.js";
 import { classifyGeminiFailure, providerErrorUserMessage, retryDelayMs, sleep, toProviderError } from "../ai/geminiErrors.js";
+import { logger } from "../security/redact.js";
 import { SkillUserError } from "../tooling/toolPipeline.js";
 import type { SkillDefinition } from "../domain/types.js";
 
@@ -94,6 +95,101 @@ export class GeminiSearchProvider implements SearchProvider {
       if (results.length >= 8) break;
     }
     return { answer, results };
+  }
+}
+
+/**
+ * Live web search through OpenRouter's web plugin (the `:online` model suffix). Used behind
+ * Gemini (see [FallbackSearchProvider]) or alone when only OPENROUTER_API_KEY is set. Sources
+ * come back as `url_citation` annotations on the assistant message.
+ */
+export class OpenRouterSearchProvider implements SearchProvider {
+  constructor(
+    private readonly apiKey: string,
+    private readonly model = "google/gemini-2.0-flash-001",
+    private readonly baseUrl = "https://openrouter.ai/api/v1",
+  ) {}
+
+  async search(query: string): Promise<SearchResponse> {
+    const model = this.model.endsWith(":online") ? this.model : `${this.model}:online`;
+    const call = beginModelCall("search", model);
+    call.httpRequests += 1;
+    const response = await fetchWithTimeout(
+      `${this.baseUrl}/chat/completions`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}`, "x-title": "ZARVIS" },
+        body: JSON.stringify({
+          model,
+          messages: [{
+            role: "user",
+            content: `Search the web for: ${query}. Return a concise answer and rely on current web sources. Do not invent sources.`,
+          }],
+          temperature: 0.2,
+          max_tokens: 1200,
+        }),
+      },
+      60_000,
+    );
+    if (!response.ok) {
+      call.status = response.status;
+      const detail = await response.text().catch(() => "");
+      call.failure = { code: "AI_UNAVAILABLE", model };
+      throw new Error(`OpenRouter web search failed: ${response.status} ${detail.slice(0, 200)}`);
+    }
+    call.servedModel = model;
+    call.outcome = "ok";
+    const json = (await response.json()) as OpenRouterSearchResponse;
+    const message = json.choices?.[0]?.message;
+    const results: SearchResult[] = [];
+    for (const annotation of message?.annotations ?? []) {
+      const cite = annotation.url_citation;
+      if (annotation.type !== "url_citation" || !cite?.url || results.some((result) => result.url === cite.url)) continue;
+      let title = cite.title;
+      if (!title) {
+        try {
+          title = new URL(cite.url).hostname;
+        } catch {
+          title = cite.url;
+        }
+      }
+      results.push({ title, url: cite.url, snippet: (cite.content ?? "").slice(0, 300) });
+      if (results.length >= 8) break;
+    }
+    return { answer: (message?.content ?? "").trim(), results };
+  }
+}
+
+interface OpenRouterSearchResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+      annotations?: Array<{ type?: string; url_citation?: { url?: string; title?: string; content?: string } }>;
+    };
+  }>;
+}
+
+/** Tries `primary`; on any failure answers from `secondary` so one provider's limit never ends search. */
+export class FallbackSearchProvider implements SearchProvider {
+  constructor(
+    private readonly primary: SearchProvider,
+    private readonly secondary: SearchProvider,
+  ) {}
+
+  async search(query: string): Promise<SearchResponse> {
+    try {
+      return await this.primary.search(query);
+    } catch (primaryError) {
+      logger.warn("Primary web search failed; falling back", {
+        reason: primaryError instanceof Error ? primaryError.message.slice(0, 200) : "unknown",
+      });
+      try {
+        return await this.secondary.search(query);
+      } catch {
+        // Report the primary's (user-explainable) error, e.g. the rate-limit message.
+        throw primaryError;
+      }
+    }
   }
 }
 

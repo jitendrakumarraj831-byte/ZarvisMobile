@@ -3,7 +3,6 @@ package com.zarvismobile.app.di
 import android.content.Context
 import androidx.room.Room
 import com.zarvismobile.agents.AndroidOrchestrator
-import com.zarvismobile.agents.ConversationIdStore
 import com.zarvismobile.app.ActivityBridge
 import com.zarvismobile.app.BuildConfig
 import com.zarvismobile.app.access.AndroidNotificationReaderPort
@@ -43,6 +42,8 @@ import com.zarvismobile.domain.access.DeviceAccessPort
 import com.zarvismobile.domain.access.PendingActionStore
 import com.zarvismobile.domain.access.RevocationDetector
 import com.zarvismobile.domain.capability.CapabilityRegistry
+import com.zarvismobile.domain.conversation.ActiveConversation
+import com.zarvismobile.domain.conversation.ConversationIdStore
 import com.zarvismobile.domain.port.ConfirmationPort
 import com.zarvismobile.domain.port.EntitlementPort
 import com.zarvismobile.domain.port.PermissionPort
@@ -58,6 +59,7 @@ import com.zarvismobile.domain.skill.NotificationReaderPort
 import com.zarvismobile.domain.skill.NotificationSettingsPort
 import com.zarvismobile.domain.skill.ScreenAccessPort
 import com.zarvismobile.domain.skill.UsageStatsPort
+import com.zarvismobile.feature.conversation.ChatPreferences
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -254,6 +256,18 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideChatPreferences(preferences: AppPreferences): ChatPreferences = object : ChatPreferences {
+        override val locale = preferences.locale
+        override val autoSpeak = preferences.autoSpeak
+    }
+
+    /** The one place that decides which server conversation is active; every Chat screen and every account change goes through it. */
+    @Provides
+    @Singleton
+    fun provideActiveConversation(store: ConversationIdStore): ActiveConversation = ActiveConversation(store)
+
+    @Provides
+    @Singleton
     fun provideAndroidOrchestrator(
         registry: SkillRegistry,
         pipeline: ToolPipeline,
@@ -262,7 +276,7 @@ object AppModule {
         capabilities: CapabilityRegistry,
         access: AccessCoordinator,
         pendingActions: PendingActionStore,
-        conversations: ConversationIdStore,
+        conversation: ActiveConversation,
     ): AndroidOrchestrator = AndroidOrchestrator(
         onDeviceRegistry = registry,
         onDevicePipeline = pipeline,
@@ -271,7 +285,7 @@ object AppModule {
         capabilities = capabilities,
         access = access,
         pendingActions = pendingActions,
-        conversations = conversations,
+        conversation = conversation,
         clock = SystemClockPort,
     )
 

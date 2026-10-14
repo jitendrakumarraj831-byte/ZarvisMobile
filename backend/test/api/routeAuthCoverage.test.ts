@@ -16,8 +16,14 @@ const PUBLIC = new Set([
   "POST /api/v1/auth/guest",
   "POST /api/v1/auth/login",
   "POST /api/v1/auth/refresh",
+  "POST /api/v1/auth/google",
+  "GET /api/v1/auth/config",
   // The capability registry is public product information (what ZARVIS can and cannot do).
   "GET /api/v1/capabilities/",
+  // Razorpay calls this without a user session. It never trusts its body: the signature is
+  // checked when the raw bytes are available and the payment is always re-read from Razorpay
+  // before anything is granted (billing/paymentService.ts), and it is rate-limited per IP.
+  "POST /api/v1/billing/razorpay/webhook",
 ]);
 
 interface Layer {

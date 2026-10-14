@@ -1,5 +1,6 @@
 package com.zarvismobile.feature.conversation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,24 +19,32 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.AiOrb
 import com.zarvismobile.core.ui.components.GlowColorsFor
+import com.zarvismobile.core.ui.components.MarkdownText
 import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisComposer
 import com.zarvismobile.core.ui.components.StatusPulseBadge
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisBackground
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.entity.ToolResultStatus
 
 /**
@@ -56,6 +65,7 @@ fun ConversationScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(initialText, submitInitialText, listenOnStart) {
         // Runs again after rotation / process recreation; the ViewModel handles it only once.
@@ -64,6 +74,30 @@ fun ConversationScreen(
 
     LaunchedEffect(uiState.turns.size) {
         if (uiState.turns.isNotEmpty()) listState.animateScrollToItem(uiState.turns.size - 1)
+    }
+
+    // Back while the microphone is open stops listening first, instead of leaving the chat with the mic still on.
+    BackHandler(enabled = uiState.voiceState == VoiceState.LISTENING) { viewModel.cancelListening() }
+
+    // The Chat tab and a chat opened from Home continue the same server conversation. Coming back to one of them picks up what
+    // the other added, so neither shows a stale half.
+    LifecycleResumeEffect(Unit) {
+        viewModel.syncWithServer()
+        onPauseOrDispose { }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(tr(UiString.CHAT_DELETE_TITLE)) },
+            text = { Text(tr(UiString.CHAT_DELETE_BODY)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; viewModel.deleteConversation() }) {
+                    Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
+        )
     }
 
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
@@ -80,31 +114,52 @@ fun ConversationScreen(
                 .navigationBarsPadding()
                 .imePadding(),
         ) {
-            if (onBack != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onBack) { Text("Back") }
-                    Text("Chat with ZARVIS", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = viewModel::startNewConversation) { Text("New chat") }
+            // The header is always there: "New chat" used to exist only on a chat opened from Home, so the Chat tab could never start fresh.
+            // Back is shown only when there is somewhere to go back to (the Chat tab is a tab, and the system Back button leaves it).
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onBack != null) TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
+                Text(
+                    tr(UiString.CHAT_TITLE),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f).padding(start = if (onBack == null) ZarvisSpacing.sm else 0.dp),
+                )
+                // Always enabled: after a failed restore the screen can look empty while the server still holds the conversation, and the user must be able to leave it.
+                TextButton(onClick = viewModel::startNewConversation) { Text(tr(UiString.CHAT_NEW)) }
+                // Offered only once there is something to delete, and not while a reply is on its way or a delete is already out.
+                if (uiState.turns.isNotEmpty()) {
+                    val idle = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.SUCCESS || uiState.voiceState == VoiceState.ERROR
+                    TextButton(onClick = { confirmDelete = true }, enabled = idle && !uiState.deleting) {
+                        Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            uiState.deleteOutcome?.let { outcome ->
+                ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
+                    Text(
+                        tr(if (outcome == ChatDeleteOutcome.DELETED) UiString.CHAT_DELETED else UiString.CHAT_DELETE_FAILED),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = viewModel::dismissDeleteOutcome) { Text(tr(UiString.COMMON_OK)) }
                 }
             }
             uiState.interrupted?.let { action ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
-                    Text("ZARVIS was closed before this finished:", style = MaterialTheme.typography.titleSmall)
+                    Text(tr(UiString.CHAT_INTERRUPTED_TITLE), style = MaterialTheme.typography.titleSmall)
                     Text("\"${action.utterance}\"", style = MaterialTheme.typography.bodyLarge)
-                    Text("Nothing was done. Continuing asks for access and confirmation again.", style = MaterialTheme.typography.bodySmall)
+                    Text(tr(UiString.CHAT_INTERRUPTED_BODY), style = MaterialTheme.typography.bodySmall)
                     Row {
-                        TextButton(onClick = viewModel::resumeInterrupted) { Text("Continue") }
-                        TextButton(onClick = viewModel::dismissInterrupted) { Text("Dismiss") }
+                        TextButton(onClick = viewModel::resumeInterrupted) { Text(tr(UiString.CHAT_CONTINUE)) }
+                        TextButton(onClick = viewModel::dismissInterrupted) { Text(tr(UiString.CHAT_DISMISS)) }
                     }
                 }
             }
             uiState.notice?.let { notice ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
                     Text(notice, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = viewModel::dismissNotice) { Text("OK") }
+                    TextButton(onClick = viewModel::dismissNotice) { Text(tr(UiString.COMMON_OK)) }
                 }
             }
             LazyColumn(
@@ -141,6 +196,7 @@ fun ConversationScreen(
                     onValueChange = viewModel::onComposerChange,
                     onSubmit = viewModel::submitComposerText,
                     onMicClick = { if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening() },
+                    placeholder = tr(UiString.CHAT_COMPOSER_HINT),
                     enabled = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.LISTENING || uiState.voiceState == VoiceState.ERROR,
                 )
             }
@@ -151,7 +207,8 @@ fun ConversationScreen(
 @Composable
 private fun TurnBubble(turn: ConversationTurn) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
-        Surface(
+        // An answer with no question (a conversation that began with one) shows no empty bubble.
+        if (turn.userText.isNotEmpty()) Surface(
             modifier = Modifier.fillMaxWidth(0.88f).align(Alignment.End),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.primary,
@@ -172,29 +229,36 @@ private fun TurnBubble(turn: ConversationTurn) {
                         color = if (status == ToolResultStatus.COMPLETED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                     )
                 }
-                Text(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
+                // The reply as the website draws it: headings, lists, links and code are formatted, not shown as raw symbols.
+                MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
 }
 
 /** Blueprint §10 structured status, shown on the reply it belongs to. */
-private fun statusChip(status: ToolResultStatus): String = when (status) {
-    ToolResultStatus.COMPLETED -> "✓ Completed"
-    ToolResultStatus.DENIED -> "Not done — declined"
-    ToolResultStatus.PERMISSION_REQUIRED -> "Needs permission"
-    ToolResultStatus.USER_ACTION_REQUIRED -> "Your action needed"
-    ToolResultStatus.CONFIRMATION_REQUIRED -> "Waiting for your confirmation"
-    ToolResultStatus.UNSUPPORTED -> "Not available"
-    ToolResultStatus.FAILED -> "Failed"
-}
+@Composable
+private fun statusChip(status: ToolResultStatus): String = tr(
+    when (status) {
+        ToolResultStatus.COMPLETED -> UiString.CHAT_STATUS_COMPLETED
+        ToolResultStatus.DENIED -> UiString.CHAT_STATUS_DECLINED
+        ToolResultStatus.PERMISSION_REQUIRED -> UiString.CHAT_STATUS_PERMISSION
+        ToolResultStatus.USER_ACTION_REQUIRED -> UiString.CHAT_STATUS_USER_ACTION
+        ToolResultStatus.CONFIRMATION_REQUIRED -> UiString.CHAT_STATUS_CONFIRMATION
+        ToolResultStatus.UNSUPPORTED -> UiString.CHAT_STATUS_UNSUPPORTED
+        ToolResultStatus.FAILED -> UiString.CHAT_STATUS_FAILED
+    },
+)
 
-private fun statusText(state: VoiceState): String = when (state) {
-    VoiceState.IDLE -> "Tap the orb or type to start"
-    VoiceState.LISTENING -> "Listening…"
-    // Only UNDERSTANDING is used while a request is in flight — no simulated planning steps.
-    VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING -> "Working…"
-    VoiceState.SUCCESS -> "Done"
-    VoiceState.SPEAKING -> "Speaking…"
-    VoiceState.ERROR -> "Something went wrong — try again"
-}
+@Composable
+private fun statusText(state: VoiceState): String = tr(
+    when (state) {
+        VoiceState.IDLE -> UiString.CHAT_STATE_IDLE
+        VoiceState.LISTENING -> UiString.CHAT_STATE_LISTENING
+        // Only UNDERSTANDING is used while a request is in flight — no simulated planning steps.
+        VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING -> UiString.CHAT_STATE_WORKING
+        VoiceState.SUCCESS -> UiString.CHAT_STATE_DONE
+        VoiceState.SPEAKING -> UiString.CHAT_STATE_SPEAKING
+        VoiceState.ERROR -> UiString.CHAT_STATE_ERROR
+    },
+)

@@ -32,6 +32,7 @@ for other origins; a per-IP ceiling of 600/min on `/api/v1`; errors are
 | GET | `/api/v1/capabilities` | none | — | — | registry | no | yes | (bundled JSON) |
 | POST | `/api/v1/orchestrator/turn-stream` | Bearer | 30/min/account | `{utterance, locale?, isFirstTurn?, conversationId?, history?, userName?, clientTurnId?}` | SSE `meta`, `progress`, `delta`, `done{message, toolCalls, conversationId, turnId, replayed?}`, `error{error, code?/type?, retryable, retryAfterMs?, quotaType?, turnId}` | **yes** | yes | no |
 | POST | `/api/v1/orchestrator/turn` | Bearer | 30/min/account | same | `{message, toolCalls, conversationId, turnId, replayed?}`; 429/503 provider; 409 `turn_in_progress` / `client_turn_id_reused`; 400 `invalid_client_turn_id` / `invalid_json`; 413 `payload_too_large` | no | — | yes |
+| GET | `/api/v1/conversations` | Bearer, own conversations only | `?limit` 1–100, default 30 | — | `{conversations[]}`: `{id, title, createdAt, updatedAt}` newest first, never messages | no | yes | yes |
 | GET | `/api/v1/conversations/:id/messages` | Bearer, owner | — | — | `{messages[]}`; 404 | no | yes | yes |
 | GET | `/api/v1/confirmations/:id` | Bearer, owner | — | — | record | no | — | — |
 | POST | `/api/v1/confirmations/:id/approve` | Bearer, owner | 30/min | — | tool outcome; 409 `confirmation_already_used`; 404 | no | yes | yes |
@@ -103,3 +104,22 @@ Web-only: `/orchestrator/turn-stream`, `/developer/implement`, `/integrations/gi
   completed". A non-daily quota (a spent credit balance) says "the current AI usage limit", not
   "today". No provider, model, fallback or error-kind field is ever sent to a client.
 - Android is unchanged and still decodes these bodies (`ignoreUnknownKeys`).
+
+## 5. Workspace endpoints (web phase)
+
+The workspace phase adds these routes; the web client calls all of them and `backend/test/api/clientContract.test.ts`
+now fails if any path called from **any** web file (`app.js`, `workspace.js`, `exec-cards.js`, `chat-kit.js`, `shell.js`,
+`feature-pages.js`) is not a served route.
+
+`/projects`, `/projects/:id`, `/notes`, `/notes/:id`, `/memory`, `/memory/settings`, `/memory/personal`, `/files`,
+`/files/:id`, `/files/text`, `/files/upload`, `/executions`, `/executions/:id`, `/conversations/:id/executions`,
+`/conversations/:id/project`, `/activity`, `/agents`, `/agents/:id`, `/usage/summary`, `/developer/pr-status`, and
+`/tasks/:id/run|retry|cancel`. See [WORKSPACE.md](WORKSPACE.md).
+
+- Compatibility: the Android `Task` model keeps working. `status` is unchanged on the wire; the new `lifecycle`,
+  `progress`, `steps`, `error` and `actions` fields are extra keys that Retrofit/kotlinx ignore (`ignoreUnknownKeys`).
+- Security (`backend/test/workspace/isolation.test.ts`, both stores): every route needs sign-in; one account cannot read,
+  change, attach to, move or cite another account's projects, files, notes, tasks, chats or tool runs; research
+  citations must be URLs the named search really returned; `/developer/pr-status` accepts only github.com URLs and a
+  positive pull request number.
+- Not changed: O2, O4 and O5 above remain open.

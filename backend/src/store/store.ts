@@ -1,9 +1,17 @@
-import type { ActionClass, EntitlementLevel, PermissionType, RiskLevel, Task } from "../domain/types.js";
+import type { ActionClass, EntitlementLevel, PermissionType, RiskLevel, Task, TaskLifecycle } from "../domain/types.js";
+import type { Project, ProjectStatus, ToolExecutionRecord, WorkspaceFile, WorkspaceFileSummary, WorkspaceNote, WorkspaceNoteKind } from "../domain/workspace.js";
 
 export class InsufficientCreditsError extends Error {
   constructor(accountId: string) {
     super(`Insufficient credits for account '${accountId}'`);
     this.name = "InsufficientCreditsError";
+  }
+}
+
+export class GoogleIdentityTakenError extends Error {
+  constructor() {
+    super("This Google account is already linked to another ZARVIS account");
+    this.name = "GoogleIdentityTakenError";
   }
 }
 
@@ -20,7 +28,18 @@ export interface User {
   passwordHash: string;
   /** A device-bootstrapped guest with a generated email; can be linked to a real email. */
   isGuest: boolean;
+  /** Google's stable account id when the user signed in with Google. */
+  googleSub?: string;
+  displayName?: string;
+  avatarUrl?: string;
   createdAt: Date;
+}
+
+export interface GoogleIdentityInput {
+  sub: string;
+  email: string;
+  name?: string;
+  picture?: string;
 }
 
 /** One signed-in device/browser. Refresh tokens rotate; only the latest one is valid. */
@@ -49,6 +68,8 @@ export interface ConfirmationRecord {
   riskLevel: RiskLevel;
   actionClass: ActionClass;
   conversationId?: string;
+  /** The task whose step asked for this approval, so the task can report what the approval did. */
+  taskId?: string;
   status: ConfirmationStatus;
   createdAt: Date;
   expiresAt: Date;
@@ -68,7 +89,41 @@ export interface Account {
   id: string;
   userId: string;
   plan: EntitlementLevel;
+  /** When a paid plan lapses (the account is then treated as FREE). Null/absent: no expiry. */
+  planExpiresAt?: Date | null;
+  /** Whether saved memory is given to the model. Absent means on. The user can pause it. */
+  memoryEnabled?: boolean;
   createdAt: Date;
+}
+
+/** A Razorpay order created for one plan purchase. Price and grants are snapshotted at creation. */
+export interface PaymentOrder {
+  orderId: string;
+  accountId: string;
+  planKey: string;
+  amountPaise: number;
+  currency: "INR";
+  periodDays: number;
+  credits: number;
+  status: "created" | "paid";
+  paymentId?: string;
+  createdAt: Date;
+  paidAt?: Date;
+}
+
+export type FulfillmentResult =
+  | { status: "fulfilled"; account: Account; creditBalance: number }
+  | { status: "already_fulfilled" }
+  | { status: "not_found" };
+
+/**
+ * New expiry when a paid period is bought: it stacks onto a still-running PRO period (renewing
+ * early never wastes paid time) and otherwise starts now.
+ */
+export function extendPlanExpiry(account: Pick<Account, "plan" | "planExpiresAt">, periodDays: number, now: Date): Date {
+  const running = account.plan === "PRO" && account.planExpiresAt && account.planExpiresAt.getTime() > now.getTime();
+  const base = running ? (account.planExpiresAt as Date).getTime() : now.getTime();
+  return new Date(base + periodDays * 24 * 60 * 60 * 1000);
 }
 
 export interface TrialRecord {
@@ -93,6 +148,8 @@ export interface Conversation {
   id: string;
   accountId: string;
   title?: string;
+  /** The project the chat belongs to, if the user started it in one or moved it there. */
+  projectId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -170,6 +227,13 @@ export interface Store {
   updateUserCredentials(userId: string, email: string, passwordHash: string): Promise<User>;
   findUserByEmail(email: string): Promise<User | undefined>;
   findUserById(id: string): Promise<User | undefined>;
+  findUserByGoogleSub(sub: string): Promise<User | undefined>;
+  /**
+   * Attaches a Google identity to an existing user and refreshes name/photo. With
+   * `convertGuest`, a guest becomes a real account on the Google email (same user, same account,
+   * nothing lost). Throws EmailTakenError / GoogleIdentityTakenError on a conflict.
+   */
+  linkGoogleIdentity(userId: string, identity: GoogleIdentityInput, options?: { convertGuest?: boolean }): Promise<User>;
 
   /** Creates an account for the user and starts its one lifetime trial. See SUBSCRIPTIONS.md. */
   createAccountForUser(userId: string): Promise<Account>;
@@ -198,11 +262,31 @@ export interface Store {
    * Returns false when that token was already consumed, including by another account.
    */
   claimPurchaseToken(purchaseToken: string, accountId: string, productId: string): Promise<boolean>;
+
+  /** Records a Razorpay order the server just created for this account. */
+  createPaymentOrder(order: PaymentOrder): Promise<void>;
+  getPaymentOrder(orderId: string): Promise<PaymentOrder | undefined>;
+  /**
+   * Marks the order paid and grants its plan period and credits in ONE atomic step, exactly once:
+   * a second call (client verify racing the webhook, a replay) returns "already_fulfilled" and
+   * changes nothing.
+   */
+  fulfillPaymentOrder(orderId: string, paymentId: string, now: Date): Promise<FulfillmentResult>;
   listUsage(accountId: string): Promise<UsageEntry[]>;
 
-  createConversation(accountId: string, title?: string): Promise<Conversation>;
+  createConversation(accountId: string, title?: string, projectId?: string): Promise<Conversation>;
   getConversation(accountId: string, conversationId: string): Promise<Conversation | undefined>;
-  listConversations(accountId: string): Promise<Conversation[]>;
+  /** Newest first. `limit` caps the rows read (the list endpoint never needs an account's whole history). */
+  listConversations(accountId: string, limit?: number, filter?: { projectId?: string }): Promise<Conversation[]>;
+  /** Moves a chat into a project, or out of every project with `null`. Returns undefined for a chat that is not the account's. */
+  setConversationProject(accountId: string, conversationId: string, projectId: string | null): Promise<Conversation | undefined>;
+  /**
+   * Permanently deletes one of the account's chats and everything that holds its text: its messages, the stored results of its turns
+   * (they contain the replies), and the tool runs made in it. A tool run that belongs to a task is kept for the task's history but
+   * loses its link to the chat, and a task that was started in the chat loses its "open chat" link. Returns false, changing nothing,
+   * for a chat that does not exist or is another account's.
+   */
+  deleteConversation(accountId: string, conversationId: string): Promise<boolean>;
   appendConversationMessages(messages: ConversationMessage[]): Promise<void>;
   listConversationMessages(accountId: string, conversationId: string, limit?: number): Promise<ConversationMessage[]>;
 
@@ -248,5 +332,51 @@ export interface Store {
   createTask(task: Task): Promise<Task>;
   getTask(taskId: string): Promise<Task | undefined>;
   updateTask(task: Task): Promise<Task>;
+  /**
+   * Like updateTask, but only when the stored task is still in one of `whileIn`. A write that raced with another (a step
+   * finishing while the user cancelled) therefore never overwrites the other's result. Returns undefined when the task
+   * is missing or has already left those states; the caller then re-reads it.
+   */
+  updateTaskIf(task: Task, whileIn: TaskLifecycle[]): Promise<Task | undefined>;
   listTasksForAccount(accountId: string): Promise<Task[]>;
+  /**
+   * Atomically moves the account's task to `to` when it is in one of `from`, or when it is mid-run
+   * (RUNNING/EXECUTING/VERIFYING) and has not been touched since `staleBefore` (its request died).
+   * Returns the updated task, or undefined when it is missing, not the account's, or already
+   * running elsewhere. This is what keeps two Run clicks from executing the same step twice.
+   */
+  claimTaskRun(accountId: string, taskId: string, from: TaskLifecycle[], now: Date, staleBefore: Date): Promise<Task | undefined>;
+
+  createProject(project: Project): Promise<Project>;
+  getProject(accountId: string, projectId: string): Promise<Project | undefined>;
+  /** Newest activity first. */
+  listProjects(accountId: string, filter?: { status?: ProjectStatus }): Promise<Project[]>;
+  updateProject(project: Project): Promise<Project>;
+  /** Removes the project and its notes; its chats, tasks and files stay and become unassigned. */
+  deleteProject(accountId: string, projectId: string): Promise<boolean>;
+
+  createNote(note: WorkspaceNote): Promise<WorkspaceNote>;
+  getNote(accountId: string, noteId: string): Promise<WorkspaceNote | undefined>;
+  /** `projectId: null` lists the notes that belong to no project (personal memory, loose research). Oldest first. */
+  listNotes(accountId: string, filter?: { projectId?: string | null; kind?: WorkspaceNoteKind }): Promise<WorkspaceNote[]>;
+  updateNote(note: WorkspaceNote): Promise<WorkspaceNote>;
+  deleteNote(accountId: string, noteId: string): Promise<boolean>;
+  /** Deletes every personal-memory note of the account (the "forget everything" action). Returns how many. */
+  deletePersonalMemory(accountId: string): Promise<number>;
+  setMemoryEnabled(accountId: string, enabled: boolean): Promise<Account>;
+
+  createFile(file: WorkspaceFile): Promise<WorkspaceFile>;
+  getFile(accountId: string, fileId: string): Promise<WorkspaceFile | undefined>;
+  /** Newest first, without the text. `projectId: null` lists the files that belong to no project. */
+  listFiles(accountId: string, filter?: { projectId?: string | null; limit?: number }): Promise<WorkspaceFileSummary[]>;
+  updateFile(file: WorkspaceFile): Promise<WorkspaceFile>;
+  deleteFile(accountId: string, fileId: string): Promise<boolean>;
+
+  recordExecution(record: ToolExecutionRecord): Promise<void>;
+  getExecution(accountId: string, executionId: string): Promise<ToolExecutionRecord | undefined>;
+  /** Newest first. */
+  listExecutions(
+    accountId: string,
+    filter?: { conversationId?: string; projectId?: string; taskId?: string; skillIds?: string[]; limit?: number },
+  ): Promise<ToolExecutionRecord[]>;
 }

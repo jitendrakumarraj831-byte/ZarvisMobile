@@ -39,6 +39,30 @@ export interface RepoStructure {
   topLevelDirs: string[];
 }
 
+export interface PullRequestCheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  url: string | null;
+}
+
+/** What GitHub itself reports about a pull request and the checks that ran on its latest commit. */
+export interface PullRequestStatus {
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "closed";
+  merged: boolean;
+  draft: boolean;
+  headSha: string;
+  headRef: string;
+  baseRef: string;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+  checks: PullRequestCheck[];
+}
+
 export interface GitHubClient {
   /** The authenticated user behind this client's token (fails for an anonymous client). */
   getAuthenticatedUser(): Promise<GitHubUser>;
@@ -53,6 +77,8 @@ export interface GitHubClient {
   createImplementationBranch(repoUrl: string, branch: string): Promise<{ branch: string }>;
   applyImplementationFiles(repoUrl: string, branch: string, files: Array<{ path: string; content: string }>, message: string): Promise<{ commitShas: string[] }>;
   createPullRequest(repoUrl: string, branch: string, title: string, body: string): Promise<{ number: number; url: string }>;
+  /** Read-only: the pull request and the check runs / commit statuses GitHub reports for its head commit. */
+  getPullRequestStatus(repoUrl: string, number: number): Promise<PullRequestStatus>;
 }
 
 interface GitHubRepo {
@@ -76,17 +102,21 @@ interface GitHubTree {
   tree?: Array<{ path: string; type: string }>;
 }
 
+/** How long one GitHub API call may take before it is given up as unreachable. */
+export const GITHUB_TIMEOUT_MS = 15_000;
+
 export class RealGitHubClient implements GitHubClient {
   constructor(
     private readonly token?: string,
     private readonly baseUrl = "https://api.github.com",
+    private readonly timeoutMs = GITHUB_TIMEOUT_MS,
   ) {}
 
   async getAuthenticatedUser(): Promise<GitHubUser> {
     if (!this.token) throw new GitHubApiError(401, "No GitHub token");
-    const response = await fetch(`${this.baseUrl}/user`, { headers: this.headers() });
+    const response = await this.send("/user", { headers: this.headers() });
     if (!response.ok) throw new GitHubApiError(response.status, `GitHub /user failed (${response.status})`);
-    const body = (await response.json()) as { login?: string };
+    const body = await this.readJson<{ login?: string }>(response);
     if (!body.login) throw new GitHubApiError(502, "GitHub /user returned no login");
     return { login: body.login, scopes: response.headers.get("x-oauth-scopes") ?? "" };
   }
@@ -222,6 +252,35 @@ export class RealGitHubClient implements GitHubClient {
     return { number: pr.number, url: pr.html_url };
   }
 
+  async getPullRequestStatus(repoUrl: string, number: number): Promise<PullRequestStatus> {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    if (!Number.isInteger(number) || number < 1) throw new GitHubApiError(400, "A pull request number is required.");
+    const pr = await this.request<{
+      number: number; title: string; html_url: string; state: "open" | "closed"; merged?: boolean; draft?: boolean;
+      head: { sha: string; ref: string }; base: { ref: string }; changed_files?: number; additions?: number; deletions?: number;
+    }>(`/repos/${owner}/${repo}/pulls/${number}`);
+    const sha = encodeURIComponent(pr.head.sha);
+    // A repository without any CI answers both with empty lists; a failing lookup is not "no checks".
+    const [runs, combined] = await Promise.all([
+      this.request<{ check_runs?: Array<{ name: string; status: string; conclusion: string | null; html_url?: string | null }> }>(`/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=50`),
+      this.request<{ statuses?: Array<{ context: string; state: string; target_url?: string | null }> }>(`/repos/${owner}/${repo}/commits/${sha}/status`),
+    ]);
+    const checks: PullRequestCheck[] = [
+      ...(runs.check_runs ?? []).map((run) => ({ name: run.name, status: run.status, conclusion: run.conclusion ?? null, url: run.html_url ?? null })),
+      ...(combined.statuses ?? []).map((status) => ({
+        name: status.context,
+        status: status.state === "pending" ? "in_progress" : "completed",
+        conclusion: status.state === "pending" ? null : status.state === "success" ? "success" : "failure",
+        url: status.target_url ?? null,
+      })),
+    ];
+    return {
+      number: pr.number, title: pr.title, url: pr.html_url, state: pr.state, merged: pr.merged === true, draft: pr.draft === true,
+      headSha: pr.head.sha, headRef: pr.head.ref, baseRef: pr.base.ref,
+      changedFiles: pr.changed_files ?? 0, additions: pr.additions ?? 0, deletions: pr.deletions ?? 0, checks,
+    };
+  }
+
   private headers(json = false): Record<string, string> {
     const headers: Record<string, string> = {
       accept: "application/vnd.github+json",
@@ -233,9 +292,29 @@ export class RealGitHubClient implements GitHubClient {
     return headers;
   }
 
+  /** One GitHub call, bounded in time (the signal also covers reading the body), so a stalled GitHub cannot hang a request. */
+  private async send(path: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(`${this.baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+    } catch (err) {
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) throw new GitHubApiError(504, "GitHub did not answer in time.");
+      throw err;
+    }
+  }
+
+  /** The body of a GitHub answer; a body that stalls past the same limit is reported like a call that never answered. */
+  private async readJson<T>(response: Response): Promise<T> {
+    try {
+      return (await response.json()) as T;
+    } catch (err) {
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) throw new GitHubApiError(504, "GitHub did not answer in time.");
+      throw err;
+    }
+  }
+
   private async requestRaw<T>(path: string, method: string, body?: unknown): Promise<T> {
     const headers = this.headers(true);
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await this.send(path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -244,11 +323,11 @@ export class RealGitHubClient implements GitHubClient {
       const detail = await response.text().catch(() => "");
       throw new GitHubApiError(response.status, `GitHub write failed (${response.status}) ${detail.slice(0, 200)}`.trim());
     }
-    return (await response.json()) as T;
+    return this.readJson<T>(response);
   }
 
   private async request<T>(path: string): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
+    const response = await this.send(path, { headers: this.headers() });
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       const hint =
@@ -259,7 +338,7 @@ export class RealGitHubClient implements GitHubClient {
             : "GitHub API request failed.";
       throw new GitHubApiError(response.status, `${hint} (${response.status}) ${detail.slice(0, 200)}`.trim());
     }
-    return (await response.json()) as T;
+    return this.readJson<T>(response);
   }
 }
 
@@ -327,6 +406,15 @@ export class MockGitHubClient implements GitHubClient {
 
   async createPullRequest(_repoUrl: string, _branch: string, _title: string, _body: string) {
     return { number: 1, url: "https://github.com/example/demo/pull/1" };
+  }
+
+  async getPullRequestStatus(repoUrl: string, number: number): Promise<PullRequestStatus> {
+    const { owner, repo } = parseRepoUrl(repoUrl);
+    return {
+      number, title: "Mock pull request", url: `https://github.com/${owner}/${repo}/pull/${number}`, state: "open", merged: false, draft: false,
+      headSha: "mock-head-sha", headRef: "zarvis/agent-mock", baseRef: "main", changedFiles: 1, additions: 2, deletions: 0,
+      checks: [{ name: "mock-ci", status: "completed", conclusion: "success", url: null }],
+    };
   }
 }
 

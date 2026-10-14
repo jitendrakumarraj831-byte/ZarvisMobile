@@ -27,7 +27,12 @@ class CapabilitiesViewModel @Inject constructor(
     val uiState: StateFlow<CapabilitiesUiState> = _uiState.asStateFlow()
 
     init {
+        refresh()
+    }
+
+    fun refresh() {
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 _uiState.value = CapabilitiesUiState(skills = api.getSkills().skills, isLoading = false)
             } catch (t: Throwable) {

@@ -5,10 +5,10 @@
  * mirroring the zero-credential/zero-setup spirit of the backend's MockAIProvider default
  * (AI_ARCHITECTURE.md). See MASTER_SPEC.md §12a "Web Client Architecture".
  *
- * Session model mirrors the Android app's guest bootstrap (MASTER_SPEC.md §32, "No login
- * screen yet"): on first load this creates a device-scoped backend account automatically
- * (POST /api/v1/auth/signup with a generated, unguessable email) rather than showing a
- * signup form, so a first-time visitor can start talking to ZARVIS immediately.
+ * Session model mirrors the Android app's guest bootstrap: on first load this creates a
+ * device-scoped guest account (POST /api/v1/auth/guest) rather than showing a signup form, so
+ * a first-time visitor can start talking to ZARVIS immediately. Signing in (email or Google)
+ * is always optional and never blocks chatting.
  */
 (() => {
   "use strict";
@@ -18,10 +18,10 @@
     refreshToken: "zarvis.refreshToken",
     lang: "zarvis.lang",
     speak: "zarvis.speak",
-    voiceURI: "zarvis.voiceURI",
     ttsVoice: "zarvis.ttsVoice",
     userName: "zarvis.userName",
     conversationId: "zarvis.conversationId",
+    devAccess: "zarvis.devAccess",
   };
 
   const API_BASE = resolveApiBase();
@@ -47,6 +47,8 @@
     }
   }
   let refreshInFlight = null;
+  /** The first-visit guest bootstrap, started before any page can ask for data (see apiFetch). Never rejects. */
+  let sessionReady = null;
   let capabilityCache = null;
   const SESSION_GATE_COPY = {
     signed_out: ["You're signed out", "Sign in with your email, or start a new guest account on this browser."],
@@ -63,8 +65,9 @@
       subtitle: "Type, speak, or attach a file.",
       quickActionsLead: "Suggestions",
       placeholder: "Message ZARVIS…",
+      placeholderShort: "Ask ZARVIS",
+      placeholderMin: "Ask…",
       homeGreetings: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening" },
-      homeSub: "Your AI assistant for chat, voice, files and code.",
       send: "Send",
       stop: "Stop",
       mic: "Speak",
@@ -101,8 +104,11 @@
       extracting: "Reading document…",
       attachmentReady: "Ready to analyze",
       attachmentRemove: "Remove attachment",
+      offlineLabel: "Offline",
+      offlineBanner: "You're offline. ZARVIS works again as soon as you reconnect.",
+      backOnline: "Back online",
       stateLabels: {
-        IDLE: "Ready",
+        IDLE: "Online",
         LISTENING: "Listening",
         UNDERSTANDING: "Understanding",
         PLANNING: "Understanding",
@@ -111,6 +117,7 @@
         SPEAKING: "Speaking",
         ERROR: "Something went wrong",
       },
+      pausedLabel: "Paused",
       quickActions: {
         ask: "Ask anything",
         write: "Write",
@@ -118,7 +125,14 @@
         code: "Code",
         analyze: "Analyze",
         plan: "Plan",
-        create: "Create",
+      },
+      quickHints: {
+        ask: "Chat about anything",
+        write: "Messages, posts and poems",
+        research: "Search the web, with sources",
+        code: "Generate and explain code",
+        analyze: "Documents and images",
+        plan: "Break a goal into steps",
       },
     },
     hi: {
@@ -127,8 +141,9 @@
       subtitle: "लिखें, बोलें या फ़ाइल अटैच करें।",
       quickActionsLead: "सुझाव",
       placeholder: "ZARVIS को संदेश भेजें…",
+      placeholderShort: "ZARVIS से पूछें",
+      placeholderMin: "पूछें…",
       homeGreetings: { morning: "सुप्रभात", afternoon: "नमस्ते", evening: "शुभ संध्या" },
-      homeSub: "चैट, आवाज़, फ़ाइलों और कोड के लिए आपका AI असिस्टेंट।",
       send: "भेजें",
       stop: "रोकें",
       mic: "बोलें",
@@ -161,8 +176,11 @@
       extracting: "डॉक्यूमेंट पढ़ा जा रहा है…",
       attachmentReady: "विश्लेषण के लिए तैयार",
       attachmentRemove: "अटैचमेंट हटाएं",
+      offlineLabel: "ऑफ़लाइन",
+      offlineBanner: "आप ऑफ़लाइन हैं। इंटरनेट लौटते ही ZARVIS फिर काम करेगा।",
+      backOnline: "फिर से ऑनलाइन",
       stateLabels: {
-        IDLE: "तैयार",
+        IDLE: "ऑनलाइन",
         LISTENING: "सुन रहा हूँ",
         UNDERSTANDING: "समझ रहा हूँ",
         PLANNING: "समझ रहा हूँ",
@@ -171,6 +189,7 @@
         SPEAKING: "बोल रहा हूँ",
         ERROR: "समस्या हुई",
       },
+      pausedLabel: "रुका हुआ",
       quickActions: {
         ask: "कुछ भी पूछें",
         write: "लिखें",
@@ -178,7 +197,14 @@
         code: "कोड",
         analyze: "एनालाइज़",
         plan: "प्लान",
-        create: "बनाएं",
+      },
+      quickHints: {
+        ask: "किसी भी विषय पर बात करें",
+        write: "संदेश, पोस्ट और कविता",
+        research: "वेब पर खोजें, स्रोतों के साथ",
+        code: "कोड बनाएँ और समझें",
+        analyze: "डॉक्यूमेंट और इमेज",
+        plan: "लक्ष्य को चरणों में बाँटें",
       },
     },
   };
@@ -193,6 +219,22 @@
       /* unsupported — ignore */
     }
   }
+
+  /** Calls into the chat kit (chat-kit.js). It adds conveniences around the thread, so a problem in it
+   * is logged and never allowed to break sending or showing a message. */
+  function kit(method, ...args) {
+    try {
+      return window.ZarvisChatKit?.[method]?.(...args);
+    } catch (err) {
+      console.warn("Zarvis chat kit:", method, err);
+      return undefined;
+    }
+  }
+
+  /** True while the user has paused a spoken reply (the orb stays SPEAKING; Resume carries on from the same spot). */
+  let speechPaused = false;
+  /** Bumped whenever speech is stopped or a new playback starts. A turn that finishes later must not set the orb idle over speech that is not its own. */
+  let speechEpoch = 0;
 
   const el = {
     orb: document.getElementById("orb"),
@@ -225,6 +267,8 @@
     viewPlans: document.getElementById("view-plans"),
     viewMetrics: document.getElementById("view-metrics"),
     viewActivity: document.getElementById("view-activity"),
+    viewWork: document.getElementById("view-work"),
+    viewAgents: document.getElementById("view-agents"),
     viewDeveloper: document.getElementById("view-developer"),
     viewSettings: document.getElementById("view-settings"),
     viewFeature: document.getElementById("view-feature"),
@@ -239,9 +283,6 @@
     metricsHealthGrid: document.getElementById("metrics-health-grid"),
     latencyStats: document.getElementById("latency-stats"),
     latencyLog: document.getElementById("latency-log"),
-    taskList: document.getElementById("task-list"),
-    settingsBtn: document.getElementById("settings-btn"),
-    settingsBackBtn: document.getElementById("settings-back-btn"),
     settingsLangOptions: document.getElementById("settings-lang-options"),
     settingsVoiceToggle: document.getElementById("settings-voice-toggle"),
     settingsDeleteBtn: document.getElementById("settings-delete-btn"),
@@ -253,14 +294,11 @@
     appearanceAuroraBtn: document.getElementById("appearance-aurora-btn"),
     appearanceDimBtn: document.getElementById("appearance-dim-btn"),
     settingsOpenDeveloper: document.getElementById("settings-open-developer"),
-    activityTaskList: document.getElementById("activity-task-list"),
+    settingsOpenMetrics: document.getElementById("settings-open-metrics"),
+    settingsDevToggle: document.getElementById("settings-dev-toggle"),
+    activityTasks: document.getElementById("activity-tasks"),
     activityRefreshBtn: document.getElementById("activity-refresh-btn"),
-    activityMetricsBtn: document.getElementById("activity-metrics-btn"),
-    developerEntryLink: document.getElementById("developer-entry-link"),
-    developerBackBtn: document.getElementById("developer-back-btn"),
     chatBackBtn: document.getElementById("chat-back-btn"),
-    openChatBtn: document.getElementById("open-chat-btn"),
-    homeDeveloperCard: document.getElementById("home-developer-card"),
     developerRepoInput: document.getElementById("developer-repo-input"),
     developerAnalyzeBtn: document.getElementById("developer-analyze-btn"),
     developerRequirementInput: document.getElementById("developer-requirement-input"),
@@ -270,9 +308,9 @@
     confirmModalTitle: document.getElementById("confirm-modal-title"),
     confirmModalBody: document.getElementById("confirm-modal-body"),
     confirmModalCancel: document.getElementById("confirm-modal-cancel"),
+    confirmModalSecondary: document.getElementById("confirm-modal-secondary"),
     confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
     homeGreeting: document.getElementById("home-greeting"),
-    homeTitleSub: document.querySelector(".home-title-sub"),
     homeOrb: document.getElementById("home-orb"),
     chatNewBtn: document.getElementById("chat-new-btn"),
     activityTimeline: document.getElementById("activity-timeline"),
@@ -313,17 +351,22 @@
     // Server-side durable conversation id. The browser keeps only this pointer; the
     // conversation messages themselves live in the backend/Postgres store.
     conversationId: localStorage.getItem(STORAGE_KEYS.conversationId) || null,
-    appearance: localStorage.getItem("zarvis.appearance") || "aurora",
+    // theme-init.js (in <head>) already applied the saved theme (light unless dark was chosen) before first paint.
+    appearance: document.documentElement.dataset.appearance === "aurora" ? "aurora" : "dim",
+    // "Developer access" is off by default: Developer Agent and Metrics stay out of the way until
+    // the user switches them on in Settings → Developer. It only changes what is shown.
+    devAccess: readDevAccess(),
     settingsPage: null,
     featureId: null,
+    // The project and agent the open chat belongs to / is run with (null: none). A new chat started from a
+    // project or an agent page starts in that context; the server confirms it in the stream's `meta` event.
+    projectId: null,
+    agentId: null,
   };
 
-  // Declared here (not near their setup functions below) because init() runs synchronously
-  // up to its first `await` and calls those setup functions immediately — a `let` declared
-  // later in this same scope would still be in its temporal dead zone at that point,
-  // throwing "Cannot access '...' before initialization".
+  // Declared early out of habit: init() is now started at the very end of this file, so the
+  // order of declarations below no longer matters to it.
   let recognition = null;
-  let cachedVoices = [];
   // Presentation state read by Settings, Metrics and Activity (declared early for init()).
   let currentPlanName = null;
   let healthCache = null;
@@ -334,15 +377,6 @@
   // called from submitUtterance() around the actual /orchestrator/turn fetch) — feeds the
   // System Metrics tab. In-memory only, capped, never persisted or fabricated.
   let latencyEntries = [];
-
-  init().catch((err) => {
-    // The technical detail (network failure, a platform error page, whatever) is only ever
-    // logged here — never rendered into the UI. addErrorBubble always shows the same
-    // friendly, translated connection message regardless of cause.
-    console.error(err);
-    addErrorBubble(COPY[state.lang].bootError, () => location.reload());
-    setOrbState("ERROR");
-  });
 
   async function init() {
     // Wire the core composer controls first. These must remain usable even if an optional
@@ -372,30 +406,42 @@
     el.uploadBtn.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      if (el.uploadBtn.getAttribute("aria-disabled") !== "true") el.fileInput.click();
+      if (el.uploadBtn.getAttribute("aria-disabled") !== "true") openFilePicker();
     });
     el.attachmentRemoveBtn.addEventListener("click", () => {
       haptic();
       clearPendingAttachment();
     });
 
+    sessionReady = ensureSession().catch(() => {}); // failures are handled where init() awaits ensureSession() below
+
     // Secondary UI initialization is isolated per feature. One optional browser API or
     // non-critical screen must never prevent the other buttons from receiving handlers.
     const optionalInitializers = [
       ["speech synthesis", setupSpeechSynthesis],
+      ["speech bar", setupSpeechBar],
       ["language UI", applyLanguage],
+      ["composer placeholder", watchComposerPlaceholder],
       ["voice toggle", applyVoiceToggleState],
       ["speech recognition", setupSpeechRecognition],
       ["service worker", registerServiceWorker],
+      ["go links", setupGoLinks],
       ["navigation", setupBottomNav],
+      ["chat kit", setupChatKit],
+      ["workspace", setupWorkspace],
       ["home feature links", setupHomeFeatures],
       ["capability pages", setupCapabilityPages],
       ["plans", setupPlans],
       ["settings", setupSettings],
       ["session gate", setupSessionGate],
+      ["welcome gate", setupWelcomeGate],
       ["account", setupAccountPanel],
       ["developer", setupDeveloper],
       ["github", setupGithubConnect],
+      ["modals", setupModalManager],
+      ["connection", setupConnectionState],
+      ["history", setupHistory],
+      ["menu drawer", setupNavDrawer],
     ];
     for (const [name, initialize] of optionalInitializers) {
       try {
@@ -407,7 +453,12 @@
 
     try {
       await ensureSession();
-      void restoreConversation();
+      const resumeId = state.conversationId;
+      void restoreConversation().then((result) => {
+        if (result === "missing") kit("remove", resumeId);
+        kit("renderAll");
+      });
+      void kit("sync", { force: true });
       const results = await Promise.allSettled([loadSkills(), fetchTasks()]);
       if (results.some((result) => result.status === "rejected" && result.reason instanceof SessionEndedError)) return;
       for (const result of results) {
@@ -426,6 +477,8 @@
       return;
     }
 
+    renderChatContext();
+    void workspace()?.refreshHome();
     setOrbState("IDLE");
     // No auto-arm: voice input only ever starts from an explicit mic/orb press.
   }
@@ -445,7 +498,7 @@
     el.heroSubtitle.textContent = copy.subtitle;
     el.quickActionsLead.textContent = copy.quickActionsLead;
     renderHomeGreeting();
-    el.input.placeholder = copy.placeholder;
+    fitComposerPlaceholder();
     // Set only the label span's text, not the whole button — sendBtn also contains an SVG
     // icon that el.sendBtn.textContent = ... would silently wipe out.
     el.sendLabel.textContent = copy.send;
@@ -460,12 +513,44 @@
     // later in this file — applyLanguage() runs synchronously from init(), before that
     // declaration executes, so calling it here throws "Cannot access before initialization"
     // and takes down the entire init() sequence with it. el.sendLabel is already set above.
-    el.heroStatusLabel.textContent = copy.stateLabels[el.orb.dataset.state] || copy.stateLabels.IDLE;
+    renderHeroStatus();
     if (state.skills.length) renderQuickActions(state.skills);
     populateVoiceSelect(); // available voices differ between "en" and "hi"
     for (const btn of el.settingsLangOptions.querySelectorAll(".option-btn")) {
       btn.classList.toggle("active", btn.dataset.lang === state.lang);
     }
+    // Everything the page says in English that has a Hindi entry (see i18n.js); user content is left alone.
+    window.ZarvisI18n?.apply(state.lang);
+  }
+
+  // The tool buttons leave a 320-360px phone only 80-120px for the placeholder. A textarea wraps a placeholder that does not
+  // fit (the second line is cut off) and cannot end it with an ellipsis, so the first of three wordings that fits is used.
+  let placeholderProbe = null;
+  function fitComposerPlaceholder() {
+    const copy = COPY[state.lang];
+    const style = getComputedStyle(el.input);
+    const room = el.input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    let text = copy.placeholder;
+    if (room > 0) { // while Chat is hidden there is nothing to measure; the resize observer measures again once it is shown
+      if (!placeholderProbe) {
+        placeholderProbe = document.createElement("span");
+        placeholderProbe.setAttribute("aria-hidden", "true");
+        placeholderProbe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;white-space:nowrap;";
+        document.body.appendChild(placeholderProbe);
+      }
+      for (const property of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing"]) placeholderProbe.style[property] = style[property];
+      const fits = (candidate) => {
+        placeholderProbe.textContent = candidate;
+        return placeholderProbe.getBoundingClientRect().width <= room - 1;
+      };
+      text = [copy.placeholder, copy.placeholderShort, copy.placeholderMin].find(fits) || copy.placeholderMin;
+    }
+    if (el.input.placeholder !== text) el.input.placeholder = text;
+  }
+
+  function watchComposerPlaceholder() {
+    if (typeof ResizeObserver === "function") new ResizeObserver(fitComposerPlaceholder).observe(el.input);
+    document.fonts?.ready?.then(fitComposerPlaceholder);
   }
 
   /** Settings screen's language pills read/write the same `state.lang`/localStorage key. */
@@ -473,6 +558,9 @@
     state.lang = lang;
     localStorage.setItem(STORAGE_KEYS.lang, state.lang);
     applyLanguage();
+    // The tab and history title were composed in the old language; the page itself has just been translated.
+    const title = pageTitle();
+    document.title = kit("decorateTitle", title) || title;
   }
 
   /** Settings screen's "Spoken replies" button — off by default (see `state.speak`'s init). */
@@ -480,6 +568,322 @@
     state.speak = !state.speak;
     localStorage.setItem(STORAGE_KEYS.speak, state.speak ? "on" : "off");
     applyVoiceToggleState();
+  }
+
+  function readDevAccess() {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.devAccess) === "on";
+    } catch {
+      return false;
+    }
+  }
+
+  /** Shows or hides every Developer-access entry point (nav, Home chip, Activity filter, hub, skills). */
+  function applyDevAccess() {
+    const on = state.devAccess;
+    document.body.dataset.devAccess = on ? "on" : "off";
+    for (const node of document.querySelectorAll("[data-dev-only]")) node.hidden = !on;
+    el.settingsDevToggle?.setAttribute("aria-pressed", String(on));
+    const text = el.settingsDevToggle?.querySelector(".switch-text");
+    if (text) text.textContent = on ? "On" : "Off";
+    // Leaving Developer access while its Activity filter is selected falls back to "All"
+    // (through the filter's own handler, so the list and the pressed state stay in step).
+    if (!on) el.activityFilters?.querySelector('[data-filter="developer"].active') && el.activityFilters.querySelector('[data-filter="all"]')?.click();
+    if (el.capabilityHub && window.ZarvisFeatures) window.ZarvisFeatures.renderHub(el.capabilityHub, { developer: on });
+    if (state.skills.length) renderCapabilities();
+    updateSettingsValues();
+  }
+
+  function setDevAccess(on) {
+    state.devAccess = on;
+    try {
+      localStorage.setItem(STORAGE_KEYS.devAccess, on ? "on" : "off");
+    } catch {}
+    applyDevAccess();
+  }
+
+  /** Developer-only pages send everyone else to the switch that turns them on. */
+  function requireDevAccess(label) {
+    if (state.devAccess) return true;
+    showToast(label + " is part of Developer access. Turn it on in Settings.");
+    setActiveView("settings");
+    openSettingsPage("developer");
+    return false;
+  }
+
+  // ---- Browser history: pages and Settings sub-pages are real history entries ---------------
+  // Back / Forward (and the Android system Back button) move between pages instead of leaving
+  // the app, a reload keeps the page, and #/settings/voice style links open that page.
+  let applyingRoute = false;
+  let subpageOwnsEntry = false; // the open Settings sub-page was pushed by this session
+  let featureOwnsEntry = false; // same for a capability detail page
+
+  const PAGE_TITLES = { home: "Home", chat: "Chat", activity: "Activity", work: "Work", agents: "Agents", capabilities: "Capabilities", plans: "Plans & Usage", settings: "Settings", developer: "Developer Agent", metrics: "Usage & Metrics", feature: "Capabilities" };
+
+  const workspace = () => window.ZarvisWorkspace;
+  const WORK_TAB_LABELS = { projects: "Projects", files: "Files", research: "Research", tasks: "Tasks", outputs: "Outputs" };
+
+  /** The section name shown in the title and the breadcrumb: the open tab, or the open project's name. */
+  function workTitle() {
+    const sub = workspace()?.workSub() || "projects";
+    if (sub.startsWith("project-")) return workspace()?.projectName(sub.slice(8)) || "Project";
+    return sub === "projects" ? "" : WORK_TAB_LABELS[sub] || "";
+  }
+
+  function agentTitle() {
+    const id = workspace()?.agentsSub();
+    return id ? id.charAt(0).toUpperCase() + id.slice(1) + " agent" : "";
+  }
+
+  function currentRoute() {
+    if (state.activeView === "work") return "#/work/" + (workspace()?.workSub() || "projects");
+    if (state.activeView === "agents") return "#/agents" + (workspace()?.agentsSub() ? "/" + workspace().agentsSub() : "");
+    if (state.activeView === "settings" && state.settingsPage) return "#/settings/" + state.settingsPage;
+    if (state.activeView === "feature" && state.featureId) return "#/capabilities/" + state.featureId;
+    return "#/" + state.activeView;
+  }
+
+  /** "Activity · ZARVIS AI": what the tab, the history list and a screen reader announce. */
+  function pageTitle() {
+    const brand = "ZARVIS AI";
+    if (state.activeView === "home") return brand;
+    let name = "";
+    if (state.activeView === "settings" && state.settingsPage) name = el.settingsSubpageTitle?.textContent || "";
+    else if (state.activeView === "feature") name = document.querySelector("#view-feature h1")?.textContent || "";
+    else if (state.activeView === "work") name = workTitle() ? workTitle() + " · Work" : "Work";
+    else if (state.activeView === "agents") name = agentTitle() || "Agents";
+    else name = document.querySelector(".view:not([hidden]) h1:not(.sr-only)")?.textContent || "";
+    name = window.ZarvisI18n?.translate((name || PAGE_TITLES[state.activeView] || "").trim(), state.lang) || "";
+    return name ? name + " · " + brand : brand;
+  }
+
+  function syncRoute() {
+    const title = pageTitle();
+    document.title = kit("decorateTitle", title) || title;
+    kit("updateCrumbs", {
+      view: state.activeView,
+      settingsTitle: state.settingsPage ? el.settingsSubpageTitle?.textContent || "" : "",
+      featureTitle: state.activeView === "feature" ? document.querySelector("#view-feature h1")?.textContent || "" : "",
+      workTitle: state.activeView === "work" ? workTitle() : "",
+      workTitleIsName: state.activeView === "work" && (workspace()?.workSub() || "").startsWith("project-"),
+      agentTitle: state.activeView === "agents" ? agentTitle() : "",
+    });
+    const announcer = document.getElementById("route-announcer");
+    if (announcer) {
+      announcer.textContent = state.activeView === "home" ? "Home" : title.split(" · ")[0];
+      // A project's own name is not interface text, so Hindi mode leaves it as written.
+      announcer.toggleAttribute("data-user-text", state.activeView === "work" && (workspace()?.workSub() || "").startsWith("project-"));
+    }
+    if (applyingRoute) return;
+    const route = currentRoute();
+    if (location.hash === route || (state.activeView === "home" && !location.hash)) return;
+    history.pushState({ zarvis: true }, "", route);
+    subpageOwnsEntry = state.activeView === "settings" && !!state.settingsPage;
+    featureOwnsEntry = state.activeView === "feature";
+  }
+
+  function applyRoute(hash) {
+    const match = /^#\/([a-z]+)(?:\/([\w-]+))?$/.exec(hash || "");
+    // #/tasks is an old address: Tasks moved into Work.
+    const isPage = !!match && (!!VIEWS[match[1]] || match[1] === "tasks") && match[1] !== "feature";
+    const known = Logic.resolveLegacyRoute(isPage ? match[1] : "home", match ? match[2] : undefined);
+    const view = known.view;
+    const sub = known.sub;
+    // A link to a page that doesn't exist lands on Home, and says so instead of silently showing the wrong thing.
+    if (hash && hash !== "#" && hash !== "#/" && !isPage) showToast("That page doesn't exist. Opened Home.");
+    applyingRoute = true;
+    subpageOwnsEntry = false;
+    featureOwnsEntry = false;
+    try {
+      if (view === "settings") {
+        if (state.activeView !== "settings") setActiveView("settings");
+        if (sub && document.querySelector(`[data-settings-page="${sub}"]`)) {
+          if (state.settingsPage !== sub) openSettingsPage(sub);
+        } else if (state.settingsPage) closeSettingsPage();
+      } else if (view === "work") {
+        workspace()?.setWorkSub(sub);
+        if (state.activeView === "work") workspace()?.showWork(sub);
+        else setActiveView("work");
+      } else if (view === "agents") {
+        workspace()?.setAgentsSub(sub);
+        if (state.activeView === "agents") workspace()?.showAgents(sub);
+        else setActiveView("agents");
+      } else if (view === "capabilities" && sub && document.querySelector(`[data-feature-page="${sub}"]`)) {
+        openFeature(sub);
+      } else if (view === "chat" && sub) {
+        // #/chat/<id> opens that chat (the address bar then goes back to plain #/chat).
+        setActiveView("chat");
+        if (sub !== state.conversationId) void openConversation(sub);
+      } else {
+        setActiveView(view);
+      }
+    } finally {
+      applyingRoute = false;
+    }
+    // A guard may have sent us elsewhere (e.g. Developer access is off): keep the address bar truthful.
+    const route = currentRoute();
+    if (location.hash !== route && !(state.activeView === "home" && !location.hash)) history.replaceState({ zarvis: true }, "", route);
+    syncRoute();
+  }
+
+  function onRouteChange() {
+    if (location.hash === currentRoute() || (!location.hash && state.activeView === "home" && !state.settingsPage)) return;
+    applyRoute(location.hash);
+  }
+
+  function setupHistory() {
+    window.addEventListener("popstate", onRouteChange);
+    window.addEventListener("hashchange", onRouteChange);
+    if (location.hash) applyRoute(location.hash);
+    else syncRoute();
+  }
+
+  /** The in-app "back" on a Settings sub-page behaves exactly like the browser's Back button. */
+  function leaveSettingsSubpage() {
+    if (subpageOwnsEntry) {
+      history.back();
+      return;
+    }
+    closeSettingsPage();
+    history.replaceState({ zarvis: true }, "", "#/settings");
+    syncRoute();
+  }
+
+  function leaveFeaturePage() {
+    if (featureOwnsEntry) {
+      history.back();
+      return;
+    }
+    setActiveView("capabilities");
+  }
+
+  // ---- Dialogs: focus goes in, stays in, and comes back; the page behind cannot scroll ------
+  function setupModalManager() {
+    const overlays = Array.from(document.querySelectorAll(".modal-overlay"));
+    const app = document.querySelector(".app");
+    let lastOutside = null;
+    document.addEventListener("focusin", (event) => {
+      if (!event.target.closest?.(".modal-overlay, .palette-overlay, .shell-popover")) lastOutside = event.target;
+    });
+    const focusable = (root) => Array.from(root.querySelectorAll('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')).filter((node) => !node.disabled && node.getClientRects().length);
+    const openOverlay = () => overlays.find((overlay) => !overlay.hidden);
+    let wasOpen = false;
+    const sync = () => {
+      const open = openOverlay();
+      if (open && !wasOpen) {
+        wasOpen = true;
+        app?.setAttribute("inert", "");
+        document.body.classList.add("modal-open");
+        if (!open.contains(document.activeElement)) (focusable(open)[0] || open).focus?.({ preventScroll: true });
+      } else if (!open && wasOpen) {
+        wasOpen = false;
+        app?.removeAttribute("inert");
+        document.body.classList.remove("modal-open");
+        const visible = (node) => !!node && document.contains(node) && node.getClientRects().length > 0;
+        const back = visible(lastOutside) ? lastOutside : Array.from(document.querySelectorAll(".nav-item.active")).find(visible);
+        back?.focus?.({ preventScroll: true });
+      }
+    };
+    const observer = new MutationObserver(sync);
+    for (const overlay of overlays) observer.observe(overlay, { attributes: true, attributeFilter: ["hidden"] });
+    // Browsers without `inert` still get a Tab trap.
+    document.addEventListener("keydown", (event) => {
+      const open = openOverlay();
+      if (!open || event.key !== "Tab") return;
+      const items = focusable(open);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (!open.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    sync();
+  }
+
+  // ---- Phone menu: under 700px the sidebar is a drawer behind the menu button ----------------
+  // Same navigation as the desktop sidebar (including Plans and, with Developer access, the developer
+  // pages). While it is open the page behind is inert and cannot scroll; Esc, the backdrop, the close
+  // button or choosing a page closes it and focus returns to the menu button.
+  function setupNavDrawer() {
+    const drawer = document.getElementById("sidebar-nav");
+    const scrim = document.getElementById("drawer-scrim");
+    const menuBtn = document.getElementById("menu-btn");
+    const closeBtn = document.getElementById("drawer-close");
+    const app = document.querySelector(".app");
+    if (!drawer || !scrim || !menuBtn || !app) return;
+    const phone = window.matchMedia("(max-width: 699px)");
+    const isOpen = () => drawer.classList.contains("is-open");
+    const behind = () => Array.from(app.children).filter((node) => node !== drawer && node !== scrim);
+    const focusable = () => Array.from(drawer.querySelectorAll("button")).filter((node) => !node.disabled && node.getClientRects().length);
+
+    function setOpen(open, restoreFocus = true) {
+      if (open === isOpen() || (open && !phone.matches)) return;
+      drawer.classList.toggle("is-open", open);
+      scrim.hidden = !open;
+      document.body.classList.toggle("drawer-open", open);
+      menuBtn.setAttribute("aria-expanded", String(open));
+      for (const node of behind()) node.toggleAttribute("inert", open);
+      if (open) (drawer.querySelector(".nav-item.active") || closeBtn)?.focus({ preventScroll: true });
+      else if (restoreFocus) menuBtn.focus({ preventScroll: true });
+    }
+
+    menuBtn.addEventListener("click", () => {
+      haptic();
+      setOpen(!isOpen());
+    });
+    closeBtn?.addEventListener("click", () => setOpen(false));
+    scrim.addEventListener("click", () => setOpen(false));
+    // Runs after the item's own handler has switched the page (tapping the current page still closes it).
+    drawer.addEventListener("click", (event) => {
+      if (event.target.closest(".nav-item")) setOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (!isOpen()) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+      } else if (event.key === "Tab") {
+        const items = focusable();
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (!drawer.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    });
+    // Back/Forward or a rotation to a wide screen (where the sidebar is always there) leaves nothing half open.
+    phone.addEventListener("change", () => { if (!phone.matches) setOpen(false, false); });
+    window.addEventListener("popstate", () => setOpen(false, false));
+    window.addEventListener("hashchange", () => setOpen(false, false));
+  }
+
+  // ---- Connection: say so when the device is offline (the header used to claim "Online") ----
+  function renderHeroStatus() {
+    if (!el.heroStatusLabel) return;
+    const copy = COPY[state.lang];
+    const key = el.orb?.dataset.state;
+    el.heroStatusLabel.textContent = key === "SPEAKING" && speechPaused ? copy.pausedLabel : navigator.onLine === false && (!key || key === "IDLE") ? copy.offlineLabel : copy.stateLabels[key] || copy.stateLabels.IDLE;
+  }
+
+  function setupConnectionState() {
+    const banner = document.getElementById("offline-banner");
+    // The sticky bars below the banner start where it ends (0 while online or while it is hidden).
+    const syncBannerHeight = () => document.documentElement.style.setProperty("--banner-h", (banner ? banner.offsetHeight : 0) + "px");
+    if (banner && typeof ResizeObserver === "function") new ResizeObserver(syncBannerHeight).observe(banner);
+    const apply = (announce) => {
+      const offline = navigator.onLine === false;
+      document.body.dataset.offline = offline ? "1" : "0";
+      if (banner) {
+        banner.hidden = !offline;
+        banner.textContent = COPY[state.lang].offlineBanner;
+        syncBannerHeight();
+      }
+      renderHeroStatus();
+      if (announce) showToast(offline ? COPY[state.lang].offlineLabel : COPY[state.lang].backOnline);
+    };
+    window.addEventListener("offline", () => apply(true));
+    window.addEventListener("online", () => apply(true));
+    apply(false);
   }
 
   function applyVoiceToggleState() {
@@ -503,8 +907,11 @@
       showSessionGate(ended);
       throw new SessionEndedError(ended);
     }
-    await createGuestSession();
+    // Two callers (the early bootstrap and init) share one account creation: a second request would replace the first one's tokens.
+    if (!guestCreation) guestCreation = createGuestSession().finally(() => { guestCreation = null; });
+    await guestCreation;
   }
+  let guestCreation = null;
 
   async function createGuestSession() {
     const res = await fetch(`${API_BASE}/auth/guest`, { method: "POST" });
@@ -530,6 +937,7 @@
     }
     state.conversationId = null;
     state.history = [];
+    kit("forgetAll");
   }
 
   /** Ends the session locally (tokens are useless now) and asks the user what to do next. */
@@ -539,7 +947,13 @@
     showSessionGate(reason);
   }
 
+  /** How long a page waits for a read (a list, a plan, the task list) before it shows its offline/unavailable state. */
+  const READ_TIMEOUT_MS = 25000;
+
   async function apiFetch(path, options = {}, retried = false) {
+    // A link straight to a page that loads data (#/plans, #/activity ...) is opened before a first-time visitor has a session.
+    // Without this wait that request goes out with no token, gets a 401, and shows the "session ended" gate to someone who never had one.
+    if (!localStorage.getItem(STORAGE_KEYS.accessToken) && sessionReady) await sessionReady;
     const accessToken = localStorage.getItem(STORAGE_KEYS.accessToken);
     if (!accessToken) {
       const ended = localStorage.getItem(SESSION_KEYS.ended);
@@ -551,14 +965,31 @@
     // A FormData body (document upload) must NOT get a manual content-type: the browser sets
     // its own multipart boundary.
     const isFormData = options.body instanceof FormData;
-    const res = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: {
-        ...(isFormData ? {} : { "content-type": "application/json" }),
-        authorization: `Bearer ${accessToken}`,
-        ...(options.headers || {}),
-      },
-    });
+    // timeoutMs is opt-in: reads that a page waits on pass it, streams, uploads and speech do not. A timeout rejects
+    // like a dropped connection (AbortError), so every caller's existing network-failure path handles it.
+    const { timeoutMs, ...fetchOptions } = options;
+    let timer = null;
+    let signal = fetchOptions.signal;
+    if (timeoutMs) {
+      const timeout = new AbortController();
+      timer = setTimeout(() => timeout.abort(), timeoutMs);
+      signal = fetchOptions.signal && typeof AbortSignal.any === "function" ? AbortSignal.any([fetchOptions.signal, timeout.signal]) : timeout.signal;
+      if (fetchOptions.signal && typeof AbortSignal.any !== "function") fetchOptions.signal.addEventListener("abort", () => timeout.abort(), { once: true });
+    }
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        ...fetchOptions,
+        signal,
+        headers: {
+          ...(isFormData ? {} : { "content-type": "application/json" }),
+          authorization: `Bearer ${accessToken}`,
+          ...(options.headers || {}),
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.status !== 401 || retried) return res;
 
     const outcome = await refreshSession(accessToken);
@@ -624,6 +1055,170 @@
     document.getElementById("session-gate-error").hidden = true;
     gate.hidden = false;
     document.getElementById("session-gate-email").focus();
+  }
+
+  // ---- Welcome gate: Google / email sign-in card shown when a guest opens Chat ------------
+  // Always skippable: "Continue as guest" and the close button are never hidden, so a Google
+  // or network failure can never leave the user stuck on this card.
+
+  const WELCOME_DISMISSED_KEY = "zarvis.welcomeDismissed";
+  let authConfig = null;
+  let gsiPromise = null;
+
+  async function loadAuthConfig() {
+    if (authConfig) return authConfig;
+    try {
+      const res = await fetch(`${API_BASE}/auth/config`);
+      if (res.ok) authConfig = await res.json();
+    } catch {
+      // Offline or a cold start: email sign-in and guest still work, and the next open retries.
+    }
+    return authConfig || { googleClientId: null };
+  }
+
+  function loadGoogleIdentity() {
+    if (window.google?.accounts?.id) return Promise.resolve();
+    if (!gsiPromise) {
+      gsiPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => {
+          gsiPromise = null;
+          script.remove();
+          reject(new Error("Google sign-in could not load"));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return gsiPromise;
+  }
+
+  function isGuestSession() {
+    return localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+  }
+
+  // Also kept in memory so the card stays closed for this visit even when browser storage is blocked.
+  let welcomeSkipped = false;
+
+  function welcomeDismissed() {
+    if (welcomeSkipped) return true;
+    try {
+      return localStorage.getItem(WELCOME_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  async function maybeShowWelcomeGate() {
+    const gate = document.getElementById("welcome-gate");
+    if (!gate || !gate.hidden || !isGuestSession() || welcomeDismissed()) return;
+    const config = await loadAuthConfig();
+    // The config request is async: the user may have left Chat, dismissed the card or signed in meanwhile.
+    if (state.activeView !== "chat" || !gate.hidden || !isGuestSession() || welcomeDismissed()) return;
+    document.getElementById("welcome-error").hidden = true;
+    gate.hidden = false;
+    // On touch screens, focusing the field would pop the keyboard over the card before the user has read it.
+    if (window.matchMedia?.("(pointer: fine)").matches) document.getElementById("welcome-email").focus();
+    if (!config.googleClientId) return;
+    try {
+      await loadGoogleIdentity();
+      window.google.accounts.id.initialize({
+        client_id: config.googleClientId,
+        callback: (response) => completeGoogleSignIn(response.credential),
+        ux_mode: "popup",
+      });
+      const holder = document.getElementById("welcome-google-btn");
+      holder.textContent = "";
+      window.google.accounts.id.renderButton(holder, {
+        theme: "filled_black", size: "large", shape: "pill", text: "continue_with",
+        width: Math.min(280, Math.max(200, holder.clientWidth || 280)),
+      });
+      document.getElementById("welcome-google").hidden = false;
+    } catch (err) {
+      console.warn(err); // email sign-in and "Continue as guest" stay available
+    }
+  }
+
+  function closeWelcomeGate(remember) {
+    document.getElementById("welcome-gate").hidden = true;
+    if (!remember) return;
+    welcomeSkipped = true;
+    try {
+      localStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+    } catch {}
+  }
+
+  async function completeGoogleSignIn(idToken) {
+    const errorNode = document.getElementById("welcome-error");
+    try {
+      const previousAccount = localStorage.getItem(STORAGE_KEYS.accessToken) ? await currentAccountId() : null;
+      const res = await apiFetch("/auth/google", { method: "POST", body: JSON.stringify({ idToken }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.code === "google_unavailable" ? "Google sign-in is not set up on this server yet." : body.error || "Google sign-in failed. Try again.");
+      }
+      if (body.accountId !== previousAccount) clearSessionTokens();
+      storeTokens(body);
+      location.reload();
+    } catch (err) {
+      errorNode.textContent = err.message || "Google sign-in failed. Try again.";
+      errorNode.hidden = false;
+    }
+  }
+
+  async function currentAccountId() {
+    try {
+      const res = await apiFetch("/auth/me");
+      return res.ok ? (await res.json()).accountId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function setupWelcomeGate() {
+    const errorNode = document.getElementById("welcome-error");
+    if (!errorNode) return;
+    const fail = (message) => {
+      errorNode.textContent = message;
+      errorNode.hidden = false;
+    };
+    const credentials = () => ({
+      email: document.getElementById("welcome-email").value.trim(),
+      password: document.getElementById("welcome-password").value,
+    });
+    document.getElementById("welcome-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const { email, password } = credentials();
+      try {
+        await signInWithEmail(email, password);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
+    });
+    // Creating an account upgrades this browser's guest in place, so its chats are kept.
+    document.getElementById("welcome-create").addEventListener("click", async () => {
+      const { email, password } = credentials();
+      if (!email || password.length < 8) return fail("Enter your email and a password of at least 8 characters.");
+      try {
+        const res = await apiFetch("/auth/link", { method: "POST", body: JSON.stringify({ email, password }) });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(authErrorMessage(res.status, body.code));
+        localStorage.setItem(SESSION_KEYS.isGuest, "false");
+        localStorage.setItem(SESSION_KEYS.email, body.email || email);
+        location.reload();
+      } catch (err) {
+        fail(err.message);
+      }
+    });
+    document.getElementById("welcome-guest").addEventListener("click", () => closeWelcomeGate(true));
+    document.getElementById("welcome-close").addEventListener("click", () => closeWelcomeGate(true));
+    document.addEventListener("keydown", (event) => {
+      const gate = document.getElementById("welcome-gate");
+      if (event.key === "Escape" && !gate.hidden) closeWelcomeGate(true);
+    });
   }
 
   function setupSessionGate() {
@@ -708,6 +1303,7 @@
       const me = await res.json();
       localStorage.setItem(SESSION_KEYS.isGuest, String(me.isGuest));
       if (me.email) localStorage.setItem(SESSION_KEYS.email, me.email);
+      renderHomeGreeting();
       status.textContent = me.isGuest
         ? "Guest account on this browser. It has no sign-in email yet, so it only exists here. Link an email to use the same account on your phone or another browser."
         : "Signed in as " + me.email + ". Use this email on your phone or another browser to continue the same conversations and tasks.";
@@ -761,26 +1357,105 @@
   // After a reload (or on another browser signed into the same account) only real,
   // server-persisted messages are shown — nothing is reconstructed or invented.
 
-  async function restoreConversation() {
-    if (!state.conversationId || el.conversation.children.length > 0) return;
+  /** One load per conversation at a time: the start-up restore and a deep link must not both fill the thread. */
+  let restoreInFlight = null;
+
+  /** Returns "loaded", "missing" (the server no longer has it), "error" or "skipped". */
+  function restoreConversation() {
+    if (!state.conversationId || el.conversation.children.length > 0) return Promise.resolve("skipped");
+    if (restoreInFlight && restoreInFlight.id === state.conversationId) return restoreInFlight.promise;
+    const id = state.conversationId;
+    const promise = loadConversationMessages(id).finally(() => {
+      if (restoreInFlight?.promise === promise) restoreInFlight = null;
+    });
+    restoreInFlight = { id, promise };
+    return promise;
+  }
+
+  async function loadConversationMessages(wanted) {
+    kit("setThreadLoading", true);
     try {
-      const res = await apiFetch(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
+      const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`, { timeoutMs: READ_TIMEOUT_MS });
+      if (state.conversationId !== wanted) return "skipped"; // another chat was opened while this one loaded
       if (res.status === 404) {
         state.conversationId = null;
         localStorage.removeItem(STORAGE_KEYS.conversationId);
-        return;
+        return "missing";
       }
-      if (!res.ok) return;
+      if (!res.ok) return "error";
       const body = await res.json();
-      for (const message of body.messages || []) {
+      if (state.conversationId !== wanted) return "skipped";
+      const messages = body.messages || [];
+      // The chat belongs to a project, or not: the server says so.
+      state.projectId = body.projectId || null;
+      state.agentId = null;
+      renderChatContext();
+      // What ZARVIS ran in this chat comes back too, placed between the messages by when it happened.
+      let stored = [];
+      try {
+        const runs = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/executions`, { timeoutMs: READ_TIMEOUT_MS });
+        if (runs.ok) stored = window.ZarvisExec.renderStored((await runs.json()).executions || []);
+      } catch (err) {
+        if (err instanceof SessionEndedError) return "skipped";
+        console.warn("Stored tool runs could not be loaded:", err);
+      }
+      if (state.conversationId !== wanted) return "skipped";
+      let next = 0;
+      for (const message of messages) {
+        const sentAt = message.createdAt ? Date.parse(message.createdAt) : NaN;
+        if (message.role === "assistant" && Number.isFinite(sentAt)) {
+          while (next < stored.length && stored[next].at <= sentAt) el.conversation.appendChild(stored[next++].node);
+        }
         addBubble(message.role === "user" ? "user" : "assistant", message.content, undefined, message.createdAt ? new Date(message.createdAt) : null);
         state.history.push({ role: message.role, content: message.content });
       }
+      while (next < stored.length) el.conversation.appendChild(stored[next++].node); // e.g. an action still waiting after the last message
       state.history = state.history.slice(-12);
-      if ((body.messages || []).length) state.firstTurn = false;
+      if (messages.length) {
+        state.firstTurn = false;
+        const firstUser = messages.find((message) => message.role === "user");
+        const last = messages[messages.length - 1];
+        const lastAt = last?.createdAt ? Date.parse(last.createdAt) : NaN;
+        kit("record", wanted, { title: body.title || firstUser?.content, at: lastAt });
+      }
+      return "loaded";
     } catch (err) {
       if (!(err instanceof SessionEndedError)) console.warn("Conversation restore failed:", err);
+      return "error";
+    } finally {
+      if (state.conversationId === wanted || !state.conversationId) kit("setThreadLoading", false);
     }
+  }
+
+  /** Opens one of the user's earlier chats: its real messages are loaded from the server. */
+  async function openConversation(id) {
+    if (!id) return false;
+    if (id === state.conversationId && el.conversation.children.length > 0) {
+      setActiveView("chat");
+      return true;
+    }
+    if (currentTurnController) cancelCurrentTurn();
+    state.conversationId = id;
+    localStorage.setItem(STORAGE_KEYS.conversationId, id);
+    state.history = [];
+    state.firstTurn = true;
+    state.projectId = null;
+    state.agentId = null;
+    renderChatContext();
+    el.conversation.replaceChildren();
+    kit("threadReset");
+    syncChatConversationLayout();
+    setActiveView("chat");
+    const result = await restoreConversation();
+    if (result === "missing") {
+      kit("remove", id);
+      showToast("That chat is no longer available");
+    } else if (result === "error") {
+      showToast("Couldn't load that chat. Check your connection.");
+    }
+    updateSettingsValues();
+    kit("renderAll");
+    return result === "loaded";
   }
 
   // ---- Permissions & Device Access (Phase 1 capability registry) -------------------------
@@ -795,16 +1470,114 @@
     }
   }
 
+  /** The capability registry from the server, read once (Permissions and Integrations both draw from it). Throws when it cannot be read. */
+  async function loadCapabilityList() {
+    if (capabilityCache) return capabilityCache;
+    const res = await fetch(`${API_BASE}/capabilities`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.json();
+    if (!Array.isArray(body.capabilities)) throw new Error("Unexpected capability list");
+    capabilityCache = body.capabilities;
+    return capabilityCache;
+  }
+
+  /** One row of the Integrations page: a name, an honest status badge, what it is for, and an optional action. */
+  function integrationItem({ name, status, tone, text, action }) {
+    const item = document.createElement("article");
+    item.className = "capability-item";
+    const header = document.createElement("header");
+    const title = document.createElement("strong");
+    title.textContent = name;
+    const badge = document.createElement("span");
+    badge.className = "z-badge" + (tone ? " z-badge-" + tone : "");
+    badge.textContent = status;
+    header.append(title, badge);
+    const body = document.createElement("p");
+    body.className = "capability-access";
+    body.textContent = text;
+    item.append(header, body);
+    if (action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-secondary btn-sm";
+      button.textContent = action.label;
+      button.addEventListener("click", action.run);
+      item.appendChild(button);
+    }
+    return item;
+  }
+
+  /** Settings → Integrations: GitHub from the server's own connection status, Calendar from the capability registry, and a plain line about what does not exist. */
+  async function renderIntegrations() {
+    const list = document.getElementById("integrations-list");
+    if (!list) return;
+    list.textContent = "Loading…";
+    const [github, capabilities] = await Promise.all([
+      apiFetch("/integrations/github", { timeoutMs: READ_TIMEOUT_MS }).then((res) => (res.ok ? res.json() : null)).catch((err) => (err instanceof SessionEndedError ? undefined : null)),
+      loadCapabilityList().catch(() => null),
+    ]);
+    if (github === undefined) return; // the session ended; the gate is showing
+    list.textContent = "";
+    const manage = { label: "Manage in Developer Agent", run: () => { if (requireDevAccess("The Developer Agent")) setActiveView("developer"); } };
+    if (github === null) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Unknown", text: "Couldn't check the GitHub connection. Open this page again in a moment." }));
+    } else if (!github.available) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Not set up on this server", tone: "off", text: "Connecting a GitHub account isn't configured on this server. Public repositories can still be analyzed without one." }));
+    } else if (github.connected) {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Connected as " + github.login, tone: "ok", text: "Used by the Developer Agent to read repositories and, only after you confirm the exact change, open a pull request. ZARVIS never merges. The token is stored encrypted and is never shown.", action: manage }));
+    } else {
+      list.appendChild(integrationItem({ name: "GitHub", status: "Not connected", tone: "off", text: "Public repositories can be analyzed without an account. Private repositories and pull requests need your own token.", action: manage }));
+    }
+    const calendar = capabilities && capabilities.find((c) => c.id === "calendar");
+    if (calendar) {
+      list.appendChild(integrationItem({ name: "Calendar", status: Logic.capabilityStatusLabel(calendar.platforms.web.status), tone: "off", text: calendar.platforms.web.note }));
+    }
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "There is no integration with Gmail, Google Drive or Slack. ZARVIS does not read them and shows nothing from them.";
+    list.appendChild(note);
+    const value = document.querySelector('[data-setting-value="integrations"]');
+    if (value) value.textContent = github && github.connected ? "GitHub connected" : "";
+    renderSettingsSubpageValue();
+  }
+
+  /** Settings → Voice → "What this browser can do": only things the browser can really be asked, each with what to do about a "no". */
+  async function renderVoiceCheck({ announce = false } = {}) {
+    const box = document.getElementById("voice-check-rows");
+    if (!box) return;
+    const mic = await microphonePermissionState();
+    const rows = [
+      ["Secure connection", window.isSecureContext ? "Yes. Browsers only allow the microphone on https or localhost." : "No. Browsers only allow the microphone on https or localhost, so voice input will not work here."],
+      ["Speech recognition", window.SpeechRecognition || window.webkitSpeechRecognition ? "Available in this browser." : "Not available in this browser. Type your request, or open ZARVIS in Chrome."],
+      ["Microphone", mic === "granted" ? "Allowed in this browser." : mic === "denied" ? "Blocked. Allow the microphone for this site in your browser's site settings, then tap the orb again." : mic === "prompt" ? "The browser will ask the first time you tap the orb or microphone." : "The browser decides when you tap the orb; this browser does not say in advance."],
+      ["Audio playback", window.AudioContext || window.webkitAudioContext ? "Available. A browser may keep sound off until you have tapped the page once." : "Not available in this browser, so spoken replies cannot play."],
+    ];
+    box.replaceChildren();
+    for (const [name, text] of rows) {
+      const row = document.createElement("div");
+      row.className = "control-row";
+      const copy = document.createElement("div");
+      copy.className = "row-copy";
+      const title = document.createElement("strong");
+      title.textContent = name;
+      const small = document.createElement("small");
+      small.textContent = text;
+      copy.append(title, small);
+      row.appendChild(copy);
+      box.appendChild(row);
+    }
+    // The result is the browser's answer right now: say when it was read, so "Check again" visibly did something even when nothing changed.
+    const time = document.getElementById("voice-check-time");
+    if (time) time.textContent = "Checked at " + new Date().toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (announce) showToast("Checked again");
+  }
+
   async function renderPermissionCenter() {
     const list = document.getElementById("permission-center-list");
     if (!list) return;
     list.textContent = "Loading…";
     try {
-      if (!capabilityCache) {
-        const res = await fetch(`${API_BASE}/capabilities`);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        capabilityCache = (await res.json()).capabilities;
-      }
+      await loadCapabilityList();
     } catch (err) {
       console.error(err);
       list.textContent = "Couldn't load the capability list. Check your connection.";
@@ -874,7 +1647,11 @@
   // A higher-risk action returns `confirmation_required` with a one-time id bound to that
   // exact action. Approve/decline resolves *that id*; nothing is ever re-sent with a flag.
 
-  function renderConfirmationCard(confirmation, container = el.conversation) {
+  /**
+   * `container` is where the card is drawn (the conversation by default). `options.onResolved(body)` is called with the server's
+   * answer once the confirmation was approved or declined; without it the answer is shown in the conversation (or the Developer page).
+   */
+  function renderConfirmationCard(confirmation, container = el.conversation, options = {}) {
     const card = document.createElement("div");
     card.className = "confirm-card";
     card.dataset.confirmationId = confirmation.id;
@@ -882,10 +1659,12 @@
     card.setAttribute("aria-label", "Confirmation needed");
 
     const title = document.createElement("strong");
-    title.textContent = "Confirm this action · " + Logic.riskLabel(confirmation.riskLevel);
+    title.append(svgIcon("i-alert"), document.createTextNode("Confirmation required" + (confirmation.riskLevel ? " · " + Logic.riskLabel(confirmation.riskLevel) : "")));
     const action = document.createElement("p");
     action.className = "confirm-action";
-    action.textContent = confirmation.action;
+    const what = Object.assign(document.createElement("span"), { textContent: confirmation.action });
+    what.dataset.userText = ""; // what the action is was written by the server from the user's own request
+    action.append(document.createTextNode("ZARVIS wants to: "), what);
     const note = document.createElement("small");
     const expires = new Date(confirmation.expiresAt);
     note.textContent = "Nothing has been done yet. This approval works once, for this action only" +
@@ -900,23 +1679,24 @@
     const approve = document.createElement("button");
     approve.type = "button";
     approve.className = "zarvis-btn zarvis-btn-primary";
-    approve.textContent = "Approve";
+    approve.textContent = "Confirm";
     actions.append(decline, approve);
 
     const resolve = async (verb) => {
       approve.disabled = true;
       decline.disabled = true;
-      approve.textContent = verb === "approve" ? "Running…" : "Approve";
+      approve.textContent = verb === "approve" ? "Running…" : "Confirm";
       try {
         const res = await apiFetch(`/confirmations/${encodeURIComponent(confirmation.id)}/${verb}`, { method: "POST" });
         const body = await res.json().catch(() => ({}));
         if (res.status === 409 && body.code === "confirmation_already_used") {
           actions.remove();
-          note.textContent = "Already approved: the action ran once and will not run again. Its result is in the conversation.";
+          note.textContent = "Already confirmed: the action ran once and will not run again. Its result is in the conversation.";
           return;
         }
         if (res.status === 404) {
           note.textContent = "This confirmation expired or was already used. Nothing was run. Ask again if you still want it.";
+          actions.remove();
           return;
         }
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -924,19 +1704,20 @@
         if (body.outcome?.kind === "confirmation_required" && body.outcome.confirmation) {
           // What would run changed after approval (e.g. another GitHub account was connected).
           note.textContent = "The action changed before it ran, so nothing was done. Please review it again.";
-          renderConfirmationCard(body.outcome.confirmation, container);
+          renderConfirmationCard(body.outcome.confirmation, container, options);
           return;
         }
         note.textContent = Logic.toolStatusLabel(body.result?.status) + ".";
-        if (container === el.conversation) addBubble("assistant", body.message || "Done.");
-        else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error");
+        if (options.onResolved) options.onResolved(body);
+        else if (container === el.conversation) addBubble("assistant", body.message || "Done.");
+        else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error", true, body);
       } catch (err) {
         if (err instanceof SessionEndedError) return;
         console.error(err);
         note.textContent = "Couldn't reach ZARVIS. If the request got through, its result will appear in the conversation; trying again can never run it twice.";
         approve.disabled = false;
         decline.disabled = false;
-        approve.textContent = "Approve";
+        approve.textContent = "Confirm";
       }
     };
     approve.addEventListener("click", () => void resolve("approve"));
@@ -944,7 +1725,7 @@
 
     card.append(title, action, note, actions);
     container.appendChild(card);
-    if (container === el.conversation) scrollConversationToBottom();
+    if (container === el.conversation) scrollConversationToBottom(true);
     return card;
   }
 
@@ -956,11 +1737,11 @@
     const disconnect = document.getElementById("github-disconnect-btn");
     if (!statusNode) return;
     try {
-      const res = await apiFetch("/integrations/github");
+      const res = await apiFetch("/integrations/github", { timeoutMs: READ_TIMEOUT_MS });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const status = await res.json();
       const rowValue = document.querySelector('[data-setting-value="developer"]');
-      if (rowValue) rowValue.textContent = !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
+      if (rowValue) rowValue.textContent = !state.devAccess ? "Off" : !status.available ? "Public repos" : status.connected ? "GitHub connected" : "Not connected";
       renderSettingsSubpageValue();
       if (!status.available) {
         statusNode.textContent = "GitHub connection isn't configured on this server. Public repositories can still be analyzed.";
@@ -1046,11 +1827,19 @@
   }
 
   async function loadSkills() {
-    const res = await apiFetch("/skills");
+    const res = await apiFetch("/skills", { timeoutMs: READ_TIMEOUT_MS });
     if (!res.ok) return;
     const { skills } = await res.json();
     state.skills = skills;
     renderQuickActions(skills);
+    applyHomeQuickActions(skills);
+  }
+
+  /** Home's prompts are offered only when this build has a skill of that kind (the Chat starters follow the same rule). */
+  function applyHomeQuickActions(skills) {
+    for (const chip of document.querySelectorAll("#home-quick .chip[data-skill-categories]")) {
+      chip.hidden = !Logic.entryAvailable(chip.dataset.skillCategories.split(" "), skills);
+    }
   }
 
   function groupByCategory(skills) {
@@ -1077,7 +1866,6 @@
     { key: "code", categories: ["DEVELOPER"] },
     { key: "analyze", categories: ["DOCUMENTS", "DEVELOPER"] },
     { key: "plan", categories: ["AUTOMATION"] },
-    { key: "create", categories: ["CREATIVE", "BUSINESS"] },
   ];
   const QUICK_ACTION_ICON_PATHS = {
     ask: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
@@ -1086,8 +1874,9 @@
     code: CATEGORY_ICON_PATHS.DEVELOPER,
     analyze: CATEGORY_ICON_PATHS.DOCUMENTS,
     plan: CATEGORY_ICON_PATHS.AUTOMATION,
-    create: CATEGORY_ICON_PATHS.CREATIVE,
   };
+
+  const QUICK_ACTION_TONES = { ask: "blue", write: "pink", research: "cyan", code: "violet", analyze: "amber", plan: "green" };
 
   function quickActionIconSvg(key) {
     return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${QUICK_ACTION_ICON_PATHS[key]}</svg>`;
@@ -1104,11 +1893,13 @@
 
       const card = document.createElement("button");
       card.type = "button";
-      card.className = "chip";
-      card.innerHTML = `${quickActionIconSvg(group.key)}<span>${labels[group.key]}</span>`;
+      card.className = "starter-card tone-" + (QUICK_ACTION_TONES[group.key] || "blue");
+      const hint = COPY[state.lang].quickHints?.[group.key] || "";
+      card.innerHTML = `<span class="starter-ico">${quickActionIconSvg(group.key)}</span><span class="starter-copy"><strong>${labels[group.key]}</strong><small>${hint}</small></span>`;
       card.addEventListener("click", () => {
         haptic();
         el.input.value = example;
+        resizeComposer();
         el.input.focus();
       });
       el.categories.appendChild(card);
@@ -1130,14 +1921,15 @@
 
   function renderCapabilities() {
     el.capabilitiesList.innerHTML = "";
-    if (state.skills.length === 0) {
+    const skills = state.devAccess ? state.skills : state.skills.filter((skill) => skill.category !== "DEVELOPER");
+    if (skills.length === 0) {
       const empty = document.createElement("p");
       empty.className = "task-empty";
       empty.textContent = "Couldn't load capabilities right now.";
       el.capabilitiesList.appendChild(empty);
       return;
     }
-    const byCategory = groupByCategory(state.skills);
+    const byCategory = groupByCategory(skills);
     for (const [category, categorySkills] of byCategory) {
       const label = document.createElement("p");
       label.className = "group-label";
@@ -1147,11 +1939,19 @@
     }
   }
 
+  /** A skill category always gets the same medium-colour tone. */
+  const SKILL_TONES = ["tone-blue", "tone-violet", "tone-pink", "tone-amber", "tone-green", "tone-cyan", "tone-coral"];
+  function skillTone(category) {
+    let sum = 0;
+    for (const ch of String(category || "")) sum += ch.charCodeAt(0);
+    return SKILL_TONES[sum % SKILL_TONES.length];
+  }
+
   function renderCapabilityCard(skill) {
     const row = document.createElement("div");
     row.className = "skill-row";
     const icon = document.createElement("span");
-    icon.className = "row-ico tone-blue";
+    icon.className = "row-ico " + skillTone(skill.category);
     icon.innerHTML = categoryIconSvg(skill.category);
     const copy = document.createElement("div");
     copy.className = "cap-copy";
@@ -1162,7 +1962,7 @@
     const risk = document.createElement("span");
     risk.className = "risk-badge";
     risk.dataset.level = skill.riskLevel;
-    risk.textContent = Logic.riskLabel ? Logic.riskLabel(skill.riskLevel) : skill.riskLevel;
+    risk.textContent = Logic.riskLabel(skill.riskLevel);
     name.append(title, risk);
     const desc = document.createElement("p");
     desc.className = "cap-desc";
@@ -1203,6 +2003,8 @@
     plans: el.viewPlans,
     metrics: el.viewMetrics,
     activity: el.viewActivity,
+    work: el.viewWork,
+    agents: el.viewAgents,
     settings: el.viewSettings,
     feature: el.viewFeature,
     developer: el.viewDeveloper,
@@ -1220,16 +2022,7 @@
         setActiveView(item.dataset.view);
       });
     }
-    el.settingsBtn?.addEventListener("click", () => {
-      haptic();
-      setActiveView("settings");
-    });
-    el.settingsBackBtn?.addEventListener("click", () => setActiveView("home"));
-    el.developerBackBtn?.addEventListener("click", () => setActiveView("capabilities"));
     el.chatBackBtn.addEventListener("click", () => setActiveView("home"));
-    for (const btn of document.querySelectorAll("[data-home-view]")) {
-      btn.addEventListener("click", () => setActiveView(btn.dataset.homeView));
-    }
     el.activityRefreshBtn?.addEventListener("click", () => refreshActivity());
     for (const btn of document.querySelectorAll("[data-nav]")) {
       btn.addEventListener("click", () => {
@@ -1237,18 +2030,18 @@
         setActiveView(btn.dataset.nav);
       });
     }
-    for (const btn of document.querySelectorAll('[data-home-action="voice"]')) {
-      btn.addEventListener("click", () => {
-        haptic();
-        setActiveView("chat");
-        startListening();
-      });
-    }
     for (const btn of document.querySelectorAll('[data-home-action="upload"]')) {
       btn.addEventListener("click", () => {
         haptic();
         setActiveView("chat");
-        el.fileInput.click();
+        openFilePicker();
+      });
+    }
+    for (const btn of document.querySelectorAll('[data-home-action="image"]')) {
+      btn.addEventListener("click", () => {
+        haptic();
+        setActiveView("chat");
+        openFilePicker(true);
       });
     }
     el.homeOrb?.addEventListener("click", () => {
@@ -1282,10 +2075,152 @@
       });
     }
     setupKeyboardInset();
-    setupHomeQuickActions();
+    setupDesignShortcuts();
+    applyDevAccess();
+    window.ZarvisShell?.init({
+      setActiveView,
+      getActivity: () => activityLog,
+      openSettingsPage,
+      getAppearance: () => state.appearance,
+      setAppearance,
+      newConversation: startNewConversation,
+      startListening,
+      pickFile: () => openFilePicker(),
+      devAccess: () => state.devAccess,
+      extraItems: () => [...(kit("paletteItems") || []), ...workspaceItems()],
+      account: () => {
+        const guest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
+        return { guest, name: accountDisplayName(), email: guest ? "" : localStorage.getItem(SESSION_KEYS.email) || "" };
+      },
+    });
     setupActivityControls();
     setupWorkspacePrompts();
     renderHomeGreeting();
+  }
+
+  /** Anything with data-go="<page>" (or "settings:<sub-page>", or "history") is a link: static buttons, capability
+   * copy and tool rows all share this one handler, and a target that is not a real page is refused, not ignored. */
+  function setupGoLinks() {
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest?.("[data-go]");
+      if (!link) return;
+      const target = Logic.parseGoTarget(link.dataset.go);
+      if (!target) {
+        console.warn("Zarvis: unknown link target", link.dataset.go);
+        return;
+      }
+      event.preventDefault();
+      haptic();
+      if (target.action === "history") {
+        kit("openHistory", link);
+        return;
+      }
+      if (target.view === "work") {
+        goWork(target.workTab || workspace()?.workSub() || "projects");
+        return;
+      }
+      if (target.view === "agents") {
+        goAgents(target.agentId || "");
+        return;
+      }
+      setActiveView(target.view);
+      if (target.settingsPage && document.querySelector(`[data-settings-page="${target.settingsPage}"]`)) openSettingsPage(target.settingsPage);
+    });
+  }
+
+  /** Hands the execution cards and the Work/Agents pages (exec-cards.js, workspace.js) the few things they need from this file. */
+  function setupWorkspace() {
+    window.ZarvisExec?.init({
+      conversation: el.conversation,
+      apiFetch,
+      toast: showToast,
+      skillLabel: skillDisplayName,
+      renderConfirmation: renderConfirmationCard,
+      scroll: () => scrollConversationToBottom(),
+      destination: toolDestination,
+      reply: (text) => addBubble("assistant", text),
+    });
+    window.ZarvisWorkspace?.init({
+      apiFetch,
+      toast: showToast,
+      haptic,
+      confirm: showConfirmModal,
+      setActiveView,
+      syncRoute,
+      activeView: () => state.activeView,
+      lang: () => state.lang,
+      openChat,
+      openConversation,
+      newConversation: startNewConversation,
+      openHistory: () => kit("openHistory"),
+      renderConfirmation: renderConfirmationCard,
+      onTasks: (tasks) => {
+        if (!tasks) return;
+        applyTaskCounts(tasks);
+        latestTasks = tasks;
+      },
+    });
+  }
+
+  /** Command-palette entries for the Work tabs and the agents. */
+  function workspaceItems() {
+    const tabs = [["projects", "Projects", "i-folder"], ["files", "Files", "i-file"], ["research", "Research", "i-globe"], ["tasks", "Tasks", "i-task"], ["outputs", "Outputs", "i-pen"]];
+    const items = tabs.map(([tab, label, ico]) => ({ group: "Work", label, hint: "Work › " + label, icon: ico, run: () => goWork(tab) }));
+    for (const id of ["personal", "research", "documents", "creative", "business", "developer"]) {
+      const name = id.charAt(0).toUpperCase() + id.slice(1) + " agent";
+      items.push({ group: "Agents", label: name, hint: "Open the agent page", icon: "i-bot", run: () => goAgents(id) });
+    }
+    return items;
+  }
+
+  /** Hands the chat kit (chat-kit.js) the few things it needs from this file. */
+  function setupChatKit() {
+    window.ZarvisChatKit?.init({
+      input: el.input,
+      lang: () => state.lang,
+      activeView: () => state.activeView,
+      setActiveView,
+      conversationId: () => state.conversationId,
+      fetchConversations: async () => {
+        const res = await apiFetch("/conversations?limit=50", { timeoutMs: READ_TIMEOUT_MS });
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        return Array.isArray(data?.conversations) ? data.conversations : null;
+      },
+      deleteConversation: deleteConversationOnServer,
+      chatDeleted: (id) => {
+        if (state.conversationId === id) startNewConversation({ deleted: true });
+      },
+      openConversation,
+      newConversation: startNewConversation,
+      submit: (text) => submitComposerInput(text),
+      fill: (text) => {
+        setActiveView("chat");
+        el.input.value = text;
+        resizeComposer();
+        el.input.focus();
+        el.input.setSelectionRange(text.length, text.length);
+      },
+      resizeInput: resizeComposer,
+      pickFile: () => {
+        setActiveView("chat");
+        openFilePicker();
+      },
+      attachFile: (file) => {
+        setActiveView("chat");
+        void handleFileSelected({ target: { files: [file], value: "" } });
+      },
+      startListening: () => {
+        setActiveView("chat");
+        startListening();
+      },
+      isBusy,
+      scrollToNewest: () => scrollConversationToBottom(),
+      bubbleText: bubblePlainText,
+      toast: showToast,
+      confirm: showConfirmModal,
+      closeSubpage: leaveSettingsSubpage,
+    });
   }
 
   /**
@@ -1312,7 +2247,7 @@
       if (!MOBILE_KEYBOARD.matches || document.activeElement !== el.input) return;
       const keyboardShown = baseline.height - vv.height > 120;
       document.body.classList.toggle("keyboard-open", keyboardShown);
-      if (keyboardShown) scrollConversationToBottom();
+      if (keyboardShown) scrollConversationToBottom(true);
     };
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
@@ -1321,17 +2256,28 @@
     });
   }
 
-  function setupHomeQuickActions() {
-    const toggle = document.getElementById("home-quick-toggle");
-    const panel = document.getElementById("home-quick");
-    if (!toggle || !panel) return;
-    toggle.addEventListener("click", () => {
-      haptic();
-      const open = panel.hidden;
-      panel.hidden = !open;
-      toggle.setAttribute("aria-expanded", String(open));
-      toggle.classList.toggle("active", open);
-    });
+  /** The analyze button keeps its icon; only the label span changes. */
+  function setAnalyzeLabel(text) {
+    const label = el.developerAnalyzeBtn?.querySelector("span");
+    if (label) label.textContent = text;
+    else if (el.developerAnalyzeBtn) el.developerAnalyzeBtn.textContent = text;
+  }
+
+  /** Display name from a signed-in email ("jitendra.kumar@x" → "Jitendra"); guests have none. */
+  function accountDisplayName() {
+    try {
+      if (localStorage.getItem(SESSION_KEYS.isGuest) !== "false") return "";
+      const email = localStorage.getItem(SESSION_KEYS.email) || "";
+      const first = email.split("@")[0].split(/[._\-+\d]+/).filter(Boolean)[0] || "";
+      return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function renderAvatar() {
+    const name = accountDisplayName();
+    for (const node of document.querySelectorAll(".avatar-text")) node.textContent = name ? name.slice(0, 2).toUpperCase() : "Z";
   }
 
   function renderHomeGreeting() {
@@ -1340,20 +2286,154 @@
     const hour = new Date().getHours();
     const key = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
     el.homeGreeting.textContent = copy.homeGreetings[key];
-    if (el.homeTitleSub) el.homeTitleSub.textContent = copy.homeSub;
+    const name = accountDisplayName();
+    const nameNode = document.getElementById("home-name");
+    if (nameNode) nameNode.textContent = name ? ", " + name : "";
+    renderAvatar();
+  }
+
+  /** Home prompt box, scroll-to-latest and Developer tabs (visual shortcuts onto existing flows). */
+  function setupDesignShortcuts() {
+    document.getElementById("home-prompt-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = document.getElementById("home-prompt-input");
+      const text = input?.value.trim();
+      if (!text) {
+        setActiveView("chat");
+        el.input.focus();
+        return;
+      }
+      input.value = "";
+      setActiveView("chat");
+      submitComposerInput(text);
+    });
+
+    setupChatContextChips();
+
+    // Reading back up the thread stops the page following new text; the button takes you to the newest.
+    window.addEventListener("scroll", () => {
+      followNewest = distanceFromBottom() < NEAR_BOTTOM_PX;
+      updateLatestButton();
+    }, { passive: true });
+    document.getElementById("scroll-latest")?.addEventListener("click", () => scrollConversationToBottom(true));
+
+    // The attach label opens the picker natively on click; make sure it lists every supported type.
+    el.uploadBtn.addEventListener("click", () => setFilePickerAccept(false));
+    document.getElementById("image-btn")?.addEventListener("click", () => {
+      haptic();
+      openFilePicker(true);
+    });
+
+    const tabs = document.querySelectorAll("[data-dev-tab]");
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        tabs.forEach((other) => {
+          other.classList.toggle("active", other === tab);
+          other.setAttribute("aria-selected", String(other === tab));
+        });
+        const target = document.getElementById(tab.dataset.devTab);
+        const panel = target?.closest(".panel") || target;
+        panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (target && target.matches("textarea, input")) target.focus({ preventScroll: true });
+      });
+    });
+  }
+
+  /** The project chip opens that project; the agent chip lets go of the agent so the chat may use every skill again. */
+  function setupChatContextChips() {
+    document.getElementById("chat-project-chip")?.addEventListener("click", () => {
+      if (state.projectId) goWork("project-" + state.projectId);
+    });
+    document.getElementById("chat-agent-chip")?.addEventListener("click", () => {
+      haptic();
+      state.agentId = null;
+      renderChatContext();
+      showToast("This chat can use every skill again.");
+      el.input.focus();
+    });
+  }
+
+  /** The project and agent chips under the chat title: what the open chat is working in and with. */
+  function renderChatContext() {
+    const wrap = document.getElementById("chat-context");
+    const projectChip = document.getElementById("chat-project-chip");
+    const agentChip = document.getElementById("chat-agent-chip");
+    if (!wrap || !projectChip || !agentChip) return;
+    projectChip.hidden = !state.projectId;
+    if (state.projectId) {
+      const name = workspace()?.projectName(state.projectId);
+      projectChip.textContent = "Project: " + (name || "…");
+      projectChip.dataset.userText = "";
+      projectChip.setAttribute("aria-label", "Project: " + (name || "loading") + ". Open the project.");
+      if (!name) void workspace()?.loadProjects().then(() => renderChatContext());
+    }
+    agentChip.hidden = !state.agentId;
+    if (state.agentId) {
+      const label = state.agentId.charAt(0).toUpperCase() + state.agentId.slice(1);
+      agentChip.textContent = "Agent: " + label + " ✕";
+      agentChip.setAttribute("aria-label", "Agent: " + label + ". Press to use all skills again.");
+    }
+    wrap.hidden = projectChip.hidden && agentChip.hidden;
+  }
+
+  /**
+   * Opens Chat in a context. `fresh` starts a new chat first (so the project/agent apply to it). `attachment` is text from the Files
+   * library, sent with the next message like any attachment; `submit` sends `prompt` at once, otherwise it is only put in the box.
+   */
+  function openChat({ fresh = false, projectId, agentId, prompt = "", submit = false, attachment, displayText } = {}) {
+    if (fresh) startNewConversation();
+    if (projectId !== undefined || fresh) state.projectId = projectId || null;
+    if (agentId !== undefined || fresh) state.agentId = agentId || null;
+    renderChatContext();
+    setActiveView("chat");
+    if (attachment) setPendingAttachment(attachment.name, attachment.text);
+    if (submit) {
+      if (state.pendingAttachment || !displayText) void submitComposerInput(prompt);
+      else void submitUtterance(prompt, false, displayText);
+      return;
+    }
+    el.input.value = prompt;
+    resizeComposer();
+    el.input.focus();
+    el.input.setSelectionRange(prompt.length, prompt.length);
+  }
+
+  /**
+   * Deletes a chat on the server. Resolves "deleted" only when the server confirmed it (204) or said the chat does not exist
+   * (404 with its own `conversation_not_found` code: it is gone either way). Anything else, including a 404 that is only a server
+   * without this route, is "failed", so the chat is never shown as deleted while the server still has it.
+   */
+  async function deleteConversationOnServer(id) {
+    try {
+      const res = await apiFetch(`/conversations/${encodeURIComponent(id)}`, { method: "DELETE", timeoutMs: READ_TIMEOUT_MS });
+      if (res.status === 204 || res.status === 200) return "deleted";
+      if (res.status === 404) {
+        const body = await res.json().catch(() => null);
+        if (body?.code === "conversation_not_found") return "deleted";
+      }
+      return "failed";
+    } catch {
+      return "failed";
+    }
   }
 
   /** Starts a fresh conversation: only the client's pointer and on-screen thread are reset.
-   * The previous conversation stays on the server. */
-  function startNewConversation() {
+   * The previous conversation stays on the server, unless `{ deleted: true }` says it was just deleted. */
+  function startNewConversation(options) {
+    const wasDeleted = options?.deleted === true;
     if (currentTurnController) cancelCurrentTurn();
     localStorage.removeItem(STORAGE_KEYS.conversationId);
     state.conversationId = null;
+    state.projectId = null;
+    state.agentId = null;
     state.history = [];
     state.firstTurn = true;
     el.conversation.replaceChildren();
+    renderChatContext();
+    kit("threadReset");
     syncChatConversationLayout();
-    recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
+    if (wasDeleted) recordActivity("conversation", "Deleted a chat", "Removed from your account", "ok");
+    else recordActivity("conversation", "Started a new conversation", "Previous conversation kept on the server", "ok");
     updateSettingsValues();
     if (state.activeView !== "chat") setActiveView("chat");
     el.input.focus();
@@ -1369,11 +2449,13 @@
         openFeature(card.dataset.featurePage);
       });
     }
+    // The prompt row scrolls sideways on a phone: it fades the edge that has more, so a chip cut by the screen reads as "more".
+    workspace()?.scrollFade(document.querySelector("#home-quick .chip-row"));
   }
 
   function setupCapabilityPages() {
     if (el.capabilityHub && window.ZarvisFeatures) {
-      window.ZarvisFeatures.renderHub(el.capabilityHub);
+      window.ZarvisFeatures.renderHub(el.capabilityHub, { developer: state.devAccess });
       el.capabilityHub.addEventListener("click", (event) => {
         const button = event.target.closest("[data-cap-action]");
         if (!button) return;
@@ -1384,7 +2466,7 @@
           startListening();
         } else if (action === "attach") {
           setActiveView("chat");
-          el.fileInput.click();
+          openFilePicker();
         } else if (action === "developer") {
           setActiveView("developer");
         } else if (action === "settings") {
@@ -1392,6 +2474,8 @@
           openSettingsPage(button.dataset.capSettings || "voice");
         } else if (action === "feature") {
           openFeature(button.dataset.featurePage);
+        } else if (action === "page") {
+          setActiveView(button.dataset.capPage);
         } else {
           setActiveView("chat");
           el.input.value = button.dataset.capPrompt || "";
@@ -1403,14 +2487,18 @@
   }
 
   function openFeature(id) {
+    if (id === "developer" && !requireDevAccess("Developer Agent")) return;
     state.featureId = id;
     if (!el.featureRoot || !window.ZarvisFeatures) return;
     window.ZarvisFeatures.renderDetail(el.featureRoot, id, {
-      onBack: () => setActiveView("capabilities"),
+      onBack: leaveFeaturePage,
       onPrimary: (feature) => runFeatureAction(feature, feature.prompt),
       onPrompt: (feature, prompt) => runFeatureAction(feature, prompt),
     });
-    if (state.activeView === "feature") return;
+    if (state.activeView === "feature") {
+      syncRoute();
+      return;
+    }
     setActiveView("feature");
   }
 
@@ -1424,7 +2512,7 @@
       setActiveView("chat");
       el.input.value = prompt || feature.prompt || "";
       resizeComposer();
-      el.fileInput.click();
+      openFilePicker();
       return;
     }
     if (feature.action === "phone" || feature.id === "phone") {
@@ -1442,6 +2530,18 @@
     el.input.focus();
     const length = el.input.value.length;
     requestAnimationFrame(() => el.input.setSelectionRange(length, length));
+  }
+
+  /** The Image shortcuts narrow the picker to pictures; every other entry point lists all supported files.
+   * Setting `accept` on every open means cancelling an Image pick can't leave the next "Files" pick image-only. */
+  function setFilePickerAccept(imagesOnly) {
+    if (!el.fileInput.dataset.allAccept) el.fileInput.dataset.allAccept = el.fileInput.getAttribute("accept") || "";
+    el.fileInput.setAttribute("accept", imagesOnly ? "image/*" : el.fileInput.dataset.allAccept);
+  }
+
+  function openFilePicker(imagesOnly = false) {
+    setFilePickerAccept(imagesOnly);
+    el.fileInput.click();
   }
 
   function resizeComposer() {
@@ -1471,11 +2571,44 @@
     return localStorage.getItem(STORAGE_KEYS.ttsVoice) || "Kore";
   }
 
+  /** Opens Work on a tab (or project-<id>) and keeps the address in step. */
+  function goWork(sub) {
+    workspace()?.setWorkSub(sub);
+    if (state.activeView === "work") {
+      workspace()?.showWork(sub);
+      syncRoute();
+    } else setActiveView("work");
+  }
+
+  function goAgents(id) {
+    workspace()?.setAgentsSub(id);
+    if (state.activeView === "agents") {
+      workspace()?.showAgents(id);
+      syncRoute();
+    } else setActiveView("agents");
+  }
+
   function setActiveView(view) {
-    if (view === "tasks") view = "activity";
+    // Tasks moved into Work: the old name still opens the right tab.
+    if (view === "tasks") {
+      goWork("tasks");
+      return;
+    }
+    // Choosing the section you are already in, from inside one of its details, goes back to its list.
+    if (view === state.activeView && view === "work" && workspace()?.workSub().startsWith("project-")) {
+      goWork("projects");
+      return;
+    }
+    if (view === state.activeView && view === "agents" && workspace()?.agentsSub()) {
+      goAgents("");
+      return;
+    }
     if (!VIEWS[view] || (state.activeView === view && view !== "feature")) return;
+    if (view === "developer" && !requireDevAccess("Developer Agent")) return;
+    if (view === "metrics" && !requireDevAccess("Usage & Metrics")) return;
     if (state.activeView === "metrics") stopMetricsPolling();
     if (state.activeView === "settings" && view !== "settings") closeSettingsPage();
+    kit("rememberScroll", state.activeView);
 
     state.activeView = view;
     document.body.dataset.activeView = view;
@@ -1491,10 +2624,14 @@
     }
     el.composer.hidden = view !== "chat";
     document.body.classList.remove("keyboard-open");
-    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+    window.scrollTo({ top: kit("scrollTargetFor", view, applyingRoute) || 0, behavior: "instant" in window ? "instant" : "auto" });
 
+    if (view === "chat") maybeShowWelcomeGate();
     if (view === "capabilities") renderCapabilities();
-    if (view === "plans") refreshPlans();
+    if (view === "plans") {
+      void refreshPlans();
+      void workspace()?.renderUsage();
+    }
     if (view === "metrics") {
       renderLatencyLog();
       renderMetricsUsage();
@@ -1503,29 +2640,38 @@
       startMetricsPolling();
     }
     if (view === "activity") refreshActivity();
+    if (view === "work") workspace()?.showWork(workspace().workSub());
+    if (view === "agents") workspace()?.showAgents(workspace().agentsSub());
     if (view === "home") {
       renderHomeGreeting();
-      renderHomeActivity();
+      void workspace()?.refreshHome();
     }
-    if (view === "developer") void refreshGithubStatus();
+    kit("renderAll"); // the open chat is highlighted in the sidebar only while Chat is showing
+    if (view === "developer") {
+      void refreshGithubStatus();
+      void refreshDeveloperHistory();
+    }
     if (view === "settings") {
       updateSettingsValues();
       void refreshGithubStatus();
       void loadSettingsSummary();
+      void workspace()?.refreshMemoryValue();
     }
-    if (view === "chat") scrollConversationToBottom();
+    if (view === "chat") scrollConversationToBottom(true);
+    placeToast();
+    syncRoute();
   }
 
   // ---- Plans & Quotas -----------------------------------------------------------------------
-  // Free vs Pro comparison — MASTER_SPEC.md §19-21. Never a fabricated price: Web/Play
-  // billing isn't wired up yet (§32), so real pricing is marked "coming soon" instead of
-  // invented — same honesty as the Android Plans screen. The monthly/yearly toggle is a real,
-  // working control; it only ever changes the billing-period label, never a dollar amount
-  // that doesn't exist yet.
+  // Free vs Pro. Prices come from the server (GET /billing/plans, INR) — the client only ever
+  // sends a plan key when buying, never an amount. Payment runs through Razorpay Checkout
+  // (UPI, cards, netbanking, wallets); the server verifies it before granting anything. When
+  // the server has no Razorpay keys the page says so instead of showing a dead button.
 
   const PLAN_TIERS = [
     {
       name: "FREE",
+      title: "Free",
       tag: null,
       tagline: "Everything you need to get started.",
       features: ["Conversation and voice in English, Hindi and Hinglish", "Documents, research, writing and business drafts", "Tracked tasks and Developer Agent analysis"],
@@ -1533,7 +2679,8 @@
     },
     {
       name: "PRO",
-      tag: "Recommended",
+      title: "Pro",
+      tag: "Most popular",
       tagline: "Every skill ZARVIS ships.",
       features: [
         "Everything in Free",
@@ -1543,6 +2690,12 @@
       highlighted: true,
     },
   ];
+
+  let planCatalogue = null;
+  let checkoutBusy = false;
+  const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+  const dateLocale = () => (state.lang === "hi" ? "hi-IN" : "en-IN");
+  const formatDate = (value) => new Date(value).toLocaleDateString(dateLocale(), { day: "numeric", month: "short", year: "numeric" });
 
   function setupPlans() {
     const options = el.billingToggle.querySelectorAll(".billing-option");
@@ -1558,22 +2711,28 @@
 
   // ---- Confirmation modal ----------------------------------------------------------------
   // One generic instance (mirrors Android's RiskConfirmationDialog/AlertDialog pattern)
-  // rather than a one-off dialog per caller — currently used only by Settings' "Delete
-  // account", but written to take any title/body/confirm label.
+  // rather than a one-off dialog per caller: Sign out, Delete account and Remove from list all take
+  // a title/body/confirm label. An optional second action (secondaryLabel + onSecondary) sits between
+  // Cancel and the confirm button, for a safer way out than the one being confirmed.
 
-  function showConfirmModal({ title, body, confirmLabel = "Confirm", destructive = false, onConfirm }) {
+  function showConfirmModal({ title, body, confirmLabel = "Confirm", destructive = false, onConfirm, secondaryLabel, onSecondary }) {
     const opener = document.activeElement;
+    const hasSecondary = !!secondaryLabel && typeof onSecondary === "function";
     el.confirmModalTitle.textContent = title;
     el.confirmModalBody.textContent = body;
     el.confirmModalConfirm.textContent = confirmLabel;
     el.confirmModalConfirm.classList.toggle("btn-danger", destructive);
     el.confirmModalConfirm.classList.toggle("btn-primary", !destructive);
+    el.confirmModalSecondary.hidden = !hasSecondary;
+    el.confirmModalSecondary.textContent = hasSecondary ? secondaryLabel : "";
     el.confirmModal.hidden = false;
     el.confirmModalCancel.focus();
 
     const close = () => {
       el.confirmModal.hidden = true;
+      el.confirmModalSecondary.hidden = true;
       el.confirmModalConfirm.removeEventListener("click", handleConfirm);
+      el.confirmModalSecondary.removeEventListener("click", handleSecondary);
       el.confirmModalCancel.removeEventListener("click", close);
       el.confirmModal.removeEventListener("keydown", onKey);
       el.confirmModal.removeEventListener("click", onScrim);
@@ -1583,6 +2742,10 @@
       close();
       onConfirm();
     };
+    const handleSecondary = () => {
+      close();
+      onSecondary?.();
+    };
     const onKey = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1590,9 +2753,9 @@
         return;
       }
       if (event.key !== "Tab") return;
-      const nodes = [el.confirmModalCancel, el.confirmModalConfirm];
+      const nodes = [el.confirmModalCancel, ...(hasSecondary ? [el.confirmModalSecondary] : []), el.confirmModalConfirm];
       const first = nodes[0];
-      const last = nodes[1];
+      const last = nodes[nodes.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -1605,6 +2768,7 @@
       if (event.target === el.confirmModal) close();
     };
     el.confirmModalConfirm.addEventListener("click", handleConfirm);
+    el.confirmModalSecondary.addEventListener("click", handleSecondary);
     el.confirmModalCancel.addEventListener("click", close);
     el.confirmModal.addEventListener("keydown", onKey);
     el.confirmModal.addEventListener("click", onScrim);
@@ -1616,13 +2780,20 @@
   // its exact backend call (DELETE /api/v1/account, already wired server-side).
 
   function setupSettings() {
+    document.getElementById("voice-check-again")?.addEventListener("click", () => void renderVoiceCheck({ announce: true }));
     for (const btn of document.querySelectorAll("[data-settings-page]")) {
       btn.addEventListener("click", () => openSettingsPage(btn.dataset.settingsPage));
     }
-    el.settingsPanelBack?.addEventListener("click", closeSettingsPage);
+    el.settingsPanelBack?.addEventListener("click", leaveSettingsSubpage);
     el.appearanceAuroraBtn?.addEventListener("click", () => setAppearance("aurora"));
     el.appearanceDimBtn?.addEventListener("click", () => setAppearance("dim"));
     el.settingsOpenDeveloper?.addEventListener("click", () => setActiveView("developer"));
+    el.settingsOpenMetrics?.addEventListener("click", () => setActiveView("metrics"));
+    el.settingsDevToggle?.addEventListener("click", () => {
+      haptic();
+      setDevAccess(!state.devAccess);
+      showToast(state.devAccess ? "Developer access on" : "Developer access off");
+    });
     el.settingsNewConversation?.addEventListener("click", () => {
       haptic();
       startNewConversation();
@@ -1648,11 +2819,21 @@
       showConfirmModal({
         title: "Sign out?",
         body: isGuest
-          ? "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email in Account first if you want to keep it."
+          ? "This is a guest account with no sign-in email, so after signing out you can't get back into it. Link an email first to keep it."
           : "This ends the session on this browser. Sign in again with your email to continue.",
         confirmLabel: "Sign out",
         destructive: isGuest,
         onConfirm: () => void signOut(),
+        // The one thing that makes a guest sign-out safe is one tap away, not a trip through the menus.
+        ...(isGuest
+          ? {
+              secondaryLabel: "Link an email",
+              onSecondary: () => {
+                setActiveView("settings");
+                openSettingsPage("account");
+              },
+            }
+          : {}),
       });
     });
     el.settingsDeleteBtn.addEventListener("click", () => {
@@ -1673,18 +2854,23 @@
     el.viewSettings.classList.add("is-subpage");
     el.settingsGrid.hidden = true;
     el.settingsPanels.hidden = false;
-    const entry = document.querySelector(`[data-settings-page="${page}"] strong`);
-    if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = entry ? entry.textContent : "Settings";
+    const row = document.querySelector(`[data-settings-page="${page}"]`);
+    const title = row?.dataset.settingsLabel || row?.querySelector("strong")?.textContent;
+    if (el.settingsSubpageTitle) el.settingsSubpageTitle.textContent = title || "Settings";
     const desc = document.getElementById("settings-subpage-desc");
-    if (desc) desc.textContent = document.querySelector(`[data-settings-page="${page}"] small`)?.textContent || "";
+    if (desc) desc.textContent = row?.dataset.settingsDesc || row?.querySelector("small")?.textContent || "";
     renderSettingsSubpageValue();
     for (const panel of document.querySelectorAll("[data-settings-panel]")) {
       panel.hidden = panel.dataset.settingsPanel !== page;
     }
     if (page === "account") void refreshAccountPanel();
     if (page === "permissions") void renderPermissionCenter();
+    if (page === "integrations") void renderIntegrations();
+    if (page === "voice") void renderVoiceCheck();
     if (page === "ai") void renderAiProvider();
+    if (page === "memory") void workspace()?.renderMemory();
     el.settingsPanelBack?.focus?.();
+    syncRoute();
   }
 
   function closeSettingsPage() {
@@ -1692,6 +2878,7 @@
     el.viewSettings.classList.remove("is-subpage");
     el.settingsPanels.hidden = true;
     el.settingsGrid.hidden = false;
+    document.title = pageTitle();
   }
 
   function setAppearance(mode) {
@@ -1699,7 +2886,29 @@
     localStorage.setItem("zarvis.appearance", mode);
     applyAppearance();
     updateSettingsValues();
-    showToast(mode === "dim" ? "Dim appearance" : "Light appearance");
+    showToast(mode === "dim" ? "Dark appearance" : "Light appearance");
+  }
+
+  /**
+   * The message box (Chat) and the message card (Home) own the bottom of the screen and move with a growing message or the
+   * keyboard: the toast sits above whichever is showing instead of on top of it. Called when a toast opens and when the
+   * page changes under an open one (an unknown address shows its toast first and opens Home after).
+   */
+  function placeToast() {
+    const toast = document.getElementById("toast");
+    if (!toast || toast.hidden) return;
+    const anchor = [el.composer, document.getElementById("home-prompt-form")].find((node) => node && node.getClientRects().length && ["fixed", "sticky"].includes(getComputedStyle(node).position));
+    if (!anchor) {
+      toast.style.bottom = "";
+      return;
+    }
+    // A page that is still sliding in is measured where it will end up, not where the animation has it for now.
+    let sliding = 0;
+    for (let node = anchor; node && node !== document.body; node = node.parentElement) {
+      const transform = getComputedStyle(node).transform;
+      if (transform && transform !== "none") sliding += new DOMMatrixReadOnly(transform).m42;
+    }
+    toast.style.bottom = Math.round(window.innerHeight - (anchor.getBoundingClientRect().top - sliding) + 8) + "px";
   }
 
   let toastTimer = null;
@@ -1709,6 +2918,7 @@
     if (!toast) return;
     toast.textContent = text;
     toast.hidden = false;
+    placeToast();
     toast.classList.remove("is-leaving");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
@@ -1729,8 +2939,16 @@
     set("subscription", currentPlanName ? formatPlanName(currentPlanName) : "");
     set("voice", state.speak ? "On" : "Off");
     set("language", state.lang === "hi" ? "हिंदी" : "English");
-    set("appearance", state.appearance === "dim" ? "Dim" : "Light");
-    set("memory", state.conversationId ? "Saved" : "New");
+    set("appearance", state.appearance === "dim" ? "Dark" : "Light");
+    if (!state.devAccess) set("developer", "Off");
+    const heroName = document.getElementById("profile-hero-name");
+    if (heroName) {
+      heroName.textContent = accountDisplayName() || (isGuest ? "Guest" : "Signed in");
+      document.getElementById("profile-hero-sub").textContent = isGuest ? "Guest account. Link an email to keep it." : email || "";
+      const heroPlan = document.getElementById("profile-hero-plan");
+      heroPlan.hidden = !currentPlanName;
+      heroPlan.textContent = currentPlanName ? formatPlanName(currentPlanName) : "";
+    }
     if (healthCache) set("ai", Logic.aiProviderStatus(healthCache.provider).label);
     set("security", isGuest ? "Guest session" : "Signed in");
     renderSettingsSubpageValue();
@@ -1757,7 +2975,7 @@
     }
     if (currentPlanName) return;
     try {
-      const res = await apiFetch("/entitlements/me");
+      const res = await apiFetch("/entitlements/me", { timeoutMs: READ_TIMEOUT_MS });
       if (!res.ok) return;
       const snapshot = await res.json();
       if (snapshot?.plan) currentPlanName = snapshot.plan;
@@ -1787,45 +3005,21 @@
 
   function applyAppearance() {
     document.documentElement.dataset.appearance = state.appearance;
-    const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta) themeMeta.setAttribute("content", state.appearance === "dim" ? "#070a14" : "#f6f7fb");
+    for (const themeMeta of document.querySelectorAll('meta[name="theme-color"]')) {
+      themeMeta.removeAttribute("media");
+      themeMeta.setAttribute("content", state.appearance === "dim" ? "#0a0d24" : "#f4f3ff");
+    }
     for (const btn of document.querySelectorAll("[data-appearance]")) {
       btn.classList.toggle("active", btn.dataset.appearance === state.appearance);
     }
   }
 
-  async function refreshActivity() {
-    if (!el.activityTaskList) return;
-    const refreshBtn = el.activityRefreshBtn;
-    if (refreshBtn) refreshBtn.disabled = true;
-    el.activityTaskList.setAttribute("aria-busy", "true");
-    renderActivityTimeline();
-    if (!el.activityTaskList.children.length) {
-      const skeleton = document.createElement("div");
-      skeleton.className = "skeleton skeleton-row";
-      skeleton.setAttribute("aria-hidden", "true");
-      el.activityTaskList.appendChild(skeleton);
-    }
-    let tasks = null;
-    try {
-      tasks = await fetchTasks();
-    } catch (err) {
-      console.error(err);
-      tasks = null;
-    }
-    el.activityTaskList.innerHTML = "";
-    if (refreshBtn) refreshBtn.disabled = false;
-    el.activityTaskList.removeAttribute("aria-busy");
-    if (!tasks) {
-      el.activityTaskList.appendChild(emptyState("Couldn't load tasks", "Check your connection, then refresh."));
-      return;
-    }
-    if (!tasks.length) {
-      el.activityTaskList.appendChild(emptyState("No tracked tasks", "Ask ZARVIS to plan a goal and it will appear here."));
-      return;
-    }
-    for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
+  /** Activity is the account's feed from the server plus this session's local log; Refresh reads both again and re-counts open tasks. */
+  function refreshActivity() {
     applyActivityFilter();
+    void workspace()?.renderActivity();
+    void kit("sync", { force: true });
+    void refreshTasks();
   }
 
   async function deleteAccount() {
@@ -1851,10 +3045,6 @@
 
   function setupDeveloper() {
     if (!el.developerAnalyzeBtn || !el.developerImplementBtn || !el.developerRepoInput) return;
-    el.developerEntryLink?.addEventListener("click", () => {
-      haptic();
-      setActiveView("developer");
-    });
     el.developerAnalyzeBtn.addEventListener("click", () => {
       haptic();
       analyzeRepo();
@@ -1871,9 +3061,12 @@
   /** Asks the server for a one-time confirmation of this exact change, then shows it. */
   let lastDeveloperAction = null;
 
+  let developerRepo = "";
+
   async function implementRepo() {
     lastDeveloperAction = implementRepo;
     const repoUrl = el.developerRepoInput.value.trim();
+    developerRepo = repoUrl;
     const requirement = el.developerRequirementInput.value.trim();
     el.developerResult.innerHTML = "";
     if (!repoUrl || !requirement) {
@@ -1887,7 +3080,22 @@
       const body = await res.json().catch(() => ({}));
       if (res.ok && body.kind === "confirmation_required") {
         setDeveloperStage("implement", "Waiting for you", "z-badge-info");
-        renderConfirmationCard(body.confirmation, el.developerResult);
+        setDeveloperStage("confirm", "Needs you", "z-badge-info");
+        el.developerResult.appendChild(developerProposal(repoUrl, requirement));
+        renderConfirmationCard(body.confirmation, el.developerResult, {
+          onResolved: (answer) => {
+            const outcome = answer.outcome || {};
+            setDeveloperStage("confirm", outcome.kind === "confirmation_declined" ? "Declined" : "Confirmed", outcome.kind === "confirmation_declined" ? "z-badge-err" : "z-badge-ok");
+            const ok = outcome.kind === "success";
+            setDeveloperStage("implement", ok ? "Completed" : outcome.kind === "confirmation_declined" ? "Not done" : "Couldn't complete", ok ? "z-badge-ok" : "z-badge-err");
+            renderDeveloperMessage(answer.message || "Done.", ok ? "success" : "error", true, {
+              skillId: "developer.implement",
+              output: ok ? outcome.result.output : null,
+              evidence: answer.result?.verificationEvidence,
+              repoUrl: developerRepo,
+            });
+          },
+        });
         revealDeveloperResult();
         return;
       }
@@ -1917,7 +3125,7 @@
     }
 
     el.developerAnalyzeBtn.disabled = true;
-    el.developerAnalyzeBtn.textContent = "Analyzing…";
+    setAnalyzeLabel("Analyzing…");
     setDeveloperStage("analyze", "Running", "z-badge-info");
     try {
       const res = await apiFetch("/developer/analyze", { method: "POST", body: JSON.stringify({ repoUrl }) });
@@ -1928,18 +3136,44 @@
         return;
       }
       setDeveloperStage("analyze", "Completed", "z-badge-ok");
-      renderDeveloperMessage(body.result?.summary || "Analyzed.", "success");
+      renderDeveloperMessage(body.result?.summary || "Analyzed.", "success", true, { skillId: "developer.analyze_repo", output: body.result?.output, evidence: body.structured?.verificationEvidence, repoUrl });
     } catch (err) {
       console.error(err);
       setDeveloperStage("analyze", "Couldn't complete", "z-badge-err");
       renderDeveloperMessage(COPY[state.lang].bootError.title, "error");
     } finally {
       el.developerAnalyzeBtn.disabled = false;
-      el.developerAnalyzeBtn.textContent = "Analyze";
+      setAnalyzeLabel("Analyze Repository");
     }
   }
 
-  function renderDeveloperMessage(message, status, retryable = true) {
+  /** The change that will be proposed, in the words the user typed, shown above the confirmation that names the exact action. */
+  function developerProposal(repoUrl, requirement) {
+    const box = document.createElement("div");
+    box.className = "exec-panel";
+    const title = document.createElement("h4");
+    title.className = "exec-panel-title";
+    title.textContent = "Proposed change";
+    const dl = document.createElement("dl");
+    dl.className = "exec-kv";
+    for (const [label, value] of [["Repository", repoUrl], ["Requirement", requirement]]) {
+      const row = document.createElement("div");
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      dd.dataset.userText = "";
+      row.append(dt, dd);
+      dl.appendChild(row);
+    }
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Nothing is written until you confirm below. ZARVIS creates a new branch and a pull request for your review; it never merges.";
+    box.append(title, dl, note);
+    return box;
+  }
+
+  function renderDeveloperMessage(message, status, retryable = true, details) {
     const widget = document.createElement("div");
     widget.className = "result-widget";
     widget.dataset.kind = "code";
@@ -1954,6 +3188,18 @@
     body.className = "widget-body";
     renderFormattedText(body, message);
     widget.appendChild(body);
+    if (details && details.output && status === "success") {
+      const out = document.createElement("div");
+      out.className = "exec-output";
+      window.ZarvisExec?.renderOutput(out, details.skillId, details.output, { inputPreview: { repoUrl: details.repoUrl } });
+      widget.appendChild(out);
+      const verified = document.createElement("p");
+      verified.className = "muted";
+      verified.textContent = details.skillId === "developer.implement"
+        ? "Verified: GitHub returned the pull request. ZARVIS did not run any tests; use “Check CI results on GitHub” for what your repository's checks report."
+        : "Verified: the analysis returned a result. It reads file names, not code, so it is not a code review.";
+      widget.appendChild(verified);
+    }
 
     if (status === "error" && retryable && lastDeveloperAction) {
       const retry = document.createElement("button");
@@ -1971,13 +3217,52 @@
     revealDeveloperResult();
     // A validation hint (retryable === false) is not a run: no status change, no history entry.
     if (!retryable && status === "error") return;
-    lastDeveloperNote = { status, message };
     setRunStatus(status === "success" ? "completed" : "failed");
-    const line = String(message || "").split("\n").find((text) => text.trim()) || "";
-    const title = line.replace(/[#*`_>]/g, "").trim().slice(0, 90) || (status === "success" ? "Completed" : "Failed");
-    recordActivity("developer", title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
-    appendDeveloperLog(title, status === "success" ? "Completed" : "Failed", status === "success" ? "ok" : "error");
-    renderHomeActivity();
+    // The history beside the page is read back from the server, so it is the same on every device.
+    void refreshDeveloperHistory();
+  }
+
+  /** Recent repository runs, from the execution ledger (not from this tab's memory). */
+  async function refreshDeveloperHistory() {
+    if (!el.developerLog) return;
+    let res;
+    try {
+      res = await apiFetch("/executions?skillIds=developer.analyze_repo,developer.implement&limit=10", { timeoutMs: READ_TIMEOUT_MS });
+    } catch (err) {
+      if (!(err instanceof SessionEndedError)) console.warn("Developer history failed:", err);
+      return;
+    }
+    if (!res.ok) {
+      el.developerLog.replaceChildren(Object.assign(document.createElement("li"), { className: "timeline-empty", textContent: "Couldn't load the history." }));
+      return;
+    }
+    const { executions } = await res.json();
+    el.developerLog.replaceChildren();
+    if (!executions.length) {
+      el.developerLog.appendChild(Object.assign(document.createElement("li"), { className: "timeline-empty", textContent: "No runs yet." }));
+      return;
+    }
+    for (const run of executions) {
+      const ok = run.status === "COMPLETED";
+      const item = document.createElement("li");
+      item.className = "timeline-item";
+      item.dataset.tone = ok ? "ok" : run.status === "CONFIRMATION_REQUIRED" ? "" : "error";
+      const dot = document.createElement("span");
+      dot.className = "timeline-dot";
+      dot.appendChild(svgIcon(ok ? "i-check" : run.status === "CONFIRMATION_REQUIRED" ? "i-clock" : "i-x"));
+      const bodyNode = document.createElement("div");
+      bodyNode.className = "timeline-body";
+      const strong = document.createElement("strong");
+      const repo = String(run.inputPreview?.repoUrl || "").replace(/^https?:\/\/(www\.)?github\.com\//, "");
+      strong.textContent = run.skillName + (repo ? " · " + repo : "");
+      strong.dataset.userText = "";
+      const meta = document.createElement("div");
+      meta.className = "timeline-meta";
+      meta.textContent = Logic.toolStatusLabel(run.status) + " · " + formatRelativeTime(run.createdAt);
+      bodyNode.append(strong, meta);
+      item.append(dot, bodyNode);
+      el.developerLog.appendChild(item);
+    }
   }
 
   function revealDeveloperResult() {
@@ -1994,30 +3279,9 @@
     if (label) label.textContent = RUN_STATUS_LABELS[tone] || tone;
   }
 
-  function appendDeveloperLog(title, meta, tone) {
-    if (!el.developerLog) return;
-    const item = document.createElement("li");
-    item.className = "timeline-item";
-    item.dataset.tone = tone;
-    const dot = document.createElement("span");
-    dot.className = "timeline-dot";
-    dot.appendChild(svgIcon(tone === "ok" ? "i-check" : "i-x"));
-    const body = document.createElement("div");
-    body.className = "timeline-body";
-    const strong = document.createElement("strong");
-    strong.textContent = title;
-    const small = document.createElement("div");
-    small.className = "timeline-meta";
-    small.textContent = meta + " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    body.append(strong, small);
-    item.append(dot, body);
-    el.developerLog.querySelector(".timeline-empty")?.remove();
-    el.developerLog.prepend(item);
-  }
-
   function setDeveloperStage(name, label, tone) {
     const runTone = label === "Checking" ? "thinking" : label === "Running" ? "working" : label === "Waiting for you" ? "waiting"
-      : label === "Completed" ? "completed" : /^Couldn't/.test(label) ? "failed" : null;
+      : label === "Completed" ? "completed" : /^Couldn't/.test(label) || label === "Not done" || label === "Declined" ? "failed" : null;
     if (runTone) setRunStatus(runTone);
     const card = document.querySelector(`#developer-stages [data-stage="${name}"] .z-badge`);
     if (!card) return;
@@ -2026,68 +3290,268 @@
   }
 
   async function refreshPlans() {
-    el.plansCurrent.innerHTML = "";
-    try {
-      const res = await apiFetch("/entitlements/me");
-      if (res.ok) {
-        const snapshot = await res.json();
-        currentPlanName = snapshot.plan;
-        el.plansCurrent.appendChild(renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan) }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Credits", value: String(snapshot.creditBalance) }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Trial", value: snapshot.trialExpiresAt ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "None" }));
-        el.plansCurrent.appendChild(renderStatTile({ label: "Billing", value: "Not connected" }));
-        updateSettingsValues();
+    el.plansCurrent.replaceChildren();
+    // Both are read together: waiting for one to time out before asking for the other doubled the wait.
+    const read = async (path) => {
+      try {
+        const res = await apiFetch(path, { timeoutMs: READ_TIMEOUT_MS });
+        return { ended: false, body: res.ok ? await res.json() : null };
+      } catch (err) {
+        return { ended: err instanceof SessionEndedError, body: null };
       }
-    } catch {
-      // The Free/Pro comparison below still renders regardless — this tile row is a
-      // nice-to-have, not a hard dependency.
+    };
+    const [entitlements, plans] = await Promise.all([read("/entitlements/me"), read("/billing/plans")]);
+    if (entitlements.ended || plans.ended) return;
+    const snapshot = entitlements.body;
+    planCatalogue = plans.body;
+    if (snapshot) {
+      currentPlanName = snapshot.plan;
+      const paid = snapshot.plan === "PRO" && snapshot.planExpiresAt;
+      const trial = snapshot.trialExpiresAt && snapshot.plan === "TRIAL";
+      el.plansCurrent.append(
+        renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan), icon: "i-plan", tone: "tone-violet" }),
+        renderStatTile({ label: "Credits", value: Number(snapshot.creditBalance).toLocaleString("en-IN"), icon: "i-bolt", tone: "tone-pink" }),
+        renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
+        renderStatTile({ label: "Payments", value: planCatalogue?.paymentsEnabled ? "UPI & cards" : "Not enabled", icon: "i-card", tone: "tone-blue" }),
+      );
+      updateSettingsValues();
     }
+    renderPlansNotice();
     renderPlanCards(currentPlanName);
   }
 
+  function renderPlansNotice() {
+    const notice = document.getElementById("plans-notice");
+    const text = document.getElementById("plans-notice-text");
+    const box = document.getElementById("pay-box");
+    const save = document.getElementById("yearly-save");
+    if (!notice || !text) return;
+    let message = "";
+    if (!planCatalogue) message = "Couldn't load plans and prices. Check your connection and open this page again.";
+    else if (!planCatalogue.paymentsEnabled) message = "Online payments aren't enabled on this server yet, so plans can't be bought here. Prices below are what Pro will cost.";
+    else if (planCatalogue.testMode) message = "Test mode: payments use Razorpay's test environment and no real money moves.";
+    notice.hidden = !message;
+    text.textContent = message;
+    const guestNote = document.getElementById("plans-guest-note");
+    if (guestNote) guestNote.hidden = localStorage.getItem(SESSION_KEYS.isGuest) === "false";
+    if (box) box.hidden = !planCatalogue;
+    const yearly = planCatalogue?.plans?.find((p) => p.period === "yearly");
+    if (save) {
+      save.hidden = !yearly || !yearly.savingsPercent;
+      if (yearly?.savingsPercent) save.textContent = "Save " + yearly.savingsPercent + "%";
+    }
+  }
+
   function renderPlanCards(currentPlan) {
-    el.planCards.innerHTML = "";
+    el.planCards.replaceChildren();
     for (const plan of PLAN_TIERS) el.planCards.appendChild(renderPlanCard(plan, currentPlan));
   }
 
   function renderPlanCard(plan, currentPlan) {
     const card = document.createElement("div");
     card.className = plan.highlighted ? "plan-card highlighted" : "plan-card";
+    const priced = plan.name === "PRO" ? planCatalogue?.plans?.find((p) => p.period === state.billing) : null;
+    const isCurrent = currentPlan === plan.name || (plan.name === "FREE" && currentPlan === "TRIAL");
 
     const top = document.createElement("div");
     top.className = "plan-card-top";
     const name = document.createElement("h3");
     name.className = "plan-card-name";
-    name.textContent = plan.name;
-    top.appendChild(name);
+    name.textContent = plan.title;
     const tag = document.createElement("span");
     tag.className = "plan-card-tag";
-    tag.textContent = currentPlan === plan.name ? "Current plan" : plan.tag || "";
-    top.appendChild(tag);
+    tag.textContent = isCurrent ? "Current plan" : plan.tag || "";
+    top.append(name, tag);
     card.appendChild(top);
 
-    const tagline = document.createElement("p");
-    tagline.className = "plan-card-tagline";
-    tagline.textContent = plan.tagline;
-    card.appendChild(tagline);
-
-    if (plan.highlighted) {
-      const note = document.createElement("p");
-      note.className = "plan-card-note";
-      note.textContent = `Billed ${state.billing} · pricing not available yet`;
-      card.appendChild(note);
+    const price = document.createElement("p");
+    price.className = "plan-price";
+    if (plan.name === "FREE") {
+      price.append(textSpan("plan-price-amount", inr.format(0)), textSpan("plan-price-unit", " forever"));
+    } else if (priced) {
+      price.append(textSpan("plan-price-amount", inr.format(priced.amountInr)), textSpan("plan-price-unit", priced.period === "yearly" ? " / year" : " / month"));
+    } else {
+      price.append(textSpan("plan-price-unit", "Price unavailable"));
     }
+    card.appendChild(price);
+    if (priced && priced.period === "yearly") {
+      card.appendChild(textP("plan-card-note", `≈ ${inr.format(priced.perMonthInr)} / month${priced.savingsPercent ? " · save " + priced.savingsPercent + "%" : ""}`));
+    }
+
+    card.appendChild(textP("plan-card-tagline", plan.tagline));
 
     const list = document.createElement("ul");
     list.className = "plan-card-features";
-    for (const feature of plan.features) {
+    const features = priced ? [`${priced.credits.toLocaleString("en-IN")} credits per ${priced.period === "yearly" ? "year" : "month"}`, ...plan.features] : plan.features;
+    for (const feature of features) {
       const li = document.createElement("li");
       li.textContent = feature;
       list.appendChild(li);
     }
     card.appendChild(list);
 
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "btn plan-cta " + (plan.highlighted ? "btn-primary" : "btn-secondary");
+    if (plan.name === "FREE") {
+      action.textContent = isCurrent ? "Current plan" : "Included";
+      action.disabled = true;
+    } else if (!priced) {
+      action.textContent = "Unavailable";
+      action.disabled = true;
+    } else if (!planCatalogue.paymentsEnabled) {
+      action.textContent = "Payments not enabled yet";
+      action.disabled = true;
+    } else {
+      const active = currentPlan === "PRO" && planCatalogue.current?.planExpiresAt;
+      action.textContent = active ? `Renew · add ${priced.period === "yearly" ? "1 year" : "30 days"}` : "Upgrade Now";
+      action.addEventListener("click", () => startCheckout(priced.key, action));
+    }
+    card.appendChild(action);
     return card;
+  }
+
+  function textSpan(className, text) {
+    const node = document.createElement("span");
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  function textP(className, text) {
+    const node = document.createElement("p");
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+
+  /** Razorpay Checkout is loaded only when the user taps Upgrade, never on page load. */
+  function loadRazorpayCheckout() {
+    if (window.Razorpay) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => (window.Razorpay ? resolve() : reject(new Error("checkout_unavailable")));
+      script.onerror = () => reject(new Error("checkout_blocked"));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function startCheckout(planKey, button) {
+    if (checkoutBusy) return;
+    checkoutBusy = true;
+    const label = button.textContent;
+    const reset = () => {
+      checkoutBusy = false;
+      button.disabled = false;
+      button.textContent = label;
+    };
+    showPaymentResult("info", "");
+    button.disabled = true;
+    button.textContent = "Opening secure checkout…";
+    try {
+      const res = await apiFetch("/billing/orders", { method: "POST", body: JSON.stringify({ planKey }) });
+      const order = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(order.error || "Couldn't start the payment.");
+      await loadRazorpayCheckout();
+      const email = localStorage.getItem(SESSION_KEYS.isGuest) === "false" ? localStorage.getItem(SESSION_KEYS.email) || "" : "";
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        order_id: order.orderId,
+        amount: order.amountPaise,
+        currency: order.currency,
+        name: "ZARVIS MOBILE",
+        description: order.description,
+        prefill: email ? { email } : {},
+        theme: { color: "#6d4ee8" },
+        retry: { enabled: true },
+        handler: (response) => {
+          reset();
+          void confirmPayment(order.orderId, response);
+        },
+        modal: { ondismiss: () => { reset(); showToast("Checkout closed. No payment was completed."); } },
+      });
+      checkout.on("payment.failed", (event) => {
+        showPaymentResult("err", (event?.error?.description ? "Payment failed: " + event.error.description + " " : "Payment failed. ") + "Your plan was not changed.", event?.error?.metadata?.payment_id);
+      });
+      checkout.open();
+    } catch (err) {
+      reset();
+      if (err instanceof SessionEndedError) return;
+      showToast(err?.message === "checkout_blocked" || err?.message === "checkout_unavailable" ? "Couldn't load secure checkout. Check your connection and try again." : err?.message || "Couldn't start the payment.");
+    }
+  }
+
+  /** The last payment result stays on the Plans page until the next checkout: a toast is gone in two seconds, and this is about money. */
+  function showPaymentResult(tone, text, paymentId) {
+    const box = document.getElementById("plans-payment");
+    if (!box) return;
+    box.dataset.tone = tone;
+    document.getElementById("plans-payment-text").textContent = text;
+    const ref = document.getElementById("plans-payment-ref");
+    ref.hidden = !paymentId;
+    document.getElementById("plans-payment-id").textContent = paymentId || "";
+    box.hidden = !text;
+  }
+
+  /** Re-reads the plan up to `attempts` times, 5 s apart; resolves with the snapshot once it is PRO, or null. */
+  async function waitForPro(attempts) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await delay(PAYMENT_POLL_MS);
+      try {
+        const check = await apiFetch("/entitlements/me", { timeoutMs: READ_TIMEOUT_MS });
+        if (check.ok) {
+          const snapshot = await check.json();
+          if (snapshot.plan === "PRO") return snapshot;
+        }
+      } catch (err) {
+        if (err instanceof SessionEndedError) return null;
+      }
+    }
+    return null;
+  }
+  const PAYMENT_POLL_MS = 5000;
+
+  /**
+   * After Checkout succeeds: the server checks the signature and the payment with Razorpay before granting Pro.
+   * What this page says depends only on what the server answered (Logic.paymentVerifyOutcome): never "payment
+   * received" for a payment the server refused, and a final word if the plan still is not active.
+   */
+  async function confirmPayment(orderId, response) {
+    const paymentId = response.razorpay_payment_id;
+    showPaymentResult("info", "Confirming your payment…", paymentId);
+    let outcome = null;
+    let granted = null;
+    try {
+      const res = await apiFetch("/billing/verify", {
+        method: "POST",
+        body: JSON.stringify({ orderId, paymentId, signature: response.razorpay_signature }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) granted = body;
+      else outcome = Logic.paymentVerifyOutcome(res.status, body.code);
+    } catch (err) {
+      if (err instanceof SessionEndedError) return;
+      outcome = Logic.paymentVerifyOutcome(0, undefined);
+    }
+    if (!outcome) {
+      recordActivity("conversation", "Upgraded to Pro", granted.planExpiresAt ? "Active until " + formatDate(granted.planExpiresAt) : "", "ok");
+      showPaymentResult("ok", "Pro is active" + (granted.planExpiresAt ? " until " + formatDate(granted.planExpiresAt) : "") + ".", paymentId);
+      showToast("Pro is active");
+      await refreshPlans();
+      return;
+    }
+    showPaymentResult(outcome.tone, outcome.message, paymentId);
+    // The server also hears from Razorpay directly, so even a refused or unanswered callback is worth one more look at the plan.
+    const snapshot = await waitForPro(outcome.polls);
+    if (snapshot) {
+      showPaymentResult("ok", "Pro is active" + (snapshot.planExpiresAt ? " until " + formatDate(snapshot.planExpiresAt) : "") + ".", paymentId);
+      showToast("Pro is active");
+    } else if (outcome.kind !== "rejected") {
+      showPaymentResult("warn", "Your plan isn't active yet. If you were charged, it switches on once the payment is confirmed. Open this page again in a few minutes.", paymentId);
+    }
+    await refreshPlans();
   }
 
   // ---- System Metrics -----------------------------------------------------------------------
@@ -2213,40 +3677,20 @@
     el.metricsTrend.setAttribute("aria-label", `Response time for the last ${entries.length} requests, longest ${max} ms`);
   }
 
-  /** Usage for this session (measured here) plus the account's live credit balance. */
-  async function renderMetricsUsage() {
+  /** Usage for this session, measured here. Plan and credits live on the Plans page (linked from this page's header). */
+  function renderMetricsUsage() {
     if (!el.metricsUsage) return;
     const count = (type) => activityLog.filter((entry) => entry.type === type).length;
     const conversations = state.history.filter((message) => message.role === "user").length;
     const tiles = [
-      { label: "Conversation turns", value: String(conversations) },
-      { label: "AI requests", value: String(latencyEntries.length) },
-      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length) },
-      { label: "Files read", value: String(count("file")) },
-      { label: "Developer runs", value: String(count("developer")) },
-      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—" },
-      { label: "Credits", value: "…", id: "metrics-credits" },
-      { label: "Plan", value: currentPlanName ? formatPlanName(currentPlanName) : "…", id: "metrics-plan" },
+      { label: "Conversation turns", value: String(conversations), icon: "i-chat", tone: "tone-blue" },
+      { label: "AI requests", value: String(latencyEntries.length), icon: "i-sparkle", tone: "tone-violet" },
+      { label: "Voice requests", value: String(latencyEntries.filter((entry) => entry.isVoice).length), icon: "i-mic", tone: "tone-pink" },
+      { label: "Files read", value: String(count("file") + count("image")), icon: "i-file", tone: "tone-amber" },
+      { label: "Developer runs", value: String(count("developer")), icon: "i-code", tone: "tone-violet" },
+      { label: "Tracked tasks", value: Array.isArray(latestTasks) ? String(latestTasks.length) : "—", icon: "i-task", tone: "tone-green" },
     ];
-    el.metricsUsage.replaceChildren(...tiles.map((tile) => {
-      const node = renderStatTile(tile);
-      if (tile.id) node.id = tile.id;
-      return node;
-    }));
-    try {
-      const res = await apiFetch("/entitlements/me");
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const snapshot = await res.json();
-      currentPlanName = snapshot.plan;
-      const credits = document.querySelector("#metrics-credits .stat-tile-value");
-      const plan = document.querySelector("#metrics-plan .stat-tile-value");
-      if (credits) credits.textContent = String(snapshot.creditBalance);
-      if (plan) plan.textContent = snapshot.plan;
-    } catch (err) {
-      if (err instanceof SessionEndedError) return;
-      const credits = document.querySelector("#metrics-credits .stat-tile-value");
-      if (credits) credits.textContent = "—";
-    }
+    el.metricsUsage.replaceChildren(...tiles.map(renderStatTile));
   }
 
   /** "TRIAL" → "Trial": the same spelling everywhere (Settings, Plans, Metrics). */
@@ -2255,30 +3699,55 @@
     return name ? name.charAt(0).toUpperCase() + name.slice(1).toLowerCase() : name;
   }
 
-  function renderStatTile({ label, value }) {
+  function renderStatTile({ label, value, icon, tone }) {
     const tile = document.createElement("div");
     tile.className = "stat-tile";
+    if (icon) {
+      tile.classList.add("has-icon", tone || "tone-blue");
+      const ico = document.createElement("span");
+      ico.className = "stat-tile-ico";
+      ico.appendChild(svgIcon(icon));
+      tile.appendChild(ico);
+    }
+    const copyEl = document.createElement("span");
+    copyEl.className = "stat-tile-copy";
     const labelEl = document.createElement("span");
     labelEl.className = "stat-tile-label";
     labelEl.textContent = label;
     const valueEl = document.createElement("span");
     valueEl.className = "stat-tile-value";
     valueEl.textContent = value;
-    tile.append(labelEl, valueEl);
+    copyEl.append(labelEl, valueEl);
+    tile.appendChild(copyEl);
     return tile;
   }
 
   let latestTasks;
-  let lastDeveloperNote = null;
 
-  function emptyState(title, body) {
+  /** opts.icon: a sprite id shown in a soft halo; opts.action: { label, onClick } for a primary next step. */
+  function emptyState(title, body, opts) {
     const box = document.createElement("div");
     box.className = "empty-state";
+    if (opts && opts.icon) {
+      const halo = document.createElement("span");
+      halo.className = "empty-ico";
+      halo.setAttribute("aria-hidden", "true");
+      halo.appendChild(svgIcon(opts.icon));
+      box.appendChild(halo);
+    }
     const strong = document.createElement("strong");
     strong.textContent = title;
     const span = document.createElement("span");
     span.textContent = body;
     box.append(strong, span);
+    if (opts && opts.action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-secondary";
+      button.textContent = opts.action.label;
+      button.addEventListener("click", () => { haptic(); opts.action.onClick(); });
+      box.appendChild(button);
+    }
     return box;
   }
 
@@ -2287,6 +3756,7 @@
     voice: "i-mic",
     ai: "i-sparkle",
     file: "i-file",
+    image: "i-image",
     developer: "i-code",
     task: "i-task",
   };
@@ -2295,6 +3765,7 @@
     voice: "Voice",
     ai: "AI action",
     file: "File",
+    image: "Image",
     developer: "Developer",
     task: "Task",
   };
@@ -2311,94 +3782,10 @@
   }
 
   /** Adds one entry to this session's activity (newest first) and refreshes what shows it. */
-  function recordActivity(type, title, meta, tone) {
-    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date() });
+  function recordActivity(type, title, meta, tone, thumb) {
+    activityLog.unshift({ id: `${Date.now()}-${Math.random()}`, type, title: String(title || ""), meta: meta || "", tone: tone || "", at: new Date(), thumb: thumb || "" });
     if (activityLog.length > 200) activityLog.length = 200;
     if (state.activeView === "activity") renderActivityTimeline();
-    if (state.activeView === "home") renderHomeActivity();
-  }
-
-  function listRow({ icon, tone, title, meta, onClick }) {
-    const row = document.createElement(onClick ? "button" : "div");
-    if (onClick) {
-      row.type = "button";
-      row.addEventListener("click", onClick);
-    }
-    row.className = "list-row";
-    const ico = document.createElement("span");
-    ico.className = "row-ico " + (tone || "tone-blue");
-    ico.appendChild(svgIcon(icon));
-    const copy = document.createElement("span");
-    copy.className = "list-row-copy";
-    const strong = document.createElement("strong");
-    strong.textContent = title;
-    const small = document.createElement("small");
-    small.textContent = meta;
-    copy.append(strong, small);
-    row.append(ico, copy);
-    if (onClick) {
-      const chev = svgIcon("i-right");
-      chev.classList.add("row-chev");
-      row.appendChild(chev);
-    }
-    return row;
-  }
-
-  function renderHomeActivity() {
-    const root = document.getElementById("home-activity");
-    if (!root) return;
-    root.replaceChildren();
-    document.getElementById("home-recent")?.classList.remove("is-empty");
-    const rows = [];
-    if (state.pendingAttachment) {
-      rows.push(listRow({ icon: "i-file", tone: "tone-cyan", title: state.pendingAttachment.filename, meta: "Ready — ask about it in Chat", onClick: () => setActiveView("chat") }));
-    }
-    for (const entry of activityLog.slice(0, 3)) {
-      rows.push(listRow({
-        icon: ACTIVITY_ICONS[entry.type] || "i-sparkle",
-        tone: entry.type === "developer" ? "tone-violet" : entry.type === "file" ? "tone-cyan" : "tone-blue",
-        title: entry.title,
-        meta: `${ACTIVITY_LABELS[entry.type] || "Activity"} · ${formatRelativeTime(entry.at)}`,
-        onClick: () => setActiveView(entry.type === "developer" ? "developer" : entry.type === "task" ? "activity" : "chat"),
-      }));
-    }
-    if (Array.isArray(latestTasks)) {
-      for (const task of latestTasks.slice(0, Math.max(0, 4 - rows.length))) {
-        rows.push(listRow({ icon: "i-task", tone: "tone-pink", title: task.goal, meta: `Task · ${task.status.toLowerCase()} · ${formatRelativeTime(task.createdAt)}`, onClick: () => setActiveView("activity") }));
-      }
-    }
-    if (!rows.length && state.history.length) {
-      const last = [...state.history].reverse().find((message) => message.role === "user");
-      if (last) rows.push(listRow({ icon: "i-chat", tone: "tone-blue", title: summarizeUtterance(String(last.content || "").replace(/^📎\s*/, "")), meta: "Conversation", onClick: () => setActiveView("chat") }));
-    }
-    if (!rows.length) {
-      if (latestTasks === undefined) {
-        const skeleton = document.createElement("div");
-        skeleton.className = "skeleton skeleton-row";
-        skeleton.setAttribute("aria-hidden", "true");
-        root.appendChild(skeleton);
-        return;
-      }
-      if (latestTasks === null) {
-        const failed = emptyState("Couldn't load your activity", "Check your connection and try again.");
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "btn btn-secondary";
-        retry.textContent = "Try again";
-        retry.addEventListener("click", () => { void fetchTasks().catch(() => {}); });
-        failed.appendChild(retry);
-        root.appendChild(failed);
-        return;
-      }
-      root.appendChild(emptyState("Nothing yet", "Your conversations and actions will appear here."));
-      document.getElementById("home-recent")?.classList.add("is-empty");
-      return;
-    }
-    document.getElementById("home-recent")?.classList.remove("is-empty");
-    rows.forEach((row, index) => {
-      row.style.animationDelay = index * 40 + "ms";
-      root.appendChild(row);
-    });
   }
 
   function setupActivityControls() {
@@ -2430,13 +3817,15 @@
     root.replaceChildren();
     const type = activityFilter.type;
     const entries = activityLog.filter((entry) => {
-      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai");
+      const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai") || (type === "file" && entry.type === "image");
       return typeOk && matchesQuery(entry.title + " " + entry.meta);
     });
     if (!entries.length) {
       const empty = document.createElement("li");
-      empty.className = "timeline-empty";
-      empty.textContent = activityLog.length ? "No activity matches this filter." : "Nothing yet this session. Ask ZARVIS something to get started.";
+      empty.className = "timeline-empty timeline-empty-rich";
+      empty.appendChild(activityLog.length
+        ? emptyState("No activity matches", "Try a different filter or clear the search.", { icon: "i-search" })
+        : emptyState("Nothing yet this session", "Ask ZARVIS something and it shows up here.", { icon: "i-chat", action: { label: "Start a chat", onClick: () => setActiveView("chat") } }));
       root.appendChild(empty);
       return;
     }
@@ -2451,6 +3840,7 @@
       const body = document.createElement("div");
       body.className = "timeline-body";
       const title = document.createElement("strong");
+      title.dataset.userText = "";
       title.textContent = entry.title;
       const meta = document.createElement("div");
       meta.className = "timeline-meta";
@@ -2466,167 +3856,104 @@
       }
       body.append(title, meta);
       item.append(dot, body);
+      if (entry.thumb) {
+        const thumb = document.createElement("img");
+        thumb.className = "timeline-thumb";
+        thumb.alt = "";
+        thumb.src = entry.thumb;
+        item.appendChild(thumb);
+      }
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "timeline-more";
+      more.setAttribute("aria-label", "Actions for " + (entry.title || "activity"));
+      more.appendChild(svgIcon("i-more"));
+      more.addEventListener("click", () => {
+        window.ZarvisShell?.menu(more, entry.title || "Activity", [
+          { label: "Open", icon: "i-right", hint: "Go to the related page", run: () => {
+            // A developer entry without Developer access has nowhere of its own to open, so it goes to Chat rather than doing nothing.
+            const to = entry.type === "developer" && state.devAccess ? "developer" : entry.type === "task" ? "tasks" : "chat";
+            setActiveView(to);
+          } },
+          { label: "Copy title", icon: "i-file", hint: "Copy to the clipboard", run: () => { navigator.clipboard?.writeText(entry.title || "").then(() => showToast("Copied"), () => showToast("Copy failed")); } },
+          { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
+            const at = activityLog.indexOf(entry);
+            if (at >= 0) activityLog.splice(at, 1);
+            if (entry.thumb) URL.revokeObjectURL(entry.thumb);
+            renderActivityTimeline();
+          } },
+        ]);
+      });
+      item.appendChild(more);
       root.appendChild(item);
     });
   }
 
-  /** Shows/hides the timeline and task blocks for the chosen filter, and filters tasks by text. */
+  /** Applies the chosen filter and search to the chat list, the open-tasks row and this session's timeline. */
   function applyActivityFilter() {
-    const type = activityFilter.type;
-    const timelineBlock = document.querySelector('[data-activity-block="timeline"]');
-    const taskBlock = document.querySelector('[data-activity-block="task"]');
-    if (timelineBlock) timelineBlock.hidden = type === "task";
-    if (taskBlock) taskBlock.hidden = type !== "all" && type !== "task";
+    workspace()?.setActivityFilter(activityFilter.type, activityFilter.query);
+    if (el.activityTasks) el.activityTasks.hidden = !(activityFilter.type === "all" && openTaskCount > 0);
+    // What lives only in this tab (voice, attachments) is shown with "All" only.
+    const local = document.getElementById("activity-session-block");
+    if (local) local.hidden = activityFilter.type !== "all";
     renderActivityTimeline();
-    if (el.activityTaskList) {
-      for (const card of el.activityTaskList.querySelectorAll(".task-card")) {
-        card.hidden = !matchesQuery(card.textContent);
-      }
-    }
   }
 
   async function fetchTasks() {
     let res;
     try {
-      res = await apiFetch("/tasks");
+      res = await apiFetch("/tasks", { timeoutMs: READ_TIMEOUT_MS });
     } catch (err) {
       latestTasks = null;
-      renderHomeActivity();
       throw err;
     }
     if (!res.ok) {
       latestTasks = null;
-      renderHomeActivity();
+      renderOpenTasks(0);
       return null;
     }
     const { tasks } = await res.json();
-    const activeCount = tasks.filter((t) => t.status === "PENDING" || t.status === "RUNNING" || t.status === "PAUSED").length;
-    for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
-    for (const item of el.navItems) {
-      if (item.dataset.view !== "activity") continue;
-      if (activeCount > 0) item.setAttribute("aria-label", "Activity, activity in progress");
-      else item.removeAttribute("aria-label");
-    }
+    applyTaskCounts(tasks);
     latestTasks = tasks;
-    renderHomeActivity();
     return tasks;
   }
 
-  async function refreshTasks() {
-    if (el.taskList) el.taskList.innerHTML = "";
-    const tasks = await fetchTasks();
-    if (!tasks || !el.taskList) {
-      if (el.activityTaskList && tasks) {
-        el.activityTaskList.innerHTML = "";
-        for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
-      }
-      return;
-    }
-    if (tasks.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "task-empty";
-      empty.textContent = "No active workflows yet — multi-step tasks Zarvis runs will appear here.";
-      el.taskList.appendChild(empty);
-      if (el.activityTaskList) el.activityTaskList.replaceChildren(empty.cloneNode(true));
-      return;
-    }
-    for (const task of tasks) el.taskList.appendChild(renderTaskCard(task));
-    if (el.activityTaskList) {
-      el.activityTaskList.innerHTML = "";
-      for (const task of tasks) el.activityTaskList.appendChild(renderTaskCard(task));
+  /** The nav dot and the open-task rows follow the tasks' real lifecycle. Called with every list the server sent. */
+  function applyTaskCounts(tasks) {
+    const activeCount = Logic.openTaskCount(tasks);
+    for (const badge of el.metricsBadges) badge.hidden = activeCount === 0;
+    renderOpenTasks(activeCount);
+    for (const item of el.navItems) {
+      if (item.dataset.view !== "work") continue;
+      if (activeCount > 0) item.setAttribute("aria-label", "Work, " + activeCount + " open task" + (activeCount === 1 ? "" : "s"));
+      else item.removeAttribute("aria-label");
     }
   }
 
-  // User-triggerable transitions per status. No task executor exists yet (the backend refuses
-  // resume/retry with task_execution_unavailable), so nothing here offers to start a task:
-  // that would show work that is not happening.
-  const TASK_ACTIONS = {
-    PENDING: [{ action: "cancel", label: "Cancel", cls: "danger" }],
-    RUNNING: [
-      { action: "pause", label: "Pause", cls: "" },
-      { action: "cancel", label: "Cancel", cls: "danger" },
-    ],
-    PAUSED: [{ action: "cancel", label: "Cancel", cls: "danger" }],
-    FAILED: [],
-    DONE: [],
-    CANCELLED: [],
-  };
+  let openTaskCount = 0;
 
-  function renderTaskCard(task) {
-    const card = document.createElement("div");
-    card.className = "task-card";
-    card.dataset.status = task.status;
-    if (task.status === "RUNNING") card.classList.add("glow-active");
-
-    const top = document.createElement("div");
-    top.className = "task-card-top";
-    const badge = document.createElement("span");
-    badge.className = "task-status-badge";
-    badge.dataset.status = task.status;
-    badge.textContent = task.status;
-    const time = document.createElement("span");
-    time.className = "task-time";
-    time.textContent = formatRelativeTime(task.createdAt);
-    top.append(badge, time);
-    card.appendChild(top);
-
-    const goal = document.createElement("p");
-    goal.className = "task-goal";
-    goal.textContent = task.goal;
-    card.appendChild(goal);
-
-    if (task.steps && task.steps.length > 0) {
-      const doneCount = task.steps.filter((s) => s.status === "DONE").length;
-      const progress = document.createElement("div");
-      progress.className = "task-progress";
-      const bar = document.createElement("div");
-      bar.className = "task-progress-bar";
-      bar.style.width = `${Math.round((doneCount / task.steps.length) * 100)}%`;
-      progress.appendChild(bar);
-      card.appendChild(progress);
-
-      const stepsWrap = document.createElement("div");
-      stepsWrap.className = "task-steps";
-      for (const step of task.steps) {
-        const row = document.createElement("div");
-        row.className = "task-step";
-        row.dataset.status = step.status;
-        const dot = document.createElement("span");
-        dot.className = "task-step-dot";
-        const label = document.createElement("span");
-        label.textContent = step.description;
-        row.append(dot, label);
-        stepsWrap.appendChild(row);
-      }
-      card.appendChild(stepsWrap);
+  /** Home and Activity show the open tasks (not finished, failed or cancelled), linking to the Tasks page. Hidden at zero. */
+  function renderOpenTasks(count) {
+    openTaskCount = count;
+    const text = count + (count === 1 ? " open task" : " open tasks");
+    const home = document.getElementById("home-tasks");
+    if (home) {
+      home.hidden = !count;
+      if (count) document.getElementById("home-tasks-text").textContent = text;
     }
-
-    const actions = TASK_ACTIONS[task.status] || [];
-    if (actions.length > 0) {
-      const actionsWrap = document.createElement("div");
-      actionsWrap.className = "task-actions";
-      for (const { action, label, cls } of actions) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = cls ? `task-action-btn ${cls}` : "task-action-btn";
-        btn.textContent = label;
-        btn.addEventListener("click", () => performTaskAction(task.id, action));
-        actionsWrap.appendChild(btn);
-      }
-      card.appendChild(actionsWrap);
+    if (el.activityTasks) {
+      if (count) document.getElementById("activity-tasks-text").textContent = text;
+      el.activityTasks.hidden = !(count && activityFilter.type === "all");
     }
-
-    return card;
   }
 
-  async function performTaskAction(taskId, action) {
-    const res = await apiFetch(`/tasks/${taskId}/${action}`, { method: "POST" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      console.error(`Task ${action} failed:`, body.error || res.status);
-      return;
-    }
-    refreshActivity();
+  /** Background refresh (Metrics page and its polling): keeps the Activity badge and Home list
+   * current. A failure is already reflected in `latestTasks`, so it must not surface as an
+   * unhandled rejection every few seconds while offline. */
+  function refreshTasks() {
+    return fetchTasks().catch((err) => {
+      if (!(err instanceof SessionEndedError)) console.warn("Task refresh failed:", err);
+    });
   }
 
   function formatRelativeTime(dateInput) {
@@ -2635,7 +3962,7 @@
     if (diffMin < 60) return `${diffMin}m ago`;
     const diffHr = Math.round(diffMin / 60);
     if (diffHr < 24) return `${diffHr}h ago`;
-    return new Date(dateInput).toLocaleDateString();
+    return new Date(dateInput).toLocaleDateString(dateLocale());
   }
 
   // ---- Conversation turn -----------------------------------------------------------------
@@ -2657,6 +3984,9 @@
     const utterance = rawText.trim();
     if (!utterance) return;
     el.input.value = "";
+    kit("clearDraft");
+    kit("noteUserMessage", displayText ?? utterance);
+    resizeComposer(); // a long, multi-line message must not leave the composer tall once it is sent
     addBubble("user", displayText ?? utterance);
     await runTurn(utterance, isVoice, { clientTurnId: Logic.createClientTurnId() });
   }
@@ -2677,6 +4007,7 @@
     const controller = new AbortController();
     currentTurnController = controller;
     const thinkingNode = addThinkingBubble();
+    const exec = window.ZarvisExec.startTurn(thinkingNode);
     setOrbState("UNDERSTANDING");
     const isFirstTurn = state.firstTurn;
     const startedAt = performance.now();
@@ -2704,6 +4035,9 @@
           conversationId: state.conversationId,
           history: state.history.slice(-12),
           clientTurnId,
+          // A new chat starts in the open project and with the chosen agent; the server ignores them for an existing chat.
+          projectId: state.projectId || undefined,
+          agentId: state.agentId || undefined,
         }),
         signal: controller.signal,
       });
@@ -2743,6 +4077,10 @@
             // text reply, stop asking for speech in this turn.
             if (Logic.turnFailureKind({ code: err?.code }) !== "bootError") {
               ttsUnavailable = true;
+              // Don't retry on the next turn either: back off (daily quota longer) so we stop
+              // sending a 429 per reply while the voice quota is exhausted.
+              const waitMs = err?.code === "AI_QUOTA_EXCEEDED" ? 10 * 60_000 : Math.max(30_000, Number(err?.retryAfterMs) || 0);
+              ttsBlockedUntil = Date.now() + waitMs;
               for (const item of ttsQueue.splice(0)) item.ticket.done();
             }
           }).finally(() => {
@@ -2754,7 +4092,7 @@
 
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
-        if (!clean || !isVoice || !state.speak || ttsUnavailable) return;
+        if (!clean || !isVoice || !state.speak || ttsUnavailable || Date.now() < ttsBlockedUntil) return;
         // The ticket is taken at enqueue time, so playback order == reply order even when a
         // later segment's audio downloads first.
         ttsQueue.push({ text: clean, ticket: ttsSegments.next() });
@@ -2776,30 +4114,25 @@
         }
       };
 
-      const waitForTtsQueue = async () => {
-        while (
-          !controller.signal.aborted &&
-          (ttsQueue.length || ttsTasks.size)
-        ) {
-          drainTts();
-          if (!ttsQueue.length && !ttsTasks.size) break;
-          await delay(50);
-        }
-      };
-
       const consumeEvent = async (event, data) => {
         if (event === "meta" && data?.conversationId) {
           state.conversationId = String(data.conversationId);
           localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId);
+          // What the server says the chat belongs to is what is shown: a project that is not yours is not claimed.
+          state.projectId = data.projectId || null;
+          if (data.agentId) state.agentId = data.agentId;
+          renderChatContext();
+          kit("record", state.conversationId, { title: isFirstTurn ? kit("pendingTitle") : undefined });
           return;
         }
         // Real backend stages only (model step / tool started / tool finished) — no simulated steps.
         if (event === "progress" && data) {
+          exec.progress(data); // the execution card for this tool call, from the same real events
           if (data.type === "tool_started") {
             setOrbState("EXECUTING");
-            showProgress(thinkingNode, "Using " + data.skillId + "…");
+            showProgress(thinkingNode, "Using " + skillDisplayName(data.skillId) + "…");
           } else if (data.type === "tool_finished") {
-            showProgress(thinkingNode, data.skillId + ": " + Logic.toolStatusLabel(data.status));
+            showProgress(thinkingNode, skillDisplayName(data.skillId) + ": " + Logic.toolStatusLabel(data.status));
           } else if (data.type === "thinking" && data.step > 1) {
             setOrbState("UNDERSTANDING");
             showProgress(thinkingNode, "Reviewing the result…");
@@ -2849,18 +4182,24 @@
           state.history.push({ role: "user", content: utterance });
           if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
           state.history = state.history.slice(-12);
-          renderHomeActivity();
           state.firstTurn = false;
           recordLatency(utterance, Math.round(performance.now() - startedAt), true, isVoice);
-          renderToolActivity(data?.toolCalls);
+          exec.finalize(data?.toolCalls, assistantNode?.closest(".bubble"));
           setOrbState("SUCCESS");
           if (assistantNode) renderFormattedText(assistantNode, fullMessage);
-          // Wait until every sentence has been asked for and its audio is scheduled (not just until
-          // the audio that already exists has played): a turn that ends first drops the sentences still
-          // waiting for their turn, and returns the orb to idle before the speech has even begun.
-          await waitForTtsQueue();
+          if (fullMessage.trim()) kit("afterTurn", { isFirstTurn });
+          const speechOwner = speechEpoch;
+          drainTts();
+          // The last (often the only) segment is requested only now, so nothing is scheduled yet: wait for every segment to be on the
+          // player before waiting for playback, or the turn ends "idle" and the audio then starts and leaves the UI on "Speaking" for good.
+          while (!controller.signal.aborted) {
+            drainTts();
+            if (!ttsTasks.size) break;
+            await Promise.allSettled([...ttsTasks]);
+            await delay(0); // lets each finished task leave the set
+          }
           await waitForTtsPlayback(controller.signal);
-          if (!controller.signal.aborted) setOrbState("IDLE");
+          if (!controller.signal.aborted && speechOwner === speechEpoch) setOrbState("IDLE");
         }
       };
 
@@ -2899,15 +4238,14 @@
         clearTimeout(ttsStartTimer);
         ttsStartTimer = null;
       }
+      // A tool card still marked "running" when the turn is over (stopped, dropped) must not look busy.
+      exec.abandon("This run didn't finish because the turn was stopped or failed.");
       // Segments that will never be played must release their turn, or later speech would wait forever.
       for (const item of ttsQueue.splice(0)) item.ticket.done();
       for (const streaming of el.conversation.querySelectorAll(".bubble.is-streaming")) streaming.classList.remove("is-streaming");
-      if (!thinkingNode.isConnected) {
-        // no-op; the real assistant bubble is already rendered
-      } else {
-        thinkingNode.remove();
-      }
+      thinkingNode.remove();
       if (currentTurnController === controller) currentTurnController = null;
+      workspace()?.invalidateHome(); // a turn may have run a tool, saved a file or recorded a task: Home must read again
       updateComposerMode(); // Send/Stop must reflect that no turn is in flight any more
     }
   }
@@ -2939,11 +4277,35 @@
 
   // The page (not the conversation element) scrolls; keep the newest message above the
   // floating composer.
-  function scrollConversationToBottom() {
+  /** True while the reader sits at the bottom of the thread: new text keeps them there. Scrolling up to
+   * re-read sets it false, so a long reply streaming in never drags them back down. */
+  let followNewest = true;
+  const NEAR_BOTTOM_PX = 140;
+  const distanceFromBottom = () => document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+
+  function updateLatestButton() {
+    const button = document.getElementById("scroll-latest");
+    // Only a conversation has a "latest" to jump to; the welcome screen is read from the top.
+    if (button) button.hidden = state.activeView !== "chat" || el.conversation.children.length === 0 || distanceFromBottom() < 240;
+  }
+
+  /** `force` is for the reader's own actions (sending, opening Chat, the jump button); streamed text, tool
+   * rows and the thinking bubble only scroll when the reader is already at the bottom. */
+  function scrollConversationToBottom(force = false) {
     if (!el.conversation || state.activeView !== "chat") return;
-    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
-    toBottom();
-    requestAnimationFrame(toBottom);
+    // Nothing said yet: the page is the welcome (starters, recent chats), which is read from the top.
+    if (!el.conversation.children.length) {
+      if (force) window.scrollTo({ top: 0, behavior: "auto" });
+      updateLatestButton();
+      return;
+    }
+    if (force) followNewest = true;
+    if (followNewest) {
+      const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+      toBottom();
+      requestAnimationFrame(() => { toBottom(); updateLatestButton(); });
+    }
+    updateLatestButton();
   }
 
   /** `at` is when the message was sent: now for a new message, the server's createdAt for
@@ -2971,24 +4333,46 @@
     if (role === "assistant") {
       const actions = document.createElement("div");
       actions.className = "bubble-actions";
+      // Icon-only buttons in one row (the name is the tooltip and the accessible name); a click answers with
+      // a check mark and a short toast, then the icon returns.
       const actionButton = (iconId, label) => {
         const button = document.createElement("button");
         button.type = "button";
-        const labelNode = document.createElement("span");
-        labelNode.textContent = label;
-        button.append(svgIcon(iconId), labelNode);
-        return { button, labelNode };
+        button.setAttribute("aria-label", label);
+        button.title = label;
+        const icon = svgIcon(iconId);
+        button.append(icon);
+        const confirm = (done) => {
+          const use = icon.querySelector("use");
+          button.dataset.done = "1";
+          use?.setAttribute("href", "#i-check");
+          button.setAttribute("aria-label", done);
+          button.title = done;
+          showToast(done);
+          setTimeout(() => {
+            delete button.dataset.done;
+            use?.setAttribute("href", "#" + iconId);
+            button.setAttribute("aria-label", label);
+            button.title = label;
+          }, 1800);
+        };
+        return { button, confirm };
       };
-      const { button: copyBtn, labelNode: copyLabel } = actionButton("i-file", "Copy");
+      const { button: copyBtn, confirm: copied } = actionButton("i-copy", "Copy");
       copyBtn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(bubblePlainText(body) || text);
-          copyLabel.textContent = "Copied";
+          copied("Copied");
         } catch {
-          copyLabel.textContent = "Copy failed";
+          showToast("Copy failed");
         }
       });
       actions.appendChild(copyBtn);
+      const { button: listen } = actionButton("i-wave", "Listen");
+      listen.addEventListener("click", () => {
+        void speak(bubblePlainText(body) || text, null, true);
+      });
+      actions.appendChild(listen);
       if (utterance) {
         const { button: again } = actionButton("i-refresh", "Regenerate");
         again.addEventListener("click", () => {
@@ -2997,62 +4381,53 @@
         });
         actions.appendChild(again);
       }
-      const { button: listen } = actionButton("i-wave", "Listen");
-      listen.addEventListener("click", () => {
-        void speak(bubblePlainText(body) || text, null, true);
+      if (typeof navigator.share === "function") {
+        const { button: share } = actionButton("i-share", "Share");
+        share.addEventListener("click", () => {
+          navigator.share({ title: "ZARVIS", text: bubblePlainText(body) || text }).catch(() => {});
+        });
+        actions.appendChild(share);
+      }
+      const { button: download, confirm: saved } = actionButton("i-download", "Download");
+      download.addEventListener("click", () => {
+        const blob = new Blob([bubblePlainText(body) || text], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "zarvis-reply.txt";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        saved("Saved");
       });
-      actions.appendChild(listen);
+      actions.appendChild(download);
+      const { button: saveFile } = actionButton("i-folder", "Save to Files");
+      saveFile.addEventListener("click", () => {
+        void workspace()?.saveReplyDialog(bubblePlainText(body) || text, { projectId: state.projectId || undefined });
+      });
+      actions.appendChild(saveFile);
       bubble.appendChild(actions);
     }
+    if (role === "user" || role === "assistant") {
+      const divider = kit("daySeparator", at);
+      if (divider) el.conversation.appendChild(divider);
+    }
+    kit("decorateBubble", bubble, role, text);
     el.conversation.appendChild(bubble);
     syncChatConversationLayout();
-    scrollConversationToBottom();
+    scrollConversationToBottom(role === "user");
     if (role === "assistant") announceChat(text);
     return body;
   }
 
-  const TOOL_TONES = {
-    COMPLETED: "success",
-    USER_ACTION_REQUIRED: "confirm",
-    CONFIRMATION_REQUIRED: "confirm",
-    PERMISSION_REQUIRED: "confirm",
-    DENIED: "failed",
-    UNSUPPORTED: "failed",
-    FAILED: "failed",
-  };
-
-  /** One row per tool call, from the backend's structured result (blueprint §10). */
-  function renderToolActivity(toolCalls) {
-    if (!Array.isArray(toolCalls) || toolCalls.length === 0) return;
-    for (const call of toolCalls) {
-      if (call?.outcome?.kind === "confirmation_required" && call.outcome.confirmation) {
-        renderConfirmationCard(call.outcome.confirmation);
-        continue;
-      }
-      const statusCode = call?.result?.status || (call?.outcome?.kind === "success" ? "COMPLETED" : "FAILED");
-      const row = document.createElement("div");
-      row.className = "tool-row";
-      row.dataset.status = statusCode;
-      row.dataset.tone = TOOL_TONES[statusCode] || "";
-      const top = document.createElement("div");
-      top.className = "tool-row-top";
-      const title = document.createElement("strong");
-      title.textContent = skillDisplayName(call.skillId);
-      title.title = call.skillId || "";
-      const status = document.createElement("span");
-      status.className = "z-badge";
-      status.textContent = Logic.toolStatusLabel(statusCode);
-      top.append(title, status);
-      row.appendChild(top);
-      const note = document.createElement("p");
-      note.className = "stage-note";
-      const message = call?.result?.userSafeMessage || "";
-      note.textContent = String(message).replace(/\s+/g, " ").slice(0, 220);
-      row.appendChild(note);
-      el.conversation.appendChild(row);
-      recordActivity("ai", skillDisplayName(call.skillId), Logic.toolStatusLabel(statusCode), statusCode === "COMPLETED" ? "ok" : TOOL_TONES[statusCode] === "failed" ? "error" : "");
-    }
-    scrollConversationToBottom();
+  /** The page where a finished tool's result can be followed up: tasks live on the Tasks page, repository work in the Developer Agent
+   * (only when Developer access is on, otherwise the link would bounce to Settings). */
+  function toolDestination(skillId, statusCode) {
+    if (statusCode !== "COMPLETED" || typeof skillId !== "string") return null;
+    if (skillId.startsWith("automation.")) return { target: "tasks", label: "Open Tasks" };
+    if (skillId.startsWith("developer.") && state.devAccess) return { target: "developer", label: "Open Developer Agent" };
+    return null;
   }
 
   function skillDisplayName(skillId) {
@@ -3062,6 +4437,11 @@
 
   function showProgress(thinkingNode, text) {
     if (!thinkingNode?.isConnected) return;
+    const label = thinkingNode.querySelector(".thinking-label");
+    if (label) {
+      label.textContent = text;
+      return;
+    }
     let note = thinkingNode.querySelector(".progress-note");
     if (!note) {
       note = document.createElement("div");
@@ -3074,12 +4454,15 @@
   /** Render a safe subset of Markdown (all input escaped first — see web/logic.js, tested). */
   /** A reply's readable text, without the code blocks' Copy buttons. */
   function bubblePlainText(body) {
+    // The reply as it was written (Markdown): copying the rendered, detached DOM would lose its line breaks.
+    if (typeof body.__zarvisSource === "string") return body.__zarvisSource;
     const clone = body.cloneNode(true);
     for (const button of clone.querySelectorAll(".code-copy")) button.remove();
     return clone.innerText || clone.textContent || "";
   }
 
   function renderFormattedText(container, text) {
+    container.__zarvisSource = text;
     container.innerHTML = Logic.formatReplyHtml(text);
     for (const pre of container.querySelectorAll("pre.reply-code")) {
       const copy = document.createElement("button");
@@ -3107,7 +4490,8 @@
   function addThinkingBubble() {
     const bubble = document.createElement("div");
     bubble.className = "bubble assistant thinking";
-    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span><span class="thinking-label"></span>';
+    bubble.querySelector(".thinking-label").textContent = COPY[state.lang].thinking;
     el.conversation.appendChild(bubble);
     scrollConversationToBottom();
     return bubble;
@@ -3155,7 +4539,7 @@
   /** A plain informational/error notice with no retry action (unlike addErrorBubble, above)
    * — used for client-side upload validation failures that happen before any turn is
    * submitted, so there's nothing to retry. */
-  function addSystemNotice(copy) {
+  function addSystemNotice(copy, retry) {
     const bubble = document.createElement("div");
     bubble.className = "bubble system";
 
@@ -3168,6 +4552,19 @@
     subtitle.className = "bubble-error-subtitle";
     subtitle.textContent = copy.subtitle;
     bubble.appendChild(subtitle);
+
+    if (typeof retry === "function") {
+      const retryBtn = document.createElement("button");
+      retryBtn.type = "button";
+      retryBtn.className = "bubble-retry-btn";
+      retryBtn.textContent = COPY[state.lang].retry;
+      retryBtn.addEventListener("click", () => {
+        haptic();
+        bubble.remove();
+        retry();
+      });
+      bubble.appendChild(retryBtn);
+    }
 
     el.conversation.appendChild(bubble);
     scrollConversationToBottom();
@@ -3207,11 +4604,18 @@
     return null;
   }
 
+  let readingFile = false;
+
   async function handleFileSelected(event) {
     const file = event.target.files?.[0];
     event.target.value = ""; // lets picking the exact same file again still fire "change"
     if (!file) return;
     haptic();
+    // A second file dropped or pasted while one is being read must not start a second read at the same time.
+    if (readingFile) {
+      showToast("Still reading the last file. Try again in a moment.");
+      return;
+    }
 
     const kind = classifyLocalFile(file);
     if (!kind) {
@@ -3219,64 +4623,43 @@
       return;
     }
 
-    if (kind === "image") {
+    if (kind === "image" || kind === "pdf" || kind === "docx") {
+      // Images and documents are read by the server (a real parser or the vision model).
       if (file.size > MAX_BINARY_UPLOAD_BYTES) {
         addSystemNotice(COPY[state.lang].oversizedFile);
         return;
       }
-      setExtractingState(true, file);
-      try {
-        const formData = new FormData();
-        formData.append("file", file, file.name);
-        const res = await apiFetch("/documents/extract", { method: "POST", body: formData });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          console.error(`Image analysis failed (${res.status}):`, body.error);
-          addSystemNotice(noticeForExtractError(body.error, body.code));
-          return;
-        }
-        const { text } = await res.json();
-        setPendingAttachment(file.name, text);
-      } catch (err) {
-        console.error(err);
-        addSystemNotice(COPY[state.lang].unreadableFile);
-      } finally {
-        setExtractingState(false);
-      }
+      await extractOnServer(file);
       return;
     }
 
-    if (kind === "text") {
-      if (file.size > MAX_TEXT_UPLOAD_BYTES) {
-        addSystemNotice(COPY[state.lang].oversizedFile);
-        return;
-      }
-      let text;
-      try {
-        text = await file.text();
-      } catch (err) {
-        console.error(err);
-        addSystemNotice(COPY[state.lang].unreadableFile);
-        return;
-      }
-      if (!text.trim()) {
-        addSystemNotice(COPY[state.lang].emptyFile);
-        return;
-      }
-      if (new TextEncoder().encode(text).length > MAX_TEXT_UPLOAD_BYTES) {
-        addSystemNotice(COPY[state.lang].oversizedFile);
-        return;
-      }
-      setAttachmentPreview(file);
-      setPendingAttachment(file.name, text);
-      return;
-    }
-
-    // pdf / docx — real extraction happens server-side (see the section doc comment above).
-    if (file.size > MAX_BINARY_UPLOAD_BYTES) {
+    if (file.size > MAX_TEXT_UPLOAD_BYTES) {
       addSystemNotice(COPY[state.lang].oversizedFile);
       return;
     }
+    let text;
+    try {
+      text = await file.text();
+    } catch (err) {
+      console.error(err);
+      addSystemNotice(COPY[state.lang].unreadableFile);
+      return;
+    }
+    if (!text.trim()) {
+      addSystemNotice(COPY[state.lang].emptyFile);
+      return;
+    }
+    if (new TextEncoder().encode(text).length > MAX_TEXT_UPLOAD_BYTES) {
+      addSystemNotice(COPY[state.lang].oversizedFile);
+      return;
+    }
+    setAttachmentPreview(file);
+    setPendingAttachment(file.name, text);
+  }
+
+  /** Sends a PDF, DOCX or image to POST /documents/extract. A failure says why and, when trying again could help, offers it. */
+  async function extractOnServer(file) {
+    readingFile = true;
     setExtractingState(true, file);
     try {
       const formData = new FormData();
@@ -3284,16 +4667,19 @@
       const res = await apiFetch("/documents/extract", { method: "POST", body: formData });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        console.error(`Document extraction failed (${res.status}):`, body.error);
-        addSystemNotice(noticeForExtractError(body.error, body.code));
+        console.error(`File reading failed (${res.status}):`, body.error);
+        const transient = res.status >= 500 || res.status === 429 || body.error === "ai_unavailable";
+        addSystemNotice(noticeForExtractError(body.error, body.code), transient ? () => void extractOnServer(file) : undefined);
         return;
       }
       const { text } = await res.json();
       setPendingAttachment(file.name, text);
     } catch (err) {
+      if (err instanceof SessionEndedError) return;
       console.error(err);
-      addSystemNotice(COPY[state.lang].unreadableFile);
+      addSystemNotice(COPY[state.lang].unreadableFile, () => void extractOnServer(file));
     } finally {
+      readingFile = false;
       setExtractingState(false);
     }
   }
@@ -3309,20 +4695,8 @@
     return COPY[state.lang].unreadableFile;
   }
 
-  function setFilesState(text, mode) {
-    const node = document.getElementById("files-state");
-    if (!node) return;
-    node.className = mode === "ready" ? "z-card z-card-status" : "empty-state";
-    const title = mode === "ready" ? "Ready" : mode === "loading" ? "Reading" : "Nothing here yet";
-    node.replaceChildren();
-    const strong = document.createElement("strong");
-    strong.textContent = title;
-    const span = document.createElement("span");
-    span.textContent = text;
-    node.append(strong, span);
-  }
-
   let attachmentPreviewUrl = null;
+  let lastPreviewFile = null;
 
   /** Shows a local thumbnail for an image attachment (a blob: URL; nothing is uploaded for
    * the preview), or the file icon for documents. */
@@ -3331,6 +4705,7 @@
     if (!holder) return;
     if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
     attachmentPreviewUrl = null;
+    lastPreviewFile = file && classifyLocalFile(file) === "image" ? file : null;
     holder.replaceChildren();
     if (file && classifyLocalFile(file) === "image") {
       attachmentPreviewUrl = URL.createObjectURL(file);
@@ -3364,7 +4739,6 @@
     el.uploadBtn.classList.toggle("is-disabled", isExtracting);
     el.fileInput.disabled = isExtracting;
     el.uploadBtn.title = isExtracting ? COPY[state.lang].extracting : COPY[state.lang].uploadTitle;
-    if (isExtracting) setFilesState("Reading the file…", "loading");
   }
 
   /** Shows the "📄 filename / Ready to analyze" chip above the composer — the attachment
@@ -3375,9 +4749,9 @@
     el.attachmentName.textContent = filename;
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
-    setFilesState(`${filename} is ready. Ask about it in Chat.`, "ready");
-    recordActivity("file", filename, "Ready to ask about", "ok");
-    renderHomeActivity();
+    // An image attachment keeps its own small preview in Activity (a local blob: URL, never uploaded).
+    const thumb = lastPreviewFile ? URL.createObjectURL(lastPreviewFile) : "";
+    recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
     el.input.focus();
   }
 
@@ -3385,8 +4759,6 @@
     state.pendingAttachment = null;
     el.attachmentChip.hidden = true;
     setAttachmentPreview(null);
-    setFilesState("Attach a file, then ask about it in Chat.");
-    renderHomeActivity();
   }
 
   /** The composer's single entry point for a user-authored turn (typed Send/Enter, or a
@@ -3412,85 +4784,6 @@
     const displayText = instruction ? `📎 ${attachment.filename}\n${instruction}` : `📎 ${attachment.filename}`;
     clearPendingAttachment();
     return submitUtterance(utterance, isVoice, displayText);
-  }
-
-  // ---- Dynamic result widgets ------------------------------------------------------------
-  // A skill's category (the `category` prefix of its dotted id, e.g. "research.report" ->
-  // "research") decides the shape of the card its result renders as, instead of every skill
-  // producing an identical text bubble. Categories not listed here (web, personal, ...) fall
-  // through to the plain bubble — deliberately conservative, since a made-up shape for a
-  // category no one asked to distinguish would just be decoration.
-  const CATEGORY_WIDGET_KIND = {
-    developer: "code",
-    automation: "pill",
-    research: "panel",
-    business: "panel",
-    creative: "panel",
-    docs: "panel",
-  };
-
-  function widgetKindFor(skillId) {
-    return CATEGORY_WIDGET_KIND[skillId.split(".")[0]] || null;
-  }
-
-  // Renders one turn's reply: a shaped widget when a backend skill actually ran and its
-  // category has a distinct shape, a plain bubble otherwise (direct AI chat, or a category
-  // with no special-cased widget). Returns the created DOM node so the caller can attach a
-  // live waveform to it while the reply is being spoken.
-  function renderAssistantResult(result) {
-    const call = result.toolCalls && result.toolCalls[0];
-    const kind = call && widgetKindFor(call.skillId);
-    if (!call || !kind) return addBubble("assistant", result.message || "…");
-    return addResultWidget(kind, call.skillId, call.outcome, result.message || "…");
-  }
-
-  function addResultWidget(kind, skillId, outcome, message) {
-    const status = outcome.kind === "success" ? "success" : "error";
-
-    const widget = document.createElement("div");
-    widget.className = "result-widget";
-    widget.dataset.kind = kind;
-    widget.dataset.status = status;
-
-    const header = document.createElement("div");
-    header.className = "widget-header";
-    const title = document.createElement("span");
-    title.className = "widget-title";
-    title.innerHTML = `<span class="widget-status-dot"></span>${categoryLabel(skillId.split(".")[0])}`;
-    header.appendChild(title);
-
-    if (kind === "code") {
-      const copyBtn = document.createElement("button");
-      copyBtn.type = "button";
-      copyBtn.className = "widget-copy-btn";
-      copyBtn.textContent = "Copy";
-      copyBtn.addEventListener("click", async () => {
-        haptic();
-        try {
-          await navigator.clipboard.writeText(message);
-          copyBtn.textContent = "Copied";
-          copyBtn.classList.add("copied");
-          setTimeout(() => {
-            copyBtn.textContent = "Copy";
-            copyBtn.classList.remove("copied");
-          }, 1500);
-        } catch {
-          /* Clipboard API unavailable (permissions/http) — the text is still fully visible
-             and selectable in the card, so there's nothing to fall back to here. */
-        }
-      });
-      header.appendChild(copyBtn);
-    }
-    widget.appendChild(header);
-
-    const body = document.createElement("div");
-    body.className = "widget-body";
-    body.textContent = message;
-    widget.appendChild(body);
-
-    el.conversation.appendChild(widget);
-    scrollConversationToBottom();
-    return widget;
   }
 
   // A waveform + stop control attached to whichever message node is actively being spoken
@@ -3523,6 +4816,7 @@
   // sub-second rule): this runs synchronously the moment a turn starts, well before the
   // network call resolves, so the pulse appears the same frame as the tap/Enter.
   function setOrbState(newState) {
+    if (newState !== "SPEAKING") speechPaused = false; // a pause only means something while a reply is being spoken
     el.orb.dataset.state = newState;
     el.heroStatus.dataset.state = newState;
     document.body.dataset.orbState = newState;
@@ -3530,9 +4824,45 @@
     // state name — showing enum values like "EXECUTING" or "UNDERSTANDING" verbatim would be
     // exactly the kind of developer/debug leak the product content rules rule out. The
     // `dataset.state` above (unchanged) is what CSS/animations key off of.
-    const labels = COPY[state.lang].stateLabels;
-    el.heroStatusLabel.textContent = labels[newState] || labels.IDLE;
+    renderHeroStatus();
     updateComposerMode();
+    syncSpeechBar();
+  }
+
+  /** The bar above the composer while a reply is spoken: its own state words, Pause / Resume and Stop. */
+  function syncSpeechBar() {
+    const bar = document.getElementById("speech-bar");
+    if (!bar) return;
+    const speaking = el.orb.dataset.state === "SPEAKING";
+    bar.hidden = !speaking;
+    bar.dataset.paused = String(speechPaused);
+    document.getElementById("speech-bar-label").textContent = speechPaused ? "Paused" : "Speaking";
+    const pause = document.getElementById("speech-pause");
+    pause.textContent = speechPaused ? "Resume" : "Pause";
+    pause.setAttribute("aria-pressed", String(speechPaused));
+  }
+
+  /**
+   * Pause or resume the reply being spoken, on whichever path is playing it: a streamed reply is scheduled on the AudioContext, which
+   * can be suspended and resumed where it stopped; a "Listen" reply is one audio element. Nothing is cancelled, so the turn is untouched.
+   */
+  function setSpeechPaused(on) {
+    if (on === speechPaused || (on && el.orb.dataset.state !== "SPEAKING")) return;
+    speechPaused = on;
+    if (activeAudio) {
+      if (on) activeAudio.pause();
+      else void activeAudio.play().catch(() => {});
+    } else if (activeAudioContext) {
+      void (on ? activeAudioContext.suspend() : activeAudioContext.resume());
+    }
+    renderHeroStatus();
+    syncSpeechBar();
+    announceChat(on ? "Paused" : "Speaking");
+  }
+
+  function setupSpeechBar() {
+    document.getElementById("speech-pause")?.addEventListener("click", () => setSpeechPaused(!speechPaused));
+    document.getElementById("speech-stop")?.addEventListener("click", () => { haptic(); stopSpeaking(); });
   }
 
   /** Swaps the Send button into a Stop button for the whole busy span (UNDERSTANDING through
@@ -3548,6 +4878,7 @@
     el.sendBtn.title = busy ? copy.stop : copy.send;
     el.sendBtn.setAttribute("aria-label", busy ? copy.stop : copy.send);
     el.sendLabel.textContent = busy ? copy.stop : copy.send;
+    kit("setBusy", busy);
   }
 
   // A turn is "in flight" for every state between UNDERSTANDING and the SPEAKING reply —
@@ -3618,7 +4949,9 @@
     recognition.addEventListener("error", (event) => {
       el.micBtn.setAttribute("aria-pressed", "false");
       el.orb.setAttribute("aria-pressed", "false");
-      if (!currentTurnController) setOrbState("ERROR");
+      // Silence or a deliberate stop is not a failure; only a real error shows the error state.
+      const benign = event?.error === "no-speech" || event?.error === "aborted";
+      if (!currentTurnController) setOrbState(benign ? "IDLE" : "ERROR");
       // Say why, in plain words; a deliberate stop ("aborted") needs no message.
       const copy = COPY[state.lang];
       const notice = {
@@ -3680,31 +5013,15 @@
     el.orb.setAttribute("aria-pressed", "false");
   }
 
-  // The browser's voice list loads asynchronously (often empty until `voiceschanged`
-  // fires, especially on Android Chrome) — cache it once available rather than calling
-  // getVoices() fresh inside speak(), which can return [] on the very first reply and
-  // silently fall back to whatever default voice the engine picks (usually English,
-  // reading Hindi text with English phonetics — the "not real Hindi" sound).
-  //
-  // Real caveat, stated honestly rather than oversold: the Web Speech API only ever plays
-  // back whichever text-to-speech voices the OS/browser ships — on Android that's Google's
-  // on-device "Google Text-to-Speech" engine. Its network-served voices are noticeably
-  // better than its offline ones, but none of them are a dedicated neural voice. ZARVIS gets
-  // that from its server instead (POST /tts/synthesize and /tts/synthesize-stream: Edge's
-  // neural voices, chosen by the server from the text), not from a browser API.
-  // See DEVELOPMENT.md "Voice quality".
-
+  // Spoken replies come from the server's neural voices (see speakWithGemini / speakGeminiStream, which
+  // call POST /tts/synthesize and /tts/synthesize-stream); the browser's own speechSynthesis voices are
+  // not used. See DEVELOPMENT.md "Voice quality".
   function setupSpeechSynthesis() {
     populateVoiceSelect();
     el.voiceSelect?.addEventListener("change", () => {
       localStorage.setItem(STORAGE_KEYS.ttsVoice, el.voiceSelect.value);
       showToast("Voice: " + el.voiceSelect.value);
     });
-  }
-
-  function voicesForCurrentLang() {
-    const langPrefix = state.lang === "hi" ? "hi" : "en";
-    return cachedVoices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
   }
 
   function populateVoiceSelect() {
@@ -3721,21 +5038,10 @@
     el.voiceSelect.hidden = false;
   }
 
-  function pickVoice(langPrefix) {
-    const saved = localStorage.getItem(STORAGE_KEYS.voiceURI);
-    if (saved) {
-      const found = cachedVoices.find((v) => v.voiceURI === saved && v.lang.toLowerCase().startsWith(langPrefix));
-      if (found) return found;
-    }
-    const candidates = cachedVoices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
-    // Prefer a network voice: on Android's Google TTS engine these are the higher-quality
-    // ones, while the offline/local voice is usually the more robotic-sounding fallback.
-    return candidates.find((v) => !v.localService) || candidates[0];
-  }
-
   // The server's voice is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node, force = false) {
     if ((!state.speak && !force) || !text) return;
+    speechEpoch += 1; // this playback now owns the orb state
     if (node) attachWaveform(node);
     try {
       await speakWithGemini(text);
@@ -3752,6 +5058,8 @@
   }
 
   let activeAudio = null;
+  // While the server reports the voice quota/rate limit exhausted, skip TTS requests until then.
+  let ttsBlockedUntil = 0;
   // Every in-flight TTS request. Two reply segments stream at once, so Stop must abort all of
   // them, not only the most recently started one.
   const activeTtsControllers = new Set();
@@ -3782,7 +5090,7 @@
           // "Speaking" only once the browser reports audio is actually playing.
           audio.addEventListener("playing", () => setOrbState("SPEAKING"), { once: true });
           audio.addEventListener("ended", resolve, { once: true });
-          audio.addEventListener("pause", resolve, { once: true });
+          audio.addEventListener("pause", () => { if (!speechPaused) resolve(); });
           audio.addEventListener("error", () => reject(new Error("Audio playback failed")), { once: true });
           audio.play().catch(reject);
         });
@@ -3829,6 +5137,7 @@
         const detail = typeof body?.error === "string" ? body.error : "TTS request failed";
         const error = new Error("Streaming TTS HTTP " + res.status + ": " + detail);
         error.code = body?.code;
+        error.retryAfterMs = body?.retryAfterMs;
         throw error;
       }
 
@@ -3939,6 +5248,9 @@
   }
 
   function stopSpeaking() {
+    speechEpoch += 1;
+    speechPaused = false;
+    if (activeAudioContext && activeAudioContext.state === "suspended") void activeAudioContext.resume(); // the next reply must be able to play
     for (const controller of activeTtsControllers) controller.abort();
     activeTtsControllers.clear();
     if (activeAudio) activeAudio.pause();
@@ -3951,11 +5263,16 @@
     ttsScheduledUntil = 0;
     setOrbState("IDLE");
   }
-  function detectSpeechLanguage(text) {
-    if (/[\u0900-\u097f]/.test(text)) return "hi";
-    const normalized = text.toLocaleLowerCase();
-    const hi =
-      /\b(?:aap|aapko|aapke|aapki|tum|tumhe|mujhe|mera|meri|kya|kaise|kaisa|kaisi|hai|hain|ho|tha|thi|the|raha|rahi|rahe|batao|kisne|kaun|kal|aaj|abhi|bahut|accha|achha|acha|haal|chal|karna|karo|kar)\b/.test(normalized);
-    return hi ? "hi" : "en";
-  }
+
+  // Started last, once every `const`/`let` above is initialised: init() runs synchronously up to
+  // its first `await`, so starting it earlier let setup code hit a temporal dead zone
+  // ("Cannot access '...' before initialization") whenever it touched a later declaration.
+  init().catch((err) => {
+    // The technical detail (network failure, a platform error page, whatever) is only ever
+    // logged here — never rendered into the UI. addErrorBubble always shows the same
+    // friendly, translated connection message regardless of cause.
+    console.error(err);
+    addErrorBubble(COPY[state.lang].bootError, () => location.reload());
+    setOrbState("ERROR");
+  });
 })();

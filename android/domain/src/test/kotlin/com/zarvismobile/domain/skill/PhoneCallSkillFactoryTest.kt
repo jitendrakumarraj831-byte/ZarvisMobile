@@ -44,6 +44,62 @@ class PhoneCallSkillFactoryTest {
     }
 
     @Test
+    fun `a name that fits several people is refused, naming them, instead of ringing one at random`() = runTest {
+        val caller = FakePhoneCallPort()
+        val contacts = FakeContactLookupPort(listOf(PhoneContact("Ram Singh", "9000000002"), PhoneContact("Ram Kumar", "9000000001")))
+        val skill = PhoneCallSkillFactory.create(contacts, caller)
+        val prepared = assertIs<PreparedAction.Failed>(skill.preparer!!.prepare(SkillInput(mapOf("target" to "ram")), context))
+        assertEquals("ambiguous_contact", prepared.failure.reason)
+        assertTrue(prepared.failure.userMessage.contains("Ram Kumar, Ram Singh"), prepared.failure.userMessage)
+        assertTrue(prepared.failure.userMessage.contains("full name"))
+        assertTrue(caller.calledNumbers.isEmpty())
+    }
+
+    @Test
+    fun `the full name of one of several people is enough`() = runTest {
+        val contacts = FakeContactLookupPort(listOf(PhoneContact("Ram Singh", "9000000002"), PhoneContact("Ram Kumar", "9000000001")))
+        val skill = PhoneCallSkillFactory.create(contacts, FakePhoneCallPort())
+        val prepared = assertIs<PreparedAction.Ready>(skill.preparer!!.prepare(SkillInput(mapOf("target" to "ram kumar")), context))
+        assertEquals("Call Ram Kumar at 9000000001", prepared.description)
+    }
+
+    @Test
+    fun `a contact named exactly like the target is chosen over longer names that contain it`() = runTest {
+        val contacts = FakeContactLookupPort(listOf(PhoneContact("Sriram", "9000000003"), PhoneContact("Ram", "9000000001"), PhoneContact("Ram Singh", "9000000002")))
+        val skill = PhoneCallSkillFactory.create(contacts, FakePhoneCallPort())
+        val prepared = assertIs<PreparedAction.Ready>(skill.preparer!!.prepare(SkillInput(mapOf("target" to "ram")), context))
+        assertEquals("Call Ram at 9000000001", prepared.description)
+    }
+
+    @Test
+    fun `a short emergency or service number is dialed as a number, not searched for as a name`() = runTest {
+        val contacts = FakeContactLookupPort(listOf(PhoneContact("112 Cafe", "9000000009")))
+        val skill = PhoneCallSkillFactory.create(contacts, FakePhoneCallPort())
+        for (number in listOf("112", "100", "1098")) {
+            val prepared = assertIs<PreparedAction.Ready>(skill.preparer!!.prepare(SkillInput(mapOf("target" to number)), context))
+            assertEquals("Call $number", prepared.description)
+            assertEquals(number, prepared.input.values[PhoneCallSkillFactory.RESOLVED_NUMBER])
+        }
+    }
+
+    @Test
+    fun `only digits and dialing punctuation count as a number`() {
+        assertTrue(PhoneCallSkillFactory.looksLikePhoneNumber("+91 98765-43210"))
+        assertTrue(PhoneCallSkillFactory.looksLikePhoneNumber("112"))
+        assertTrue(!PhoneCallSkillFactory.looksLikePhoneNumber("12"))
+        assertTrue(!PhoneCallSkillFactory.looksLikePhoneNumber("1234567 office"))
+        assertTrue(!PhoneCallSkillFactory.looksLikePhoneNumber("mom"))
+        assertTrue(!PhoneCallSkillFactory.looksLikePhoneNumber("*123#"))
+    }
+
+    @Test
+    fun `a call with no target asks who to call instead of searching for an empty name`() = runTest {
+        val skill = PhoneCallSkillFactory.create(FakeContactLookupPort(listOf(PhoneContact("Mom", "9000000001"))), FakePhoneCallPort())
+        val prepared = assertIs<PreparedAction.Failed>(skill.preparer!!.prepare(SkillInput(mapOf("target" to "  ")), context))
+        assertEquals("missing_target", prepared.failure.reason)
+    }
+
+    @Test
     fun `an unresolvable name fails at prepare, before any confirmation or call`() = runTest {
         val caller = FakePhoneCallPort()
         val skill = PhoneCallSkillFactory.create(FakeContactLookupPort(), caller)

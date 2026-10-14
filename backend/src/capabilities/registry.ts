@@ -605,10 +605,6 @@ export function deviceCapabilitiesForPrompt(): string {
   );
 }
 
-export function findCapability(id: string): CapabilityDefinition | undefined {
-  return CAPABILITIES.find((capability) => capability.id === id);
-}
-
 const RISK_RANK: Record<RiskClass, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, VERY_HIGH: 3 };
 
 /**

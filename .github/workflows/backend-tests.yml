@@ -73,6 +73,12 @@ jobs:
         run: |
           node --check web/app.js
           node --check web/feature-pages.js
+          node --check web/shell.js
+          node --check web/chat-kit.js
+          node --check web/exec-cards.js
+          node --check web/workspace.js
+          node --check web/theme-init.js
+          node --check web/i18n.js
           node --check web/sw.js
           node --check web/logic.js
           node --test web/tests/*.test.js
@@ -131,14 +137,51 @@ jobs:
           NODE_PATH: /usr/local/lib/node_modules
         run: node web/e2e/phase1.e2e.cjs
 
-      # Responsive (8 views x 6 widths), axe accessibility (light + dim), keyboard, service
+      # Guest sign-ups are limited per server process (60 an hour) and every browser context in a suite signs up its own
+      # guest, so each browser suite gets its own process instead of sharing one budget (Phase 1 + quality on one process
+      # ran out of sign-ups and the last quality steps failed with HTTP 429).
+      - name: Start a second backend for the quality E2E
+        run: |
+          cd backend
+          PORT=3102 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/zarvis_e2e \
+            CORS_ORIGINS=http://localhost:3102 GITHUB_API_BASE_URL=http://localhost:3200 \
+            nohup npx tsx src/index.ts > /tmp/backend-quality.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf --max-time 2 http://localhost:3102/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/backend-quality.log; exit 1
+
+      # Responsive (9 views and the Work/Agents/Memory pages x 9 widths), axe accessibility (light + dim), keyboard, service
       # worker offline shell, voice/TTS never causing an extra turn, duplicate submissions.
       - name: Run web quality E2E
         env:
-          ZARVIS_URL: http://localhost:3100
+          ZARVIS_URL: http://localhost:3102
           NODE_PATH: /usr/local/lib/node_modules
         run: node web/e2e/quality.e2e.cjs
 
+      # Work, Files, Research, Tasks, Agents, Memory, execution cards, composer files (a third process, see above).
+      - name: Start a third backend for the workspace E2E
+        run: |
+          cd backend
+          PORT=3101 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/zarvis_e2e \
+            CORS_ORIGINS=http://localhost:3101 GITHUB_API_BASE_URL=http://localhost:3200 \
+            nohup npx tsx src/index.ts > /tmp/backend-workspace.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf --max-time 2 http://localhost:3101/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/backend-workspace.log; exit 1
+
+      - name: Run workspace browser E2E
+        env:
+          ZARVIS_URL: http://localhost:3101
+          NODE_PATH: /usr/local/lib/node_modules
+        run: node web/e2e/workspace.e2e.cjs
+
       - name: Backend log on failure
         if: failure()
-        run: cat /tmp/backend.log || true
+        run: |
+          cat /tmp/backend.log || true
+          cat /tmp/backend-quality.log || true
+          cat /tmp/backend-workspace.log || true

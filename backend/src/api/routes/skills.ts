@@ -2,6 +2,7 @@ import { Router } from "express";
 import { resolveEntitlement } from "../../domain/entitlementResolver.js";
 import type { EntitlementPort } from "../../tooling/ports.js";
 import type { SkillRegistry } from "../../tooling/skillRegistry.js";
+import { requiresConfirmation } from "../../tooling/toolPipeline.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 
@@ -30,6 +31,9 @@ export function skillsRouter(registry: SkillRegistry, entitlementPort: Entitleme
           usageCost: skill.usageCost,
           requiredEntitlement: skill.requiredEntitlement,
           executesOnDevice: skill.executesOnDevice,
+          actionClass: skill.actionClass,
+          asksConfirmation: requiresConfirmation(skill),
+          requiredPermissions: skill.requiredPermissions,
           upgradeRequired: !decision.allowed,
         };
       });

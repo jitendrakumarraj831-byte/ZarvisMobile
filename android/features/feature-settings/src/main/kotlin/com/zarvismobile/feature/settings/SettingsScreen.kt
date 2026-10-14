@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,25 +53,28 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentPink
 import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
+import com.zarvismobile.domain.presentation.UiString
 
-private enum class SettingsPage(val title: String, val icon: ImageVector) {
-    Account("Account", Icons.Filled.AccountCircle),
-    Permissions("Permissions & Device Access", Icons.Filled.AdminPanelSettings),
-    Voice("Voice", Icons.AutoMirrored.Filled.VolumeUp),
-    Language("Language", Icons.Filled.Language),
-    Appearance("Appearance", Icons.Filled.DarkMode),
-    Ai("AI", Icons.Filled.Psychology),
-    Notifications("Notifications", Icons.Filled.Notifications),
-    Privacy("Privacy", Icons.Filled.Lock),
-    Security("Security", Icons.Filled.Security),
-    Data("Data", Icons.Filled.DataObject),
-    Memory("Memory", Icons.Filled.Memory),
-    Protection("Rules & Protection", Icons.Filled.Shield),
-    Developer("Developer Agent", Icons.Filled.Code),
+private enum class SettingsPage(val title: UiString, val subtitle: UiString, val icon: ImageVector) {
+    Account(UiString.SETTINGS_PAGE_ACCOUNT, UiString.SETTINGS_SUB_ACCOUNT, Icons.Filled.AccountCircle),
+    Permissions(UiString.SETTINGS_PAGE_PERMISSIONS, UiString.SETTINGS_SUB_PERMISSIONS, Icons.Filled.AdminPanelSettings),
+    Voice(UiString.SETTINGS_PAGE_VOICE, UiString.SETTINGS_SUB_VOICE, Icons.AutoMirrored.Filled.VolumeUp),
+    Language(UiString.SETTINGS_PAGE_LANGUAGE, UiString.SETTINGS_SUB_LANGUAGE, Icons.Filled.Language),
+    Appearance(UiString.SETTINGS_PAGE_APPEARANCE, UiString.SETTINGS_SUB_APPEARANCE, Icons.Filled.DarkMode),
+    Ai(UiString.SETTINGS_PAGE_AI, UiString.SETTINGS_SUB_AI, Icons.Filled.Psychology),
+    Notifications(UiString.SETTINGS_PAGE_NOTIFICATIONS, UiString.SETTINGS_SUB_NOTIFICATIONS, Icons.Filled.Notifications),
+    Privacy(UiString.SETTINGS_PAGE_PRIVACY, UiString.SETTINGS_SUB_PRIVACY, Icons.Filled.Lock),
+    Security(UiString.SETTINGS_PAGE_SECURITY, UiString.SETTINGS_SUB_SECURITY, Icons.Filled.Security),
+    Data(UiString.SETTINGS_PAGE_DATA, UiString.SETTINGS_SUB_DATA, Icons.Filled.DataObject),
+    Memory(UiString.SETTINGS_PAGE_MEMORY, UiString.SETTINGS_SUB_MEMORY, Icons.Filled.Memory),
+    Protection(UiString.SETTINGS_PAGE_PROTECTION, UiString.SETTINGS_SUB_PROTECTION, Icons.Filled.Shield),
+    Developer(UiString.SETTINGS_PAGE_DEVELOPER, UiString.SETTINGS_SUB_DEVELOPER, Icons.Filled.Code),
 }
 
 @Composable
@@ -126,9 +128,11 @@ fun SettingsScreen(
         }
         SettingsPage.Language -> SettingsSubPage(selected, goBack) {
             GlassSurface(Modifier.fillMaxWidth()) {
-                SettingRow("English", "Replies and app copy", uiState.locale == "en") { viewModel.setLocale("en") }
-                SettingRow("हिंदी", "Replies and app copy", uiState.locale == "hi") { viewModel.setLocale("hi") }
+                SettingRow("English", tr(UiString.LANGUAGE_ENGLISH_SUB), uiState.locale == "en") { viewModel.setLocale("en") }
+                SettingRow("हिंदी", tr(UiString.LANGUAGE_HINDI_SUB), uiState.locale == "hi") { viewModel.setLocale("hi") }
             }
+            // Say plainly what Hindi changes today, so choosing it never suggests the whole app is translated.
+            ReadOnlyCard(tr(UiString.LANGUAGE_SCOPE_TITLE), tr(UiString.LANGUAGE_SCOPE_BODY), ZarvisAccentViolet)
         }
         SettingsPage.Appearance -> SettingsSubPage(selected, goBack) {
             GlassSurface(Modifier.fillMaxWidth()) {
@@ -163,7 +167,7 @@ fun SettingsScreen(
             }
         }
         SettingsPage.Data -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Available data controls", "The current API exposes authenticated account deletion, tasks, usage and entitlements. There is no export endpoint in this build.", ZarvisAccentViolet)
+            ReadOnlyCard("Available data controls", "What ZARVIS saved about you can be viewed and deleted in Settings › Memory, and your account with its server data can be deleted here. There is no data export in this build.", ZarvisAccentViolet)
             AccountDeleteCard(deleteStatus) { showDeleteConfirmation = true }
         }
         SettingsPage.Protection -> SettingsSubPage(selected, goBack) {
@@ -173,8 +177,7 @@ fun SettingsScreen(
             ReadOnlyCard("Voice stays user-controlled", "Listening starts from a tap. There is no wake word and no continuous listening.", ZarvisAccentCyan)
         }
         SettingsPage.Memory -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Conversation context", "Conversation state is handled by the existing conversation/orchestrator path. The current API does not expose individual memory browsing or deletion endpoints.", ZarvisAccentCyan)
-            ReadOnlyCard("Honest boundary", "No fake memory controls are added where the backend cannot perform the requested operation.", ZarvisAccentPink)
+            MemoryContent()
         }
         SettingsPage.Developer -> SettingsSubPage(selected, goBack) {
             GlassSurface(Modifier.fillMaxWidth()) {
@@ -230,15 +233,15 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                TextButton(onClick = onBack) { Text("Back") }
-                Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text("Personalize the ZARVIS experience using real app, OS and backend capabilities.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
+                Text(tr(UiString.COMMON_SETTINGS), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(tr(UiString.SETTINGS_INTRO), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
                 GlassSurface(Modifier.fillMaxWidth(), tint = GlassColors.surfaceTintElevated) {
-                    Text("Current setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Language: " + if (locale == "hi") "हिंदी" else "English")
-                    Text("Appearance: " + if (darkTheme) "Dark" else "Aurora Light")
+                    Text(tr(UiString.SETTINGS_CURRENT_SETUP), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(trf(UiString.SETTINGS_LANGUAGE_LINE, if (locale == "hi") "हिंदी" else "English"))
+                    Text(trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_AURORA_LIGHT)))
                 }
             }
             items(SettingsPage.values().toList()) { entry ->
@@ -254,23 +257,9 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                             })
                         }
                         Column(Modifier.weight(1f)) {
-                            Text(entry.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(tr(entry.title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Text(
-                                when (entry) {
-                                    SettingsPage.Account -> "Guest, linked email, sign in and out"
-                                    SettingsPage.Permissions -> "What ZARVIS can access, live from Android"
-                                    SettingsPage.Voice -> "Speech recognition and spoken replies"
-                                    SettingsPage.Language -> "English or Hindi"
-                                    SettingsPage.Appearance -> "Aurora light / dark theme"
-                                    SettingsPage.Ai -> "Current orchestration behavior"
-                                    SettingsPage.Notifications -> "Mode, spoken notifications, quiet hours, exclusions"
-                                    SettingsPage.Privacy -> "Account and privacy controls"
-                                    SettingsPage.Security -> "Secure tokens and local session"
-                                    SettingsPage.Data -> "Server data and deletion"
-                                    SettingsPage.Memory -> "Conversation context boundary"
-                                    SettingsPage.Protection -> "What this build actually enforces"
-                                    SettingsPage.Developer -> "Repository analysis"
-                                },
+                                tr(entry.subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -292,10 +281,10 @@ private fun SettingsSubPage(page: SettingsPage, onBack: () -> Unit, content: @Co
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onBack) { Text("‹ Back") }
+                TextButton(onClick = onBack) { Text("‹ " + tr(UiString.COMMON_BACK)) }
                 Column {
-                    Text(page.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("ZARVIS settings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr(page.title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(tr(UiString.SETTINGS_SUBPAGE_KICKER), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
@@ -310,26 +299,7 @@ private fun SettingRow(title: String, subtitle: String, selected: Boolean, onCli
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (selected) Text("Selected", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-@Composable
-private fun SettingSwitchRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-private fun ReadOnlyCard(title: String, body: String, accent: androidx.compose.ui.graphics.Color) {
-    GlassSurface(Modifier.fillMaxWidth()) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = accent)
-        Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (selected) Text(tr(UiString.COMMON_SELECTED), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
     }
 }
 

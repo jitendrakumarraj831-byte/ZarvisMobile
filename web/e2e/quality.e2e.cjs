@@ -33,8 +33,8 @@ const AXE_SOURCE = require("node:fs").readFileSync(
 );
 
 const BASE = process.env.ZARVIS_URL || "http://localhost:3100";
-const VIEWS = ["home", "chat", "activity", "capabilities", "developer", "metrics", "plans", "settings"];
-const WIDTHS = [360, 412, 768, 1024, 1280, 1920];
+const VIEWS = ["home", "chat", "work", "agents", "activity", "developer", "metrics", "plans", "settings"];
+const WIDTHS = [320, 360, 390, 412, 768, 1024, 1280, 1440, 1920];
 const results = [];
 
 async function step(name, fn) {
@@ -44,19 +44,60 @@ async function step(name, fn) {
     console.log("PASS", name);
   } catch (err) {
     results.push(["FAIL", name]);
-    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n").slice(0, 6).join("\n    ") : err);
+    console.log("FAIL", name, "\n   ", err && err.message ? err.message.split("\n").slice(0, 14).join("\n    ") : err);
   }
 }
 
-/** Opens a view through its own nav button (hidden menus on narrow screens included). */
+/** Opens a view through its own nav button (hidden menus on narrow screens included); a page with no nav button (Capabilities) opens by its address. */
 async function openView(page, view) {
-  await page.evaluate((v) => document.querySelector(`[data-view="${v}"]`).click(), view);
+  await page.evaluate((v) => {
+    const button = document.querySelector(`[data-view="${v}"]`);
+    if (button) button.click();
+    else location.hash = "#/" + v;
+  }, view);
   await page.waitForTimeout(150);
 }
 
+/** Puts one project, file, decision, memory and task on the account so the Work pages are measured with real rows. Returns the project id. */
+async function seedWorkspace(page) {
+  return page.evaluate(async () => {
+    const call = (path, body) => fetch("/api/v1" + path, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify(body) }).then((r) => r.json());
+    const project = await call("/projects", { name: "Website relaunch with a deliberately long project name to test wrapping", goal: "Ship the new marketing site by the end of the quarter", description: "Landing page, pricing and docs.", agentId: "research" });
+    await call("/notes", { kind: "decision", content: "Use Next.js for the site", projectId: project.id });
+    await call("/notes", { kind: "memory", content: "Brand colour is teal", projectId: project.id });
+    await call("/notes", { kind: "memory", content: "I prefer short answers" });
+    await call("/files/text", { name: "a-rather-long-file-name-for-the-quarterly-brief-final-v2.txt", text: "Brief: build a site.", source: "upload", projectId: project.id });
+    await call("/tasks", { goal: "Prepare the weekly report", steps: ["Collect the numbers", "Write the summary"], projectId: project.id });
+    return project.id;
+  });
+}
+
+/** The Work, Agents and Memory pages that are not top-level views. */
+const workspaceRoutes = (projectId) => ["#/work/projects", "#/work/project-" + projectId, "#/work/files", "#/work/research", "#/work/tasks", "#/work/outputs", "#/agents/research", "#/agents/developer", "#/settings/memory", "#/capabilities"];
+
+async function openRoute(page, hash) {
+  await page.evaluate((h) => { location.hash = h; }, hash);
+  await page.waitForTimeout(700);
+}
+
+/** What the page logged and which requests failed, so a timeout below explains itself. */
+function watch(page) {
+  const seen = [];
+  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") seen.push(`console.${m.type()}: ${m.text().slice(0, 160)}`); });
+  page.on("requestfailed", (r) => seen.push(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ""}`));
+  page.on("response", (r) => { if (r.status() >= 400) seen.push(`HTTP ${r.status()}: ${r.url()}`); });
+  return seen;
+}
+
 async function ready(page) {
+  const seen = watch(page);
   await page.goto(BASE);
-  await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+  try {
+    await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"), null, { timeout: 15000 });
+  } catch {
+    const now = await page.evaluate(() => ({ url: location.href, width: innerWidth, text: document.body.innerText.replace(/\s+/g, " ").slice(0, 140) })).catch(() => ({}));
+    throw new Error(`no guest session after 15s ${JSON.stringify(now)}; seen: ${seen.slice(-8).join(" | ") || "nothing"}`);
+  }
   await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 });
 }
 
@@ -68,32 +109,169 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   const errors = [];
 
   // ---- Responsive -------------------------------------------------------------------------
-  await step(`responsive: no horizontal overflow, ${VIEWS.length} views × ${WIDTHS.length} widths`, async () => {
+  await step(`responsive: no horizontal overflow, ${VIEWS.length} views and the Work, Agents and Memory pages × ${WIDTHS.length} widths`, async () => {
     const problems = [];
-    for (const width of WIDTHS) {
-      const ctx = await browser.newContext({ viewport: { width, height: 860 } });
-      const page = await ctx.newPage();
-      page.on("pageerror", (e) => errors.push(`pageerror@${width}: ${e.message}`));
+    // One guest account for every width (the server allows 60 sign-ups an hour per address and all the suites share them):
+    // the window is resized in place, the way a phone is turned or a browser window is dragged.
+    const ctx = await browser.newContext({ viewport: { width: WIDTHS[0], height: 860 } });
+    const page = await pageOf(ctx);
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    try {
       await ready(page);
+    } catch (err) {
+      await ctx.close();
+      throw err;
+    }
+    const projectId = await seedWorkspace(page);
+    const overflowNow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 860 });
+      await page.waitForTimeout(250);
       for (const view of VIEWS) {
         await openView(page, view);
-        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        const overflow = await overflowNow();
         if (overflow > 1) problems.push(`${view}@${width}px overflows by ${overflow}px`);
       }
-      await ctx.close();
+      for (const hash of workspaceRoutes(projectId)) {
+        await openRoute(page, hash);
+        if (hash.includes("project-")) {
+          for (const tab of ["overview", "chats", "files", "research", "tasks", "decisions", "memory", "activity"]) {
+            await page.evaluate((t) => document.getElementById("project-tab-" + t)?.click(), tab);
+            await page.waitForTimeout(150);
+            const o = await overflowNow();
+            if (o > 1) problems.push(`project/${tab}@${width}px overflows by ${o}px`);
+          }
+        }
+        const overflow = await overflowNow();
+        if (overflow > 1) problems.push(`${hash.replace(/project-[\w-]+/, "project")}@${width}px overflows by ${overflow}px`);
+      }
     }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  // ---- Home orb: ripples and sparks are decoration; they must never widen the page or crowd the name ----------
+  await step("Home orb: the ripples and sparks stay inside the screen while they move, ZARVIS AI fits inside the orb, and reduced motion keeps still rings", async () => {
+    const problems = [];
+    // One guest account for all five sizes (the server allows 60 sign-ups an hour per address and both suites share them).
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 640 } });
+    const page = await pageOf(ctx);
+    await ready(page);
+    for (const [width, height] of [[320, 640], [360, 740], [390, 844], [412, 915], [1280, 800]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(400);
+      let widest = 0;
+      for (let i = 0; i < 20; i += 1) {
+        widest = Math.max(widest, await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth));
+        await page.waitForTimeout(300);
+      }
+      if (widest > 0) problems.push(`${width}px: the page grew ${widest}px wider than the screen`);
+      const m = await page.evaluate(() => {
+        const orb = document.querySelector("#home-orb .orb");
+        const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, overflow: getComputedStyle(document.querySelector(selector)).overflow }; };
+        const halo = parseFloat(getComputedStyle(orb, "::before").width);
+        return { orb: orb.getBoundingClientRect().width, label: document.querySelector("#home-orb .orb-label strong").getBoundingClientRect().width, halo, waves: box("#home-orb .orb-waves"), sparks: box("#home-orb .orb-sparks"), screen: window.innerWidth };
+      });
+      if (m.label > m.orb * 0.8) problems.push(`${width}px: "ZARVIS AI" is ${Math.round(m.label)}px wide in a ${Math.round(m.orb)}px orb`);
+      for (const [name, b] of [["waves", m.waves], ["sparks", m.sparks]]) {
+        if (!["hidden", "clip"].includes(b.overflow)) problems.push(`${width}px: the ${name} layer is not clipped (${b.overflow})`);
+        if (b.left < -1 || b.right > m.screen + 1) problems.push(`${width}px: the ${name} layer is outside the screen`);
+      }
+      if (m.halo * 1.09 > m.screen) problems.push(`${width}px: the glow (${Math.round(m.halo)}px, breathing) is wider than the screen`);
+    }
+    await ctx.close();
+    const still = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+    const stillPage = await pageOf(still);
+    await ready(stillPage);
+    const rings = await stillPage.evaluate(() => Array.from(document.querySelectorAll("#home-orb .orb-waves i")).map((n) => [getComputedStyle(n).animationName, getComputedStyle(n).opacity]));
+    if (rings.length !== 4 || rings.some(([name, opacity]) => name !== "none" || Number(opacity) < 0.1)) problems.push("reduced motion: the rings are not still and visible: " + JSON.stringify(rings));
+    await still.close();
+    assert.deepEqual(problems, []);
+  });
+
+  // ---- Home: the orb, the message card, the prompts and the mic work at every size ------------------------
+  await step("Home: at every screen size nothing is cut off or widens the page, the orb and the card fit, every quick prompt can be reached, and the mic sits in the middle of the tab bar", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 568 } }); // one guest account for every size
+    const page = await pageOf(ctx);
+    await ready(page);
+    for (const [width, height] of [[320, 568], [360, 640], [360, 740], [390, 844], [412, 915], [768, 1024], [1280, 800]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(700);
+      const m = await page.evaluate(() => {
+        const overflow = document.documentElement.scrollWidth - innerWidth;
+        const orb = document.querySelector("#home-orb .orb").getBoundingClientRect();
+        const card = document.getElementById("home-prompt-form").getBoundingClientRect();
+        const title = document.querySelector(".home-title");
+        const lines = Math.round(title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight));
+        const tools = [...document.querySelectorAll("#home-prompt-form button")].map((b) => b.getBoundingClientRect());
+        const chips = [...document.querySelectorAll("#home-quick .chip:not([hidden])")];
+        // Scroll the first prompt to the middle of the screen: whatever is on top at its centre must be the prompt itself.
+        chips[0].scrollIntoView({ block: "center", inline: "start" });
+        const r = chips[0].getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const fab = document.querySelector(".bottom-nav .nav-fab");
+        const fabBox = fab.getBoundingClientRect();
+        return {
+          overflow, lines, orbInside: orb.left >= 0 && orb.right <= innerWidth, cardInside: card.left >= 0 && card.right <= innerWidth,
+          toolsInside: tools.every((t) => t.left >= card.left && t.right <= card.right + 0.5) && tools.every((t) => t.height >= 43.5),
+          promptReachable: !!(top && chips[0].contains(top)),
+          fabCentred: fab.getClientRects().length === 0 || Math.abs(fabBox.left + fabBox.width / 2 - innerWidth / 2) <= 1,
+        };
+      });
+      if (m.overflow > 0) problems.push(`${width}x${height}: the page is ${m.overflow}px wider than the screen`);
+      if (m.lines > 3) problems.push(`${width}x${height}: the headline takes ${m.lines} lines`);
+      if (!m.orbInside) problems.push(`${width}x${height}: the orb is not fully on the screen`);
+      if (!m.cardInside) problems.push(`${width}x${height}: the message card is cut off`);
+      if (!m.toolsInside) problems.push(`${width}x${height}: a message-card button is cut off or under 44px`);
+      if (!m.promptReachable) problems.push(`${width}x${height}: the first quick prompt is covered when scrolled to`);
+      if (!m.fabCentred) problems.push(`${width}x${height}: the mic is not in the middle of the tab bar`);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  // ---- Small screens: nothing is cut off at 320px, tap targets reach 44px -----------------------------
+  await step("320px phone: no card is cut off, no word breaks mid-way, touch targets are at least 44px", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const problems = [];
+    await openView(page, "capabilities");
+    await page.waitForSelector("#capability-hub .cap-item");
+    problems.push(...(await page.evaluate(() => Array.from(document.querySelectorAll("#capability-hub .cap-item")).filter((c) => c.getBoundingClientRect().right > innerWidth - 8 || c.getBoundingClientRect().left < 8).map((c) => "card cut off: " + c.textContent.slice(0, 20)))));
+    for (const view of ["plans", "metrics"]) {
+      await openView(page, view);
+      await page.waitForTimeout(400);
+      problems.push(...(await page.evaluate((v) => Array.from(document.querySelectorAll(".stat-tile-value, .stat-tile-label")).filter((n) => n.getClientRects().length).flatMap((n) => {
+        // a value that is wider than its tile, or a word that had to be split to fit
+        const r = n.getBoundingClientRect(); const tile = n.closest(".stat-tile").getBoundingClientRect();
+        const bad = [];
+        if (r.right > tile.right + 1) bad.push(v + ": text pokes out of its tile: " + n.textContent);
+        const words = n.textContent.trim().split(/\s+/).filter((w) => w.length > 3);
+        const range = document.createRange();
+        for (const node of n.childNodes) if (node.nodeType === 3) for (const w of words) { const i = node.textContent.indexOf(w); if (i < 0) continue; range.setStart(node, i); range.setEnd(node, i + w.length); if (range.getClientRects().length > 1) bad.push(v + ": word split across lines: " + w); }
+        return bad;
+      }), view)));
+    }
+    await openView(page, "settings");
+    await page.evaluate(() => document.querySelector('[data-settings-page="voice"]').click());
+    await page.waitForTimeout(300);
+    const small = await page.evaluate(() => Array.from(document.querySelectorAll(".switch, .topbar-brand, .topbar-menu")).filter((n) => n.getClientRects().length).map((n) => { const r = n.getBoundingClientRect(); const after = getComputedStyle(n, "::after"); const h = r.height + (after.content !== "none" ? parseFloat(after.top) * -2 || 0 : 0); return [n.className, Math.round(r.width), Math.round(h)]; }).filter(([, w, h]) => w < 44 || h < 44));
+    for (const [cls, w, h] of small) problems.push(`target ${cls}: ${w}x${h}`);
+    await ctx.close();
     assert.deepEqual(problems, []);
   });
 
   // ---- Accessibility (axe) ----------------------------------------------------------------
   // The app's own appearances (Settings → Appearance), not the OS colour scheme it ignores.
-  for (const [width, appearance] of [[412, "aurora"], [1280, "aurora"], [412, "dim"], [1280, "dim"]]) {
-    await step(`accessibility: no serious/critical axe violation on any view (${width}px, ${appearance})`, async () => {
+  for (const [width, appearance, lang] of [[412, "aurora", "en"], [1280, "aurora", "en"], [412, "dim", "en"], [1280, "dim", "en"], [412, "dim", "hi"], [1280, "aurora", "hi"]]) {
+    await step(`accessibility: no serious/critical axe violation on any view (${width}px, ${appearance}${lang === "hi" ? ", Hindi" : ""})`, async () => {
       // bypassCSP only so the audit script can be injected; the app itself runs unchanged.
       // Reduced motion, and a settle wait: entrance fades would otherwise be measured mid-way.
       const ctx = await browser.newContext({ viewport: { width, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
-      await ctx.addInitScript((a) => localStorage.setItem("zarvis.appearance", a), appearance);
-      const page = await ctx.newPage();
+      await ctx.addInitScript(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
+      const page = await pageOf(ctx);
       await ready(page);
       await page.addScriptTag({ content: AXE_SOURCE });
       const found = [];
@@ -109,15 +287,383 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         });
         for (const v of violations) found.push(`${view}: ${v}`);
       }
+      const projectId = await seedWorkspace(page);
+      for (const hash of workspaceRoutes(projectId)) {
+        await openRoute(page, hash);
+        const tabs = hash.includes("project-") ? ["overview", "chats", "files", "research", "tasks", "decisions", "memory", "activity"] : [null];
+        for (const tab of tabs) {
+          if (tab) {
+            await page.evaluate((t) => document.getElementById("project-tab-" + t)?.click(), tab);
+            await page.waitForTimeout(300);
+          }
+          const violations = await page.evaluate(async () => {
+            // eslint-disable-next-line no-undef
+            const r = await axe.run(document, { resultTypes: ["violations"] });
+            return r.violations
+              .filter((v) => v.impact === "serious" || v.impact === "critical")
+              .map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+          });
+          for (const v of violations) found.push(`${hash.replace(/project-[\w-]+/, "project")}${tab ? "/" + tab : ""}: ${v}`);
+        }
+      }
       await ctx.close();
       assert.deepEqual(found, []);
     });
   }
 
+  // The phone menu drawer, open (the sweeps above only see it closed): contrast of the current-page row, names, focus.
+  for (const [appearance, lang] of [["aurora", "en"], ["dim", "en"], ["aurora", "hi"], ["dim", "hi"]]) {
+    await step(`accessibility: the open phone menu has no serious/critical axe violation (390px, ${appearance}${lang === "hi" ? ", Hindi" : ""})`, async () => {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, bypassCSP: true, reducedMotion: "reduce" });
+      await ctx.addInitScript(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
+      const page = await pageOf(ctx);
+      await ready(page);
+      await page.addScriptTag({ content: AXE_SOURCE });
+      await page.click("#menu-btn");
+      await page.waitForTimeout(500);
+      const violations = await page.evaluate(async () => {
+        // eslint-disable-next-line no-undef
+        const r = await axe.run(document, { resultTypes: ["violations"] });
+        return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+      });
+      await ctx.close();
+      assert.deepEqual(violations, []);
+    });
+  }
+
+  // Markdown in a reply: tables, quotes and coloured code are real elements, stay inside the screen at every width, and copy as plain code.
+  await step("Markdown reply: a wide table scrolls inside its own frame (no page overflow at 320-1440), code is coloured and copies as plain text, a quote is a quote", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 800 }, bypassCSP: true, reducedMotion: "reduce", permissions: ["clipboard-read", "clipboard-write"] });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const MD = "> Quoted **note**\n\n| Name | A very long column heading that needs room | Third | Fourth |\n|:--|:-:|--:|---|\n| one | some long text that keeps going and going so that the table is wider than a phone | 3 | four |\n\n```ts\nconst total: number = 40 + 2; // sum\nconsole.log(\"<b>\", total);\n```\n\n~~old~~ #### not a heading here";
+    await page.route("**/api/v1/orchestrator/turn-stream", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: reply(MD, "md") }));
+    await openView(page, "chat");
+    await page.fill("#text-input", "markdown please");
+    await page.press("#text-input", "Enter");
+    await page.waitForSelector(".bubble.assistant .reply-table");
+    for (const width of [320, 360, 390, 412, 768, 1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.waitForTimeout(150);
+      const m = await page.evaluate(() => ({ over: document.documentElement.scrollWidth - innerWidth, wrapInside: (() => { const w = document.querySelector(".reply-table-wrap"); const b = w.closest(".bubble-body").getBoundingClientRect(); return w.getBoundingClientRect().right <= b.right + 1; })() }));
+      assert.ok(m.over <= 1, `page overflows by ${m.over}px at ${width}`);
+      assert.ok(m.wrapInside, `table frame leaves its bubble at ${width}`);
+    }
+    await page.setViewportSize({ width: 320, height: 800 });
+    const facts = await page.evaluate(() => {
+      const wrap = document.querySelector(".reply-table-wrap");
+      const code = document.querySelector("pre.reply-code code");
+      const color = (el) => getComputedStyle(el).color;
+      return {
+        scrolls: wrap.scrollWidth > wrap.clientWidth,
+        focusable: wrap.tabIndex === 0 && wrap.getAttribute("role") === "region" && !!wrap.getAttribute("aria-label"),
+        headers: [...document.querySelectorAll(".reply-table th")].map((t) => t.textContent),
+        quote: document.querySelector("blockquote.reply-quote")?.textContent.trim(),
+        kw: code.querySelector(".tok-kw")?.textContent, kwColor: code.querySelector(".tok-kw") && color(code.querySelector(".tok-kw")), plainColor: color(code),
+        com: code.querySelector(".tok-com")?.textContent,
+        codeText: code.textContent,
+        injected: !!document.querySelector(".bubble-body b, .bubble-body img"),
+        struck: document.querySelector(".bubble-body del")?.textContent,
+      };
+    });
+    assert.ok(facts.scrolls, "a table wider than a phone scrolls inside its frame");
+    assert.ok(facts.focusable, "the scrollable table is keyboard reachable and named");
+    assert.deepEqual(facts.headers, ["Name", "A very long column heading that needs room", "Third", "Fourth"]);
+    assert.equal(facts.quote, "Quoted note");
+    assert.equal(facts.kw, "const");
+    assert.notEqual(facts.kwColor, facts.plainColor, "keywords are coloured");
+    assert.equal(facts.com, "// sum");
+    assert.equal(facts.codeText, 'const total: number = 40 + 2; // sum\nconsole.log("<b>", total);');
+    assert.equal(facts.injected, false, "HTML in code or text is never turned into elements");
+    assert.equal(facts.struck, "old");
+    await page.click("pre.reply-code .code-copy");
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), facts.codeText, "Copy puts plain code on the clipboard, not markup");
+    await ctx.close();
+  });
+
+  // Payments: what the Plans page says follows what the server answered. The gateway is stubbed (no money moves); the
+  // app's own /billing/verify and /entitlements/me answers are what each scenario varies.
+  await step("Billing: a refused payment is not 'received', an unanswered one says it is unconfirmed and then whether the plan came on, a failed or closed checkout says so", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true });
+    await ctx.addInitScript(() => {
+      window.Razorpay = class { constructor(o) { this.o = o; this.on_ = {}; window.__rzp = this; } on(ev, fn) { this.on_[ev] = fn; } open() {} };
+    });
+    const page = await pageOf(ctx);
+    await ready(page);
+    let verify = { status: 200, body: {} };
+    let plan = "TRIAL";
+    let planChecks = 0;
+    const plans = ["monthly", "yearly"].map((period) => ({ key: "pro_" + period, period, amountInr: period === "yearly" ? 4999 : 499, perMonthInr: period === "yearly" ? 417 : 499, credits: period === "yearly" ? 12000 : 1000, savingsPercent: period === "yearly" ? 16 : 0 }));
+    await page.route("**/api/v1/billing/plans", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ currency: "INR", paymentsEnabled: true, testMode: true, methods: [], plans, current: { plan, planExpiresAt: null, creditBalance: 50 } }) }));
+    await page.route("**/api/v1/billing/orders", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ keyId: "rzp_test_x", orderId: "order_1", amountPaise: 49900, currency: "INR", description: "Pro monthly" }) }));
+    await page.route("**/api/v1/billing/verify", (r) => r.fulfill({ status: verify.status, contentType: "application/json", body: JSON.stringify(verify.body) }));
+    await page.route("**/api/v1/entitlements/me", (r) => { planChecks += 1; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ plan, creditBalance: 50, trialExpiresAt: "2030-01-01T00:00:00Z", planExpiresAt: plan === "PRO" ? "2030-02-01T00:00:00Z" : null }) }); });
+    await page.clock.install();
+    const notice = () => page.evaluate(() => { const b = document.getElementById("plans-payment"); return { hidden: b.hidden, tone: b.dataset.tone, text: b.querySelector("#plans-payment-text").textContent, id: document.getElementById("plans-payment-ref").hidden ? "" : document.getElementById("plans-payment-id").textContent, body: document.body.innerText };});
+    const tick = async (ms) => { await page.clock.fastForward(ms); await page.waitForTimeout(250); };
+    const pay = async (callback) => {
+      await openView(page, "plans");
+      await page.waitForSelector(".plan-cta:not([disabled])", { timeout: 8000 }).catch(async (err) => {
+        throw new Error("no enabled plan button: " + JSON.stringify(await page.evaluate(() => ({ active: document.body.dataset.activeView, ctas: [...document.querySelectorAll(".plan-cta")].map((b) => b.textContent + (b.disabled ? " (disabled)" : "")), notice: document.getElementById("plans-notice-text")?.textContent, text: document.body.innerText.replace(/\s+/g, " ").slice(0, 200) }))));
+      });
+      await page.click(".plan-cta:not([disabled])");
+      await page.waitForFunction(() => !!window.__rzp);
+      await page.evaluate(callback);
+      await page.waitForTimeout(300);
+    };
+    const handler = () => window.__rzp.o.handler({ razorpay_payment_id: "pay_123", razorpay_order_id: "order_1", razorpay_signature: "sig" });
+
+    // 1. The server refuses the signature: an error that says the plan did not change, with the payment id, and no "received".
+    verify = { status: 400, body: { error: "The payment signature did not verify.", code: "invalid_signature" } };
+    await pay(handler);
+    await tick(5200);
+    let n = await notice();
+    assert.equal(n.tone, "err");
+    assert.match(n.text, /couldn't verify this payment, so your plan was not changed/);
+    assert.equal(n.id, "pay_123");
+    assert.doesNotMatch(n.body, /Payment received|Pro is active/i);
+
+    // 2. The gateway cannot be reached and the plan never comes on: unconfirmed first, then an honest "not active yet".
+    verify = { status: 502, body: { error: "gateway", code: "gateway_error" } };
+    await pay(handler);
+    n = await notice();
+    assert.equal(n.tone, "warn");
+    assert.match(n.text, /couldn't reach the payment service/);
+    assert.doesNotMatch(n.body, /Payment received/i);
+    for (let i = 0; i < 6; i += 1) await tick(5100);
+    n = await notice();
+    assert.equal(n.tone, "warn");
+    assert.match(n.text, /plan isn't active yet/);
+    assert.equal(n.id, "pay_123");
+
+    // 3. The gateway cannot be reached but the plan comes on (the server heard from Razorpay): it then says Pro is active.
+    plan = "TRIAL";
+    await pay(handler);
+    await tick(5100);
+    plan = "PRO";
+    await tick(5100);
+    n = await notice();
+    assert.equal(n.tone, "ok");
+    assert.match(n.text, /^Pro is active until/);
+
+    // 4. The bank has not captured yet (402): says so, and waits.
+    plan = "TRIAL";
+    verify = { status: 402, body: { error: "The payment has not completed.", code: "payment_not_captured" } };
+    await pay(handler);
+    n = await notice();
+    assert.match(n.text, /bank hasn't confirmed/);
+
+    // 5. A verified payment.
+    plan = "PRO";
+    verify = { status: 200, body: { plan: "PRO", planExpiresAt: "2030-02-01T00:00:00Z" } };
+    await pay(handler);
+    n = await notice();
+    assert.equal(n.tone, "ok");
+    assert.match(n.text, /^Pro is active until/);
+
+    // 6. The gateway reports a failed payment: it says the plan was not changed (it cannot know about the bank), and a closed checkout is not a payment.
+    plan = "TRIAL";
+    await pay(() => window.__rzp.on_["payment.failed"]({ error: { description: "Card declined", metadata: { payment_id: "pay_failed" } } }));
+    n = await notice();
+    assert.equal(n.tone, "err");
+    assert.match(n.text, /^Payment failed: Card declined Your plan was not changed\./);
+    assert.equal(n.id, "pay_failed");
+    // The modal stays open for a retry after a failure, so the button stays busy until it is closed.
+    await page.evaluate(() => window.__rzp.o.modal.ondismiss());
+    await page.waitForTimeout(200);
+    assert.match(await page.evaluate(() => document.getElementById("toast").textContent), /Checkout closed\. No payment was completed\./);
+    assert.ok(planChecks > 0);
+    await ctx.close();
+  });
+
+  // A server that accepts the connection and never answers must not leave a page on its loading state for ever.
+  await step("Stalled server: Plans stops waiting after the read timeout and says plans could not be loaded; the page stays usable", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true });
+    const page = await pageOf(ctx);
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    await ready(page);
+    await page.route("**/api/v1/billing/plans", () => {}); // never answered
+    await page.route("**/api/v1/entitlements/me", () => {}); // never answered
+    await page.clock.install();
+    await openView(page, "plans");
+    await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(() => document.getElementById("plans-notice").hidden), true, "still waiting: nothing is claimed yet");
+    await page.clock.fastForward(26000);
+    await page.waitForTimeout(400);
+    const after = await page.evaluate(() => ({ notice: document.getElementById("plans-notice-text").textContent, ctas: [...document.querySelectorAll(".plan-cta")].map((b) => b.textContent), prices: document.getElementById("plan-cards").innerText }));
+    assert.match(after.notice, /Couldn't load plans and prices/);
+    assert.ok(after.ctas.length >= 2, "the plan cards are drawn");
+    assert.match(after.prices, /Price unavailable/);
+    assert.ok(!after.ctas.some((t) => /Upgrade/.test(t)), "no purchase button without a price");
+    await openView(page, "settings");
+    assert.equal(await page.evaluate(() => document.body.dataset.activeView), "settings", "navigation still works");
+    assert.deepEqual(errs, [], "a timeout is handled, not thrown");
+    await ctx.close();
+  });
+
+  // The Voice page says what this browser can really do, and what to do about a "no".
+  await step("Voice check: a blocked microphone and a browser with no speech recognition are described as such, with what to do; 'Check again' re-reads the browser", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true });
+    await ctx.addInitScript(() => {
+      window.__mic = "denied";
+      Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => ({ state: window.__mic }) } });
+      window.SpeechRecognition = undefined;
+      window.webkitSpeechRecognition = undefined;
+    });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/settings/voice"; });
+    await page.waitForSelector("#voice-check-rows .control-row");
+    const rows = async () => Object.fromEntries(await page.$$eval("#voice-check-rows .control-row", (list) => list.map((r) => [r.querySelector("strong").textContent, r.querySelector("small").textContent])));
+    let r = await rows();
+    assert.deepEqual(Object.keys(r), ["Secure connection", "Speech recognition", "Microphone", "Audio playback"]);
+    assert.match(r["Speech recognition"], /^Not available in this browser\. Type your request/);
+    assert.match(r["Microphone"], /^Blocked\. Allow the microphone for this site in your browser's site settings, then tap the orb again\./);
+    assert.match(r["Secure connection"], /^Yes\./, "localhost counts as secure");
+    await page.evaluate(() => { window.__mic = "granted"; });
+    await page.click("#voice-check-again");
+    await page.waitForFunction(() => /^Allowed in this browser/.test(document.querySelector("#voice-check-rows .control-row:nth-child(3) small").textContent));
+    await page.evaluate(() => { window.__mic = "prompt"; });
+    await page.click("#voice-check-again");
+    await page.waitForFunction(() => /will ask the first time/.test(document.querySelector("#voice-check-rows .control-row:nth-child(3) small").textContent));
+    await ctx.close();
+  });
+
+  // Home's prompts follow the skills this build really has (the Chat starters already did).
+  await step("Home prompts: only those with a skill behind them are offered; with the real catalogue every one is", async () => {
+    // "Analyze a repo" is governed by Developer access, not by skills, so it is left out of this comparison.
+    const labels = async (page) => (await page.$$eval("#home-quick .chip:not([hidden])", (chips) => chips.map((c) => c.textContent.trim()))).filter((t) => t !== "Analyze a repo");
+    // The real catalogue first: everything is there.
+    let ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    let page = await pageOf(ctx);
+    await ready(page);
+    await page.waitForFunction(() => document.querySelectorAll("#home-quick .chip:not([hidden])").length >= 7 && !document.querySelector("#home-quick .chip[data-skill-categories][hidden]"));
+    assert.deepEqual(await labels(page), ["Research a topic", "Write a message", "Summarize a file", "Plan a task", "Business draft", "Open Work", "Agents"]);
+    await ctx.close();
+    // A build that only has web skills: only the prompts that need other skills go away; pages stay.
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    page = await pageOf(ctx);
+    await page.route("**/api/v1/skills", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ skills: [{ id: "web.search", name: "Web Search", description: "d", category: "WEB", riskLevel: "LOW", usageCost: 2, requiredEntitlement: "FREE", executesOnDevice: false, actionClass: "READ", asksConfirmation: false, requiredPermissions: [], upgradeRequired: false }] }) }));
+    await ready(page);
+    await page.waitForFunction(() => document.querySelector('#home-quick .chip[data-skill-categories="CREATIVE BUSINESS"]')?.hidden === true);
+    assert.deepEqual(await labels(page), ["Research a topic", "Open Work", "Agents"]);
+    await ctx.close();
+  });
+
+  // The pages this release added or reshaped, with real data on the account: accessibility (axe) in light, dark and Hindi, and no horizontal
+  // overflow at every width in the brief (320, 360, 390, 412, 768, 1024, 1280, 1440).
+  await step("New pages with data: no serious/critical axe violation (phone and desktop, light, dark, Hindi) and no overflow at 320-1440 (Home dashboard, projects, task list and board, Integrations, Voice, an agent)", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
+    const page = await pageOf(ctx);
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    await ready(page);
+    await seedWorkspace(page);
+    await page.evaluate(async () => {
+      const call = (path, body) => fetch("/api/v1" + path, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify(body) }).then((r) => r.json());
+      await call("/projects", { name: "Tax filing", goal: "File returns before the deadline" });
+      const t = await call("/tasks", { goal: "Review the draft", steps: ["hello", "hello again"] });
+      await call("/tasks/" + t.id + "/run", {});
+    });
+    const ROUTES = ["#/home", "#/work/projects", "#/work/tasks", "#/work/tasks:board", "#/settings/integrations", "#/settings/voice", "#/agents/research", "#/plans"];
+    const go = async (route) => {
+      const [hash, mode] = route.split(":");
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForTimeout(650);
+      if (route.startsWith("#/work/tasks")) {
+        await page.waitForSelector("#tasks-view [data-view]");
+        await page.click(`#tasks-view [data-view=${mode === "board" ? "board" : "list"}]`);
+        await page.waitForTimeout(150);
+      }
+      if (hash === "#/home") await page.waitForSelector("#home-dash:not([hidden]) .dash-card");
+    };
+    const found = [];
+    for (const [label, viewport, appearance, lang] of [["phone light", { width: 390, height: 860 }, "aurora", "en"], ["phone dark", { width: 390, height: 860 }, "dim", "en"], ["desktop light", { width: 1280, height: 860 }, "aurora", "en"], ["desktop dark", { width: 1280, height: 860 }, "dim", "en"], ["phone Hindi", { width: 390, height: 860 }, "aurora", "hi"]]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(([a, l]) => { localStorage.setItem("zarvis.appearance", a); localStorage.setItem("zarvis.lang", l); }, [appearance, lang]);
+      await page.reload();
+      await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await page.addScriptTag({ content: AXE_SOURCE });
+      for (const route of ROUTES) {
+        await go(route);
+        const violations = await page.evaluate(async () => {
+          // eslint-disable-next-line no-undef
+          const r = await axe.run(document, { resultTypes: ["violations"] });
+          return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 2).map((n) => n.target.join(" ")).join(" | ")}`);
+        });
+        for (const v of violations) found.push(`${label} ${route}: ${v}`);
+      }
+    }
+    assert.deepEqual(found, [], "axe");
+    // Overflow at every width from the brief, light theme, English.
+    await page.evaluate(() => { localStorage.setItem("zarvis.appearance", "aurora"); localStorage.setItem("zarvis.lang", "en"); });
+    await page.reload();
+    await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+    const over = [];
+    for (const width of [320, 360, 390, 412, 768, 1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 860 });
+      await page.waitForTimeout(200);
+      for (const route of ROUTES) {
+        await go(route);
+        const extra = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+        if (extra > 1) over.push(`${route} @${width}px: ${extra}px wider than the screen`);
+        // Nothing the user needs may be clipped by the screen edge: every visible button and card stays inside the viewport's width.
+        const cut = await page.evaluate(() => [...document.querySelectorAll("#view-home .dash-card, #view-work .ws-card, #view-work .task-card, .settings-panel:not([hidden]) .capability-item, .settings-panel:not([hidden]) .control-row")].filter((n) => n.getClientRects().length && !n.closest(".task-board")).filter((n) => { const r = n.getBoundingClientRect(); return r.left < -1 || r.right > innerWidth + 1; }).map((n) => n.className.split(" ")[0]));
+        if (cut.length) over.push(`${route} @${width}px: cut off by the screen edge: ${[...new Set(cut)].join(", ")}`);
+      }
+    }
+    assert.deepEqual(over, [], "overflow");
+    assert.deepEqual(errs, [], "no uncaught page errors");
+    await ctx.close();
+  });
+
+  // Chat with real content: a formatted reply (list, code), an action row, a finished tool and a waiting "Thinking" card.
+  // One guest account for all four looks: the server allows 60 sign-ups an hour per address and the suites share them.
+  await step("accessibility: Chat with a rich reply, a tool row and Thinking has no serious/critical axe violation (phone and desktop, both themes)", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, bypassCSP: true, reducedMotion: "reduce" });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const CID = "00000000-0000-4000-8000-000000000001";
+    const RICH = "Here is **what I found**:\n\n## Summary\n- First point with a [link](https://example.com/docs)\n- Second point with `inline code`\n\n> Prices are in INR.\n\n| Plan | Price | Notes |\n|:--|--:|---|\n| Pro monthly | 499 | Includes voice and web search, renews every month |\n| Pro yearly | 4999 | Best value |\n\n```js\nconst answer = 42; // the answer\nconsole.log(answer);\n```\n\n1. One\n2. Two";
+    let turn = 0;
+    await page.route("**/api/v1/orchestrator/turn-stream", async (route) => {
+      turn += 1;
+      if (turn % 2 === 0) return; // every second turn never answers, so the Thinking card stays up
+      const toolCalls = [{ toolCallId: "tc-" + turn, skillId: "web.search", outcome: { kind: "success", result: { output: { query: "q", answer: "A short answer.", results: [{ title: "Example", url: "https://example.com/a" }] } }, chargedCredits: 1 }, result: { success: true, status: "COMPLETED", userSafeMessage: "Found 5 results.", verificationEvidence: { check: "non_empty_result", outputKeys: ["query", "answer", "results"], chargedCredits: 1 } } }];
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: sse([["meta", { conversationId: CID, turnId: "a" }], ["delta", { text: RICH }], ["done", { message: RICH, toolCalls, conversationId: CID, turnId: "a" }]]) });
+    });
+    const found = [];
+    for (const [label, viewport, appearance] of [["phone light", { width: 390, height: 860 }, "aurora"], ["phone dark", { width: 390, height: 860 }, "dim"], ["desktop light", { width: 1280, height: 860 }, "aurora"], ["desktop dark", { width: 1280, height: 860 }, "dim"]]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate((a) => localStorage.setItem("zarvis.appearance", a), appearance);
+      await page.reload();
+      await page.waitForFunction(() => !!localStorage.getItem("zarvis.accessToken"));
+      await page.addScriptTag({ content: AXE_SOURCE });
+      await openView(page, "chat");
+      await page.fill("#text-input", "Show me something formatted");
+      await page.press("#text-input", "Enter");
+      await page.waitForSelector(".bubble.assistant .bubble-actions");
+      await page.waitForSelector(".exec-card");
+      await page.fill("#text-input", "and one more thing");
+      await page.press("#text-input", "Enter");
+      await page.waitForSelector(".bubble.thinking");
+      await page.waitForTimeout(900);
+      const violations = await page.evaluate(async () => {
+        // eslint-disable-next-line no-undef
+        const r = await axe.run(document, { resultTypes: ["violations"] });
+        return r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+      });
+      for (const v of violations) found.push(`${label}: ${v}`);
+    }
+    await ctx.close();
+    assert.deepEqual(found, []);
+  });
+
   // ---- Keyboard ---------------------------------------------------------------------------
   await step("keyboard: Tab reaches the composer, focus is visible, Enter sends exactly once", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", (route) => { turns += 1; return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("ok") }); });
@@ -156,7 +702,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         return original.call(this);
       };
     });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     page.on("filechooser", () => {}); // let Playwright absorb the dialog
     await ready(page);
     await openView(page, "chat");
@@ -170,7 +716,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
   await step("keyboard: every focusable control has an accessible name", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     const unnamed = [];
     for (const view of VIEWS) {
@@ -180,7 +726,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
           .filter((e) => e.offsetParent !== null && !e.disabled)
           .filter((e) => {
             const label = e.getAttribute("aria-label") || e.getAttribute("title") || e.textContent.trim() ||
-              (e.id && document.querySelector(`label[for="${e.id}"]`)?.textContent.trim()) || e.getAttribute("placeholder") ||
+              (e.id && document.querySelector(`label[for="${e.id}"]`)?.textContent.trim()) || (e.labels && [...e.labels].map((l) => l.textContent).join(" ").trim()) || e.getAttribute("placeholder") ||
               (e.getAttribute("aria-labelledby") && document.getElementById(e.getAttribute("aria-labelledby"))?.textContent.trim());
             return !label;
           })
@@ -194,7 +740,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   // ---- Service worker ---------------------------------------------------------------------
   await step("service worker: installs, and the app shell opens offline", async () => {
     const ctx = await browser.newContext({ viewport: { width: 412, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     await page.waitForFunction(async () => !!(await navigator.serviceWorker?.getRegistration())?.active, null, { timeout: 15000 });
     // A load can occasionally start uncontrolled right after activation (measured 1 in 20 in
@@ -234,7 +780,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         window.__recognition.dispatchEvent(new Event("end"));
       };
     });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     let turns = 0;
     let ttsRequests = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", (route) => { turns += 1; return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("Namaste. Main ZARVIS hoon. Aapki kya madad karun?") }); });
@@ -259,6 +805,94 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await ctx.close();
   });
 
+  // Pause and Resume hold a spoken reply where it is on both playback paths (a streamed reply and "Listen"); Stop ends it and leaves audio ready for the next one.
+  await step("voice: a spoken reply returns to idle when it ends (it used to stay on Speaking); Pause holds it, Resume carries on, Stop ends it, and the next reply still plays", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, permissions: ["microphone"] });
+    await ctx.addInitScript(() => {
+      localStorage.setItem("zarvis.speak", "on");
+      class FakeRecognition extends EventTarget {
+        start() { window.__recognition = this; }
+        stop() { this.dispatchEvent(new Event("end")); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = FakeRecognition;
+      window.webkitSpeechRecognition = FakeRecognition;
+      window.__say = (text) => { const ev = new Event("result"); ev.results = [[{ transcript: text }]]; window.__recognition.dispatchEvent(ev); window.__recognition.dispatchEvent(new Event("end")); };
+    });
+    const page = await pageOf(ctx);
+    const seconds = 3;
+    const pcm = Buffer.alloc(24000 * 2 * seconds); // 3 s of 24 kHz 16-bit silence
+    const wav = Buffer.concat([Buffer.from("RIFF"), Buffer.from(new Uint32Array([36 + pcm.length]).buffer), Buffer.from("WAVEfmt "), Buffer.from(new Uint32Array([16]).buffer), Buffer.from(new Uint16Array([1, 1]).buffer), Buffer.from(new Uint32Array([24000, 48000]).buffer), Buffer.from(new Uint16Array([2, 16]).buffer), Buffer.from("data"), Buffer.from(new Uint32Array([pcm.length]).buffer), pcm]);
+    let streamed = 0;
+    let listened = 0;
+    await page.route("**/api/v1/orchestrator/turn-stream", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("Namaste. Main ZARVIS hoon.") }));
+    await page.route("**/api/v1/tts/synthesize-stream", (route) => { streamed += 1; return route.fulfill({ status: 200, contentType: "audio/pcm", body: pcm }); });
+    await page.route("**/api/v1/tts/synthesize", (route) => { listened += 1; return route.fulfill({ status: 200, contentType: "audio/wav", body: wav }); });
+    await ready(page);
+    await openView(page, "chat");
+    const bar = () => page.evaluate(() => ({ hidden: document.getElementById("speech-bar").hidden, label: document.getElementById("speech-bar-label").textContent, button: document.getElementById("speech-pause").textContent, pressed: document.getElementById("speech-pause").getAttribute("aria-pressed"), hero: document.getElementById("hero-status-label").textContent, state: document.getElementById("orb").dataset.state }));
+    const say = async () => { await page.click("#mic-btn"); await page.evaluate(() => window.__say("namaste zarvis")); };
+    let stage = "start";
+    try {
+
+    stage = "streamed reply: pause";
+    // A streamed reply: pause holds it.
+    await say();
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    let b = await bar();
+    assert.deepEqual([b.label, b.button, b.pressed, b.state], ["Speaking", "Pause", "false", "SPEAKING"]);
+    await page.click("#speech-pause");
+    b = await bar();
+    assert.deepEqual([b.label, b.button, b.pressed, b.hero, b.state], ["Paused", "Resume", "true", "Paused", "SPEAKING"]);
+    await page.waitForTimeout((seconds + 1) * 1000); // longer than the whole reply: if Pause did not hold it, it would be over
+    b = await bar();
+    assert.equal(b.hidden, false, "still held after longer than the reply lasts");
+    assert.equal(b.state, "SPEAKING");
+    await page.click("#speech-pause");
+    b = await bar();
+    assert.deepEqual([b.label, b.button, b.pressed], ["Speaking", "Pause", "false"]);
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden && document.getElementById("orb").dataset.state === "IDLE", null, { timeout: 15000 });
+
+    stage = "paused then stop";
+    // Paused, then Stop: it ends, and the next reply plays (the audio was not left suspended).
+    await say();
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    await page.click("#speech-pause");
+    await page.click("#speech-stop");
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden && document.getElementById("orb").dataset.state === "IDLE");
+    b = await bar();
+    assert.equal(b.pressed, "false", "Stop clears the pause");
+    stage = "next reply plays";
+    const before = streamed;
+    await say();
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    assert.ok(streamed > before, "the next reply was spoken");
+    assert.equal((await bar()).label, "Speaking");
+    await page.click("#speech-stop");
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden);
+
+    stage = "listen";
+    // "Listen" on a message (one audio element): Pause holds it, Resume lets it finish.
+    await page.click(".bubble.assistant .bubble-actions button[aria-label=Listen]");
+    stage = "listen: waiting for the bar";
+    await page.waitForSelector("#speech-bar:not([hidden])", { timeout: 15000 });
+    assert.equal(listened, 1);
+    stage = "listen: pause click";
+    await page.click("#speech-pause", { timeout: 4000 });
+    assert.equal((await bar()).label, "Paused");
+    stage = "listen: held";
+    await page.waitForTimeout((seconds + 1) * 1000);
+    assert.equal((await bar()).hidden, false, "Listen is held too");
+    stage = "listen: resume click";
+    await page.click("#speech-pause", { timeout: 4000 });
+    await page.waitForFunction(() => document.getElementById("speech-bar").hidden && document.getElementById("orb").dataset.state === "IDLE", null, { timeout: 15000 });
+    } catch (err) {
+      err.message = `[${stage}] bar=` + JSON.stringify(await bar().catch(() => null)) + " listened=" + listened + " streamed=" + streamed + " :: " + err.message;
+      throw err;
+    }
+    await ctx.close();
+  });
+
   await step("voice: a spoken reply asks for every sentence of it, and the orb is idle again once it has been spoken", async () => {
     const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, permissions: ["microphone"] });
     await ctx.addInitScript(() => {
@@ -277,7 +911,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         window.__recognition.dispatchEvent(new Event("end"));
       };
     });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     // Three sentences, each long enough that the client sends it to the voice as a segment of its own.
     const sentence = (n) => `Sentence number ${n} is here so that the reply is long enough to be spoken in several separate parts, and it keeps going on for a while to pass the minimum length that the web client waits for. `;
     const sentences = [1, 2, 3].map(sentence);
@@ -330,7 +964,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
         window.__recognition.dispatchEvent(new Event("end"));
       };
     });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     const sentence = (n) => `Sentence number ${n} is here so that the reply is long enough to be spoken in several separate parts, and it keeps going on for a while to pass the minimum length that the web client waits for. `;
     const sentences = [1, 2, 3].map(sentence);
     const id = "00000000-0000-4000-8000-000000000001";
@@ -366,7 +1000,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   // ---- Duplicate submissions ----------------------------------------------------------------
   await step("double-clicking Send submits one turn", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => { turns += 1; await new Promise((r) => setTimeout(r, 500)); return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("one") }); });
@@ -381,7 +1015,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
   await step("a slow reply: pressing Send again with an empty box sends nothing more", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => { turns += 1; await new Promise((r) => setTimeout(r, 3000)); return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("slow") }); });
@@ -397,7 +1031,7 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
 
   await step("reloading the page mid-turn does not re-send the turn", async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
-    const page = await ctx.newPage();
+    const page = await pageOf(ctx);
     await ready(page);
     let turns = 0;
     await page.route("**/api/v1/orchestrator/turn-stream", async (route) => { turns += 1; await new Promise((r) => setTimeout(r, 2000)); return route.fulfill({ status: 200, contentType: "text/event-stream", body: reply("late") }).catch(() => {}); });
@@ -412,6 +1046,394 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     await ctx.close();
   });
 
+  // ---- Small layout bugs found by looking at every page at phone and tablet widths ------------------------
+  for (const lang of ["en", "hi"]) {
+    await step(`Chat composer (${lang === "hi" ? "Hindi" : "English"}): the placeholder is one line that fits at 320-412px, and keeps the full wording where there is room`, async () => {
+      const ctx = await browser.newContext({ viewport: { width: 320, height: 700 }, hasTouch: true, isMobile: true });
+      await ctx.addInitScript((l) => { try { localStorage.setItem("zarvis.lang", l); } catch {} }, lang);
+      const page = await pageOf(ctx);
+      await ready(page);
+      await openView(page, "chat");
+      const problems = [];
+      for (const width of [320, 340, 360, 390, 412, 600]) {
+        await page.setViewportSize({ width, height: 700 });
+        await page.waitForTimeout(400);
+        const m = await page.evaluate(() => {
+          const field = document.getElementById("text-input");
+          // A single-line field with the field's own styles: if its text is wider than the field, scrollWidth says so.
+          const probe = document.createElement("input");
+          probe.className = "composer-input";
+          probe.tabIndex = -1;
+          probe.setAttribute("aria-hidden", "true");
+          probe.style.cssText = `position:absolute;visibility:hidden;width:${field.clientWidth}px;`;
+          probe.value = field.placeholder;
+          field.parentElement.appendChild(probe);
+          const fits = probe.scrollWidth <= probe.clientWidth;
+          probe.remove();
+          return { fits, placeholder: field.placeholder, wrap: getComputedStyle(field, "::placeholder").whiteSpace, height: field.getBoundingClientRect().height };
+        });
+        if (!m.fits) problems.push(`${width}px: "${m.placeholder}" is wider than the message field`);
+        if (m.wrap !== "nowrap") problems.push(`${width}px: the placeholder may wrap (white-space ${m.wrap})`);
+        if (m.height > 60) problems.push(`${width}px: the message field is ${Math.round(m.height)}px tall while empty`);
+        if (width === 600 && !/Message ZARVIS|संदेश/.test(m.placeholder)) problems.push(`600px: the full wording was not kept ("${m.placeholder}")`);
+      }
+      await ctx.close();
+      assert.deepEqual(problems, []);
+    });
+  }
+
+  await step("Sideways rows: the Home prompts and the Capabilities filters fade the edge that has more, follow the scroll, and fade nothing where they wrap", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 700 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const fadeOf = (selector) => page.evaluate((s) => document.querySelector(s).dataset.fade ?? "(unset)", selector);
+    const scrollTo = async (selector, where) => {
+      await page.evaluate(([s, w]) => { const r = document.querySelector(s); r.scrollLeft = w === "end" ? r.scrollWidth : w; }, [selector, where]);
+      await page.waitForTimeout(250);
+    };
+    for (const [name, selector, open] of [["Home prompts", "#home-quick .chip-row", () => page.evaluate(() => { location.hash = "#/home"; })], ["Capabilities filters", ".cap-filters", () => page.evaluate(() => { location.hash = "#/capabilities"; })]]) {
+      await open();
+      await page.waitForTimeout(800);
+      await scrollTo(selector, 0);
+      const first = await fadeOf(selector);
+      await scrollTo(selector, 200); // far enough that the row's scroll-snap does not pull it back to the start
+      const middle = await fadeOf(selector);
+      await scrollTo(selector, "end");
+      const last = await fadeOf(selector);
+      if (first !== "end") problems.push(`${name}: at the start the fade is "${first}", expected "end"`);
+      if (middle !== "start end") problems.push(`${name}: in the middle the fade is "${middle}", expected "start end"`);
+      if (last !== "start") problems.push(`${name}: at the end the fade is "${last}", expected "start"`);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(400);
+    for (const [name, selector, hash] of [["Home prompts", "#home-quick .chip-row", "#/home"], ["Capabilities filters", ".cap-filters", "#/capabilities"]]) {
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForTimeout(600);
+      const wide = await fadeOf(selector);
+      if (wide !== "") problems.push(`${name}: wrapped on a desktop, yet the fade is "${wide}"`);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  for (const [appearance, routes, width] of [["aurora", ["home", "chat", "work/projects", "work/files", "work/tasks", "agents/research", "settings", "settings/appearance", "plans", "capabilities"], 1280], ["dim", ["home", "work/projects", "settings", "plans"], 1280], ["aurora", ["home", "chat", "settings"], 390]]) {
+    await step(`keyboard: tabbing to any control on ${routes.length} pages at ${width}px shows a focus ring that is not hidden by the control's own shadow or cut by its row (${appearance === "dim" ? "dark" : "light"} theme)`, async () => {
+      const problems = [];
+      const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+      await ctx.addInitScript((a) => { try { localStorage.setItem("zarvis.appearance", a); } catch {} }, appearance);
+      const page = await pageOf(ctx);
+      await ready(page);
+      for (const route of routes) {
+        await page.evaluate((h) => { location.hash = "#/" + h; }, route);
+        await page.waitForTimeout(700);
+        await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });
+        const tried = new Set();
+        for (let i = 0; i < 90; i += 1) {
+          await page.keyboard.press("Tab"); // a real key press: focus-visible is only decided that way
+          const m = await page.evaluate(() => {
+            const el = document.activeElement;
+            if (!el || el === document.body || !el.getClientRects().length) return null;
+            const cs = getComputedStyle(el);
+            const outline = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0;
+            const shadowRing = /0px 0px 0px [234]px/.test(cs.boxShadow);
+            let wrapperRing = false; // a field inside a rounded card: the card shows the ring
+            for (let p = el.parentElement, k = 0; p && k < 4; p = p.parentElement, k += 1) if (p.matches(":focus-within") && /0px 0px 0px [234]px/.test(getComputedStyle(p).boxShadow)) wrapperRing = true;
+            const name = (el.id ? "#" + el.id : "") + "." + String(el.className).trim().split(/\s+/).slice(0, 2).join(".") + ' "' + (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 20) + '"';
+            // the line drawn outside the control must not be cut by a row that scrolls or clips
+            let cut = null;
+            if (outline && cs.position !== "fixed") {
+              const rr = el.getBoundingClientRect();
+              const grow = Math.max(0, parseFloat(cs.outlineOffset) + parseFloat(cs.outlineWidth));
+              for (let p = el.parentElement; p && p !== document.documentElement && p !== document.body; p = p.parentElement) {
+                const o = getComputedStyle(p);
+                if (o.overflowX === "visible" && o.overflowY === "visible") continue;
+                const pr = p.getBoundingClientRect();
+                const top = pr.top + p.clientTop, bottom = top + p.clientHeight, left = pr.left + p.clientLeft, right = left + p.clientWidth;
+                if ((o.overflowY !== "visible" && ((rr.top - grow < top - 0.5 && rr.top >= top - 0.5) || (rr.bottom + grow > bottom + 0.5 && rr.bottom <= bottom + 0.5))) || (o.overflowX !== "visible" && ((rr.left - grow < left - 0.5 && rr.left >= left - 0.5) || (rr.right + grow > right + 0.5 && rr.right <= right + 0.5)))) { cut = (p.id ? "#" + p.id : "") + "." + String(p.className).trim().split(/\s+/).slice(0, 2).join("."); break; }
+              }
+            }
+            // the round mic in the phone tab bar draws its ring on the orb inside the tab
+            const orb = el.matches(".nav-fab") ? el.querySelector(".fab-orb") : null;
+            const orbRing = !!orb && getComputedStyle(orb).outlineStyle !== "none";
+            return { name, visible: outline || shadowRing || wrapperRing || orbRing, cut };
+          });
+          if (!m) continue;
+          if (tried.has(m.name)) break; // went all the way round
+          tried.add(m.name);
+          if (!m.visible && !/skip-link/.test(m.name)) problems.push(`${route}: no focus ring on ${m.name}`);
+          if (m.cut) problems.push(`${route}: the ring of ${m.name} is cut by ${m.cut}`);
+        }
+      }
+      await ctx.close();
+      assert.deepEqual([...new Set(problems)], []);
+    });
+  }
+
+  await step("Phone held sideways: Chat keeps at least 45% of the screen for the conversation (the tab bar steps aside there), other pages keep their tab bar, and an upright phone is unchanged", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 667, height: 375 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const probe = () => page.evaluate(() => {
+      const shown = (s) => { const n = document.querySelector(s); return !!n && n.getClientRects().length > 0; };
+      const top = Math.max(0, ...[".topbar", ".chat-header"].map((s) => { const n = document.querySelector(s); return n && n.getClientRects().length ? n.getBoundingClientRect().bottom : 0; }));
+      const bottom = Math.min(innerHeight, ...["#composer", ".bottom-nav"].map((s) => { const n = document.querySelector(s); return n && n.getClientRects().length ? n.getBoundingClientRect().top : innerHeight; }));
+      const composer = document.getElementById("composer").getBoundingClientRect();
+      return { nav: shown(".bottom-nav"), room: (bottom - top) / innerHeight, composerBottom: composer.bottom, vh: innerHeight };
+    });
+    for (const [width, height] of [[667, 375], [568, 320]]) {
+      await page.setViewportSize({ width, height });
+      await openView(page, "chat");
+      await page.waitForTimeout(600);
+      const chat = await probe();
+      if (chat.nav) problems.push(`${width}x${height}: the tab bar still takes room in Chat`);
+      if (chat.room < 0.45) problems.push(`${width}x${height}: only ${Math.round(chat.room * 100)}% of the screen is left for the conversation`);
+      if (chat.composerBottom > chat.vh + 1) problems.push(`${width}x${height}: the message box runs off the bottom of the screen`);
+      await openView(page, "work");
+      await page.waitForTimeout(400);
+      const work = await page.evaluate(() => { const n = document.querySelector(".bottom-nav"); return !!n && n.getClientRects().length > 0; });
+      if (!work) problems.push(`${width}x${height}: Work lost its tab bar`);
+    }
+    await page.setViewportSize({ width: 390, height: 780 });
+    await openView(page, "chat");
+    await page.waitForTimeout(500);
+    const upright = await probe();
+    if (!upright.nav) problems.push("an upright phone lost the tab bar in Chat");
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("A very long e-mail address stays inside the account menu, Settings, Account and Security on a 320px phone", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const email = `a.very.long.firstname.lastname.with.many.parts.${Date.now()}@a-rather-long-subdomain.example-company-name.co.in`;
+    const linked = await page.evaluate(async (address) => {
+      const res = await fetch("/api/v1/auth/link", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + localStorage.getItem("zarvis.accessToken") }, body: JSON.stringify({ email: address, password: "correct-horse-battery" }) });
+      if (res.ok) { localStorage.setItem("zarvis.email", address); localStorage.setItem("zarvis.isGuest", "false"); }
+      return res.status;
+    }, email);
+    assert.equal(linked, 200, "the account could not be linked to an e-mail");
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 });
+    const outside = () => page.evaluate(() => {
+      const bad = [];
+      if (document.documentElement.scrollWidth > innerWidth) bad.push(`the page is ${document.documentElement.scrollWidth - innerWidth}px wider than the screen`);
+      for (const n of document.querySelectorAll(".view:not([hidden]) *, .shell-popover *")) {
+        if (!n.getClientRects().length || n.children.length || !n.textContent.includes("@")) continue;
+        const r = n.getBoundingClientRect();
+        const box = n.closest(".shell-popover, .panel, .profile-hero, .settings-row") || document.body;
+        const b = box.getBoundingClientRect();
+        if (r.right > b.right + 1 || r.left < b.left - 1 || r.right > innerWidth + 1) bad.push(`the address runs past its box (${Math.round(r.right)} > ${Math.round(Math.min(b.right, innerWidth))})`);
+      }
+      return bad;
+    });
+    for (const route of ["settings", "settings/account", "settings/security"]) {
+      await page.evaluate((h) => { location.hash = "#/" + h; }, route);
+      await page.waitForTimeout(700);
+      for (const b of await outside()) problems.push(`${route}: ${b}`);
+    }
+    await page.evaluate(() => { location.hash = "#/home"; });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => [...document.querySelectorAll('[data-shell="profile"]')].find((n) => n.getClientRects().length).click());
+    await page.waitForSelector(".shell-popover");
+    await page.waitForTimeout(300);
+    for (const b of await outside()) problems.push(`account menu: ${b}`);
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Form dialogs: the first field has the same room under the intro sentence as the fields have between each other", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    for (const [route, button] of [["#/work/projects", "New project"], ["#/work/tasks", "New task"]]) {
+      await page.evaluate((h) => { location.hash = h; }, route);
+      await page.waitForTimeout(700);
+      await page.locator(`button:has-text("${button}"):visible`).first().click();
+      await page.waitForSelector("#form-modal:not([hidden]) .form-fields");
+      const m = await page.evaluate(() => {
+        const intro = document.querySelector("#form-modal .modal-card > p").getBoundingClientRect();
+        const labels = [...document.querySelectorAll("#form-modal .form-fields label")].map((n) => n.getBoundingClientRect());
+        const first = labels[0];
+        const between = labels[1].top - document.querySelector("#form-modal .form-fields input, #form-modal .form-fields textarea").getBoundingClientRect().bottom;
+        return { gap: first.top - intro.bottom, between };
+      });
+      if (m.gap < m.between - 4) problems.push(`${button}: the first field is ${Math.round(m.gap)}px under the intro, the fields are ${Math.round(m.between)}px apart`);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Developer Agent tabs: two by two on a phone (never three and one), one row from 600px", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 760 }, hasTouch: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/developer"; });
+    await page.waitForSelector(".dev-tab", { state: "visible" });
+    for (const width of [320, 360, 390, 412, 540, 599, 600, 700, 1280]) {
+      await page.setViewportSize({ width, height: 760 });
+      await page.waitForTimeout(250);
+      const rows = await page.evaluate(() => {
+        const tops = [...document.querySelectorAll(".dev-tab")].filter((n) => n.getClientRects().length).map((n) => Math.round(n.getBoundingClientRect().top));
+        const count = {};
+        for (const t of tops) count[t] = (count[t] || 0) + 1;
+        return Object.values(count);
+      });
+      const want = width < 600 ? [2, 2] : [4];
+      if (JSON.stringify(rows) !== JSON.stringify(want)) problems.push(`${width}px: tabs per row ${JSON.stringify(rows)}, wanted ${JSON.stringify(want)}`);
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Language: switching it renames the browser tab too, in both directions", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 } });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/settings/language"; });
+    await page.waitForSelector('[data-lang="hi"]');
+    const titles = [await page.title()];
+    await page.click('[data-lang="hi"]');
+    await page.waitForTimeout(300);
+    titles.push(await page.title());
+    await page.click('[data-lang="en"]');
+    await page.waitForTimeout(300);
+    titles.push(await page.title());
+    await ctx.close();
+    assert.deepEqual(titles, ["Language · ZARVIS AI", "भाषा · ZARVIS AI", "Language · ZARVIS AI"]);
+  });
+
+  await step("Home prompt: the card draws the one focus ring; the field inside does not draw a second, square one", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 } });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await page.focus("#home-prompt-input");
+    const m = await page.evaluate(() => ({ field: getComputedStyle(document.getElementById("home-prompt-input")).boxShadow, card: getComputedStyle(document.getElementById("home-prompt-form")).boxShadow }));
+    await ctx.close();
+    assert.equal(m.field, "none", "the field inside the card has its own ring");
+    assert.notEqual(m.card, "none", "the card shows no focus ring");
+  });
+
+  await step("Plans and Usage: no word in a figure tile breaks in the middle at 560-1440px, in English and Hindi, in the widest common fallback font", async () => {
+    const problems = [];
+    for (const lang of ["en", "hi"]) {
+      const ctx = await browser.newContext({ viewport: { width: 560, height: 800 } });
+      await ctx.addInitScript((l) => { try { localStorage.setItem("zarvis.lang", l); } catch {} }, lang);
+      // Which font "system-ui" resolves to differs between machines (a designer's laptop has Inter, a bare CI runner has DejaVu Sans, which is
+      // much wider), and a figure that fits in one breaks in the other. The check always runs in the wide one.
+      await ctx.route("**/styles.css", async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, body: (await response.text()).replace(/--font-body:\s*/, '--font-body: "DejaVu Sans", ') });
+      });
+      const page = await pageOf(ctx);
+      await ready(page);
+      for (const view of ["plans", "metrics"]) {
+        await openView(page, view);
+        await page.waitForTimeout(900);
+        for (const width of [560, 720, 768, 800, 860, 900, 960, 1009, 1010, 1024, 1060, 1099, 1100, 1150, 1199, 1200, 1280, 1440]) {
+          await page.setViewportSize({ width, height: 800 });
+          await page.waitForTimeout(250);
+          const split = await page.evaluate(() => {
+            const out = [];
+            const range = document.createRange();
+            for (const n of document.querySelectorAll("#plans-current .stat-tile-value, #plans-current .stat-tile-label, #metrics-usage .stat-tile-value, #metrics-usage .stat-tile-label")) {
+              if (!n.getClientRects().length) continue;
+              for (const node of n.childNodes) {
+                if (node.nodeType !== 3) continue;
+                for (const m of node.textContent.matchAll(/[\p{L}\p{M}\p{N}]{4,}/gu)) {
+                  range.setStart(node, m.index);
+                  range.setEnd(node, m.index + m[0].length);
+                  if (new Set([...range.getClientRects()].filter((q) => q.width > 0.5).map((q) => Math.round(q.top / 4))).size > 1) out.push(m[0]);
+                }
+              }
+            }
+            return out;
+          });
+          if (split.length) problems.push(`${view}@${width}px (${lang}): ${split.join(", ")}`);
+        }
+      }
+      await ctx.close();
+    }
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Toast: a long message wraps instead of ending in an ellipsis, and in Chat it sits above the message field", async () => {
+    const problems = [];
+    // No Developer access (the default): opening Usage & Metrics says so in a long toast and goes to Settings.
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true });
+    await ctx.addInitScript(() => { try { localStorage.setItem("zarvis.welcomeDismissed", "1"); } catch {} });
+    const page = await ctx.newPage();
+    await ready(page);
+    await page.evaluate(() => { location.hash = "#/metrics"; });
+    await page.waitForSelector("#toast:not([hidden])");
+    const long = await page.evaluate(() => { const t = document.getElementById("toast"); const r = t.getBoundingClientRect(); return { text: t.textContent, clipped: t.scrollWidth > t.clientWidth + 1, lines: Math.round(r.height / parseFloat(getComputedStyle(t).lineHeight)), left: r.left, right: r.right, screen: innerWidth }; });
+    if (long.clipped) problems.push(`the long toast is cut off: "${long.text}"`);
+    if (long.lines < 2) problems.push(`the long toast did not wrap (${long.lines} line)`);
+    if (long.left < 0 || long.right > long.screen) problems.push(`the long toast leaves the screen (${long.left}..${long.right} of ${long.screen})`);
+    await page.waitForTimeout(2300);
+    // Chat: a chat that no longer exists is reported in a toast; it must not cover the message field.
+    for (const [width, height] of [[360, 740], [1280, 800]]) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate(() => { location.hash = "#/home"; });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => { location.hash = "#/chat/00000000-0000-4000-8000-0000000000aa"; });
+      await page.waitForSelector("#toast:not([hidden])");
+      await page.waitForTimeout(400); // the entrance animation
+      const over = await page.evaluate(() => { const t = document.getElementById("toast").getBoundingClientRect(); const c = document.getElementById("command-bar").getBoundingClientRect(); return { toastBottom: t.bottom, barTop: c.top, text: document.getElementById("toast").textContent }; });
+      if (over.toastBottom > over.barTop + 1) problems.push(`${width}px: the toast "${over.text}" covers the message field (toast ends at ${Math.round(over.toastBottom)}, field starts at ${Math.round(over.barTop)})`);
+      await page.waitForTimeout(2300);
+      // Home: an unknown address opens Home with a toast, whether it is typed on Home or on another page (the toast opens first and
+      // the page changes under it); the message card must stay uncovered either way.
+      for (const from of ["#/settings", "#/home"]) {
+        await page.evaluate((h) => { location.hash = h; }, from);
+        await page.waitForTimeout(300);
+        await page.evaluate(() => { location.hash = "#/nonsense"; });
+        await page.waitForSelector("#toast:not([hidden])");
+        await page.waitForTimeout(400);
+        const home = await page.evaluate(() => { const t = document.getElementById("toast").getBoundingClientRect(); const c = document.getElementById("home-prompt-form").getBoundingClientRect(); return { toastBottom: t.bottom, cardTop: c.top, text: document.getElementById("toast").textContent }; });
+        if (home.toastBottom > home.cardTop + 1) problems.push(`${width}px: opened from ${from}, the toast "${home.text}" covers the Home message card (toast ends at ${Math.round(home.toastBottom)}, card starts at ${Math.round(home.cardTop)})`);
+        await page.waitForTimeout(2300);
+      }
+    }
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Offline: the banner never covers the app bar or the chat header, on a phone or a desktop, scrolled or not", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 640 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    await ctx.setOffline(true);
+    await page.waitForSelector("#offline-banner:not([hidden])");
+    for (const [width, height] of [[360, 640], [1280, 700]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(300);
+      const appBar = width < 700 ? ".topbar" : ".desk-top";
+      for (const [route, bar, scrolled] of [["#/settings", appBar, 0], ["#/settings", appBar, 400], ["#/chat", ".chat-header", 300]]) {
+        await page.evaluate((h) => { location.hash = h; }, route);
+        await page.waitForTimeout(500);
+        await page.evaluate((y) => window.scrollTo(0, y), scrolled);
+        await page.waitForTimeout(200);
+        const m = await page.evaluate((selector) => ({ banner: document.getElementById("offline-banner").getBoundingClientRect().bottom, bar: document.querySelector(selector).getBoundingClientRect().top, scrollY: Math.round(window.scrollY) }), bar);
+        if (m.bar < m.banner - 1) problems.push(`${width}px ${route} (scrolled ${m.scrollY}px): ${bar} starts at ${Math.round(m.bar)}, under the banner that ends at ${Math.round(m.banner)}`);
+      }
+    }
+    await ctx.setOffline(false);
+    await page.waitForSelector("#offline-banner", { state: "hidden" });
+    const after = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--banner-h").trim());
+    if (after !== "0px") problems.push(`back online the bars are still offset by ${after}`);
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
   await step("no uncaught page errors", async () => {
     assert.deepEqual(errors, []);
   });
@@ -424,3 +1446,12 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
   console.error(err);
   process.exit(1);
 });
+
+/** Opens a page with the optional Google/email welcome card already dismissed, so tests reach Chat directly. */
+async function pageOf(ctx) {
+  // Developer access on, so the responsive and axe sweeps still cover the Developer and Metrics pages.
+  await ctx.addInitScript(() => {
+    try { localStorage.setItem("zarvis.welcomeDismissed", "1"); localStorage.setItem("zarvis.devAccess", "on"); } catch {}
+  });
+  return ctx.newPage();
+}

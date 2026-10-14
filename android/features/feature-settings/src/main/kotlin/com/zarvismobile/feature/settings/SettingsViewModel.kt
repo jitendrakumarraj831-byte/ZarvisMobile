@@ -6,6 +6,7 @@ import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.repository.SessionRepository
 import com.zarvismobile.data.repository.SessionState
+import com.zarvismobile.domain.conversation.ActiveConversation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -34,6 +35,7 @@ class SettingsViewModel @Inject constructor(
     private val preferences: AppPreferences,
     private val sessionRepository: SessionRepository,
     private val api: ZarvisApi,
+    private val activeConversation: ActiveConversation,
 ) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -77,14 +79,14 @@ class SettingsViewModel @Inject constructor(
     /** Replaces this device's session with the given account. */
     fun signIn(email: String, password: String, onDone: () -> Unit) = accountAction("Signed in.", onDone) {
         sessionRepository.signIn(email, password)
-        preferences.setConversationId(null)
+        activeConversation.startNew() // another account: no conversation of the old one stays active on any screen
     }
 
     /** Revokes the session on the server and forgets it on this device. */
     fun signOut(onDone: () -> Unit) {
         viewModelScope.launch {
             sessionRepository.signOut()
-            preferences.setConversationId(null)
+            activeConversation.startNew()
             onDone()
         }
     }
@@ -95,7 +97,7 @@ class SettingsViewModel @Inject constructor(
             try {
                 api.deleteAccount()
                 sessionRepository.clearLocal()
-                preferences.setConversationId(null)
+                activeConversation.startNew()
                 _deleteAccountStatus.value = DeleteAccountStatus.IDLE
                 onDeleted()
             } catch (t: CancellationException) {

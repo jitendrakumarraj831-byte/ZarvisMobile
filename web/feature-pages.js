@@ -3,38 +3,19 @@
 (function () {
   const CATALOG = [
     {
-      id: "workspace",
-      category: "AI & Conversation",
-      title: "AI Workspace",
-      summary: "A conversation that can use the skills ZARVIS already ships.",
-      availability: "Available now",
-      kind: "now",
-      what: "Chat in natural language. ZARVIS keeps the current conversation so follow-up questions stay in context, and it can hand a request to a skill such as search, documents, or writing.",
-      why: "One workspace covers questions, writing, files, and tasks without a separate app for each.",
-      how: ["You type or speak a request.", "ZARVIS replies in the same chat.", "When a skill fits, the result appears in the thread.", "You can ask a follow-up in the same conversation."],
-      canDo: ["English, Hindi, and Hinglish", "Follow-up questions in the same conversation", "Attach a file and ask about it", "Start a request by voice from the orb or microphone"],
-      start: "Open Chat and type a request, or tap a prompt below. Edit it before you send.",
-      permissions: "No permission is required to type. The microphone is requested only after you tap Speak.",
-      limits: ["Replies depend on the configured AI provider.", "ZARVIS does not browse your device files unless you attach one."],
-      examples: ["Explain this document", "Research this topic", "Create a business plan", "Help me write this message"],
-      cta: "Start Chat",
-      action: "chat",
-      prompt: "",
-    },
-    {
       id: "voice",
       category: "Voice",
       title: "Voice Assistant",
       summary: "Speak a request. ZARVIS transcribes it, responds, and can read the reply aloud.",
       availability: "Available now",
       kind: "now",
-      what: "Voice is a way to start the same chat. Speech-to-text fills the request. A voice turn turns spoken replies on. You can turn them off in Settings.",
+      what: "Voice is a way to start the same chat. Speech-to-text fills the request. A voice turn turns spoken replies on. You can turn them off in {{Settings → Voice|settings:voice}}.",
       why: "You can start a task without typing, including in Hindi or English.",
       how: ["Speak", "Understand", "AI decides", "Action or answer", "Voice response"],
       canDo: ["Tap the orb or microphone to start", "Tap again to stop listening", "Cancel a reply in progress with Stop", "See the state: Ready, Listening, Understanding, Speaking, or Error"],
       start: "Open Chat and tap the orb or the microphone. Listening starts only from that tap.",
       permissions: "The browser asks for microphone access the first time you tap Speak. ZARVIS does not listen in the background.",
-      limits: ["There is no wake word and no continuous listening.", "Spoken replies must be turned on in Settings → Voice.", "Recognition quality depends on the device and browser."],
+      limits: ["There is no wake word and no continuous listening.", "Spoken replies must be turned on in {{Settings → Voice|settings:voice}}.", "Recognition quality depends on the device and browser."],
       examples: ["What's on my task list?", "Summarize this in Hindi", "Draft a short reply to a customer"],
       cta: "Try Voice",
       action: "voice",
@@ -154,73 +135,71 @@
       canDo: ["Read-only repository analysis", "Confirmation required before implementation", "Pull request creation when that action is confirmed"],
       start: "Open Developer Agent, paste a repository URL and run Analyze. Implement shows the exact pull request for your approval before anything is written.",
       permissions: "Implementation uses the protected developer workflow and your confirmation. Analysis does not change the repository.",
-      limits: ["Implement needs a PRO plan and your own connected GitHub account.", "Nothing is merged automatically.", "The Android Developer screen is read-only analysis."],
+      limits: ["Implement needs a {{PRO plan|plans}} and your own {{connected GitHub account|developer}}.", "Nothing is merged automatically.", "The Android Developer screen is read-only analysis."],
       examples: ["Analyze this repository and tell me what needs fixing: ", "What is the build system of this repo?"],
       cta: "Open Developer Agent",
       action: "developer",
       prompt: "I want help with my GitHub project. I will provide the repository URL. Analyze it first and tell me what needs fixing.",
     },
-    {
-      id: "tasks",
-      category: "Automation",
-      title: "Tasks & Automation",
-      summary: "Create a trackable task, then pause, resume, cancel, or retry it.",
-      availability: "Available now",
-      kind: "now",
-      what: "You can create a workflow task, list tasks, and cancel one by describing it. Activity shows status and the pause, resume, cancel, and retry controls.",
-      why: "A multi-step goal stays visible after you leave the chat.",
-      how: ["Describe the goal.", "ZARVIS creates a task you can open in Activity.", "Use Pause, Resume, Cancel, or Retry on that task.", "Creating a task does not mean each step has already run."],
-      canDo: ["Create a tracked workflow", "List your tasks", "Cancel by describing the goal", "Pause, resume, and retry from Activity"],
-      start: "Create a task from Chat, then review it in Activity.",
-      permissions: "Uses your ZARVIS account. No extra device permission on the web.",
-      limits: ["Creating a workflow stores and tracks the steps. It does not execute those steps.", "Reminders that fire on a schedule are an Android skill (personal.reminder), separate from workflow execution."],
-      examples: ["Create a workflow for this goal and break it into clear steps: ", "Show my tasks", "Cancel my standup workflow"],
-      cta: "Create a Task",
-      action: "chat",
-      prompt: "Create a workflow for this goal and break it into clear steps: ",
-    },
   ];
 
   const ICONS = {
-    workspace: "i-chat", voice: "i-mic", phone: "i-phone", research: "i-globe", documents: "i-file",
-    creative: "i-pen", business: "i-briefcase", developer: "i-code", tasks: "i-task",
+    voice: "i-mic", phone: "i-phone", research: "i-globe", documents: "i-file",
+    creative: "i-pen", business: "i-briefcase", developer: "i-code",
   };
 
   /* Capabilities hub: grouped, one line per capability, each with an honest status and the
      real action that uses it. Actions are handled by app.js through data attributes:
-       data-cap-action = chat | voice | attach | developer | settings | feature
+       data-cap-action = chat | voice | attach | developer | settings | feature | page
+       data-cap-page = view id (page action)
        data-cap-prompt = text placed in the composer (chat)
        data-feature-page = detail page id */
+  /* Every capability carries one of four honest states (the same words as the Permission Center):
+       WORKING      implemented, connected and covered by this repository's automated tests
+       PARTIAL      part of it is real: it depends on a service, a plan, a browser or a step you take
+       PLANNED      designed, not active
+       UNSUPPORTED  no route on the web (Android-only actions, things this version does not do)
+     `note` says in a few words what the state depends on. A capability is never listed as active unless it is WORKING or PARTIAL. */
   const GROUPS = [
     { title: "AI", items: [
-      { icon: "i-chat", name: "Conversation", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["Available", "ok"], action: ["chat", "Open"], feature: "workspace" },
-      { icon: "i-globe", name: "Web search", desc: "Live, sourced results when the provider can ground them.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
-      { icon: "i-search", name: "Research writing", desc: "Compare, report and outline — labelled when not from a live source.", status: ["Available", "ok"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
+      { icon: "i-chat", name: "Conversation", short: "Ask anything, get answers", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["WORKING"], action: ["chat", "Open"] },
+      { icon: "i-globe", name: "Web search", short: "Live, sourced results", desc: "Live, sourced results. Needs the search provider configured on the server; sources are the links it returns.", status: ["WORKING", "Needs the search provider"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
+      { icon: "i-search", name: "Research writing", short: "Compare, report, outline", desc: "Compare, report and outline are written from general knowledge, not from a live search, and say so.", status: ["PARTIAL", "Not live-sourced"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
+    ] },
+    { title: "Work", items: [
+      { icon: "i-folder", name: "Projects", short: "Keep chats, files and decisions together", desc: "A project keeps its chats, files, tasks, decisions and memory, and Continue work resumes what is stored.", status: ["WORKING"], action: ["page", "Open"], page: "work" },
+      { icon: "i-file", name: "Files library", short: "Keep what ZARVIS read", desc: "Upload a file and ZARVIS keeps the text it read (not the original) so you can summarize, ask, extract or compare.", status: ["WORKING", "Text only is kept"], action: ["page", "Open"], page: "work" },
+      { icon: "i-memory", name: "Memory", short: "Only what you save", desc: "Personal and project memory that you add, pause and delete. Nothing is remembered automatically.", status: ["WORKING"], action: ["settings", "Open"], settings: "memory" },
     ] },
     { title: "Voice", items: [
-      { icon: "i-mic", name: "Voice input", desc: "Tap the orb or microphone to speak. No wake word.", status: ["Available", "ok"], action: ["voice", "Talk"], feature: "voice" },
-      { icon: "i-wave", name: "Spoken replies", desc: "ZARVIS reads replies aloud with a natural voice.", status: ["Available", "ok"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
+      { icon: "i-mic", name: "Voice input", short: "Talk naturally", desc: "Tap the orb or microphone to speak. No wake word. Depends on your browser's speech recognition.", status: ["PARTIAL", "Browser dependent"], action: ["voice", "Talk"], feature: "voice" },
+      { icon: "i-wave", name: "Spoken replies", short: "Hear replies aloud", desc: "ZARVIS reads replies aloud with Gemini voices. Needs the server's AI key and quota.", status: ["WORKING", "Needs the AI key"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
     ] },
     { title: "Vision", items: [
-      { icon: "i-image", name: "Image understanding", desc: "Attach a photo or screenshot and ask about it.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
-      { icon: "i-sparkle", name: "Image generation", desc: "Creating images isn't part of this version.", status: ["Not available", "off"] },
+      { icon: "i-image", name: "Image understanding", short: "Ask about photos", desc: "Attach a photo or screenshot and ask about it. Needs the server's vision model.", status: ["PARTIAL", "Needs the vision model"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-sparkle", name: "Image generation", short: "Not part of this version", desc: "Creating images is designed but not active in this version.", status: ["PLANNED"] },
     ] },
     { title: "Files", items: [
-      { icon: "i-file", name: "Document summaries", desc: "PDF, DOCX and text files — summarize or ask questions.", status: ["Available", "ok"], action: ["attach", "Upload"], feature: "documents" },
+      { icon: "i-file", name: "Document summaries", short: "PDF, Docs, text files", desc: "PDF, DOCX and text files: summarize or ask questions.", status: ["WORKING"], action: ["attach", "Upload"], feature: "documents" },
     ] },
     { title: "Automation", items: [
-      { icon: "i-task", name: "Tracked tasks", desc: "Break a goal into steps and track its status in Activity.", status: ["Status only", "info"], action: ["chat", "Create"], prompt: "Create a workflow for this goal and break it into clear steps: ", feature: "tasks" },
-      { icon: "i-phone", name: "Phone Agent", desc: "Open apps, find contacts and place confirmed calls.", status: ["Android app", "info"], action: ["feature", "Details"], feature: "phone" },
+      { icon: "i-task", name: "Tasks", short: "Goals in steps you start", desc: "A task has a real status. A step runs, as a ZARVIS turn, when you press Run; nothing runs in the background.", status: ["PARTIAL", "You start each step"], action: ["page", "Open"], page: "tasks" },
+      { icon: "i-activity", name: "Background automation", short: "Tasks that run by themselves", desc: "Running steps on a schedule or without you is designed but not active.", status: ["PLANNED"] },
+      { icon: "i-phone", name: "Phone Agent", short: "Android app actions", desc: "Open apps, find contacts and place confirmed calls. Android-only: the website can't do them.", status: ["UNSUPPORTED", "Android app only"], action: ["feature", "Details"], feature: "phone" },
     ] },
     { title: "Developer", items: [
-      { icon: "i-code", name: "Repository analysis", desc: "A read-only report on a GitHub repository.", status: ["Available", "ok"], action: ["developer", "Open"], feature: "developer" },
-      { icon: "i-github", name: "Pull requests", desc: "Implement a change after you approve the exact action.", status: ["PRO · approval", "warn"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-code", name: "Repository analysis", short: "Read-only repo report", desc: "A read-only report on a GitHub repository, read from its file tree. Checked against a GitHub test double, not yet against live GitHub in CI.", status: ["PARTIAL", "Not yet checked live"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-github", name: "Pull requests", short: "Implement after approval", desc: "Implement a change after you approve the exact action. Needs the Pro plan and your own GitHub account; live writes are not yet checked in CI.", status: ["PARTIAL", "Pro, your approval"], action: ["developer", "Open"], feature: "developer" },
+      { icon: "i-check", name: "Running tests", short: "ZARVIS runs none", desc: "ZARVIS does not run your tests. A pull request shows what your repository's own checks report on GitHub.", status: ["UNSUPPORTED", "Reads GitHub checks only"], action: ["developer", "Open"], feature: "developer" },
     ] },
     { title: "Productivity", items: [
-      { icon: "i-pen", name: "Writing", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["Available", "ok"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
-      { icon: "i-briefcase", name: "Business drafts", desc: "Customer replies, social posts and invoice drafts. Never sent.", status: ["Draft only", "ok"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
+      { icon: "i-pen", name: "Writing", short: "Messages, poems, ideas", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["WORKING"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
+      { icon: "i-briefcase", name: "Business drafts", short: "Replies, posts, invoices", desc: "Customer replies, social posts and invoice drafts. Drafts only: nothing is sent, posted or invoiced.", status: ["WORKING", "Draft only"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
     ] },
   ];
+
+  /* The card badge colour for each state. */
+  const STATUS_TONE = { WORKING: "ok", PARTIAL: "warn", PLANNED: "info", UNSUPPORTED: "off" };
 
   function badgeClass(kind) {
     if (kind === "permission") return "feature-badge feature-badge-permission";
@@ -247,18 +226,80 @@
     return svg;
   }
 
-  const TONES = ["tone-blue", "tone-violet", "tone-cyan", "tone-pink"];
+  /* One medium colour per hub group; the detail pages use the same colour for their category. */
+  const TONES = ["tone-blue", "tone-violet", "tone-pink", "tone-amber", "tone-green", "tone-cyan", "tone-coral"];
+  const CATEGORY_TONES = {
+    Voice: "tone-violet", Phone: "tone-green", "Web & Research": "tone-cyan",
+    Documents: "tone-amber", Creative: "tone-pink", Business: "tone-coral", Developer: "tone-cyan",
+  };
+  /* Filter pills group the catalogue groups above. */
+  const FILTERS = [
+    { id: "all", label: "All" },
+    { id: "ai", label: "AI", groups: ["AI"] },
+    { id: "work", label: "Work", groups: ["Work"] },
+    { id: "media", label: "Media", groups: ["Voice", "Vision", "Files"] },
+    { id: "productivity", label: "Productivity", groups: ["Productivity"] },
+    { id: "developer", label: "Developer", groups: ["Developer"] },
+    { id: "automation", label: "Automation", groups: ["Automation"] },
+  ];
 
-  function renderHub(container) {
+  function filterFor(groupTitle) {
+    const found = FILTERS.find((filter) => filter.groups && filter.groups.includes(groupTitle));
+    return found ? found.id : "all";
+  }
+
+  /** options.developer: include the Developer group and filter (only while Developer access is on). */
+  function renderHub(container, options) {
+    const withDeveloper = !!(options && options.developer);
+    const filters = FILTERS.filter((filter) => withDeveloper || filter.id !== "developer");
     container.replaceChildren();
+    const pills = el("div", "cap-filters");
+    pills.setAttribute("role", "group");
+    pills.setAttribute("aria-label", "Filter capabilities");
+    const grid = el("div", "cap-grid");
+    for (const filter of filters) {
+      const pill = el("button", "cap-pill" + (filter.id === "all" ? " active" : ""), filter.label);
+      pill.type = "button";
+      pill.dataset.capFilter = filter.id;
+      pill.setAttribute("aria-pressed", String(filter.id === "all"));
+      pill.addEventListener("click", () => {
+        for (const other of pills.children) {
+          other.classList.toggle("active", other === pill);
+          other.setAttribute("aria-pressed", String(other === pill));
+        }
+        for (const card of grid.children) {
+          card.hidden = filter.id !== "all" && card.dataset.capGroup !== filter.id;
+        }
+      });
+      pills.appendChild(pill);
+    }
+    // A truthful tally of what the catalogue below says, by status.
+    const counts = { WORKING: 0, PARTIAL: 0, PLANNED: 0, UNSUPPORTED: 0 };
+    for (const group of GROUPS) {
+      if (group.title === "Developer" && !withDeveloper) continue;
+      for (const item of group.items) counts[item.status[0]] += 1;
+    }
+    const summary = el("div", "cap-summary");
+    summary.setAttribute("role", "list");
+    summary.setAttribute("aria-label", "Capabilities by status");
+    for (const [status, label] of [["WORKING", "working"], ["PARTIAL", "partial"], ["PLANNED", "planned"], ["UNSUPPORTED", "unsupported on the web"]]) {
+      if (!counts[status]) continue;
+      const chip = el("span", "cap-sum");
+      chip.dataset.kind = STATUS_TONE[status];
+      chip.setAttribute("role", "listitem");
+      chip.append(el("i", "cap-sum-dot"), el("strong", null, String(counts[status])), document.createTextNode(" " + label));
+      summary.appendChild(chip);
+    }
+    container.append(summary, pills, grid);
+    // On a phone the filter row scrolls sideways: it fades the edge that has more (a no-op where the pills wrap).
+    if (typeof window !== "undefined" && window.ZarvisWorkspace && window.ZarvisWorkspace.scrollFade) window.ZarvisWorkspace.scrollFade(pills);
+
     GROUPS.forEach((group, groupIndex) => {
-      const section = el("section", "cap-group");
-      const head = el("div", "cap-group-head");
-      head.appendChild(el("h2", "section-title", group.title));
-      section.appendChild(head);
-      const grid = el("div", "cap-grid");
+      if (group.title === "Developer" && !withDeveloper) return;
       group.items.forEach((item, index) => {
-        const row = el("article", "cap-item" + (item.status[1] === "off" ? " is-off" : ""));
+        const row = el("article", "cap-item " + TONES[groupIndex % TONES.length] + (item.status[0] === "UNSUPPORTED" || item.status[0] === "PLANNED" ? " is-off" : ""));
+        row.dataset.status = item.status[0];
+        row.dataset.capGroup = filterFor(group.title);
         row.style.animationDelay = Math.min(index * 40 + groupIndex * 20, 240) + "ms";
         const ico = el("span", "row-ico " + TONES[groupIndex % TONES.length]);
         ico.appendChild(icon(item.icon));
@@ -268,13 +309,17 @@
           copy.type = "button";
           copy.dataset.capAction = "feature";
           copy.dataset.featurePage = item.feature;
-          copy.setAttribute("aria-label", item.name + " — details");
+          copy.title = "Open details";
         }
         const name = el("span", "cap-name");
         name.appendChild(el("span", null, item.name));
-        // "Available" is the default; only notable states get a badge.
-        if (item.status[0] !== "Available") name.appendChild(el("span", "z-badge z-badge-" + item.status[1], item.status[0]));
-        copy.append(name, el("span", "cap-desc", item.desc));
+        // Every capability says what state it is in, in the product's four words.
+        const badge = el("span", "z-badge z-badge-" + STATUS_TONE[item.status[0]], window.ZarvisLogic.capabilityStatusLabel(item.status[0]));
+        if (item.status[1]) badge.title = item.status[1];
+        name.appendChild(badge);
+        copy.append(name, el("span", "cap-desc", item.short || item.desc));
+        if (item.status[1]) copy.append(el("span", "cap-note", item.status[1]));
+        row.title = item.desc;
         row.append(ico, copy);
         if (item.action) {
           const btn = el("button", "cap-action", item.action[1]);
@@ -282,14 +327,13 @@
           btn.dataset.capAction = item.action[0];
           if (item.prompt) btn.dataset.capPrompt = item.prompt;
           if (item.feature) btn.dataset.featurePage = item.feature;
+          if (item.page) btn.dataset.capPage = item.page;
           if (item.settings) btn.dataset.capSettings = item.settings;
           btn.setAttribute("aria-label", item.action[1] + " — " + item.name);
           row.appendChild(btn);
         }
         grid.appendChild(row);
       });
-      section.appendChild(grid);
-      container.appendChild(section);
     });
   }
 
@@ -310,7 +354,7 @@
     }
 
     const head = el("header", "feature-hero");
-    const ico = el("span", "row-ico tone-blue");
+    const ico = el("span", "row-ico " + (CATEGORY_TONES[feature.category] || "tone-blue"));
     ico.appendChild(icon(ICONS[feature.id] || "i-sparkle"));
     const titles = el("div", "feature-hero-copy");
     titles.appendChild(el("p", "feature-kicker", feature.category));
@@ -339,10 +383,26 @@
     page.appendChild(cols);
   }
 
+  /** Fills `node` with `text`, turning each {{label|target}} into a button that goes to that page. */
+  function rich(node, text) {
+    for (const part of String(text).split(/(\{\{[^}]+\}\})/)) {
+      const link = /^\{\{([^|}]+)\|([^}]+)\}\}$/.exec(part);
+      if (link) {
+        const button = el("button", "inline-link", link[1]);
+        button.type = "button";
+        button.dataset.go = link[2];
+        node.appendChild(button);
+      } else if (part) {
+        node.appendChild(document.createTextNode(part));
+      }
+    }
+    return node;
+  }
+
   function section(title, body) {
     const block = el("section", "feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
-    block.appendChild(el("p", "feature-block-body", body));
+    block.appendChild(rich(el("p", "feature-block-body"), body));
     return block;
   }
 
@@ -350,7 +410,7 @@
     const block = el("section", asPanel ? "panel feature-block" : "feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
     const list = el("ul", "feature-list");
-    for (const item of items) list.appendChild(el("li", null, item));
+    for (const item of items) list.appendChild(rich(el("li"), item));
     block.appendChild(list);
     return block;
   }
@@ -359,7 +419,7 @@
     const block = el("section", "feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
     const list = el("ol", "feature-steps");
-    for (const item of items) list.appendChild(el("li", null, item));
+    for (const item of items) list.appendChild(rich(el("li"), item));
     block.appendChild(list);
     return block;
   }
@@ -367,7 +427,7 @@
   function note(title, body) {
     const block = el("section", "panel feature-block");
     block.appendChild(el("h2", "feature-block-title", title));
-    block.appendChild(el("p", "feature-block-body", body));
+    block.appendChild(rich(el("p", "feature-block-body"), body));
     return block;
   }
 
@@ -407,6 +467,7 @@
   window.ZarvisFeatures = {
     catalog: CATALOG,
     groups: GROUPS,
+    STATUS_TONE: STATUS_TONE,
     renderHub: renderHub,
     renderDetail: renderDetail,
   };

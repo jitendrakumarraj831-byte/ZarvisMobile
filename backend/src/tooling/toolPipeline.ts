@@ -11,6 +11,7 @@ import type {
   ToolExecutionOutcome,
 } from "../domain/types.js";
 import { logger } from "../security/redact.js";
+import { buildExecutionRecord, type ExecutionLogPort } from "./executionRecord.js";
 import type { ClockPort, ConfirmationPort, EntitlementPort, PermissionPort, UsagePort } from "./ports.js";
 import { systemClockPort } from "./ports.js";
 import type { SkillRegistry } from "./skillRegistry.js";
@@ -33,6 +34,17 @@ export class SkillUserError extends Error {
 const MAX_ACTION_DESCRIPTION_CHARS = 600;
 
 /**
+ * The stages a call really passed, reported as they happen (never simulated): the request was
+ * valid, the permission and the plan allow it, the exact action was prepared, a confirmation
+ * covering it was found, the handler is running, its result is being verified.
+ */
+export type PipelineStage = "validated" | "permitted" | "entitled" | "prepared" | "confirmed" | "executing" | "verifying";
+
+export interface PipelineHooks {
+  onStage?(event: { stage: PipelineStage; action?: string }): void;
+}
+
+/**
  * The mandatory security boundary (blueprint §9): mirrors
  * android/domain/tooling/ToolPipeline.kt stage-for-stage. No skill handler is ever invoked
  * except through this pipeline, and no stage can be skipped by a caller.
@@ -47,9 +59,35 @@ export class ToolPipeline {
     private readonly usagePort: UsagePort,
     private readonly confirmationPort: ConfirmationPort,
     private readonly clock: ClockPort = systemClockPort,
+    /** When given, every evaluated call leaves a row here (see tooling/executionRecord.ts). */
+    private readonly executionLog?: ExecutionLogPort,
   ) {}
 
-  async execute(call: ToolCall, context: SkillExecutionContext): Promise<ToolExecutionOutcome> {
+  async execute(call: ToolCall, context: SkillExecutionContext, hooks: PipelineHooks = {}): Promise<ToolExecutionOutcome> {
+    const outcome = await this.run(call, context, hooks);
+    await this.recordExecution(call, context, outcome);
+    return outcome;
+  }
+
+  /** Bookkeeping never changes what happened: a ledger failure is logged and the outcome stands. */
+  private async recordExecution(call: ToolCall, context: SkillExecutionContext, outcome: ToolExecutionOutcome): Promise<void> {
+    if (!this.executionLog) return;
+    try {
+      const record = buildExecutionRecord(this.registry.find(call.skillId), call, context, outcome, this.clock.now());
+      if (record) await this.executionLog.record(record);
+    } catch (err) {
+      logger.warn("Could not record a tool execution", { skillId: call.skillId, error: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+    }
+  }
+
+  private async run(call: ToolCall, context: SkillExecutionContext, hooks: PipelineHooks): Promise<ToolExecutionOutcome> {
+    const stage = (name: PipelineStage, action?: string) => {
+      try {
+        hooks.onStage?.({ stage: name, ...(action ? { action } : {}) });
+      } catch {
+        /* a progress listener must never change what the pipeline does */
+      }
+    };
     // 1. Tool Registry
     const skill = this.registry.find(call.skillId);
     if (!skill) {
@@ -64,6 +102,7 @@ export class ToolPipeline {
     if (missingFields.length > 0) {
       return { kind: "validation_failed", missingFields };
     }
+    stage("validated");
 
     // 3. Permission
     const missingPermissions: PermissionType[] = [];
@@ -74,6 +113,7 @@ export class ToolPipeline {
     if (missingPermissions.length > 0) {
       return { kind: "permission_denied", missing: missingPermissions };
     }
+    stage("permitted");
 
     // 4. Entitlement (also covers the credit-sufficiency check for usage-costed skills)
     const snapshot = await this.entitlementPort.snapshot(context.accountId);
@@ -81,6 +121,7 @@ export class ToolPipeline {
     if (!decision.allowed) {
       return { kind: "entitlement_denied", decision };
     }
+    stage("entitled");
 
     // 5. Prepare — check preconditions and describe the exact action before any confirmation.
     let action = describeAction(skill, call.input);
@@ -100,6 +141,7 @@ export class ToolPipeline {
       if (prepared.kind === "failed") return { kind: "execution_failed", result: prepared.failure };
       action = truncate(prepared.description);
     }
+    stage("prepared", action);
 
     // 6. Policy + confirmation. The policy can only add a requirement, never remove one.
     if (requiresConfirmation(skill)) {
@@ -117,11 +159,13 @@ export class ToolPipeline {
       if (!confirmation.approved) {
         return { kind: "confirmation_required", confirmation: confirmation.pending };
       }
+      stage("confirmed");
     }
 
     // 7. Execution — a thrown error is an honest failure, never an unhandled 500 that
     // takes the whole conversation turn down with it.
     let result: SkillResult;
+    stage("executing");
     try {
       result = await skill.handler(call.input, context);
     } catch (err) {
@@ -144,6 +188,7 @@ export class ToolPipeline {
     }
 
     // 8. Verification — never report success on an empty/absent result
+    stage("verifying");
     if (result.summary.trim().length === 0) {
       return { kind: "verification_failed", skillId: skill.id, reason: "Skill reported success with no result summary" };
     }

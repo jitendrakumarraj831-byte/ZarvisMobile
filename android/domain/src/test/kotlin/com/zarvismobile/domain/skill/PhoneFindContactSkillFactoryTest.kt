@@ -35,6 +35,38 @@ class PhoneFindContactSkillFactoryTest {
     }
 
     @Test
+    fun `the best match wins over names that only contain the text`() = runTest {
+        val contacts = FakeContactLookupPort(listOf(PhoneContact("Sriram", "1111111111"), PhoneContact("Ram", "2222222222")))
+        val success = assertIs<SkillResult.Success>(
+            PhoneFindContactSkillFactory.create(contacts).handler.execute(SkillInput(mapOf("name" to "ram")), context),
+        )
+        assertEquals("Ram: 2222222222", success.summary)
+        assertEquals("Ram", success.output["name"])
+    }
+
+    @Test
+    fun `a name that fits several people lists them all instead of picking one`() = runTest {
+        val contacts = FakeContactLookupPort(
+            listOf(PhoneContact("Ram Singh", "2222222222"), PhoneContact("Ram Kumar", "1111111111"), PhoneContact("Priya", "3333333333")),
+        )
+        val success = assertIs<SkillResult.Success>(
+            PhoneFindContactSkillFactory.create(contacts).handler.execute(SkillInput(mapOf("name" to "ram")), context),
+        )
+        assertEquals("2 contacts match \"ram\": Ram Kumar: 1111111111; Ram Singh: 2222222222", success.summary)
+        assertEquals(2, success.output["count"])
+    }
+
+    @Test
+    fun `a long list of matches is cut to five and says how many more there are`() = runTest {
+        val contacts = FakeContactLookupPort((1..8).map { PhoneContact("Ram $it", "900000000$it") })
+        val success = assertIs<SkillResult.Success>(
+            PhoneFindContactSkillFactory.create(contacts).handler.execute(SkillInput(mapOf("name" to "ram")), context),
+        )
+        assertTrue(success.summary.startsWith("8 contacts match"))
+        assertTrue(success.summary.endsWith("(and 3 more)"), success.summary)
+    }
+
+    @Test
     fun `an unknown contact fails with a clear reason, not a crash`() = runTest {
         val skill = PhoneFindContactSkillFactory.create(FakeContactLookupPort())
         val result = skill.handler.execute(SkillInput(mapOf("name" to "Nobody")), context)

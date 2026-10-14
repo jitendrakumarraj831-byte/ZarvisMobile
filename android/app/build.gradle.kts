@@ -88,6 +88,17 @@ val devApiHost: String = devApiHostResolution.first
 val devApiHostSource: String = devApiHostResolution.second
 val devApiPort = ((project.findProperty("zarvis.devApiPort") as String?) ?: System.getenv("ZARVIS_DEV_API_PORT"))
     ?.trim()?.ifEmpty { null } ?: "3000"
+
+// A typo here used to build a URL that could never work and fail only on the phone (`http://http://192.168.1.20:3000/`), so a malformed
+// value stops the build with the reason instead. The host is a bare name or IPv4 address; the port has its own setting.
+val bareHostName = Regex("^[A-Za-z0-9_]([A-Za-z0-9_.-]*[A-Za-z0-9_])?$")
+require(bareHostName.matches(devApiHost)) {
+    "ZARVIS: the dev API host (from $devApiHostSource) must be a bare host name or IPv4 address such as 192.168.1.20: no 'http://', no ':port' " +
+        "(use -Pzarvis.devApiPort), no path, no IPv6 literal. Got '$devApiHost'."
+}
+require((devApiPort.toIntOrNull() ?: 0) in 1..65535) {
+    "ZARVIS: the dev API port (-Pzarvis.devApiPort / ZARVIS_DEV_API_PORT) must be a number from 1 to 65535. Got '$devApiPort'."
+}
 val devApiBaseUrl = "http://$devApiHost:$devApiPort/"
 
 /**

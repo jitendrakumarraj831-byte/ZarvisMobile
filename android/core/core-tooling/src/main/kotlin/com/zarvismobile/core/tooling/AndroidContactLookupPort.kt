@@ -1,8 +1,10 @@
 package com.zarvismobile.core.tooling
 
 import android.content.Context
-import android.provider.ContactsContract
+import android.provider.ContactsContract.CommonDataKinds.Phone
 import com.zarvismobile.domain.skill.ContactLookupPort
+import com.zarvismobile.domain.skill.ContactMatching
+import com.zarvismobile.domain.skill.ContactRow
 import com.zarvismobile.domain.skill.PhoneContact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,29 +19,50 @@ import kotlinx.coroutines.withContext
  */
 class AndroidContactLookupPort(private val context: Context) : ContactLookupPort {
 
-    override suspend fun findByName(name: String): PhoneContact? = withContext(Dispatchers.IO) {
-        val projection = arrayOf(
-            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
-            ContactsContract.CommonDataKinds.Phone.NUMBER,
-        )
-        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} LIKE ?"
-        val selectionArgs = arrayOf("%$name%")
+    /**
+     * Every contact whose name contains [name], one entry each. The database is only asked for rows: which of them is THE contact (and
+     * whether the name is ambiguous) is decided by [ContactMatching], which is tested without a phone.
+     *
+     * The text is escaped (`ESCAPE '\'`), so a name with `%` or `_` in it is matched literally instead of acting as a wildcard that
+     * matches every contact. The rows come back sorted by name and capped, so a huge address book cannot make this slow.
+     */
+    override suspend fun search(name: String): List<PhoneContact> = withContext(Dispatchers.IO) {
+        if (name.isBlank()) return@withContext emptyList()
+        val projection = arrayOf(Phone.CONTACT_ID, Phone.DISPLAY_NAME_PRIMARY, Phone.NUMBER, Phone.IS_PRIMARY, Phone.TYPE)
+        val selection = "${Phone.DISPLAY_NAME_PRIMARY} LIKE ? ESCAPE '\\'"
+        val selectionArgs = arrayOf(ContactMatching.likePattern(name))
+        val sortOrder = "${Phone.DISPLAY_NAME_PRIMARY} ASC" // plain column and direction only: the provider checks what a caller puts in ORDER BY
 
         try {
-            context.contentResolver.query(
-                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                null,
-            )?.use { cursor ->
-                if (!cursor.moveToFirst()) return@withContext null
-                val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY)
-                val numberIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                PhoneContact(displayName = cursor.getString(nameIndex), phoneNumber = cursor.getString(numberIndex))
+            val rows = mutableListOf<ContactRow>()
+            context.contentResolver.query(Phone.CONTENT_URI, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(Phone.CONTACT_ID)
+                val nameIndex = cursor.getColumnIndexOrThrow(Phone.DISPLAY_NAME_PRIMARY)
+                val numberIndex = cursor.getColumnIndexOrThrow(Phone.NUMBER)
+                val primaryIndex = cursor.getColumnIndexOrThrow(Phone.IS_PRIMARY)
+                val typeIndex = cursor.getColumnIndexOrThrow(Phone.TYPE)
+                while (cursor.moveToNext() && rows.size < MAX_ROWS) {
+                    val displayName = cursor.getString(nameIndex)
+                    val number = cursor.getString(numberIndex)
+                    // A row without a name or number cannot be shown or dialed, so it is not a candidate.
+                    if (displayName.isNullOrBlank() || number.isNullOrBlank()) continue
+                    rows += ContactRow(
+                        contactId = cursor.getString(idIndex).orEmpty(),
+                        displayName = displayName,
+                        phoneNumber = number,
+                        isPrimary = cursor.getInt(primaryIndex) != 0,
+                        isMobile = cursor.getInt(typeIndex) == Phone.TYPE_MOBILE,
+                    )
+                }
             }
+            ContactMatching.collapse(rows)
         } catch (e: SecurityException) {
-            null
+            emptyList()
         }
+    }
+
+    private companion object {
+        /** More than any real address book has rows for one name; it only stops a runaway query. */
+        const val MAX_ROWS = 500
     }
 }

@@ -26,6 +26,16 @@ class DeviceCommandGateTest {
     }
 
     @Test
+    fun `call me later and the other meanings of call are not a request to ring a contact`() {
+        for (text in listOf("call me later", "please call me back", "call us tomorrow", "call off the meeting", "call in sick", "call out the bug")) {
+            assertFalse(DeviceCommandGate.accepts("phone.call", text), "\"$text\" must not be treated as ringing someone")
+        }
+        for (text in listOf("call Mom", "call 112", "dial 100", "please call my brother", "mom ko call karo")) {
+            assertTrue(DeviceCommandGate.accepts("phone.call", text), "\"$text\" must still be a call command")
+        }
+    }
+
+    @Test
     fun `accepts a reminder without treating the later word call as a phone command`() {
         assertTrue(DeviceCommandGate.accepts("personal.reminder", "please remind me to call mom"))
         assertFalse(DeviceCommandGate.accepts("phone.call", "please remind me to call mom"))

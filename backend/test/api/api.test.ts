@@ -94,7 +94,7 @@ describe("API integration", () => {
     expect(res.body.result.output.structure.repoUrl).toBe("https://github.com/example/demo");
   });
 
-  it("creates a task; Start/Resume is refused honestly (no executor), cancel works", async () => {
+  it("creates a QUEUED task that nothing has started, and cancel works", async () => {
     const token = await signupAndGetToken();
     const create = await request(app)
       .post("/api/v1/tasks")
@@ -102,16 +102,17 @@ describe("API integration", () => {
       .send({ goal: "Audit my website" });
     expect(create.status).toBe(201);
     const taskId = create.body.id;
-
-    // Nothing would run its steps, so the task must never be reported RUNNING.
-    const run = await request(app).post(`/api/v1/tasks/${taskId}/resume`).set("Authorization", `Bearer ${token}`);
-    expect(run.status).toBe(409);
-    expect(run.body.code).toBe("task_execution_unavailable");
-    const after = await request(app).get(`/api/v1/tasks/${taskId}`).set("Authorization", `Bearer ${token}`);
-    expect(after.body.status).toBe("PENDING");
+    // Recorded, not running: the legacy status older clients read, the truthful lifecycle, and no progress.
+    expect(create.body.status).toBe("PENDING");
+    expect(create.body.lifecycle).toBe("QUEUED");
+    expect(create.body.progress).toEqual({ done: 0, total: 0 });
+    expect(create.body.runsInBackground).toBe(false);
+    expect(create.body.actions).toEqual(["run", "cancel"]);
 
     const cancel = await request(app).post(`/api/v1/tasks/${taskId}/cancel`).set("Authorization", `Bearer ${token}`);
     expect(cancel.body.status).toBe("CANCELLED");
+    expect(cancel.body.lifecycle).toBe("CANCELLED");
+    expect(cancel.body.actions).toEqual([]);
   });
 
   it("rejects an invalid task status transition", async () => {
