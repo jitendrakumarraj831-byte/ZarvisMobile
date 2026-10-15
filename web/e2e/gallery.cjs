@@ -43,7 +43,7 @@ const LOOKS = QUICK
 const HEIGHT = { 360: 780, 768: 1024, 1024: 768, 1440: 900 };
 
 /** Brand and product names that stay in Latin script in Hindi (the dictionary keeps them too). */
-const KEEP_LATIN = /^(ZARVIS( AI)?|AI|GitHub|Gemini|Android|PRO|Pro|PDF|UPI|INR|README|TTS|Google|Ctrl K|Esc|OK|API|URL|ID|DOCX|TXT|CSV|JSON|MD|Z|ZA|\W+|[\d\s.,:%+-]+)$/;
+const KEEP_LATIN = /^(ZARVIS( AI)?|AI|English|GitHub|Gemini|Android|PRO|Pro|PDF|UPI|INR|README|TTS|Google|Ctrl K|Esc|OK|API|URL|ID|DOCX|TXT|CSV|JSON|MD|Z|ZA|\W+|[\d\s.,:%+-]+)$/;
 
 const files = { shots: [] };
 
@@ -74,7 +74,7 @@ async function discover(page) {
   const pages = [];
   const add = (name, hash, extra = {}) => pages.push({ name, hash, ...extra });
   add("home", "#/home");
-  add("chat-empty", "#/chat");
+  add("chat-empty", "#/chat", { open: "#chat-new-btn" }); // the app reopens the last chat; New Chat shows the empty state
   add("chat-thread", "#/chat", { thread: true });
   for (const tab of ["projects", "files", "research", "tasks", "outputs"]) add("work-" + tab, "#/work/" + tab);
   add("work-project", "#/work/project-" + projectId);
@@ -105,7 +105,8 @@ async function makeThread(page) {
 async function measure(page, lang) {
   return page.evaluate((isHindi) => {
     const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-    const h1 = [...document.querySelectorAll(".view:not([hidden]) h1:not(.sr-only), #view-feature h1")].find(visible);
+    // A visually hidden (.sr-only) h1 still names the page for a screen reader, so it counts.
+    const h1 = [...document.querySelectorAll(".view:not([hidden]) h1, #view-feature:not([hidden]) h1")].find((el) => visible(el) || el.classList.contains("sr-only"));
     let latin = [];
     if (isHindi) {
       const seen = new Set();
