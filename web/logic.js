@@ -453,6 +453,40 @@
     return "bootError";
   }
 
+  /**
+   * What the server's `/health` `provider` means for the Settings and Metrics pages. Truthful
+   * for every value the server can report: Gemini or OpenRouter answering, or nothing configured
+   * (the development mock and the production fail-closed `none` both read "Not configured").
+   */
+  function aiProviderStatus(provider) {
+    if (provider === "google") return { configured: true, label: "Gemini", sentence: "Google Gemini is answering your requests." };
+    if (provider === "openrouter") return { configured: true, label: "OpenRouter", sentence: "OpenRouter is answering your requests." };
+    return { configured: false, label: "Not configured", sentence: "No AI provider is configured on this server, so answers are limited." };
+  }
+
+
+  /** Scales a picture's size down so its longer side is at most `max`, keeping its shape. It never scales up. */
+  function fitWithin(width, height, max) {
+    var w = Number(width), h = Number(height), m = Number(max);
+    if (!(w > 0) || !(h > 0) || !(m > 0)) return { width: 0, height: 0 };
+    var scale = Math.min(1, m / Math.max(w, h));
+    return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
+  }
+
+  /**
+   * What a failed getUserMedia call means for the person: "blocked" (they or the browser said no),
+   * "none" (no camera), "busy" (another app has it), "unsupported" (this page cannot use a camera at
+   * all, e.g. it is not on https), or "other".
+   */
+  function cameraFailureKind(err) {
+    var name = err && err.name;
+    if (name === "NotAllowedError" || name === "SecurityError" || name === "PermissionDeniedError") return "blocked";
+    if (name === "NotFoundError" || name === "DevicesNotFoundError" || name === "OverconstrainedError") return "none";
+    if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") return "busy";
+    if (name === "TypeError") return "unsupported";
+    return "other";
+  }
+
   /** API base URL. A `?api=` override may only point at this same origin: the client sends
    * its access and refresh tokens to that base, so a crafted link must never be able to aim
    * them at another host (CSP connect-src 'self' blocks that too; this does not rely on it). */
@@ -967,6 +1001,9 @@
     PROJECT_SORTS,
     filterProjects,
     turnFailureKind,
+    aiProviderStatus,
+    fitWithin,
+    cameraFailureKind,
     createClientTurnId,
     resolveApiBase,
   };

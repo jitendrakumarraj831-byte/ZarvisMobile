@@ -2,3 +2,8 @@ node_modules/
 .vercel/
 *.log
 .DS_Store
+# Local environment files (`vercel env pull` writes .env.local at the repo root). They hold real
+# provider keys and must never be committed; only the placeholder example is tracked.
+.env
+.env.*
+!.env.example

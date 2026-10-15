@@ -46,10 +46,47 @@ export const env = {
     process.env.GEMINI_MODEL?.trim() === "gemini-2.5-flash"
       ? "gemini-3.6-flash"
       : process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
-  /** OpenRouter: fallback behind Gemini when set (quota / outage / bad key), or the sole
-   * provider when GEMINI_API_KEY is absent. Never expose to clients. */
+  /**
+   * Voice output (see ../tts/edgeTtsProvider.ts): Microsoft Edge's neural voices. It needs no key,
+   * so there is no secret here. Read raw; `config/ttsConfig.ts` validates and resolves them, and a
+   * bad value is reported and replaced by the default rather than stopping the server.
+   * `TTS_PROVIDER` is `edge` (default), `gemini` (Gemini's voice only) or `none` (no spoken replies from this server).
+   */
+  ttsProvider: process.env.TTS_PROVIDER,
+  ttsHindiVoice: process.env.TTS_HI_VOICE,
+  ttsEnglishVoice: process.env.TTS_EN_VOICE,
+  /** The voice for Hindi written in Latin letters (Hinglish). Defaults to the Hindi voice. */
+  ttsHinglishVoice: process.env.TTS_HINGLISH_VOICE,
+  /**
+   * The voice behind Edge's. If Edge fails before it has produced any sound, Gemini's voice speaks
+   * instead (same GEMINI_API_KEY, no extra credential). `TTS_FALLBACK_PROVIDER` is `gemini` (default)
+   * or `none`; the model and voice are Gemini's own names. Read raw; `config/ttsConfig.ts` resolves them.
+   */
+  ttsFallbackProvider: process.env.TTS_FALLBACK_PROVIDER,
+  geminiTtsModel: process.env.GEMINI_TTS_MODEL,
+  geminiTtsVoice: process.env.GEMINI_TTS_VOICE,
+  /**
+   * OpenRouter, the AI Model Gateway's second provider (see ../../AI_MODEL_GATEWAY.md). Server-side
+   * only, like every provider key: never sent to a client, a log or an error response.
+   * Absent = no OpenRouter; the gateway then answers through Gemini alone.
+   */
   openRouterApiKey: process.env.OPENROUTER_API_KEY?.trim() || undefined,
-  openRouterModel: process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.0-flash-001",
+  /**
+   * The settings below are read raw. `config/aiConfig.ts` validates and resolves them once at
+   * startup, so a typo stops the server with a clear message instead of misrouting requests.
+   */
+  openRouterBaseUrl: process.env.OPENROUTER_BASE_URL,
+  openRouterModel: process.env.OPENROUTER_MODEL,
+  openRouterModelCapabilities: process.env.OPENROUTER_MODEL_CAPABILITIES,
+  openRouterModelContextTokens: process.env.OPENROUTER_MODEL_CONTEXT_TOKENS,
+  openRouterTimeoutMs: process.env.OPENROUTER_TIMEOUT_MS,
+  /** `gemini` (default) or `openrouter`. */
+  aiPrimaryProvider: process.env.AI_PRIMARY_PROVIDER,
+  /** `openrouter` / `gemini` (default: the provider that is not the primary) or `none`. */
+  aiFallbackProvider: process.env.AI_FALLBACK_PROVIDER,
+  /** Optional JSON array describing every model and its capabilities; see ai/modelCatalog.ts. */
+  aiModelCatalogJson: process.env.AI_MODEL_CATALOG_JSON,
+  aiQuotaCooldownMs: process.env.AI_QUOTA_COOLDOWN_MS,
   /** Google OAuth Web client id for "Sign in with Google". Unset = the sign-in card honestly offers email only. */
   googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || undefined,
   /** Override only for a local test stub; defaults to Google's published signing keys. */
@@ -65,16 +102,6 @@ export const env = {
   proYearlyInr: positiveInt(process.env.PRICE_PRO_YEARLY_INR, 4999),
   proMonthlyCredits: positiveInt(process.env.PRO_CREDITS_MONTHLY, 1000),
   proYearlyCredits: positiveInt(process.env.PRO_CREDITS_YEARLY, 12000),
-  /** Gemini's native-audio-output model — the same underlying voice technology behind the
-   * Gemini app's voice mode, called via a plain generateContent request (see
-   * ai/geminiTts.ts and AI_ARCHITECTURE.md "Native audio voice"), not the separate Google
-   * Cloud Text-to-Speech product. Uses the same GEMINI_API_KEY, no extra credential. */
-  geminiTtsModel:
-    process.env.GEMINI_TTS_MODEL?.trim() === "gemini-2.5-flash-preview-tts" || !process.env.GEMINI_TTS_MODEL?.trim()
-      ? "gemini-3.8-flash-lite-tts"
-      : process.env.GEMINI_TTS_MODEL.trim(),
-  /** One of Gemini's fixed prebuilt voice names (e.g. Kore, Puck, Charon, Aoede, Fenrir). */
-  geminiTtsVoice: process.env.GEMINI_TTS_VOICE || "Kore",
   isProduction: process.env.NODE_ENV === "production",
   /** GitHub REST API base URL (override only for GitHub Enterprise Server or a local test stub). */
   githubApiBaseUrl: process.env.GITHUB_API_BASE_URL?.trim() || "https://api.github.com",

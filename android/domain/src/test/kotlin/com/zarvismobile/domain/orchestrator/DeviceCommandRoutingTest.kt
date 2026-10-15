@@ -41,6 +41,7 @@ class DeviceCommandRoutingTest {
         register(DeviceCapabilitySkills.pickDocument(stub()))
         register(DeviceCapabilitySkills.pickPhoto(stub()))
         register(DeviceCapabilitySkills.capturePhoto(stub()))
+        register(DeviceCapabilitySkills.describePhoto(stub(), stub()))
         register(DeviceCapabilitySkills.currentLocation(stub(), stub()))
         register(DeviceCapabilitySkills.openBluetoothSettings(stub()))
         register(DeviceCapabilitySkills.openSystemSettings(stub()))
@@ -87,12 +88,23 @@ class DeviceCommandRoutingTest {
     }
 
     @Test
+    fun aWritingRequestThatMerelyMentionsAPhotoStaysWithTheBrain() {
+        assertNull(route("write a poem describing a photo of my dog"))
+        assertNull(route("how do i describe a photo in an essay"))
+        assertNull(route("describe a sunset"))
+    }
+
+    @Test
     fun explicitDeviceCommandsStillRouteToTheirSkill() {
         assertEquals("files.pick_document", route("pick a document"))
         assertEquals("files.pick_document", route("choose a file to read"))
         assertEquals("photos.pick_photo", route("pick a photo from my gallery"))
         assertEquals("camera.capture_photo", route("take a photo"))
         assertEquals("camera.capture_photo", route("selfie lo"))
+        assertEquals("photos.describe_photo", route("describe a photo"))
+        assertEquals("photos.describe_photo", route("please describe this photo for me"))
+        assertEquals("photos.describe_photo", route("what's in this photo"))
+        assertEquals("photos.describe_photo", route("photo mein kya hai"))
         assertEquals("location.current", route("where am i"))
         assertEquals("location.current", route("meri location batao"))
         assertEquals("personal.reminder", route("remind me to call mom at 8pm"))

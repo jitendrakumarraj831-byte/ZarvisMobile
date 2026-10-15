@@ -21,10 +21,17 @@ Legend: **Req** = required for that environment to work; **Preview** = Vercel Pr
 | `POSTGRES_URL` / `DATABASE_URL` | Postgres store; `POSTGRES_URL` wins | `env.ts` → `container.ts` | CI service container (`TEST_DATABASE_URL`, `E2E_DATABASE_URL` are test-only) | **configured** (`database: ok`) | NOT VERIFIED | **yes** on serverless (in-memory state is lost between instances) | OK (Preview) |
 | `POSTGRES_CA_CERT` | PEM for a database whose certificate is not publicly trusted | `postgresStore.ts` `poolConfigFor` | unset | not needed for Neon (publicly trusted) | NOT VERIFIED | only for a private CA | OK |
 | `POSTGRES_SSL_MODE` | `no-verify` = explicit, logged opt-out of TLS verification | `postgresStore.ts` | unset | should stay unset | NOT VERIFIED | no; **should not be set** | OK |
-| `GEMINI_API_KEY` | Gemini chat, search grounding, TTS, image analysis | `providerFactory.ts`, `skills/index.ts`, `tts`, `documents.ts` | unset (mock in dev/tests) | **configured and valid**: live smoke on the preview got a real Gemini answer and real TTS audio | NOT VERIFIED | **yes** for any AI answer; production fails closed without it | OK (Preview) |
+| `GEMINI_API_KEY` | Gemini chat, search grounding, image analysis | `providerFactory.ts`, `skills/index.ts`, `documents.ts` | unset (mock in dev/tests) | **configured and valid**: live smoke on the preview got a real Gemini answer (and, at the time, real audio from Gemini's voice, which no longer uses this key) | NOT VERIFIED | **yes** for any AI answer; production fails closed without it | OK (Preview) |
 | `GEMINI_MODEL` | chat model (default `gemini-3.6-flash`; the retired `gemini-2.5-flash` is remapped) | `env.ts` | default | unknown (default if unset) | NOT VERIFIED | no | OK |
-| `GEMINI_TTS_MODEL` | TTS model (default `gemini-3.8-flash-lite-tts`) | `env.ts` | default | unknown | NOT VERIFIED | no | OK |
-| `GEMINI_TTS_VOICE` | default voice (`Kore`) | `env.ts` | default | unknown | NOT VERIFIED | no | OK |
+| `TTS_PROVIDER` | spoken replies: `edge` (default; Edge's neural voices, no key) or `none` | `config/ttsConfig.ts` | unset (the real service is never called by a test) | unset | unset | no; `none` switches voice off | OK (a wrong value is logged and replaced by `edge`). **The live service is NOT VERIFIED from here**: run the Edge TTS live probe; the preview smoke test checks it from Vercel |
+| `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | the voices for Hindi (`hi-IN-SwaraNeural`), English (`en-US-JennyNeural`) and Hindi in Latin letters (default: the Hindi voice) | `config/ttsConfig.ts` → `tts/voices.ts` | unset | unset | unset | no | OK (a wrong value is logged and replaced by the default; that the names exist on the service is checked by the live test) |
+| `OPENROUTER_API_KEY` | OpenRouter: the AI fallback provider (and the only provider when there is no Gemini key) | `providerFactory.ts` → `OpenRouterProvider` | unset | **present** (`/health` showed `aiFallback: true`); the Vercel value itself was not exercised | NOT VERIFIED | no; absent = Gemini only | **accepted by OpenRouter** when used from GitHub Actions (the repository secret of the same name, live probe, 2026-10-04: a full ZARVIS turn was answered through OpenRouter). The build environment still cannot reach `openrouter.ai` |
+| `OPENROUTER_BASE_URL` | OpenRouter API address; https only (http for localhost) | `config/aiConfig.ts` | default `https://openrouter.ai/api/v1` | default | default | no | OK (validated at startup) |
+| `OPENROUTER_MODEL` | model sent to OpenRouter (default `openrouter/free`) | `config/aiConfig.ts` | default | default | default | no | OK |
+| `OPENROUTER_MODEL_CAPABILITIES` | what that model can do beyond text/streaming: `tools`, `vision`, `structuredOutput`, `coding`, `reasoning`. Nothing is assumed | `config/aiConfig.ts` | unset | unset | unset | **set `tools` for the planner to fall back** | OK (a safe default; documented) |
+| `OPENROUTER_MODEL_CONTEXT_TOKENS`, `OPENROUTER_TIMEOUT_MS` | declared context window (32768); time to response headers (60 s) | `config/aiConfig.ts` | default | default | default | no | OK |
+| `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER` | `gemini` / `openrouter` / `none`; defaults: gemini primary, the other provider as fallback | `config/aiConfig.ts` | unset | unset | unset | no | OK (an invalid value stops startup: `/health` 500 `ai_provider_config_invalid`) |
+| `AI_QUOTA_COOLDOWN_MS`, `AI_MODEL_CATALOG_JSON` | quota cooldown (5 min); a JSON description of several models | `config/aiConfig.ts` | unset | unset | unset | no | OK |
 | `INTEGRATION_ENCRYPTION_KEY` | AES-256-GCM key (base64, 32 bytes) for stored per-user GitHub tokens | `container.ts` `SecretBox.fromEnv` | dev derivation from JWT secret | unknown | NOT VERIFIED | **yes** for the Developer Agent in production (GitHub connect reported unavailable otherwise) | NOT VERIFIED |
 | `GITHUB_API_BASE_URL` | GitHub REST base (tests point it at a stub) | `env.ts` | `http://localhost:3200` in E2E | unset (default) | unset (default) | no | OK |
 | `CORS_ORIGINS` | allowed browser origins for cross-origin calls | `security/cors.ts` | localhost list | default list | NOT VERIFIED | no (web is same-origin) | OK |
@@ -34,6 +41,9 @@ Legend: **Req** = required for that environment to work; **Preview** = Vercel Pr
 | `PUBLIC_APP_URL` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
 | `ANTHROPIC_API_KEY` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
 | `OPENAI_API_KEY` | — | removed in PR #79 (it was read and never used) | — | — | — | — | removed |
+
+Every AI key is server-side only. Local `.env` files (including a `.env.local` from `vercel env pull`
+at the repo root) are git-ignored; only `backend/.env.example` (placeholders) is tracked.
 
 No backend variable is read by the browser bundle: the web client is plain static files with no
 build step, and `grep` finds no `process.env` in `web/`. Nothing server-only is exposed to the

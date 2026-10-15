@@ -35,3 +35,15 @@ object AiServiceErrors {
         }
     }
 }
+
+/** Reads the machine-readable reason out of the server's usual JSON error body (`{"error": ..., "code": ...}`). */
+object ApiErrorBodies {
+    private val json = Json { ignoreUnknownKeys = true }
+
+    /** `error`, else `code`; null when the body is empty or not that JSON (a proxy's HTML page, for instance). */
+    fun codeOf(body: String?): String? {
+        if (body.isNullOrBlank()) return null
+        val parsed = runCatching { json.decodeFromString(ApiErrorResponse.serializer(), body) }.getOrNull() ?: return null
+        return parsed.error ?: parsed.code
+    }
+}

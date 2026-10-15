@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { buildContainer } from "../../src/container.js";
-import { CONTENT_SECURITY_POLICY } from "../../src/security/headers.js";
+import { CONTENT_SECURITY_POLICY, PERMISSIONS_POLICY } from "../../src/security/headers.js";
 import { buildServer } from "../../src/server.js";
 import { InMemoryStore } from "../../src/store/inMemoryStore.js";
 
@@ -17,6 +20,22 @@ describe("web client delivery and response headers", () => {
       expect(res.headers["x-frame-options"], path).toBe("DENY");
     }
     expect((await request(app()).get("/app.js")).headers["content-type"]).toMatch(/javascript/);
+  });
+
+  it("lets only this origin use the microphone and the camera, never location, and vercel.json says the same", async () => {
+    const res = await request(app()).get("/");
+    const policy = res.headers["permissions-policy"];
+    expect(policy).toBe(PERMISSIONS_POLICY);
+    expect(policy).toContain("camera=(self)");
+    expect(policy).toContain("microphone=(self)");
+    expect(policy).toContain("geolocation=()");
+    const here = dirname(fileURLToPath(import.meta.url));
+    const vercel = JSON.parse(readFileSync(join(here, "../../../vercel.json"), "utf8")) as {
+      headers: Array<{ headers: Array<{ key: string; value: string }> }>;
+    };
+    const sent = Object.fromEntries(vercel.headers.flatMap((rule) => rule.headers.map((h) => [h.key, h.value])));
+    expect(sent["Permissions-Policy"]).toBe(PERMISSIONS_POLICY);
+    expect(sent["Content-Security-Policy"]).toBe(CONTENT_SECURITY_POLICY);
   });
 
   it("does not publish the browser tests or package metadata that sit beside the client", async () => {

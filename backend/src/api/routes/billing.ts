@@ -79,7 +79,9 @@ export function billingRouter(verifier: PlayBillingVerifier, store: Store, payme
         });
         res.json({ ok: true, granted });
       } catch (error) {
-        if (error instanceof PaymentError && error.status < 500) {
+        // "Payments are not enabled" is a state of this deployment, not a fault in this request: say so
+        // plainly (503, which Razorpay also retries) rather than logging an error and a generic 500.
+        if (error instanceof PaymentError && (error.status < 500 || error.code === "payments_unavailable")) {
           res.status(error.status).json({ error: error.message, code: error.code });
           return;
         }

@@ -31,4 +31,14 @@ class AiServiceErrorsTest {
         assertNull(AiServiceErrors.classify(429, null))
         assertNull(AiServiceErrors.classify(503, """{"error":"down"}"""))
     }
+
+    @Test
+    fun theServersErrorFieldWinsOverCodeAndJunkGivesNull() {
+        assertEquals("image_analysis_unavailable", ApiErrorBodies.codeOf("""{"error":"image_analysis_unavailable"}"""))
+        assertEquals("AI_QUOTA_EXCEEDED", ApiErrorBodies.codeOf("""{"code":"AI_QUOTA_EXCEEDED"}"""))
+        assertEquals("ai_quota_exceeded", ApiErrorBodies.codeOf("""{"error":"ai_quota_exceeded","code":"AI_QUOTA_EXCEEDED","extra":1}"""))
+        assertNull(ApiErrorBodies.codeOf("<html>proxy</html>"))
+        assertNull(ApiErrorBodies.codeOf(""))
+        assertNull(ApiErrorBodies.codeOf(null))
+    }
 }

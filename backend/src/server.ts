@@ -23,7 +23,8 @@ import { skillsRouter } from "./api/routes/skills.js";
 import { tasksRouter } from "./api/routes/tasks.js";
 import { ttsRouter } from "./api/routes/tts.js";
 import { usageRouter } from "./api/routes/usage.js";
-import { defaultModelConfig } from "./ai/providerFactory.js";
+import { AIProviderError, providerErrorPayload } from "./ai/geminiErrors.js";
+import { requestIdMiddleware } from "./observability/requestContext.js";
 import { corsMiddleware } from "./security/cors.js";
 import { securityHeaders } from "./security/headers.js";
 import { logger } from "./security/redact.js";
@@ -86,6 +87,10 @@ export function buildServer(container: Container): Express {
   app.disable("x-powered-by");
   // Every requireAuth check validates the server-side session through this service.
   app.locals.authService = container.authService;
+  // Routes that talk to AI without going through the orchestrator (image analysis) read the gateway
+  // from here at request time, so a router created once per process never holds a stale one.
+  app.locals.modelGateway = container.modelGateway;
+  app.use(requestIdMiddleware);
   app.use(securityHeaders);
   app.use(corsMiddleware);
   // Tokens, accounts and conversations travel in these responses: no browser, proxy or CDN may keep a copy.
@@ -126,7 +131,14 @@ export function buildServer(container: Container): Express {
   app.get("/health", publicLimit, async (_req, res) => {
     const database = (await container.store.healthCheck?.()) ?? "not_configured";
     const healthy = database === "ok" || database === "not_configured";
-    res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", provider: defaultModelConfig.provider, database });
+    // `provider` is the one that answers by default. `aiFallback` appears only while a fallback
+    // provider is active, and `aiFallbackTools` then says whether its model can take the tool-using
+    // planner step of a chat turn (false: chat turns will not fall back). Neither names a model,
+    // address or key.
+    const ai = container.modelGateway.healthSummary();
+    res
+      .status(healthy ? 200 : 503)
+      .json({ status: healthy ? "ok" : "degraded", provider: ai.provider, ...(ai.fallback ? { aiFallback: true, aiFallbackTools: ai.fallbackTools === true } : {}), database });
   });
 
   // Coarse per-IP ceiling for every API route, generous enough for shared mobile-carrier IPs.
@@ -204,6 +216,13 @@ export function buildServer(container: Container): Express {
     }
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Unhandled request error", { error: message });
+
+    // An AI provider failure that reached here (a route without its own handling) is still reported
+    // as the structured, honest error, not as an internal failure.
+    if (err instanceof AIProviderError) {
+      res.status(err.code === "AI_UNAVAILABLE" ? 503 : 429).json(providerErrorPayload(err));
+      return;
+    }
 
     // Return only a safe category to the client. Never expose connection strings, JWTs,
     // provider credentials, SQL, or upstream response bodies. This makes production

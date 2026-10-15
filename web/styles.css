@@ -3001,3 +3001,9 @@ body.chat-loading .chat-empty { display: none; }
   .ws-spinner, .exec-step[data-state="active"] .exec-dot { animation: none; }
   .ws-tab, .ws-card, .exec-sources-toggle .ico { transition: none; }
 }
+
+/* ---- Camera sheet ("Take a photo" in the composer) ---- */
+.camera-card { max-width: 440px; }
+.camera-frame { margin-top: var(--s4); aspect-ratio: 4 / 3; background: #000; border-radius: var(--r-md); overflow: hidden; }
+/* contain, not cover: the photo that is sent is the whole frame, so the preview must show the whole frame. */
+.camera-frame video { display: block; width: 100%; height: 100%; object-fit: contain; }

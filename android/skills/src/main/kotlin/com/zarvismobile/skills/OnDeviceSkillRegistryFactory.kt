@@ -18,6 +18,7 @@ import com.zarvismobile.domain.skill.DocumentPickerPort
 import com.zarvismobile.domain.skill.PhoneCallSkillFactory
 import com.zarvismobile.domain.skill.PhoneFindContactSkillFactory
 import com.zarvismobile.domain.skill.PhoneOpenAppSkillFactory
+import com.zarvismobile.domain.skill.PhotoDescriberPort
 import com.zarvismobile.domain.skill.PhotoPickerPort
 import com.zarvismobile.domain.skill.ReminderSkillFactory
 import com.zarvismobile.domain.skill.AssistantRolePort
@@ -49,7 +50,13 @@ data class SpecialAccessPorts(
  * registered here: they run through the shared Brain via the orchestrator turn call.
  */
 object OnDeviceSkillRegistryFactory {
-    fun create(reminderDao: ReminderDao, context: Context, activityPorts: ActivityPorts, special: SpecialAccessPorts): SkillRegistry {
+    fun create(
+        reminderDao: ReminderDao,
+        context: Context,
+        activityPorts: ActivityPorts,
+        special: SpecialAccessPorts,
+        photoDescriber: PhotoDescriberPort,
+    ): SkillRegistry {
         val registry = SkillRegistry()
         val clock = SystemClockPort
         registry.register(
@@ -68,6 +75,7 @@ object OnDeviceSkillRegistryFactory {
         registry.register(DeviceCapabilitySkills.pickDocument(activityPorts.documents))
         registry.register(DeviceCapabilitySkills.pickPhoto(activityPorts.photos))
         registry.register(DeviceCapabilitySkills.capturePhoto(activityPorts.camera))
+        registry.register(DeviceCapabilitySkills.describePhoto(activityPorts.photos, photoDescriber))
         registry.register(DeviceCapabilitySkills.currentLocation(AndroidLocationPort(context), clock))
         registry.register(DeviceCapabilitySkills.openBluetoothSettings(settings))
         registry.register(DeviceCapabilitySkills.openSystemSettings(settings))

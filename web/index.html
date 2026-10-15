@@ -33,6 +33,7 @@
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
       <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4.5 8.5h3l1.4-2.2h6.2l1.4 2.2h3a1 1 0 0 1 1 1V18a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 18V9.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.4" r="3.2"/></symbol>
       <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="m20.5 16-4.5-4.5L7 20"/></symbol>
       <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5c.6 3.9 2.6 5.9 6.5 6.5-3.9.6-5.9 2.6-6.5 6.5-.6-3.9-2.6-5.9-6.5-6.5 3.9-.6 5.9-2.6 6.5-6.5zM19 16c.3 1.6 1.1 2.4 2.5 2.7-1.4.3-2.2 1.1-2.5 2.8-.3-1.7-1.1-2.5-2.5-2.8 1.4-.3 2.2-1.1 2.5-2.7z"/></symbol>
       <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10v4"/></symbol>
@@ -607,12 +608,12 @@
             <section class="settings-panel" data-settings-panel="voice" hidden>
               <div class="panel">
                 <div class="control-row">
-                  <div class="row-copy"><strong>Spoken replies</strong><small>ZARVIS reads replies aloud with Gemini TTS. A voice request turns this on.</small></div>
+                  <div class="row-copy"><strong>Spoken replies</strong><small>ZARVIS reads replies aloud with a neural voice. A voice request turns this on.</small></div>
                   <button type="button" class="switch" id="settings-voice-toggle" aria-pressed="false" aria-label="Spoken replies"><span class="switch-thumb" aria-hidden="true"></span><span class="sr-only switch-text">Off</span></button>
                 </div>
                 <div class="control-row control-row-stack">
                   <label for="voice-select" class="row-copy"><strong>Voice</strong><small>Sent with each speech request.</small></label>
-                  <select id="voice-select" class="input select" aria-label="Gemini voice"></select>
+                  <select id="voice-select" class="input select" aria-label="Voice"></select>
                 </div>
                 <div class="control-row">
                   <div class="row-copy"><strong>Listening</strong><small>Starts only when you tap the orb or microphone. There is no wake word.</small></div>
@@ -785,6 +786,8 @@
                 <label id="upload-btn" class="icon-btn" for="file-input" role="button" aria-label="Attach a document" tabindex="0"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></label>
                 <input id="file-input" class="file-input-visually-hidden" type="file" aria-label="Attach a document" accept="image/*,.txt,.md,.csv,.json,.pdf,.docx" />
                 <button id="image-btn" class="icon-btn" type="button" aria-label="Attach an image"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg></button>
+                <button id="camera-btn" class="icon-btn" type="button" aria-label="Take a photo"><svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg></button>
+                <input id="camera-input" class="file-input-visually-hidden" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true" aria-label="Take a photo" />
                 <button id="mic-btn" class="icon-btn" type="button" aria-label="Speak"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></button>
               </div>
               <button id="send-btn" class="send-btn" type="button" aria-label="Send">
@@ -939,6 +942,19 @@
       </form>
       <button type="button" class="btn btn-ghost welcome-guest" id="welcome-guest">Continue as guest</button>
       <p class="muted welcome-legal">ZARVIS only receives your name, email and photo from Google &mdash; never your Gmail, Drive or contacts. Guest chats live only in this browser.</p>
+    </div>
+  </div>
+  <div class="modal-overlay" id="camera-sheet" hidden>
+    <div class="modal-card camera-card" role="dialog" aria-modal="true" aria-labelledby="camera-title" aria-describedby="camera-note">
+      <h3 id="camera-title">Take a photo</h3>
+      <p id="camera-note">ZARVIS will describe what the camera sees. The photo is sent to the AI to be described and is not stored.</p>
+      <div class="camera-frame"><video id="camera-video" playsinline muted autoplay aria-label="Live camera view"></video></div>
+      <p class="alert alert-error" id="camera-error" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="camera-choose" hidden>Choose a photo instead</button>
+        <button type="button" class="btn btn-ghost" id="camera-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="camera-shoot" disabled>Take photo</button>
+      </div>
     </div>
   </div>
   <script src="./logic.js"></script>

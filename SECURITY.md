@@ -30,6 +30,24 @@ Actions are evaluated as LOW, MEDIUM, HIGH or VERY_HIGH risk. High-impact action
 
 Tool execution should expose truthful states such as COMPLETED, DENIED, PERMISSION_REQUIRED, USER_ACTION_REQUIRED, CONFIRMATION_REQUIRED, UNSUPPORTED, and FAILED.
 
+## AI provider keys and logs
+
+- `GEMINI_API_KEY` and `OPENROUTER_API_KEY` are server-side only: never in the web client, the
+  Android app, a response or an error message. The browser's Content-Security-Policy keeps
+  `connect-src 'self'`; it never talks to an AI provider.
+- Keys are sent only in request headers (never in a URL).
+- The logger redacts by key name and by value: key-shaped strings (OpenRouter, Google, OpenAI-style,
+  GitHub, `Bearer ...`, JWT) and the exact keys configured for this process are replaced even inside
+  an upstream error message. A provider's error body is cut to 300 characters (Gemini) or 600
+  (OpenRouter, key-scrubbed first) inside an internal error message that only reaches the server log,
+  where a provider that echoes request text could show it; clients only ever get fixed texts.
+- A present-but-invalid AI setting stops startup with a message that names the variable and never
+  its value; an OpenRouter address must be https (http only for localhost) and must not contain
+  credentials.
+- A rejected provider key is never a reason to answer from another provider: it must stay visible.
+- Local `.env` and `.env.*` files are git-ignored; only `backend/.env.example` (placeholders) is
+  tracked.
+
 ## Sign in with Google
 
 `POST /api/v1/auth/google` verifies the Google ID token on the server (RS256 against Google's published keys, issuer, audience = `GOOGLE_CLIENT_ID`, expiry, verified email) before anything is trusted. Google accounts are matched by their stable `sub`; an existing email account with the same Google-verified email is linked rather than duplicated; a calling guest is upgraded in place so its chats and credits are kept. Only name, email and photo are stored. ZARVIS never receives access to Gmail, Drive or contacts. Google-only accounts get a random unusable password. Chat and account data stay in ZARVIS's own database.

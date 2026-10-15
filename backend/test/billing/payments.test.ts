@@ -251,6 +251,14 @@ describe("Razorpay plan purchases", () => {
     });
   });
 
+  it("the webhook route answers 503 payments_unavailable, not a logged 500, when payments are not enabled", async () => {
+    const app = buildServer(buildContainer(new InMemoryStore()));
+    const payload = JSON.stringify({ event: "payment.captured", payload: { payment: { entity: { order_id: "order_x" } } } });
+    const res = await request(app).post("/api/v1/billing/razorpay/webhook").set("content-type", "application/json").send(payload);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: "Payments are not enabled.", code: "payments_unavailable" });
+  });
+
   it("PaymentError carries a stable code and HTTP status", () => {
     const error = new PaymentError("invalid_signature", 400, "x");
     expect([error.code, error.status]).toEqual(["invalid_signature", 400]);

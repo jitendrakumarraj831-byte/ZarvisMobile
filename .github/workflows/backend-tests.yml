@@ -179,9 +179,30 @@ jobs:
           NODE_PATH: /usr/local/lib/node_modules
         run: node web/e2e/workspace.e2e.cjs
 
+      # "Take a photo": the camera opens (a simulated camera in Chromium), a JPEG is taken and sent, the camera is switched
+      # off, and a blocked or missing camera is explained. A fourth process for the same reason as above (guest sign-ups).
+      - name: Start a fourth backend for the camera E2E
+        run: |
+          cd backend
+          PORT=3103 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/zarvis_e2e \
+            CORS_ORIGINS=http://localhost:3103 GITHUB_API_BASE_URL=http://localhost:3200 \
+            nohup npx tsx src/index.ts > /tmp/backend-camera.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf --max-time 2 http://localhost:3103/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/backend-camera.log; exit 1
+
+      - name: Run camera browser E2E
+        env:
+          ZARVIS_URL: http://localhost:3103
+          NODE_PATH: /usr/local/lib/node_modules
+        run: node web/e2e/camera.e2e.cjs
+
       - name: Backend log on failure
         if: failure()
         run: |
           cat /tmp/backend.log || true
           cat /tmp/backend-quality.log || true
           cat /tmp/backend-workspace.log || true
+          cat /tmp/backend-camera.log || true

@@ -1,5 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
+import type { ModelGateway } from "../../ai/modelGateway.js";
+import { correlationOf, runWithCorrelation } from "../../observability/requestContext.js";
 import { logger } from "../../security/redact.js";
 import type { Store } from "../../store/store.js";
 import type { WorkspaceService } from "../../workspace/workspaceService.js";
@@ -98,7 +100,9 @@ export function filesRouter(workspace: WorkspaceService, store: Store): Router {
         return;
       }
       try {
-        const result = await processUpload(file);
+        // The gateway is read at request time (set by buildServer), so this router never holds a stale one.
+        const gateway = req.app.locals.modelGateway as ModelGateway | undefined;
+        const result = await runWithCorrelation(correlationOf(req), () => processUpload(file, { gateway }));
         if (!result.ok) {
           res.status(result.status).json(result.body);
           return;

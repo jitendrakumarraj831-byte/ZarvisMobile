@@ -10,9 +10,23 @@
  * it is never counted as a pass in the reports. Any FAIL exits 1.
  *
  * No token, password or secret is ever printed. The sign-up account this creates is deleted at
- * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), 1 TTS request, plus at most one extra attempt for an AI
+ * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), plus at most one extra attempt for an AI
  * step whose first failure the backend marked temporary (a per-minute limit or a retryable outage); a refusal or a daily quota is never retried.
+ * The voice checks (about 25 requests, see voiceChecks) go to the Edge voice service, which needs no key and costs
+ * nothing; they print a VOICE SUMMARY at the end. If Edge refuses the deployment and the server's fallback voice
+ * (Gemini, X-Zarvis-TTS: gemini) answers instead, the audio is still checked but the result is a WARN, never a
+ * PASS: spoken replies work, and Edge being down stays visible. Gemini's speech quota is small and metered, so
+ * once Edge has been seen to be down only English, Hindi and Hinglish are asked of it (6 requests); the checks of the
+ * Edge path itself (a long reply, the longest WAV, cancelling, choosing a voice) are reported as WARN "not run".
+ *
+ * `ONLY=tts` runs just the health check, a guest session and the voice checks: against any
+ * deployment, a preview or production, without spending any AI quota or creating any other account.
+ * `EXPECT_EN_VOICE`, `EXPECT_HI_VOICE`, `EXPECT_HINGLISH_VOICE` say which voices the deployment is
+ * configured with (defaults: the built-in ones). `VOICE_LENGTH_CHECK=off` skips the check that the
+ * audio is as long as the text says it should be (only for a stand-in that answers every text with
+ * the same clip).
  */
+import { appendFileSync } from "node:fs";
 
 let BASE = (process.env.BASE_URL || "").replace(/\/$/, "");
 if (!BASE) {
@@ -29,6 +43,16 @@ function report(status, name, detail = "") {
   if (status === "FAIL" && process.env.GITHUB_ACTIONS) console.log(`::error::${name}: ${detail}`);
 }
 
+/** The facts of a 16-bit PCM WAV file, or null when the bytes are not one. */
+function wavFacts(bytes) {
+  if (bytes.length < 44 || bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WAVE") return null;
+  const sampleRate = bytes.readUInt32LE(24);
+  const channels = bytes.readUInt16LE(22);
+  const bits = bytes.readUInt16LE(34);
+  const dataBytes = bytes.readUInt32LE(40);
+  return { sampleRate, channels, bits, seconds: dataBytes / (sampleRate * channels * (bits / 8)) };
+}
+
 async function call(method, path, { token, body, raw, headers = {}, timeoutMs = 60_000 } = {}) {
   const h = { ...headers };
   if (BYPASS) h["x-vercel-protection-bypass"] = BYPASS;
@@ -40,10 +64,11 @@ async function call(method, path, { token, body, raw, headers = {}, timeoutMs = 
     payload = JSON.stringify(body);
   }
   const res = await fetch(BASE + path, { method, headers: h, body: payload, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
-  const text = method === "HEAD" ? "" : await res.text();
+  const bytes = method === "HEAD" ? Buffer.alloc(0) : Buffer.from(await res.arrayBuffer());
+  const text = bytes.toString("utf8");
   let json;
   try { json = JSON.parse(text); } catch { json = undefined; }
-  return { status: res.status, headers: res.headers, text, json };
+  return { status: res.status, headers: res.headers, text, json, bytes };
 }
 
 /** POST /orchestrator/turn-stream; returns the parsed SSE events. */
@@ -139,6 +164,257 @@ function classifyRedirect(status, location) {
   return { kind: "elsewhere", target };
 }
 
+// ---- Voice (TTS) -------------------------------------------------------------------------------
+// Spoken replies use Edge's neural voices: an unofficial service, reached from the network this API
+// runs on. So this is the check that proves the voice works where it is deployed, and the one thing
+// that cannot be proved anywhere else: whether Microsoft's service accepts this deployment's address.
+// It needs no key. What it asks, in order: does English come back as real audio in the right voice
+// on both endpoints, then Hindi, then Hinglish; does a long reply stream progressively; does the WAV
+// endpoint cope with the longest text it accepts; does a client that walks away mid-stream leave the
+// service able to serve the next request; do bad requests get plain answers.
+//
+// Edge is the voice. If it fails before any sound the server asks Gemini's voice instead and says so in
+// X-Zarvis-TTS (`gemini`, `gemini-stream`) and X-Zarvis-TTS-Voice (`gemini:Kore`). That is audio the user
+// can hear, so it is checked as audio (format, length) but it is reported as WARN: the thing this script
+// exists to prove is that Edge accepts this deployment, and here it does not.
+
+const VOICE_TEXT = {
+  en: "Hello from ZARVIS. The weather is clear today, and the voice should sound natural and calm.",
+  hi: "नमस्ते, मैं ज़ारविस हूँ। आज मौसम साफ़ है, और मेरी आवाज़ स्वाभाविक और शांत सुनाई देनी चाहिए।",
+  hinglish: "Namaste, main ZARVIS hoon. Aaj mausam saaf hai, aur meri awaaz natural aur shaant sunaai deni chahiye.",
+};
+const EXPECT_VOICE = {
+  en: process.env.EXPECT_EN_VOICE || "en-US-JennyNeural",
+  hi: process.env.EXPECT_HI_VOICE || "hi-IN-SwaraNeural",
+  hinglish: process.env.EXPECT_HINGLISH_VOICE || process.env.EXPECT_HI_VOICE || "hi-IN-SwaraNeural",
+};
+const SENTENCE = "The assistant keeps talking in plain English so that the reply is long enough to be heard for a while, and each sentence is spoken in turn. ";
+const LONG_STREAM_TEXT = SENTENCE.repeat(8).slice(0, 1150); // the stream endpoint takes 1200 characters
+const LONG_UNARY_TEXT = SENTENCE.repeat(14).slice(0, 1950); // the WAV endpoint takes 2000
+const PCM_RATE = 24000;
+// A voice that answers 200 with a second of noise is not a pass: speech runs at roughly 15 characters
+// a second, so between 0.025 s and one second per character is generous on both sides.
+const lengthPlausible = (text, seconds) => process.env.VOICE_LENGTH_CHECK === "off" || (seconds >= text.length / 40 && seconds <= text.length);
+
+/** Why a response was not audio: the API's own code, or the platform's (Vercel's error header or page). */
+function whyNot(res) {
+  const platform = res.headers.get("x-vercel-error");
+  const body = res.json?.code ?? (res.text ? res.text.replace(/\s+/g, " ").slice(0, 100) : "");
+  return `HTTP ${res.status}${platform ? ` ${platform}` : ""}${body ? ` ${body}` : ""}`;
+}
+
+/** POST /tts/synthesize-stream, reading the body as it arrives; `abortAfterBytes` walks away mid-stream. */
+async function streamCall(token, body, { abortAfterBytes, timeoutMs = 90_000 } = {}) {
+  const headers = { "content-type": "application/json", authorization: `Bearer ${token}` };
+  if (BYPASS) headers["x-vercel-protection-bypass"] = BYPASS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const started = Date.now();
+  try {
+    const res = await fetch(`${BASE}/api/v1/tts/synthesize-stream`, { method: "POST", headers, body: JSON.stringify(body), signal: controller.signal, redirect: "manual" });
+    const firstByteMs = Date.now() - started; // the headers are sent when the first audio exists
+    const chunks = [];
+    let total = 0;
+    let aborted = false;
+    const reader = res.body.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.length;
+      if (abortAfterBytes && total >= abortAfterBytes) {
+        aborted = true;
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
+    }
+    const bytes = Buffer.concat(chunks);
+    const text = res.status === 200 ? "" : bytes.toString("utf8");
+    let json;
+    try { json = JSON.parse(text); } catch { json = undefined; }
+    return { status: res.status, headers: res.headers, bytes, text, json, firstByteMs, totalMs: Date.now() - started, aborted };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Whether the engine header names the fallback voice, and says so with a voice name that cannot be mistaken for Edge's. */
+function fallbackVoice(engine, expectedEngine, voice) {
+  if (engine !== expectedEngine) return { ok: false };
+  if (!/^gemini:[A-Za-z]+$/.test(voice || "")) return { ok: false, why: `X-Zarvis-TTS was ${engine} but the voice was ${voice}, not gemini:<name>` };
+  return { ok: true };
+}
+
+/**
+ * A check that heard audio from the fallback is a WARN: spoken replies work, but Edge does not accept this deployment.
+ * One refused with 503 after the fallback has already spoken is a WARN too ("not exercised"): its speech quota is small and
+ * metered, like the AI's when "a turn that needs the AI model" is reported as out of quota. If the first English check
+ * is refused, nothing has spoken: both voices are down, and that is a FAIL.
+ */
+const outcome = (check) => (!check.ok ? (check.meteredOut ? "WARN" : "FAIL") : check.fallback ? "WARN" : "PASS");
+const evidence = (check) => (check.ok ? check.detail : check.why);
+
+async function voiceChecks(token) {
+  let fallbackActive = false; // set once an English answer has come from the fallback voice (Edge is down)
+  const isMeteredOut = (res) => fallbackActive && res.status === 503 && res.json?.code === "tts_unavailable";
+  const groups = { reach: [], english: [], hindi: [], hinglish: [], streaming: [], unary: [], cancellation: [] };
+  const verdict = (statuses) => (statuses.length === 0 ? "NOT RUN" : statuses.includes("FAIL") ? "FAIL" : statuses.includes("WARN") ? "WARN" : "PASS");
+  const vreport = (names, status, name, detail) => {
+    report(status, name, detail);
+    for (const group of names) groups[group].push(status);
+  };
+
+  const unary = (body, timeoutMs = 90_000) => call("POST", "/api/v1/tts/synthesize", { token, body, timeoutMs });
+  const checkWav = (res, text, expected) => {
+    const wav = wavFacts(res.bytes);
+    const voice = res.headers.get("x-zarvis-tts-voice");
+    if (res.status !== 200 || !/audio\/wav/.test(res.headers.get("content-type") || "") || !wav) {
+      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${wav ? "" : "(not a WAV file)"}${isMeteredOut(res) ? "; the fallback voice's speech quota is probably spent, so this was not exercised" : ""}` };
+    }
+    if (wav.sampleRate !== PCM_RATE || wav.channels !== 1 || wav.bits !== 16) return { ok: false, why: `WAV is ${JSON.stringify(wav)}, not 24 kHz mono 16-bit` };
+    if (!lengthPlausible(text, wav.seconds)) return { ok: false, why: `${text.length} characters came back as ${wav.seconds.toFixed(1)} s of audio` };
+    const engine = res.headers.get("x-zarvis-tts");
+    const fallback = fallbackVoice(engine, "gemini", voice);
+    if (engine !== "edge" && !fallback.ok) return { ok: false, why: fallback.why ?? `X-Zarvis-TTS was ${engine}, not edge` };
+    if (engine === "edge" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
+    return { ok: true, fallback: engine !== "edge", detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}${engine !== "edge" ? " (FALLBACK: Edge did not answer)" : ""}` };
+  };
+  const checkStream = (res, text, expected) => {
+    const type = res.headers.get("content-type") || "";
+    const voice = res.headers.get("x-zarvis-tts-voice");
+    if (res.status !== 200 || !/audio\/l16/.test(type) || !/rate=24000/.test(type)) {
+      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${type}${isMeteredOut(res) ? "; the fallback voice's speech quota is probably spent, so this was not exercised" : ""}` };
+    }
+    if (res.bytes.length === 0 || res.bytes.length % 2 !== 0 || res.bytes.subarray(0, 4).toString("ascii") === "RIFF") return { ok: false, why: `${res.bytes.length} bytes is not headerless 16-bit PCM` };
+    const seconds = res.bytes.length / 2 / PCM_RATE;
+    if (!lengthPlausible(text, seconds)) return { ok: false, why: `${text.length} characters came back as ${seconds.toFixed(1)} s of audio` };
+    const engine = res.headers.get("x-zarvis-tts");
+    const fallback = fallbackVoice(engine, "gemini-stream", voice);
+    if (engine !== "edge-stream" && !fallback.ok) return { ok: false, why: fallback.why ?? `X-Zarvis-TTS was ${engine}, not edge-stream` };
+    if (engine === "edge-stream" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
+    return { ok: true, fallback: engine !== "edge-stream", seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}${engine !== "edge-stream" ? " (FALLBACK: Edge did not answer)" : ""}` };
+  };
+
+  // ---- Is the voice service reachable from here at all? English first; the rest is pointless if not.
+  const first = await unary({ text: VOICE_TEXT.en });
+  if (first.status === 503 && first.json?.code === "tts_disabled") {
+    report("WARN", "voice", "spoken replies are switched off on this server (TTS_PROVIDER=none); no audio verified");
+    printVoiceSummary(groups, verdict, "TTS_PROVIDER=none");
+    return;
+  }
+  const firstWav = checkWav(first, VOICE_TEXT.en, EXPECT_VOICE.en);
+  if (firstWav.fallback) fallbackActive = true; // so that a quota refusal of the stream check below is read as one
+  vreport(["reach", "english", "unary"], outcome(firstWav), "voice: English, WAV endpoint", evidence(firstWav));
+  const firstStream = await streamCall(token, { text: VOICE_TEXT.en });
+  const firstStreamCheck = checkStream(firstStream, VOICE_TEXT.en, EXPECT_VOICE.en);
+  vreport(["reach", "english", "streaming"], outcome(firstStreamCheck), "voice: English, stream endpoint", evidence(firstStreamCheck));
+  if (!firstWav.ok && !firstStreamCheck.ok) {
+    // Nothing else can be learned, and every further attempt could wait out the service's timeouts.
+    for (const [group, name] of [["hindi", "Hindi"], ["hinglish", "Hinglish"]]) vreport([group, "streaming", "unary"], "FAIL", `voice: ${name}`, "not run: English failed on both endpoints, so the voice is not usable here (see above)");
+    vreport(["streaming", "unary"], "FAIL", "voice: long text", "not run: English failed on both endpoints, so the voice is not usable here (see above)");
+    vreport(["cancellation"], "FAIL", "voice: cancelling mid-stream", "not run: English failed on both endpoints, so the voice is not usable here (see above)");
+    printVoiceSummary(groups, verdict);
+    return;
+  }
+
+  // The fallback voice is metered (Gemini's speech quota is small: about a dozen requests in two minutes were enough to
+  // be told to wait). The remaining checks are about the Edge path, so with Edge down they would only spend that quota.
+  fallbackActive = fallbackActive || Boolean(firstStreamCheck.fallback);
+  const notRun = (names, name) =>
+    vreport(names, "WARN", name, "not run: Edge did not answer, so the fallback voice (metered by Gemini's speech quota) is speaking; this check of the Edge path would only spend that quota");
+
+  // ---- Hindi and Hinglish, on both endpoints.
+  for (const [group, key, label] of [["hindi", "hi", "Hindi"], ["hinglish", "hinglish", "Hinglish"]]) {
+    const wav = checkWav(await unary({ text: VOICE_TEXT[key] }), VOICE_TEXT[key], EXPECT_VOICE[key]);
+    vreport([group, "unary"], outcome(wav), `voice: ${label}, WAV endpoint`, evidence(wav));
+    const stream = checkStream(await streamCall(token, { text: VOICE_TEXT[key] }), VOICE_TEXT[key], EXPECT_VOICE[key]);
+    vreport([group, "streaming"], outcome(stream), `voice: ${label}, stream endpoint`, evidence(stream));
+  }
+
+  // ---- A long reply: does the stream arrive progressively, or in one piece at the end?
+  const long = fallbackActive ? undefined : await streamCall(token, { text: LONG_STREAM_TEXT });
+  const longCheck = long ? checkStream(long, LONG_STREAM_TEXT, EXPECT_VOICE.en) : undefined;
+  if (!long) notRun(["streaming"], "voice: long text, stream endpoint");
+  else if (!longCheck.ok) vreport(["streaming"], "FAIL", "voice: long text, stream endpoint", longCheck.why);
+  else if (longCheck.seconds > 20 && long.firstByteMs > long.totalMs * 0.9) {
+    // The audio is right, but the platform held it back: the client's first sound would wait for all of it.
+    vreport(["streaming"], "WARN", "voice: long text, stream endpoint", `${longCheck.detail}; the first byte came at ${long.firstByteMs} of ${long.totalMs} ms, so the platform is probably delivering the stream in one piece`);
+  } else vreport(["streaming"], outcome(longCheck), "voice: long text, stream endpoint", `${longCheck.detail} (progressive: first audio at ${Math.round((100 * long.firstByteMs) / long.totalMs)}% of the time)`);
+
+  // ---- The longest text the WAV endpoint accepts: about two minutes of speech, 5 to 6 MB. Vercel documents about
+  // 4.5 MB as the most a function answers in one piece, and a function has a maximum duration, so this is where
+  // a limit of the platform would show. (On the first preview it did not: 5.1 MB came back in one response.)
+  // If it ever does, it is said plainly.
+  const longUnary = fallbackActive ? undefined : await unary({ text: LONG_UNARY_TEXT }, 120_000);
+  const longWav = longUnary ? checkWav(longUnary, LONG_UNARY_TEXT, EXPECT_VOICE.en) : undefined;
+  if (!longUnary) notRun(["unary"], "voice: longest text, WAV endpoint");
+  else if (longWav.ok) vreport(["unary"], outcome(longWav), "voice: longest text, WAV endpoint", longWav.detail);
+  else if ([413, 502, 504].includes(longUnary.status) && (longUnary.headers.get("x-vercel-error") || !longUnary.json)) {
+    vreport(["unary"], "WARN", "voice: longest text, WAV endpoint", `the platform refused it (${whyNot(longUnary)}); about ${Math.round(LONG_UNARY_TEXT.length / 15)} s of speech does not fit in one response here, so a long Listen will fail`);
+  } else vreport(["unary"], "FAIL", "voice: longest text, WAV endpoint", longWav.why);
+
+  // ---- A client that walks away. Six streams abandoned after the first bytes, two WAV requests dropped
+  // while the voice is working, and then the service must still serve the next request.
+  if (fallbackActive) notRun(["cancellation"], "voice: cancelling mid-stream");
+  else {
+    let abandoned = 0;
+    const otherAnswers = [];
+    for (let i = 0; i < 6; i += 1) {
+      const dropped = await streamCall(token, { text: LONG_STREAM_TEXT }, { abortAfterBytes: 4000 }).catch((error) => ({ failure: error instanceof Error ? error.name : "error" }));
+      if (dropped?.aborted) abandoned += 1;
+      else otherAnswers.push(dropped?.status ?? dropped?.failure ?? "no answer");
+    }
+    const headers = { "content-type": "application/json", authorization: `Bearer ${token}`, ...(BYPASS ? { "x-vercel-protection-bypass": BYPASS } : {}) };
+    for (let i = 0; i < 2; i += 1) {
+      await fetch(`${BASE}/api/v1/tts/synthesize`, { method: "POST", headers, body: JSON.stringify({ text: LONG_UNARY_TEXT }), signal: AbortSignal.timeout(400) }).catch(() => undefined);
+    }
+    const after = await streamCall(token, { text: VOICE_TEXT.en });
+    const afterCheck = checkStream(after, VOICE_TEXT.en, EXPECT_VOICE.en);
+    if (abandoned === 6 && afterCheck.ok) vreport(["cancellation"], outcome(afterCheck), "voice: cancelling mid-stream", `6 streams abandoned after their first bytes and 2 WAV requests dropped; the next request was served in ${after.totalMs} ms`);
+    else vreport(["cancellation"], "FAIL", "voice: cancelling mid-stream", abandoned === 6 ? `the next request after the cancellations failed: ${afterCheck.why}` : `only ${abandoned} of 6 streams could be abandoned mid-way (the others: ${otherAnswers.join(", ")})`);
+  }
+
+  // ---- Bad requests get plain answers, and a caller's voice is honoured only from the allow-list.
+  const noToken = await call("POST", "/api/v1/tts/synthesize", { body: { text: "Hello" } });
+  vreport(["unary"], noToken.status === 401 ? "PASS" : "FAIL", "voice: no token is refused (WAV endpoint)", `HTTP ${noToken.status}`);
+  const empty = await call("POST", "/api/v1/tts/synthesize-stream", { token, body: { text: "   " } });
+  vreport(["streaming"], empty.status === 400 ? "PASS" : "FAIL", "voice: empty text is 400 (stream endpoint)", `HTTP ${empty.status}`);
+  const silent = await unary({ text: "... !!!" });
+  vreport(["unary"], silent.status === 400 && silent.json?.code === "tts_invalid_request" ? "PASS" : "FAIL", "voice: text with nothing to say is 400 tts_invalid_request", `HTTP ${silent.status} ${silent.json?.code ?? ""}`);
+  if (fallbackActive) {
+    // Edge's voice names mean nothing to Gemini, which ignores them: there is nothing to learn from spending its quota.
+    notRun(["english", "unary"], "voice: a caller can choose an allowed voice");
+    notRun(["english", "unary"], "voice: an unknown voice is ignored, the usual one speaks");
+  } else {
+    const chosen = await unary({ text: VOICE_TEXT.en, voice: "en-US-GuyNeural" });
+    const chosenCheck = checkWav(chosen, VOICE_TEXT.en, "en-US-GuyNeural");
+    vreport(["english", "unary"], outcome(chosenCheck), "voice: a caller can choose an allowed voice", evidence(chosenCheck));
+    const refused = await unary({ text: VOICE_TEXT.en, voice: "xx-XX-NotARealNeural" });
+    const refusedCheck = checkWav(refused, VOICE_TEXT.en, EXPECT_VOICE.en);
+    vreport(["english", "unary"], outcome(refusedCheck), "voice: an unknown voice is ignored, the usual one speaks", evidence(refusedCheck));
+  }
+
+  printVoiceSummary(groups, verdict);
+}
+
+function printVoiceSummary(groups, verdict, note = "") {
+  const rows = [
+    ["Live voice service reached (WARN = only the fallback voice)", "reach"],
+    ["English", "english"],
+    ["Hindi", "hindi"],
+    ["Hinglish", "hinglish"],
+    ["Streaming", "streaming"],
+    ["Unary", "unary"],
+    ["Cancellation", "cancellation"],
+  ];
+  console.log(`\nVOICE SUMMARY (${BASE})${note ? ` — ${note}` : ""}`);
+  for (const [label, key] of rows) console.log(`  ${label.padEnd(58)} ${verdict(groups[key])}`);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const table = rows.map(([label, key]) => `| ${label} | ${verdict(groups[key])} |`).join("\n");
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Voice (Edge neural voices, Gemini fallback) on ${BASE}\n\n| Check | Result |\n| --- | --- |\n${table}\n\n`);
+  }
+}
+
 async function main() {
   console.log(`Deployment: ${BASE}`);
   console.log(`Vercel protection bypass secret: ${BYPASS ? "configured" : "not configured"}`);
@@ -166,15 +442,26 @@ async function main() {
     return;
   }
   const h = health.json ?? {};
-  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, database: h.database, reason: h.reason })}`);
+  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, aiFallback: h.aiFallback, aiFallbackTools: h.aiFallbackTools, database: h.database, reason: h.reason })}`);
   report(health.status === 200 && h.database !== undefined ? "PASS" : "FAIL", "GET /health", `HTTP ${health.status}`);
+  if (h.aiFallback && h.aiFallbackTools === false) {
+    // Not a failure: the deployment works as configured. But a fallback that cannot take a chat turn's
+    // planner step does nothing for chat when the primary provider is out of quota or down.
+    report("WARN", "the AI fallback cannot serve chat turns", "a fallback provider is configured but its model does not declare tool support, so chat turns will not fall back (set OPENROUTER_MODEL_CAPABILITIES=tools for a model that supports tool calling)");
+  }
   const provider = h.provider;
+  // The providers that can answer a chat turn. Web search needs Gemini's Google Search grounding.
+  const liveProvider = provider === "google" ? "Gemini" : provider === "openrouter" ? "OpenRouter" : undefined;
 
   // ---- Auth lifecycle ----------------------------------------------------------------------
   const guest = await call("POST", "/api/v1/auth/guest");
   report(guest.status === 201 ? "PASS" : "FAIL", "guest session", `HTTP ${guest.status}`);
   if (guest.status !== 201) return;
   const guestToken = guest.json.accessToken;
+  if (process.env.ONLY === "tts") {
+    await voiceChecks(guestToken);
+    return;
+  }
   const me = await call("GET", "/api/v1/auth/me", { token: guestToken });
   report(me.status === 200 ? "PASS" : "FAIL", "GET /auth/me with the guest token (session persists across instances)", `HTTP ${me.status}`);
 
@@ -220,11 +507,20 @@ async function main() {
 
   const { res: model, note: modelNote } = await aiTurn(guestToken, "Reply with the single word OK.", "AI model turn");
   if (model.done) {
-    report(provider === "google" ? "PASS" : "FAIL", "a turn that needs the AI model", provider === "google" ? `Gemini answered${modelNote}` : `answered by provider ${provider}, not Gemini`);
+    // The response deliberately does not say which provider produced it, so this can only name the
+    // deployment's DEFAULT provider (from /health). With a fallback configured the answer may have
+    // come from either; the function log's `AI call` line records which.
+    report(
+      liveProvider ? "PASS" : "FAIL",
+      "a turn that needs the AI model",
+      (liveProvider
+        ? `an AI answer was returned (default provider: ${liveProvider}${h.aiFallback ? "; a fallback provider is also configured, and the response does not say which one answered" : ""})`
+        : `answered by provider ${provider}, not a live AI provider`) + modelNote,
+    );
   } else if (quota(model.error?.code)) {
-    report("WARN", "a turn that needs the AI model", `Gemini reachable but out of quota (${model.error.code}); no answer verified${modelNote}`);
+    report("WARN", "a turn that needs the AI model", `the AI provider is reachable but out of quota (${model.error.code}); no answer verified${modelNote}`);
   } else if (model.error?.code === "AI_UNAVAILABLE" && model.error.retryable) {
-    report("WARN", "a turn that needs the AI model", `Gemini temporarily unavailable; no answer verified${modelNote}`);
+    report("WARN", "a turn that needs the AI model", `the AI provider is temporarily unavailable; no answer verified${modelNote}`);
   } else if (model.error?.code === "AI_UNAVAILABLE") {
     report("FAIL", "a turn that needs the AI model", `no answer: ${describeAiError(model)}; ${REFUSED_HINT}`);
   } else {
@@ -232,36 +528,42 @@ async function main() {
   }
 
   // ---- Web Search ----------------------------------------------------------------------------
-  const searchPrompt = "Use web search to find the capital city of Australia, then answer in one sentence with the source.";
-  // At most ONE extra attempt for this step in total: the planner's own temporary failure (aiTurn) or, below, the search skill's per-minute limit.
-  let { res: search, retried: searchRetried, note: searchNote } = await aiTurn(guestToken, searchPrompt, "web search turn");
-  let searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
-  if (!searchRetried && searches.length === 1 && searches[0].outcome?.result?.reason === "ai_rate_limited") {
-    // A per-minute limit, usually from the model calls just before. Respect it: wait out one
-    // window and ask once more (a new turn). A daily quota is not retried.
-    console.log("     web search hit the per-minute limit; waiting 65 s, then one more attempt");
-    await sleep(65_000);
-    search = await turn(guestToken, searchPrompt);
-    searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
-    searchNote = " (after one retry; attempt 1: the search skill hit the per-minute limit)";
-  }
-  if (searches.length === 1 && searches[0].result?.status === "COMPLETED") {
-    const sources = (searches[0].outcome?.result?.output?.results ?? []).length;
-    report(provider === "google" ? "PASS" : "FAIL", "web search ran exactly once and completed", provider === "google" ? `${sources} sources${searchNote}` : `provider ${provider}: not a real search`);
-  } else if (searches.length > 1) {
-    report("FAIL", "web search ran exactly once", `${searches.length} executions for one request`);
-  } else if (searches.length === 1 && /quota|rate/.test(searches[0].outcome?.result?.reason ?? "")) {
-    // The user-facing message carries the provider's advised wait; no secret is in it.
-    report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})${searchNote}`);
-  } else if (quota(search.error?.code)) {
-    report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised${searchNote}`);
-  } else if (search.error?.code === "AI_UNAVAILABLE" && search.error.retryable) {
-    // Same rule as the model turn above: a temporary outage is reported, not mistaken for a broken API.
-    report("WARN", "web search", `Gemini temporarily unavailable; search not exercised${searchNote}`);
-  } else if (searches.length === 0 && search.done) {
-    report("WARN", "web search", "the model answered without calling web.search; search not exercised");
+  // Web search needs Google Search grounding, which only Gemini provides: a deployment without
+  // Gemini cannot search, and says so instead of failing.
+  if (provider !== "google") {
+    report("WARN", "web search", `needs Gemini (Google Search grounding); this deployment answers with provider ${provider}, so search was not exercised`);
   } else {
-    report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, retryable: search.error?.retryable, result: searches[0]?.result?.status }) + (search.error?.code === "AI_UNAVAILABLE" ? `; ${REFUSED_HINT}` : ""));
+    const searchPrompt = "Use web search to find the capital city of Australia, then answer in one sentence with the source.";
+    // At most ONE extra attempt for this step in total: the planner's own temporary failure (aiTurn) or, below, the search skill's per-minute limit.
+    let { res: search, retried: searchRetried, note: searchNote } = await aiTurn(guestToken, searchPrompt, "web search turn");
+    let searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+    if (!searchRetried && searches.length === 1 && searches[0].outcome?.result?.reason === "ai_rate_limited") {
+      // A per-minute limit, usually from the model calls just before. Respect it: wait out one
+      // window and ask once more (a new turn). A daily quota is not retried.
+      console.log("     web search hit the per-minute limit; waiting 65 s, then one more attempt");
+      await sleep(65_000);
+      search = await turn(guestToken, searchPrompt);
+      searches = (search.done?.toolCalls ?? []).filter((c) => c.skillId === "web.search");
+      searchNote = " (after one retry; attempt 1: the search skill hit the per-minute limit)";
+    }
+    if (searches.length === 1 && searches[0].result?.status === "COMPLETED") {
+      const sources = (searches[0].outcome?.result?.output?.results ?? []).length;
+      report(provider === "google" ? "PASS" : "FAIL", "web search ran exactly once and completed", provider === "google" ? `${sources} sources${searchNote}` : `provider ${provider}: not a real search`);
+    } else if (searches.length > 1) {
+      report("FAIL", "web search ran exactly once", `${searches.length} executions for one request`);
+    } else if (searches.length === 1 && /quota|rate/.test(searches[0].outcome?.result?.reason ?? "")) {
+      // The user-facing message carries the provider's advised wait; no secret is in it.
+      report("WARN", "web search", `ran once; Gemini quota: ${searches[0].outcome.result.reason} (${String(searches[0].outcome.result.userMessage ?? "").slice(0, 160)})${searchNote}`);
+    } else if (quota(search.error?.code)) {
+      report("WARN", "web search", `planner out of quota (${search.error.code}); search not exercised${searchNote}`);
+    } else if (search.error?.code === "AI_UNAVAILABLE" && search.error.retryable) {
+      // Same rule as the model turn above: a temporary outage is reported, not mistaken for a broken API.
+      report("WARN", "web search", `Gemini temporarily unavailable; search not exercised${searchNote}`);
+    } else if (searches.length === 0 && search.done) {
+      report("WARN", "web search", "the model answered without calling web.search; search not exercised");
+    } else {
+      report("FAIL", "web search", JSON.stringify({ status: search.status, code: search.error?.code, retryable: search.error?.retryable, result: searches[0]?.result?.status }) + (search.error?.code === "AI_UNAVAILABLE" ? `; ${REFUSED_HINT}` : ""));
+    }
   }
 
   // ---- File upload ---------------------------------------------------------------------------
@@ -274,12 +576,8 @@ async function main() {
   const unsupported = await call("POST", "/api/v1/documents/extract", { token: guestToken, raw: bad });
   report(unsupported.status === 415 ? "PASS" : "FAIL", "an unsupported file type is refused (415)", `HTTP ${unsupported.status}`);
 
-  // ---- TTS -----------------------------------------------------------------------------------
-  const tts = await call("POST", "/api/v1/tts/synthesize", { token: guestToken, body: { text: "Hello from ZARVIS." }, timeoutMs: 90_000 });
-  const type = tts.headers.get("content-type") || "";
-  if (tts.status === 200 && /audio/.test(type)) report("PASS", "TTS returns audio", type);
-  else if (tts.status === 429) report("WARN", "TTS", `quota (${tts.json?.code ?? "429"}); no audio verified`);
-  else report("FAIL", "TTS returns audio", `HTTP ${tts.status} ${type} ${tts.json?.code ?? ""}`);
+  // ---- Voice (TTS) ---------------------------------------------------------------------------
+  await voiceChecks(guestToken);
 
   // ---- Cleanup -------------------------------------------------------------------------------
   if (accountToken) {

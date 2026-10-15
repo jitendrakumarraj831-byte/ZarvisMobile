@@ -142,6 +142,18 @@ test("?api= can only point at this origin: tokens are never sent to a host from 
   assert.equal(L.resolveApiBase("?api=javascript:alert(1)", o), o + "/api/v1");
 });
 
+test("the AI provider status shown in Settings and Metrics is truthful for every provider the server can report", () => {
+  assert.deepEqual(L.aiProviderStatus("google"), { configured: true, label: "Gemini", sentence: "Google Gemini is answering your requests." });
+  assert.deepEqual(L.aiProviderStatus("openrouter"), { configured: true, label: "OpenRouter", sentence: "OpenRouter is answering your requests." });
+  // The development mock and the production fail-closed provider are both "nothing real configured".
+  for (const provider of ["mock", "none", undefined, null, "", "something-else"]) {
+    const status = L.aiProviderStatus(provider);
+    assert.equal(status.configured, false);
+    assert.equal(status.label, "Not configured");
+    assert.match(status.sentence, /No AI provider is configured/);
+  }
+});
+
 // ---- Chat page: chat list, day labels, slash commands, refine prompts, export, navigation ----
 
 test("a chat title is the first line of the first message, tidy and bounded", () => {
@@ -616,4 +628,36 @@ test("an entry point is offered only when the build has a skill behind it; unrea
   assert.equal(L.entryAvailable(undefined, skills), true);
   assert.equal(L.entryAvailable(["WEB"], null), true, "skills not read yet: nothing is hidden on a guess");
   assert.equal(L.entryAvailable(["WEB"], []), false, "an empty catalogue offers nothing that needs a skill");
+});
+
+// ---- Camera: sizing a photo and explaining a failed camera ----
+
+test("a photo is scaled so its longer side fits, keeping its shape, and is never scaled up", () => {
+  assert.deepEqual(L.fitWithin(4000, 3000, 1600), { width: 1600, height: 1200 });
+  assert.deepEqual(L.fitWithin(3000, 4000, 1600), { width: 1200, height: 1600 });
+  assert.deepEqual(L.fitWithin(800, 600, 1600), { width: 800, height: 600 });
+  assert.deepEqual(L.fitWithin(1600, 1600, 1600), { width: 1600, height: 1600 });
+  // A very thin picture keeps at least one pixel on its short side.
+  assert.deepEqual(L.fitWithin(100000, 10, 1600), { width: 1600, height: 1 });
+});
+
+test("a camera that reports no size gives an empty size, never NaN", () => {
+  for (const bad of [[0, 0], [undefined, 5], [5, null], ["x", 3], [-4, 3]]) {
+    assert.deepEqual(L.fitWithin(bad[0], bad[1], 1600), { width: 0, height: 0 });
+  }
+  assert.deepEqual(L.fitWithin(10, 10, 0), { width: 0, height: 0 });
+});
+
+test("every way the camera can fail is named for the person, and unknown errors are not hidden", () => {
+  const kind = (name) => L.cameraFailureKind({ name });
+  assert.equal(kind("NotAllowedError"), "blocked");
+  assert.equal(kind("SecurityError"), "blocked");
+  assert.equal(kind("NotFoundError"), "none");
+  assert.equal(kind("OverconstrainedError"), "none");
+  assert.equal(kind("NotReadableError"), "busy");
+  assert.equal(kind("AbortError"), "busy");
+  assert.equal(kind("TypeError"), "unsupported");
+  assert.equal(kind("SomethingNew"), "other");
+  assert.equal(L.cameraFailureKind(null), "other");
+  assert.equal(L.cameraFailureKind(undefined), "other");
 });

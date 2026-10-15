@@ -5,6 +5,8 @@ import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { processUpload } from "../../documents/processUpload.js";
+import { correlationOf, runWithCorrelation } from "../../observability/requestContext.js";
+import type { ModelGateway } from "../../ai/modelGateway.js";
 
 /** Kept at or under Vercel's default ~4.5MB serverless request-body ceiling (no override in
  * vercel.json) — a larger cap here would just get rejected by the platform first with a
@@ -60,7 +62,10 @@ export function documentsRouter(): Router {
         return;
       }
 
-      const result = await processUpload(file);
+      // The gateway is read at request time (set by buildServer), so this router, created once
+      // per process, never holds a stale one.
+      const gateway = req.app.locals.modelGateway as ModelGateway | undefined;
+      const result = await runWithCorrelation(correlationOf(req), () => processUpload(file, { gateway }));
       if (!result.ok) {
         res.status(result.status).json(result.body);
         return;

@@ -1,10 +1,12 @@
-import { defaultModelConfig, getProvider } from "../ai/providerFactory.js";
+import { getModelGateway } from "../ai/providerFactory.js";
+import type { ModelGateway } from "../ai/modelGateway.js";
+import type { Capability } from "../ai/capabilities.js";
 import { env } from "../config/env.js";
 import type { Store } from "../store/store.js";
 import { TaskService } from "../tasks/taskService.js";
 import { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { GitHubAccessService } from "../github/githubAccess.js";
-import { AIContentGenerator, MockContentGenerator, UnavailableContentGenerator, type ContentGenerator } from "../ai/contentGenerator.js";
+import { createContentGenerator, type ContentGenerator } from "../ai/contentGenerator.js";
 import { createAutomationCancelWorkflowSkill } from "./automationCancelWorkflow.js";
 import { createAutomationCreateWorkflowSkill } from "./automationCreateWorkflow.js";
 import { createAutomationListWorkflowsSkill } from "./automationListWorkflows.js";
@@ -23,28 +25,42 @@ import { RESEARCH_REPORT_SYSTEM_PROMPT, createResearchReportSkill } from "./rese
 import { createWebSearchSkill, FallbackSearchProvider, GeminiSearchProvider, MockSearchProvider, OpenRouterSearchProvider, UnavailableSearchProvider, type SearchProvider } from "./webSearch.js";
 
 /**
- * Real generation via the configured provider (Gemini once `GEMINI_API_KEY` is set) when
- * available, an honestly-labeled deterministic mock otherwise — see
- * `ai/contentGenerator.ts` for why this doesn't reuse `MockAIProvider`. Shared by every
- * generation-based skill regardless of category (Business, Creative, Research, ...), each
- * with its own [label]/[systemPrompt].
+ * Real generation through the AI Model Gateway when a provider is configured, an honestly-labeled
+ * deterministic mock otherwise (never in production) — see `ai/contentGenerator.ts` for why this
+ * doesn't reuse `MockAIProvider`. Shared by every generation-based skill regardless of category
+ * (Business, Creative, Research, ...), each with its own [label]/[systemPrompt]. `requires` names
+ * capabilities the skill needs beyond text, e.g. repository changes need a `coding` model.
  */
-function contentGenerator(label: string, systemPrompt: string): ContentGenerator {
-  // Placeholders are for local development and tests only; production fails closed.
-  if (!env.geminiApiKey && !env.openRouterApiKey) return env.isProduction ? new UnavailableContentGenerator(label) : new MockContentGenerator(label);
-  const modelConfig = { ...defaultModelConfig };
-  return new AIContentGenerator(getProvider(modelConfig), modelConfig, systemPrompt);
+function contentGenerator(gateway: ModelGateway, label: string, systemPrompt: string, requires?: Capability[]): ContentGenerator {
+  return createContentGenerator(gateway, label, systemPrompt, { isProduction: env.isProduction, requires });
 }
 
-/** Gemini grounding first; OpenRouter's web search as fallback (or alone when Gemini isn't configured). */
-function searchProvider(): SearchProvider {
-  const openRouter = env.openRouterApiKey ? new OpenRouterSearchProvider(env.openRouterApiKey, env.openRouterModel) : undefined;
-  if (env.geminiApiKey) {
-    const gemini = new GeminiSearchProvider(env.geminiApiKey, env.geminiModel);
-    return openRouter ? new FallbackSearchProvider(gemini, openRouter) : gemini;
+export interface SearchProviderSettings {
+  geminiApiKey?: string;
+  geminiModel: string;
+  openRouterApiKey?: string;
+  openRouterModel?: string;
+  /** Raw `AI_FALLBACK_PROVIDER`; `none` / `off` / `disabled` means a query must not go to a second provider. */
+  aiFallbackProvider?: string;
+  isProduction: boolean;
+}
+
+const fallbackDisabled = (raw: string | undefined) => ["none", "off", "disabled"].includes(raw?.trim().toLowerCase() ?? "");
+
+/**
+ * Gemini grounding first; OpenRouter's web search as fallback, or alone when Gemini isn't configured.
+ * Search is not routed through the gateway (only Gemini's grounding returns real sources), so it honours
+ * the one gateway switch that is about where a user's text may go: with `AI_FALLBACK_PROVIDER=none` a
+ * search query is never sent to OpenRouter while Gemini is configured.
+ */
+export function searchProvider(settings: SearchProviderSettings = env): SearchProvider {
+  const openRouter = settings.openRouterApiKey ? new OpenRouterSearchProvider(settings.openRouterApiKey, settings.openRouterModel) : undefined;
+  if (settings.geminiApiKey) {
+    const gemini = new GeminiSearchProvider(settings.geminiApiKey, settings.geminiModel);
+    return openRouter && !fallbackDisabled(settings.aiFallbackProvider) ? new FallbackSearchProvider(gemini, openRouter) : gemini;
   }
   if (openRouter) return openRouter;
-  return env.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();
+  return settings.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();
 }
 
 /**
@@ -52,7 +68,12 @@ function searchProvider(): SearchProvider {
  * status of each. Adding one is always this same pattern: write the SkillDefinition,
  * register it here, never touch the Orchestrator.
  */
-export function buildSkillRegistry(store: Store, githubAccess: GitHubAccessService, taskService: TaskService = new TaskService(store)): SkillRegistry {
+export function buildSkillRegistry(
+  store: Store,
+  githubAccess: GitHubAccessService,
+  gateway: ModelGateway = getModelGateway(),
+  taskService: TaskService = new TaskService(store),
+): SkillRegistry {
   const registry = new SkillRegistry();
 
   registry.register(
@@ -61,25 +82,25 @@ export function buildSkillRegistry(store: Store, githubAccess: GitHubAccessServi
     ),
   );
   registry.register(
-    createDocsSummarizeSkill(new AIContentSummarizer(contentGenerator("document summary", DOCS_SUMMARIZE_SYSTEM_PROMPT))),
+    createDocsSummarizeSkill(new AIContentSummarizer(contentGenerator(gateway, "document summary", DOCS_SUMMARIZE_SYSTEM_PROMPT))),
   );
   registry.register(createDeveloperAnalyzeRepoSkill(githubAccess));
-  registry.register(createDeveloperImplementSkill(githubAccess, contentGenerator("developer implementation", DEVELOPER_IMPLEMENT_SYSTEM_PROMPT)));
+  registry.register(createDeveloperImplementSkill(githubAccess, contentGenerator(gateway, "developer implementation", DEVELOPER_IMPLEMENT_SYSTEM_PROMPT, ["coding"])));
   registry.register(
-    createBusinessSocialPostSkill(contentGenerator("social media post", BUSINESS_SOCIAL_POST_SYSTEM_PROMPT)),
+    createBusinessSocialPostSkill(contentGenerator(gateway, "social media post", BUSINESS_SOCIAL_POST_SYSTEM_PROMPT)),
   );
   registry.register(
-    createBusinessCustomerReplySkill(contentGenerator("customer reply", BUSINESS_CUSTOMER_REPLY_SYSTEM_PROMPT)),
+    createBusinessCustomerReplySkill(contentGenerator(gateway, "customer reply", BUSINESS_CUSTOMER_REPLY_SYSTEM_PROMPT)),
   );
   registry.register(createBusinessDraftInvoiceSkill());
-  registry.register(createCreativeWriteMessageSkill(contentGenerator("message", CREATIVE_WRITE_MESSAGE_SYSTEM_PROMPT)));
-  registry.register(createCreativeWritePoemSkill(contentGenerator("poem", CREATIVE_WRITE_POEM_SYSTEM_PROMPT)));
-  registry.register(createCreativeBrainstormSkill(contentGenerator("brainstorm", CREATIVE_BRAINSTORM_SYSTEM_PROMPT)));
+  registry.register(createCreativeWriteMessageSkill(contentGenerator(gateway, "message", CREATIVE_WRITE_MESSAGE_SYSTEM_PROMPT)));
+  registry.register(createCreativeWritePoemSkill(contentGenerator(gateway, "poem", CREATIVE_WRITE_POEM_SYSTEM_PROMPT)));
+  registry.register(createCreativeBrainstormSkill(contentGenerator(gateway, "brainstorm", CREATIVE_BRAINSTORM_SYSTEM_PROMPT)));
   registry.register(createAutomationCreateWorkflowSkill(taskService));
   registry.register(createAutomationListWorkflowsSkill(taskService));
   registry.register(createAutomationCancelWorkflowSkill(taskService));
-  registry.register(createResearchCompareSkill(contentGenerator("comparison", RESEARCH_COMPARE_SYSTEM_PROMPT)));
-  registry.register(createResearchReportSkill(contentGenerator("research report", RESEARCH_REPORT_SYSTEM_PROMPT)));
-  registry.register(createResearchOutlineSkill(contentGenerator("research outline", RESEARCH_OUTLINE_SYSTEM_PROMPT)));
+  registry.register(createResearchCompareSkill(contentGenerator(gateway, "comparison", RESEARCH_COMPARE_SYSTEM_PROMPT)));
+  registry.register(createResearchReportSkill(contentGenerator(gateway, "research report", RESEARCH_REPORT_SYSTEM_PROMPT)));
+  registry.register(createResearchOutlineSkill(contentGenerator(gateway, "research outline", RESEARCH_OUTLINE_SYSTEM_PROMPT)));
   return registry;
 }

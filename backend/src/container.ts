@@ -1,6 +1,6 @@
 import { Orchestrator } from "./agents/orchestrator.js";
-import { getProvider, defaultModelConfig } from "./ai/providerFactory.js";
-import { GeminiTtsProvider } from "./ai/geminiTts.js";
+import { getModelGateway } from "./ai/providerFactory.js";
+import type { ModelGateway } from "./ai/modelGateway.js";
 import { AuthService } from "./auth/authService.js";
 import { GoogleIdTokenVerifier } from "./auth/googleIdToken.js";
 import { StoreEntitlementPort, StorePermissionPort, StoreUsagePort } from "./billing/entitlements.js";
@@ -8,6 +8,7 @@ import { PaymentService } from "./billing/paymentService.js";
 import { RazorpayClient } from "./billing/razorpay.js";
 import { FailClosedPlayBillingVerifier, GooglePlayBillingVerifier, MockPlayBillingVerifier } from "./billing/playBillingVerifier.js";
 import { env } from "./config/env.js";
+import { buildTtsProvider } from "./config/ttsConfig.js";
 import { GitHubAccessService, type GitHubClientFactory } from "./github/githubAccess.js";
 import { RealGitHubClient } from "./github/githubClient.js";
 import { ServerConfirmationService } from "./security/confirmationService.js";
@@ -34,6 +35,8 @@ function defaultStore(): Store {
 export interface ContainerOptions {
   /** Test seam: build GitHub clients without network access. Production uses RealGitHubClient. */
   githubClientFactory?: GitHubClientFactory;
+  /** Test seam: the AI Model Gateway. Production uses the process-wide one built from the environment. */
+  modelGateway?: ModelGateway;
   /** Test seam: a Google ID-token verifier with a fake key set. Production builds one from GOOGLE_CLIENT_ID. */
   googleVerifier?: GoogleIdTokenVerifier | null;
 }
@@ -49,9 +52,12 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     secretBox,
     options.githubClientFactory ?? ((token) => new RealGitHubClient(token, env.githubApiBaseUrl)),
   );
+  // Every AI call in the process goes through this one gateway (ai/modelGateway.ts). Building it
+  // validates the AI configuration, so a bad setting stops startup here with a clear message.
+  const modelGateway = options.modelGateway ?? getModelGateway();
   // One TaskService for the Tasks API and for the automation skills, so cancelling a workflow in chat also stops a step that is running.
   const taskService = new TaskService(store);
-  const registry = buildSkillRegistry(store, githubAccess, taskService);
+  const registry = buildSkillRegistry(store, githubAccess, modelGateway, taskService);
   const entitlementPort = new StoreEntitlementPort(store);
   const usagePort = new StoreUsagePort(store);
   const permissionPort = new StorePermissionPort(store);
@@ -61,8 +67,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
   const pipeline = new ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationService, undefined, {
     record: (record) => store.recordExecution(record),
   });
-  const provider = getProvider(defaultModelConfig);
-  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, provider, defaultModelConfig, store);
+  const orchestrator = new Orchestrator(registry, entitlementPort, pipeline, modelGateway, modelGateway.defaultModelConfig(), store);
   const authService = new AuthService(store);
   const googleVerifier = options.googleVerifier ?? (env.googleClientId ? new GoogleIdTokenVerifier(env.googleClientId, env.googleJwksUrl) : null);
   // A task step is an ordinary orchestrator turn, started by the user; the runner is not a second brain.
@@ -79,7 +84,9 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     ? new RazorpayClient(env.razorpayKeyId, env.razorpayKeySecret, env.razorpayWebhookSecret, env.razorpayApiBaseUrl)
     : null;
   const paymentService = new PaymentService(store, razorpay);
-  const ttsProvider = env.geminiApiKey ? new GeminiTtsProvider(env.geminiApiKey, env.geminiTtsModel, env.geminiTtsVoice) : null;
+  // Spoken replies: Edge's neural voices (tts/edgeTtsProvider.ts). It needs no key; nothing is
+  // contacted until a voice is asked for. `null` only when TTS_PROVIDER=none.
+  const ttsProvider = buildTtsProvider(env);
 
   return {
     store,
@@ -99,6 +106,7 @@ export function buildContainer(store: Store = defaultStore(), options: Container
     ttsProvider,
     confirmationService,
     githubAccess,
+    modelGateway,
   };
 }
 

@@ -219,36 +219,37 @@
     {
       "id": "camera",
       "name": "Camera",
-      "requiredAccess": "Take a photo using the phone's camera app.",
+      "requiredAccess": "Take a photo using the phone's camera app (Android), or the browser's camera after you tap Take a photo (web).",
       "androidPermissions": [],
       "androidSpecialAccess": [],
       "androidRequirements": "A camera app that handles ACTION_IMAGE_CAPTURE. ZARVIS does not declare the CAMERA permission.",
       "risk": "MEDIUM",
       "actionClass": "READ_ONLY",
-      "dataExposure": "Only a small preview of the photo you take is returned to ZARVIS; it is shown to you and not uploaded or stored.",
+      "dataExposure": "Android: only a small preview of the photo you take is returned to ZARVIS; it is shown to you and not uploaded or stored. Web: the photo you take is sent to the ZARVIS server, described by an AI model that can see images, and discarded; the picture itself is not stored.",
       "supportedActions": [
-        "Take a photo with the system camera and show a preview"
+        "Take a photo with the system camera and show a preview (Android)",
+        "Take a photo in the browser and have the AI describe it (web)"
       ],
       "unsupportedActions": [
         "Recording video",
         "Taking photos without you pressing the shutter",
-        "Uploading or analyzing the photo (later phase)"
+        "Android: uploading or analyzing the photo (later phase)"
       ],
       "confirmation": "NONE",
-      "denialBehavior": "If you cancel the camera, nothing is captured.",
+      "denialBehavior": "If you cancel the camera, or the browser's camera permission is denied, nothing is captured; you can attach a photo file instead.",
       "fallback": "Choose an existing photo instead.",
-      "revocationHandling": "No runtime permission is held; each capture is a separate user action.",
+      "revocationHandling": "Android holds no permission; each capture is a separate user action. On the web the browser keeps the camera permission for this site until you change it in the browser's site settings; ZARVIS switches the camera off as soon as the photo is taken or the window is closed.",
       "settingsDestination": "Not applicable — ZARVIS uses the system camera app.",
       "rationale": {
         "why": "To capture a photo when you ask.",
-        "data": "The photo you take, as a preview.",
+        "data": "The photo you take: a preview on Android; on the web the picture is sent to be described and is not stored.",
         "notAutomatic": "ZARVIS never opens the camera by itself and never takes a photo without you pressing the shutter.",
         "revoke": "There is no standing permission; just cancel the camera app."
       },
       "platforms": {
         "web": {
-          "status": "PLANNED",
-          "note": "Browser camera capture is not implemented."
+          "status": "PARTIAL",
+          "note": "Take a photo from the composer; the picture is described by the backend's vision model when a provider with vision is configured, and is not stored. Checked in a browser with a simulated camera, not yet on a real phone camera, so it is not marked WORKING."
         },
         "android": {
           "status": "PARTIAL",
@@ -305,23 +306,25 @@
       "androidRequirements": "Android Photo Picker (PickVisualMedia). No media permission.",
       "risk": "MEDIUM",
       "actionClass": "READ_ONLY",
-      "dataExposure": "Only the photo you pick.",
+      "dataExposure": "Only the photo you pick. Choosing one shows its details and sends nothing. Only when you ask ZARVIS to describe a photo is that one photo sent to the ZARVIS server, described by an AI model that can see images, and discarded; the picture itself is not stored.",
       "supportedActions": [
-        "Pick one photo and show its details"
+        "Pick one photo and show its details",
+        "Describe the one photo you pick, using an AI model that can see images"
       ],
       "unsupportedActions": [
         "Browsing your gallery",
         "Reading photos you did not pick",
-        "Uploading from Android (later phase)"
+        "Uploading a photo you did not ask ZARVIS to describe",
+        "Describing a photo you just took with the camera on Android (later phase)"
       ],
       "confirmation": "NONE",
       "denialBehavior": "If you cancel the picker, nothing is read.",
-      "fallback": "Describe the photo in text.",
+      "fallback": "Describe the photo in words instead.",
       "revocationHandling": "Access is per-pick; nothing persists.",
       "settingsDestination": "Not applicable — the system picker grants one-time access.",
       "rationale": {
         "why": "To work with a photo you choose.",
-        "data": "Only the photo you select.",
+        "data": "Only the photo you select. It leaves the phone only if you ask ZARVIS to describe it.",
         "notAutomatic": "ZARVIS cannot see your gallery.",
         "revoke": "Nothing to revoke — access ends with the action."
       },
@@ -332,7 +335,7 @@
         },
         "android": {
           "status": "PARTIAL",
-          "note": "System photo picker; shows the chosen photo's metadata only. Implemented in code; not yet verified on a real device, so it is not marked WORKING."
+          "note": "System photo picker; shows the chosen photo's details, and \"describe a photo\" sends that one photo to the server's vision model (when one is configured). Implemented in code; not yet verified on a real device, so it is not marked WORKING."
         }
       }
     },

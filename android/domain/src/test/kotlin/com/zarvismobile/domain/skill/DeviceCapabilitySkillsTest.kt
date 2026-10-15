@@ -94,4 +94,40 @@ class DeviceCapabilitySkillsTest {
         assertEquals("team meeting", title)
         assertTrue(success.userActionRequired && success.summary.contains("Tap Save"))
     }
+
+    // ---- Describe a photo: the one photo skill that sends data off the phone ----
+
+    private val picked = PickResult.Picked("beach.jpg", "image/jpeg", 120_000, "content://photo/9")
+
+    @Test
+    fun `describing a photo says what is in it and that it was sent to the server and not stored`() = runTest {
+        var sent: Pair<String, String?>? = null
+        val skill = DeviceCapabilitySkills.describePhoto({ picked }) { uri, mime -> sent = uri to mime; PhotoDescription.Described("  A beach at sunset.  ") }
+        val success = assertIs<SkillResult.Success>(skill.handler.execute(SkillInput(), context))
+        assertEquals("content://photo/9" to "image/jpeg", sent)
+        assertTrue(success.summary.contains("beach.jpg") && success.summary.contains("A beach at sunset."))
+        assertTrue(success.summary.contains("sent to ZARVIS's server") && success.summary.contains("not stored"))
+        assertEquals("A beach at sunset.", success.output["description"])
+        assertEquals("content://photo/9", success.evidence["pickerReturnedUri"])
+        assertEquals("photos", skill.capabilityId)
+    }
+
+    @Test
+    fun `nothing is sent when no photo was picked`() = runTest {
+        val cancelled = DeviceCapabilitySkills.describePhoto({ PickResult.Cancelled }) { _, _ -> error("must not be called") }
+        assertEquals("cancelled", assertIs<SkillResult.Failure>(cancelled.handler.execute(SkillInput(), context)).reason)
+        val unavailable = DeviceCapabilitySkills.describePhoto({ PickResult.Unavailable("This phone has no photo picker.") }) { _, _ -> error("must not be called") }
+        val failure = assertIs<SkillResult.Failure>(unavailable.handler.execute(SkillInput(), context))
+        assertEquals("unavailable", failure.reason)
+    }
+
+    @Test
+    fun `a failed description is reported honestly, with the reason the server gave`() = runTest {
+        val skill = DeviceCapabilitySkills.describePhoto({ picked }) { _, _ ->
+            PhotoDescription.Failed("image_analysis_unavailable", "No AI model that can see images is set up on the server.")
+        }
+        val failure = assertIs<SkillResult.Failure>(skill.handler.execute(SkillInput(), context))
+        assertEquals("image_analysis_unavailable", failure.reason)
+        assertTrue(failure.userMessage.contains("can see images"))
+    }
 }

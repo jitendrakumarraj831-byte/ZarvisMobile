@@ -168,8 +168,18 @@ environment that must work, including Preview:
 | `JWT_SECRET` | yes | The API refuses to start. `/health` → 500 `jwt_secret_missing_or_invalid`; every API call → 500. |
 | `POSTGRES_URL` (or `DATABASE_URL`) | yes on Vercel | An in-memory store per serverless instance; sessions are lost between requests. `/health` → `database: not_configured`. |
 | `POSTGRES_CA_CERT` or `POSTGRES_SSL_MODE=no-verify` | when the database's TLS certificate is not publicly trusted (for example a provider's own CA) | Certificate verification is on by default, so every query fails. `/health` → 503 `database: tls_certificate_untrusted`; guest sign-in → 500. |
-| `GEMINI_API_KEY` | for real AI, TTS and image analysis | AI features fail closed with honest errors; image upload → 503 `image_analysis_unavailable`. |
+| `GEMINI_API_KEY` | for real AI, image analysis and web search | Without it (and without OpenRouter) AI features fail closed with honest errors; image upload → 503 `image_analysis_unavailable`. |
+| `OPENROUTER_API_KEY` | optional: the AI fallback (and the only AI if there is no Gemini key) | No fallback; ZARVIS runs on Gemini alone. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) for `OPENROUTER_MODEL`, `OPENROUTER_MODEL_CAPABILITIES`, `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER` and the rest. |
+| `TTS_PROVIDER`, `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | optional: spoken replies use Edge's neural voices and need **no key**; these only change the voices (`TTS_PROVIDER=none` switches voice off, `gemini` uses Gemini's voice alone) | The defaults speak: `hi-IN-SwaraNeural` for Hindi, `en-US-JennyNeural` for English. A wrong value is logged and replaced by the default. See [AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14. |
+| `TTS_FALLBACK_PROVIDER`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | optional: when Edge's voice fails before any sound, Gemini's voice speaks instead, with the same `GEMINI_API_KEY` as chat (`TTS_FALLBACK_PROVIDER=none` turns that off, and keeps the text off Google) | No `GEMINI_API_KEY`: Edge alone, as before. Replies say which voice spoke in `X-Zarvis-TTS` / `X-Zarvis-TTS-Voice`. See [PRIVACY.md](./PRIVACY.md). |
 | `INTEGRATION_ENCRYPTION_KEY` | for GitHub connections in production | GitHub connection is reported unavailable. |
+
+Set the AI variables in **Production and Preview**, then redeploy (a changed variable applies to new
+deployments only). `/health` shows `provider` and, while a fallback provider is active,
+`aiFallback: true` and `aiFallbackTools` (`false` means the fallback model declares no tool support,
+so chat turns will not fall back; set `OPENROUTER_MODEL_CAPABILITIES=tools`); a present-but-invalid
+AI setting makes it answer 500 `ai_provider_config_invalid` (the function log names the variable).
+Local `.env` files are git-ignored.
 
 Check a deployment with `GET /health`. It never returns secrets; `database` is one of `ok`,
 `not_configured`, `tls_certificate_untrusted`, `auth_failed`, `unreachable`,
@@ -177,8 +187,63 @@ Check a deployment with `GET /health`. It never returns secrets; `database` is o
 
 The **Live preview API smoke test** workflow (`.github/workflows/preview-smoke.yml`) runs
 after each successful Vercel deployment. It calls `/health`, then guest sign-in, then
-`/auth/me`, then a "Hi" chat turn against the live URL. For a deployment behind Vercel
-Deployment Protection, add the repository secret `VERCEL_AUTOMATION_BYPASS_SECRET`.
+`/auth/me`, then a "Hi" chat turn against the live URL, and both voice endpoints (they must return
+real 24 kHz audio: that is the check that the voice works from where the API is deployed). For a
+deployment behind Vercel Deployment Protection, add the repository secret
+`VERCEL_AUTOMATION_BYPASS_SECRET`.
+
+## Voice quality
+
+Spoken replies are made on the server, not by the browser or the phone: `POST /api/v1/tts/synthesize`
+(a WAV file) and `POST /api/v1/tts/synthesize-stream` (24 kHz PCM) use Microsoft Edge's neural
+voices, which need no key or account (`backend/src/tts/`; the whole story is in
+[AI_MODEL_GATEWAY.md](./AI_MODEL_GATEWAY.md) §2.14). The voice is chosen from the text: Hindi in
+Devanagari, Hinglish, or English. Edge's service is unofficial, so a second voice stands behind it:
+if it fails before it has produced any sound, Gemini's speech model says the same text (needs
+`GEMINI_API_KEY`; the response header `X-Zarvis-TTS` says `gemini` or `gemini-stream` when that
+happened, and the live smoke test and the browser audit report it as a **WARN**, because the voice
+works but Edge does not accept that deployment). Gemini's speech quota is small and per key, so with
+Edge down only English, Hindi and Hinglish are asked of it by the smoke test; once the fallback has
+spoken and is then refused with 503 the remaining checks are WARN "not exercised" (like the AI's, when it
+is out of quota), and if the very first English check is refused too, both voices are down and it is a
+FAIL. The browser audit asks the voice for one sentence directly before any scenario, so a deployment
+where both voices refuse says so in one line (and the scenarios that need the voice are reported as not
+run) instead of through nine timeouts. The two live workflows take turns (one `concurrency` group)
+because they share that quota. The
+browser's own `speechSynthesis` is deliberately
+not a fallback, and the phone's built-in speaker (`NotificationSpeaker`, for spoken notifications) is
+a separate, on-device thing that this does not touch.
+
+## Photos and the camera
+
+ZARVIS can describe a picture; the AI Model Gateway sends it to whichever configured provider has a vision model
+(`backend/src/ai/modelGateway.ts` `analyzeImage`). With no such provider the upload answers `503 image_analysis_unavailable`
+and the client says so; nothing is invented. The picture itself is never stored: only the text that describes it is kept,
+and only if you save it to Files.
+
+- **Web:** the camera button in the Chat composer ("Take a photo") opens a camera sheet (`getUserMedia`), takes a JPEG no larger
+  than 1600 px on its longer side, and attaches it like any other image (`POST /api/v1/documents/extract`). The camera is
+  started only on that tap and switched off when the photo is taken, the sheet is closed, or the tab is hidden. Where the page
+  has no camera access (not https, an old browser) the button opens the phone's own camera through a file input. The page may
+  use the camera because `Permissions-Policy` allows it for this origin only (`backend/src/security/headers.ts`, mirrored in
+  `vercel.json`; a test keeps them equal). Checked by `web/e2e/camera.e2e.cjs` (Chromium with a simulated camera).
+- **Android:** the skill `photos.describe_photo` ("describe a photo") opens the system photo picker (no media permission),
+  shrinks the one photo you pick to a JPEG of at most 1600 px (`app/.../photo/ApiPhotoDescriber.kt`), and sends it to the same
+  endpoint. The answer is turned into words by `PhotoDescriptionResults` (pure Kotlin, unit-tested). A photo taken with the
+  camera app is still preview-only on Android; the registry says so.
+
+Neither has been run on a real phone, so the capability registry keeps both at `PARTIAL`, never `WORKING`.
+
+To try the real service from a machine that can reach it:
+`ZARVIS_LIVE_TESTS=1 npx vitest run test/live/edgeTts.live.test.ts` (in `backend/`), or run the
+**Edge TTS live probe** workflow. To check a deployed site (a Vercel preview, or production) the way
+a person uses it: `ONLY=tts BASE_URL=https://… node scripts/live-smoke.mjs` prints a VOICE SUMMARY
+(English, Hindi, Hinglish, streaming, unary, cancellation), and
+`ZARVIS_URL=https://… node web/e2e/tts-audit.cjs` plays spoken replies in a real Chromium (needs
+Playwright); both run by themselves after each Preview deployment. It is an unofficial service with no guarantee: if it stops working,
+the Gemini voice covers it (and the smoke test warns), `TTS_PROVIDER=none` makes the app say honestly
+that there is no voice, and the provider boundary (`backend/src/tts/provider.ts`) is where another
+voice would plug in.
 
 Reading its AI steps ("a turn that needs the AI model", "web search"). The API reports what the backend knows, not Google's HTTP status:
 
