@@ -61,6 +61,7 @@ the claim. Wherever the table says something is missing, the code was searched f
 | Negation, deferral or a question never opens the call flow ("call mat karo", "baad mein call karna", "call kaise karte hain") | fixed in P1 | `DeviceCommandGate.notACallRequest`; `HinglishDeviceCommandSafetyTest` | — |
 | Open an app in Hindi word order ("WhatsApp kholo", "YouTube chalu karo", "व्हाट्सएप खोलो") | reaches the Brain (no device action) | measured with the P1 probe | **P6** |
 | Turn off spoken notifications in Hinglish ("notification mat bolo") | reaches the Brain | measured with the P1 probe | **P6** |
+| Hinglish call with a two-word name ("Neha Test ko call karo"; "Neha ko call karo" works) | reaches the Brain: the gate looks for "call" only in the first three words | measured with the P1 probe | **P6** |
 | Global actions (home, back, recents, notifications, lock) with read-back verification | PARTIAL | `ZarvisAccessibilityService.kt` `performGlobal`; `SpecialAccessSkillsTest` | device verification |
 | Read the screen as text; tap one uniquely labelled button and check that the screen changed | PARTIAL | `AndroidScreenAccessPort.readScreen`, `tap` (password nodes skipped, sensitive apps refused) | multi-step flows → **P6** |
 | Brain plans a device action and the phone runs it | not built (the Brain only *describes* device skills) | `deviceCapabilitiesForPrompt` in `backend/src/capabilities/registry.ts` | **P6** |
@@ -125,6 +126,8 @@ found.
 - **Tests:** `backend/test/language/textLanguage.test.ts` (Hindi, Hinglish and English corpus; reply and voice agree),
   `backend/test/agents/memoryAndLogPrivacy.test.ts` (no memory written by chat or by an invented tool, isolation,
   nothing people say or save in the log), `android/domain/.../HinglishDeviceCommandSafetyTest.kt`.
+
+**Device check:** [ZARVIS_PHASE1_DEVICE_CHECKLIST.md](./ZARVIS_PHASE1_DEVICE_CHECKLIST.md) (Nothing Phone (2a)), not yet run.
 
 **Acceptance:** backend typecheck and tests, the web unit tests and the Android `:domain` tests all pass. Each new test
 was checked to fail without its fix. A mutation that logged the utterance turned the log test red.
