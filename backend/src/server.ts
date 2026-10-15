@@ -1,3 +1,4 @@
+import { stripNulFromRequest } from "./security/sanitizeText.js";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -113,6 +114,8 @@ export function buildServer(container: Container): Express {
     }
     jsonBody(req, res, next);
   });
+  // NUL (U+0000) in any string makes a Postgres insert fail with a 500; remove it before any route sees the request.
+  app.use(stripNulFromRequest);
 
   // `provider` names which AIProvider is active (e.g. "mock" or "google") — never a secret,
   // it just lets the web client honestly show what's actually answering (Product Principle

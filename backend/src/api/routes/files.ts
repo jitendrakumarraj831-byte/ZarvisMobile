@@ -3,6 +3,7 @@ import multer from "multer";
 import type { ModelGateway } from "../../ai/modelGateway.js";
 import { correlationOf, runWithCorrelation } from "../../observability/requestContext.js";
 import { logger } from "../../security/redact.js";
+import { decodeUploadFilename } from "../../security/sanitizeText.js";
 import type { Store } from "../../store/store.js";
 import type { WorkspaceService } from "../../workspace/workspaceService.js";
 import { fileSummaryView, fileView } from "../../workspace/views.js";
@@ -109,7 +110,7 @@ export function filesRouter(workspace: WorkspaceService, store: Store): Router {
         }
         const body = (req.body ?? {}) as { projectId?: unknown };
         const saved = await workspace.saveFile(req.auth!.accountId, {
-          name: file.originalname,
+          name: decodeUploadFilename(file.originalname),
           text: result.text,
           projectId: typeof body.projectId === "string" && body.projectId ? body.projectId : undefined,
           mimeType: file.mimetype,

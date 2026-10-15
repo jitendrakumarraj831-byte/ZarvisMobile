@@ -25,12 +25,13 @@ import com.zarvismobile.core.ui.theme.ZarvisSpacing
 /**
  * A compact glass-pill category chip — used for the Workspace screen's category rail
  * (MASTER_SPEC.md §22: Web, Documents, Developer, Business, Creative, Automation, Research).
- * 44dp tall (the website's chip height) so it is an easy thumb target, and announced as a button.
+ * 44dp tall (the website's chip height) so it is an easy thumb target, and announced as a button. Pass `onClick = null` for a chip that only
+ * shows information (a count, a status): it is then not clickable and not announced as a button.
  */
 @Composable
 fun ZarvisChip(
     label: String,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
 ) {
@@ -42,7 +43,7 @@ fun ZarvisChip(
             .clip(shape)
             .background(color = GlassColors.surfaceTintElevated, shape = shape)
             .border(width = 1.dp, color = GlassColors.border, shape = shape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(horizontal = ZarvisSpacing.md, vertical = 8.dp),
     ) {
         if (icon != null) {
