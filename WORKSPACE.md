@@ -23,7 +23,7 @@ This document says what the workspace is, what it stores, which endpoints it add
 | Activity | One merged feed of tool runs, tasks, files, notes, chats and projects | `/activity` |
 | Plans & Usage | Plan, credits, real usage by skill | `/usage/summary` |
 | Settings → Memory | What ZARVIS remembers: only what the user saved | `/memory`, `/notes` |
-| Capabilities | Every capability with WORKING / PARTIAL / PLANNED / UNSUPPORTED | `web/feature-pages.js` (unit tested) |
+| Capabilities | Every capability with WORKING / PARTIAL / PLANNED / UNSUPPORTED, the same catalogue as the Android app | `shared/feature-catalog.json`, embedded in `web/feature-pages.js` (unit tested) |
 | Settings → Integrations | GitHub from the server's own connection status, Calendar from the capability registry (Planned); there is no Gmail, Drive or Slack integration and the page says so | `/integrations/github`, `/capabilities` |
 | Settings → Voice | Spoken replies and voice, plus **What this browser can do**: secure context, speech recognition, microphone permission, audio playback, read from the browser | the browser's own APIs |
 

@@ -81,6 +81,7 @@ jobs:
           node --check web/i18n.js
           node --check web/sw.js
           node --check web/logic.js
+          node scripts/sync-feature-catalog.mjs --check
           node --test web/tests/*.test.js
 
   web-e2e:

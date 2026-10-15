@@ -1,6 +1,6 @@
 package com.zarvismobile.domain.presentation
 
-import java.io.File
+import com.zarvismobile.domain.capability.SharedFeatureCatalog
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -41,9 +41,9 @@ class WorkCatalogTest {
     }
 
     @Test
-    fun `every feature page an item opens exists in the feature catalog`() {
-        val source = File("../features/feature-home/src/main/kotlin/com/zarvismobile/feature/home/FeatureCatalog.kt").readText()
-        val ids = Regex("""\bid = "([a-z]+)"""").findAll(source).map { it.groupValues[1] }.toSet()
+    fun `every feature page an item opens exists in the shared feature catalogue`() {
+        // feature-home's FeatureCatalog lists exactly the pages of shared/feature-catalog.json.
+        val ids = SharedFeatureCatalog.default.pages.map { it.id }.toSet()
         assertTrue(ids.isNotEmpty(), "could not read the feature ids")
         for (item in items) item.featureId?.let { assertTrue(it in ids, "${item.id} opens feature page \"$it\", which does not exist (have $ids)") }
     }
