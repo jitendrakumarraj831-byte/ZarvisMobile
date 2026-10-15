@@ -82,6 +82,7 @@ jobs:
           node --check web/sw.js
           node --check web/logic.js
           node scripts/sync-feature-catalog.mjs --check
+          node scripts/generate-android-icons.mjs --check
           node --test web/tests/*.test.js
 
   web-e2e:

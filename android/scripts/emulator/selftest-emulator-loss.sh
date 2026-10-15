@@ -4,7 +4,7 @@
 # with no output. Passes only if verify.sh then
 #   - stops on its own, well inside the bound (no wait on the vanished device),
 #   - exits 3 (infrastructure failure: never 0, never reported as a ZARVIS test failure),
-#   - reports D as EMULATOR LOST and E and F as NOT RUN, and nothing after D as PASSED.
+#   - reports D as EMULATOR LOST and E, F and G as NOT RUN, and nothing after D as PASSED.
 set -uo pipefail
 API="${1:?api level}"
 BOUND_S="${ZARVIS_SELFTEST_BOUND_S:-1200}"
@@ -25,11 +25,12 @@ check "the fault was injected in phase D" 'grep -q "FAULT INJECTION" "$LOG"'
 check "D is reported as EMULATOR LOST" 'grep -q "D EMULATOR LOST" "$LOG"'
 check "E is NOT RUN" 'grep -q "E NOT RUN: the device was lost during D" "$LOG"'
 check "F is NOT RUN" 'grep -q "F NOT RUN: the device was lost during D" "$LOG"'
+check "G is NOT RUN" 'grep -q "G NOT RUN: the device was lost during D" "$LOG"'
 check "the summary says EMULATOR LOST for D" 'grep -q "  D: EMULATOR LOST" "$LOG"'
 # Captured first: `! sed | grep -q` under pipefail would pass if sed got SIGPIPE.
 # shellcheck disable=SC2034  # read inside the eval of check() below
 after_d=$(sed -n "/instrumentation D/,\$p" "$LOG")
-check "nothing after D is reported as passed" '! grep -qE "\] +(D|E|F)(: PASSED| PASSED)|all phases passed|every runnable phase passed" <<< "$after_d"'
+check "nothing after D is reported as passed" '! grep -qE "\] +(D|E|F|G)(: PASSED| PASSED)|all phases passed|every runnable phase passed" <<< "$after_d"'
 check "host diagnostics were captured" '[ -s build/emulator-evidence/infra-D.txt ]'
 [ "$ok" = 1 ] && { echo "[selftest] RESULT: harness terminates and classifies a lost emulator correctly"; exit 0; }
 echo "[selftest] RESULT: harness self-test FAILED"; exit 1

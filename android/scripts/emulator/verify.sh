@@ -325,6 +325,14 @@ run_classes E "$APP.SettingsUiTest"
 # F: one user turn = one execution across Activity recreation, rotation and background; and the Chat screen follows the one active conversation
 # (a chat or a New chat started elsewhere), against the real backend.
 run_classes F "$APP.ConversationLifecycleTest,$APP.ChatSyncTest"
+# G: design evidence. The app shell on every tab, light + English and dark + Hindi, photographed by the app itself and pulled into
+# screenshots/ for the uploaded artifact. It checks only that each tab is reachable and photographed, not how it looks.
+run_classes G "$APP.ShellScreenshotTest"
+if [ -z "$DEVICE_LOST" ]; then
+  mkdir -p "$OUT/screenshots"
+  adbt 120 pull "/sdcard/Android/data/$APP/files/zarvis-screenshots/." "$OUT/screenshots/" >/dev/null 2>&1 || log "screenshots: pull failed"
+  log "screenshots: $(ls "$OUT/screenshots" 2>/dev/null | wc -l) file(s)"
+fi
 
 [ -n "$GEO_PID" ] && kill "$GEO_PID" 2>/dev/null || true
 sleep 1

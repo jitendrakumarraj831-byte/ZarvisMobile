@@ -6,12 +6,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,6 +21,7 @@ import androidx.navigation.navArgument
 import com.zarvismobile.core.ui.components.GlassBottomBar
 import com.zarvismobile.core.ui.components.ZarvisNavItem
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.presentation.WorkScreen
 import com.zarvismobile.feature.conversation.ConversationScreen
@@ -64,11 +59,12 @@ object Routes {
 /** The five tabs (blueprint §4), named in the app's language. */
 @Composable
 private fun bottomNavItems(): List<ZarvisNavItem> = listOf(
-    ZarvisNavItem(Routes.HOME, tr(UiString.NAV_HOME), Icons.Filled.Home),
-    ZarvisNavItem(Routes.CHAT, tr(UiString.NAV_CHAT), Icons.Filled.ChatBubble),
-    ZarvisNavItem(Routes.CAPABILITIES, tr(UiString.NAV_CAPABILITIES), Icons.Filled.Explore),
-    ZarvisNavItem(Routes.ACTIVITY, tr(UiString.NAV_TASKS), Icons.AutoMirrored.Filled.List),
-    ZarvisNavItem(Routes.MORE, tr(UiString.NAV_WORK), Icons.Filled.Apps),
+    // The website's icons (core-ui ZarvisIcons, generated from web/index.html), so the two apps share one icon language.
+    ZarvisNavItem(Routes.HOME, tr(UiString.NAV_HOME), ZarvisIcons.Home),
+    ZarvisNavItem(Routes.CHAT, tr(UiString.NAV_CHAT), ZarvisIcons.Chat),
+    ZarvisNavItem(Routes.CAPABILITIES, tr(UiString.NAV_CAPABILITIES), ZarvisIcons.Grid),
+    ZarvisNavItem(Routes.ACTIVITY, tr(UiString.NAV_TASKS), ZarvisIcons.Task),
+    ZarvisNavItem(Routes.MORE, tr(UiString.NAV_WORK), ZarvisIcons.Folder),
 )
 
 /** The screen each Work card opens. Every route is reachable from the Work tab (NavigationReachabilityTest checks this). */

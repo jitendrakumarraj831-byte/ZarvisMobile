@@ -20,11 +20,11 @@ private val DarkColors = darkColorScheme(
     onPrimary = ZarvisSpaceBlack,
     primaryContainer = Color(0xFF26307A),
     onPrimaryContainer = Color(0xFFE1E6FF),
-    secondary = Color(0xFFB49BFF),
+    secondary = Color(0xFFC9B8FF),
     onSecondary = ZarvisSpaceBlack,
     secondaryContainer = Color(0xFF362C70),
     onSecondaryContainer = Color(0xFFE9E1FF),
-    tertiary = Color(0xFFF58FC4),
+    tertiary = Color(0xFFF9A8D4),
     onTertiary = ZarvisSpaceBlack,
     background = ZarvisSpaceBlack,
     onBackground = ZarvisTextPrimaryDark,
@@ -33,11 +33,11 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = ZarvisSurfaceDarkElevated,
     onSurfaceVariant = ZarvisTextSecondaryDark,
     surfaceContainerLowest = ZarvisSpaceBlack,
-    surfaceContainerLow = Color(0xFF0B0F2B),
+    surfaceContainerLow = Color(0xFF0B1029),
     surfaceContainer = ZarvisSurfaceDark,
     surfaceContainerHigh = ZarvisSurfaceDarkElevated,
     surfaceContainerHighest = ZarvisSurfaceDarkHighest,
-    outline = Color(0xFF6B76AD),
+    outline = Color(0xFF6E79B3),
     outlineVariant = ZarvisBorderDark,
     error = ZarvisErrorDark,
     onError = ZarvisSpaceBlack,
@@ -48,13 +48,13 @@ private val DarkColors = darkColorScheme(
 private val LightColors = lightColorScheme(
     primary = ZarvisAccentIndigoLight,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE3E4FF),
-    onPrimaryContainer = Color(0xFF1B1D75),
-    secondary = Color(0xFF6D4ADF),
+    primaryContainer = Color(0xFFE2E5FF),
+    onPrimaryContainer = Color(0xFF17206B),
+    secondary = ZarvisActionViolet,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFEBE4FF),
-    onSecondaryContainer = Color(0xFF2E1A78),
-    tertiary = Color(0xFFBE3A86),
+    secondaryContainer = Color(0xFFEDE5FF),
+    onSecondaryContainer = Color(0xFF2E1065),
+    tertiary = ZarvisActionPink,
     onTertiary = Color.White,
     background = ZarvisSurfaceLight,
     onBackground = ZarvisTextPrimaryLight,
@@ -63,16 +63,16 @@ private val LightColors = lightColorScheme(
     surfaceVariant = ZarvisSurfaceLightVariant,
     onSurfaceVariant = ZarvisTextSecondaryLight,
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFF8F7FF),
+    surfaceContainerLow = Color(0xFFF9FAFF),
     surfaceContainer = ZarvisSurfaceLightVariant,
-    surfaceContainerHigh = Color(0xFFECEAFB),
+    surfaceContainerHigh = Color(0xFFEDEFFD),
     surfaceContainerHighest = ZarvisSurfaceLightHighest,
     outline = Color(0xFF6B7194),
     outlineVariant = ZarvisBorderLight,
     error = ZarvisErrorLight,
     onError = Color.White,
-    errorContainer = Color(0xFFFFE1E6),
-    onErrorContainer = Color(0xFF6B0F24),
+    errorContainer = Color(0xFFFDE4E1),
+    onErrorContainer = Color(0xFF6B0F14),
 )
 
 @Composable
@@ -99,6 +99,12 @@ fun zarvisReduceMotion(): Boolean {
     return runCatching { Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false)
 }
 
+/** Decoration only (rings, edges, progress, the orb): cyan → blue → violet → pink, the website's `--grad-aurora`. Never under text. */
 fun zarvisAuroraBrush() = Brush.linearGradient(
-    colors = listOf(ZarvisAccentCyan, ZarvisAccentIndigo, ZarvisAccentViolet),
+    colors = listOf(ZarvisAccentCyan, ZarvisAccentBlue, ZarvisAccentViolet, ZarvisAccentPink),
+)
+
+/** The fill under white text and icons (primary buttons, the sent message): blue → violet → pink, the website's `--grad`. */
+fun zarvisActionBrush() = Brush.linearGradient(
+    colors = listOf(ZarvisActionBlue, ZarvisActionViolet, ZarvisActionPink),
 )

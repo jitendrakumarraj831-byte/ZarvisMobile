@@ -1,6 +1,8 @@
 package com.zarvismobile.core.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -8,17 +10,27 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.zarvismobile.core.ui.theme.zarvisActionBrush
 
+/**
+ * The main action: white text on the blue → violet → pink action gradient (the website's `--grad`, at least 4.5:1 at every stop),
+ * in both themes. Disabled, it falls back to Material's flat disabled colours, so it never looks pressable when it is not.
+ * The ripple is clipped to the same shape as the gradient.
+ */
 @Composable
 fun ZarvisPrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val shape = MaterialTheme.shapes.medium
+    // 48dp tall, so Material does not pad the button out to the touch target and the gradient covers exactly the pressable area.
+    val sized = modifier.heightIn(min = 48.dp)
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = if (enabled) sized.background(zarvisActionBrush(), shape) else sized,
         enabled = enabled,
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
-        shape = MaterialTheme.shapes.medium,
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        shape = shape,
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
     ) { Text(text) }
 }
 
