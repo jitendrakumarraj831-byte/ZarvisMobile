@@ -9,7 +9,10 @@ import { DEFAULT_ENGLISH_VOICE, DEFAULT_HINDI_VOICE, isVoiceName, type VoiceSett
 export interface TtsConfigInput {
   /** `edge` (default), `gemini` (Gemini's voice only) or `none`. */
   ttsProvider?: string;
-  /** What speaks when Edge fails before any sound: `gemini` (default, needs GEMINI_API_KEY) or `none`. */
+  /**
+   * What speaks when the main voice fails before any sound. With `TTS_PROVIDER=edge` (default): `gemini` (default, needs
+   * GEMINI_API_KEY) or `none`. With `TTS_PROVIDER=gemini`: `edge` or `none` (default: Gemini alone, as it always was).
+   */
   ttsFallbackProvider?: string;
   ttsHindiVoice?: string;
   ttsEnglishVoice?: string;
@@ -22,8 +25,11 @@ export interface TtsConfigInput {
 
 export interface ResolvedTtsConfig {
   provider: "edge" | "gemini" | "none";
-  /** Only used with `provider: "edge"`. Whether it is available also depends on GEMINI_API_KEY (see `buildTtsProvider`). */
-  fallback: "gemini" | "none";
+  /**
+   * The second voice: `gemini` behind Edge, `edge` behind Gemini, or `none`. Never the same engine as `provider`.
+   * Whether it is available also depends on GEMINI_API_KEY (see `buildTtsProvider`).
+   */
+  fallback: "gemini" | "edge" | "none";
   voices: VoiceSettings;
   gemini: { model: string; voice: string };
 }
@@ -51,10 +57,13 @@ export function resolveTtsConfig(input: TtsConfigInput): ResolvedTtsConfig {
   if (wanted === "none" || wanted === "gemini") provider = wanted;
   else if (wanted && wanted !== "edge") logger.warn('TTS_PROVIDER must be "edge", "gemini" or "none"; using "edge"');
 
+  // The second voice is the other engine: Gemini behind Edge (the default), or, if Gemini is the main voice, Edge behind
+  // it only when asked for. The default for a Gemini-only deployment stays "none": its text then goes nowhere else.
   const fallbackWanted = input.ttsFallbackProvider?.trim().toLowerCase();
-  let fallback: ResolvedTtsConfig["fallback"] = "gemini";
-  if (fallbackWanted === "none") fallback = "none";
-  else if (fallbackWanted && fallbackWanted !== "gemini") logger.warn('TTS_FALLBACK_PROVIDER must be "gemini" or "none"; using "gemini"');
+  const other = provider === "gemini" ? "edge" : "gemini";
+  let fallback: ResolvedTtsConfig["fallback"] = provider === "gemini" ? "none" : "gemini";
+  if (fallbackWanted === "none" || fallbackWanted === other) fallback = fallbackWanted;
+  else if (fallbackWanted) logger.warn(`TTS_FALLBACK_PROVIDER must be "${other}" or "none" with TTS_PROVIDER="${provider}"; using "${fallback}"`);
 
   const hindi = voiceSetting("TTS_HI_VOICE", input.ttsHindiVoice, DEFAULT_HINDI_VOICE);
   const english = voiceSetting("TTS_EN_VOICE", input.ttsEnglishVoice, DEFAULT_ENGLISH_VOICE);
@@ -78,6 +87,7 @@ export function resolveTtsConfig(input: TtsConfigInput): ResolvedTtsConfig {
 /**
  * The voice for this configuration; `null` when spoken replies are switched off (the route then says so with a 503).
  * By default Edge speaks and, when GEMINI_API_KEY is set, Gemini's voice answers if Edge fails before any sound.
+ * With TTS_PROVIDER=gemini Gemini speaks, and Edge answers if it fails before any sound only when TTS_FALLBACK_PROVIDER=edge.
  */
 export function buildTtsProvider(input: TtsConfigInput): TtsProvider | null {
   const config = resolveTtsConfig(input);
@@ -89,7 +99,7 @@ export function buildTtsProvider(input: TtsConfigInput): TtsProvider | null {
   const edge = new EdgeTtsProvider({ voices: config.voices });
 
   if (config.provider === "gemini") {
-    if (gemini) return gemini;
+    if (gemini) return config.fallback === "edge" ? new FallbackTtsProvider(gemini, edge) : gemini;
     logger.warn('TTS_PROVIDER="gemini" needs GEMINI_API_KEY; using "edge"');
     return edge;
   }

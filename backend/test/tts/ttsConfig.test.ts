@@ -55,6 +55,19 @@ describe("resolveTtsConfig", () => {
     expect(String(warn.mock.calls[0]![0])).toContain("TTS_FALLBACK_PROVIDER");
   });
 
+  it("with Gemini as the main voice the second voice is Edge only when asked for; the default stays Gemini alone", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    expect(resolveTtsConfig({ ttsProvider: "gemini" }).fallback).toBe("none");
+    expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: " Edge " }).fallback).toBe("edge");
+    expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: "none" }).fallback).toBe("none");
+    expect(warn).not.toHaveBeenCalled();
+    // "gemini" behind Gemini, and "edge" behind Edge, make no sense: reported, and the default for that main voice is used.
+    expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: "gemini" }).fallback).toBe("none");
+    expect(resolveTtsConfig({ ttsProvider: "edge", ttsFallbackProvider: "edge" }).fallback).toBe("gemini");
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(String(warn.mock.calls[0]![0])).toContain('TTS_FALLBACK_PROVIDER must be "edge" or "none" with TTS_PROVIDER="gemini"');
+  });
+
   it("reads Gemini's voice model and voice, replaces the model Google retired, and reports a voice name that is not one", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     expect(resolveTtsConfig({ geminiTtsModel: "gemini-3.8-flash-tts", geminiTtsVoice: "Puck" }).gemini).toEqual({ model: "gemini-3.8-flash-tts", voice: "Puck" });
@@ -111,6 +124,15 @@ describe("buildTtsProvider", () => {
     expect(buildTtsProvider({ geminiApiKey: "test-key-1234567890", ttsFallbackProvider: "none" })).toBeInstanceOf(EdgeTtsProvider);
     expect(buildTtsProvider({})).toBeInstanceOf(EdgeTtsProvider);
     expect(buildTtsProvider({ geminiApiKey: "   " })).toBeInstanceOf(EdgeTtsProvider);
+  });
+
+  it("puts Edge behind Gemini's voice when asked, and reports itself as Gemini", () => {
+    const provider = buildTtsProvider({ ttsProvider: "gemini", ttsFallbackProvider: "edge", geminiApiKey: "test-key-1234567890", geminiTtsVoice: "Puck" });
+    expect(provider).toBeInstanceOf(FallbackTtsProvider);
+    expect(provider!.id).toBe("gemini");
+    expect(provider!.getDefaultVoice()).toBe("gemini:Puck");
+    // Without the setting, Gemini speaks alone and the text goes nowhere else.
+    expect(buildTtsProvider({ ttsProvider: "gemini", geminiApiKey: "test-key-1234567890" })).toBeInstanceOf(GeminiTtsProvider);
   });
 
   it("builds Gemini's voice alone when asked, and says so (and uses Edge) when it has no key to do it with", () => {

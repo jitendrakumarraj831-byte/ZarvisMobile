@@ -459,7 +459,9 @@ crowd of texts sent to Google), and never a cancellation) `FallbackTtsProvider` 
 never back, never in the middle of a reply (two voices are not mixed, and nothing is said twice), and
 for the WAV endpoint also after a part had started, because nothing has left the server yet. It needs
 `GEMINI_API_KEY` (the one chat uses) and is off with `TTS_FALLBACK_PROVIDER=none` or without the key;
-`TTS_PROVIDER=gemini` uses it alone. Gemini is asked with the shared retry policy (`ai/geminiErrors.ts`):
+`TTS_PROVIDER=gemini` makes it the main voice instead: alone by default (the text goes nowhere else),
+or with Edge behind it when `TTS_FALLBACK_PROVIDER=edge` (the same one-hop rules, the other way round:
+Gemini's free speech quota is small, and Edge then speaks when it is spent). Gemini is asked with the shared retry policy (`ai/geminiErrors.ts`):
 a temporary failure is retried briefly, a daily quota never, and a missing model or an exhausted one
 moves to the next speech model (`GEMINI_TTS_MODEL`, then `gemini-3.8-flash-tts`, then
 `gemini-3.8-flash-lite-tts`; speech quotas are per model). Its audio must be 24 kHz 16-bit mono like
@@ -611,7 +613,8 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 | `AI_FALLBACK_PROVIDER` | the other provider | `openrouter`, `gemini` or `none`; must differ from the primary |
 | `AI_QUOTA_COOLDOWN_MS` | `300000` | how long an exhausted provider is skipped; `0` = never |
 | `AI_MODEL_CATALOG_JSON` | none | describes several models (below) |
-| `TTS_PROVIDER` | `edge` | spoken replies: `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_PROVIDER` | `edge` | spoken replies: `edge`, `gemini` (Gemini's voice is the main one; needs `GEMINI_API_KEY`) or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_FALLBACK_PROVIDER` | `gemini` with `edge`; `none` with `gemini` | the second voice, asked only when the first fails before any sound: `gemini` behind Edge, `edge` behind Gemini, or `none` |
 | `TTS_HI_VOICE` | `hi-IN-SwaraNeural` | the voice for Hindi (Devanagari) text |
 | `TTS_EN_VOICE` | `en-US-JennyNeural` | the voice for English text |
 | `TTS_HINGLISH_VOICE` | the Hindi voice | the voice for Hindi written in Latin letters |

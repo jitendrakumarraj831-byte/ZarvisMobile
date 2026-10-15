@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../../src/security/redact.js";
 import { FallbackTtsProvider } from "../../src/tts/fallbackTtsProvider.js";
+import { GeminiTtsProvider } from "../../src/tts/geminiTtsProvider.js";
 import { TtsProviderError, type TtsErrorKind, type TtsOptions } from "../../src/tts/provider.js";
 import { FakeTtsProvider, parseWav, pcmTone } from "./helpers.js";
 
@@ -138,5 +139,50 @@ describe("FallbackTtsProvider", () => {
     expect(Buffer.concat(await collect(voice.synthesizeStream("one"))).equals(geminiTone)).toBe(true);
     expect(Buffer.concat(await collect(voice.synthesizeStream("two"))).equals(edgeTone)).toBe(true);
     expect(second.calls).toHaveLength(1);
+  });
+});
+
+describe("Gemini as the main voice with Edge behind it (TTS_PROVIDER=gemini, TTS_FALLBACK_PROVIDER=edge)", () => {
+  const dailyQuota = JSON.stringify({
+    error: { code: 429, status: "RESOURCE_EXHAUSTED", details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] },
+  });
+  const speech = (pcm: Buffer) =>
+    new Response(`data: ${JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/L16;codec=pcm;rate=24000", data: pcm.toString("base64") } }] } }] })}\n\n`, { status: 200 });
+
+  function voiceWith(gemini: () => Response) {
+    // The real Gemini provider; only the network is fake.
+    const googleCalls: string[] = [];
+    const google = new GeminiTtsProvider({
+      apiKey: "test-key-1234567890",
+      model: "gemini-3.8-flash-lite-tts",
+      voice: "Kore",
+      retryDelayMs: () => null,
+      fetchImpl: (async (url: string | URL | Request) => {
+        googleCalls.push(String(url));
+        return gemini();
+      }) as typeof fetch,
+    });
+    const edge = new FakeTtsProvider({ pcm: [edgeTone] });
+    edge.id = "edge";
+    return { voice: new FallbackTtsProvider(google, edge), edge, googleCalls };
+  }
+
+  it("speaks with Gemini's voice, as before, and never asks Edge", async () => {
+    const { voice, edge, googleCalls } = voiceWith(() => speech(geminiTone));
+    expect(voice.id).toBe("gemini");
+    expect(voice.getDefaultVoice()).toBe("gemini:Kore");
+    expect(Buffer.concat(await collect(voice.synthesizeStream("Hello"))).equals(geminiTone)).toBe(true);
+    expect(googleCalls).toHaveLength(1);
+    expect(edge.calls).toHaveLength(0);
+  });
+
+  it("when Gemini's free daily quota is spent on every speech model, Edge speaks the reply instead of the voice going silent", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const { voice, edge, googleCalls } = voiceWith(() => new Response(dailyQuota, { status: 429 }));
+    expect(Buffer.concat(await collect(voice.synthesizeStream("Hello"))).equals(edgeTone)).toBe(true);
+    expect(parseWav(await voice.synthesize("Hello")).pcm.equals(edgeTone)).toBe(true);
+    // Both speech models were tried (their quotas are separate) before Edge was asked, and then only once per request.
+    expect(googleCalls.length).toBeGreaterThanOrEqual(2);
+    expect(edge.calls.map((call) => call.kind)).toEqual(["stream", "unary"]);
   });
 });

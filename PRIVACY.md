@@ -89,7 +89,9 @@ receive a request.
   same key as chat (Google then sees that text, as it does for chat). The response says which voice
   spoke (`X-Zarvis-TTS: gemini`, voice `gemini:Kore`) and the server log records the fall back, never
   the text. To keep the text on Microsoft's service only, set `TTS_FALLBACK_PROVIDER=none`; to use
-  only Google's voice, `TTS_PROVIDER=gemini`. `TTS_PROVIDER=none` switches spoken replies off. The
+  only Google's voice, `TTS_PROVIDER=gemini` (the text then goes nowhere else). With `TTS_PROVIDER=gemini`
+  and `TTS_FALLBACK_PROVIDER=edge`, Google's voice speaks first and, when it fails before any sound
+  (for example its free quota is spent), the same text goes to Microsoft's service instead. `TTS_PROVIDER=none` switches spoken replies off. The
   server log records the engine, the voice and sizes, never the text or the audio, and no spoken
   audio is stored.
 - Provider keys never leave the server and never appear in a log (see SECURITY.md).
