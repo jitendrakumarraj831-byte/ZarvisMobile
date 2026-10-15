@@ -9,7 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.i18n.tr
-import com.zarvismobile.core.ui.theme.RiskColors
+import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.domain.presentation.UiString
 
 /** LOW/MEDIUM/HIGH risk indicator — shown wherever an action's risk is surfaced (MASTER_SPEC.md §21). */
@@ -29,12 +29,13 @@ enum class RiskBadgeLevel(val label: String, val uiString: UiString) {
     }
 }
 
+/** Colour is never the only signal (the level is spelled out), and the colours are the theme's text-safe ones: the bright dark-page greens and ambers are under 2:1 on the light page. */
 @Composable
 fun RiskBadge(level: RiskBadgeLevel, modifier: Modifier = Modifier) {
     val color = when (level) {
-        RiskBadgeLevel.LOW -> RiskColors.low
-        RiskBadgeLevel.MEDIUM -> RiskColors.medium
-        RiskBadgeLevel.HIGH, RiskBadgeLevel.VERY_HIGH -> RiskColors.high
+        RiskBadgeLevel.LOW -> ZarvisAccents.success
+        RiskBadgeLevel.MEDIUM -> ZarvisAccents.warning
+        RiskBadgeLevel.HIGH, RiskBadgeLevel.VERY_HIGH -> ZarvisAccents.danger
     }
     Text(
         text = tr(level.uiString),

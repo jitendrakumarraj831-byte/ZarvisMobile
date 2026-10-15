@@ -14,7 +14,7 @@
   "use strict";
 
   const L = window.ZarvisLogic;
-  const KEYS = { chats: "zarvis.chats", hidden: "zarvis.chatsHidden", draft: "zarvis.draft", textSize: "zarvis.chatText", rail: "zarvis.sidebarRail" };
+  const KEYS = { chats: "zarvis.chats", hidden: "zarvis.chatsHidden", draft: "zarvis.draft", textSize: "zarvis.chatText", rail: "zarvis.sidebarRail", perf: "zarvis.perf" };
   const SVG_NS = "http://www.w3.org/2000/svg";
   const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
@@ -914,6 +914,32 @@
     });
   }
 
+  // Settings > Appearance > Performance. theme-init.js already applied the saved choice before the first paint; this draws the
+  // control, saves a new choice and says what is in effect right now (Automatic can mean either).
+  function applyPerf(mode) {
+    const value = ["auto", "lite", "full"].includes(mode) ? mode : "auto";
+    const lite = window.ZarvisPerf ? window.ZarvisPerf.apply(value) : document.documentElement.dataset.perf === "lite";
+    for (const seg of document.querySelectorAll("#perf-mode [data-perf-mode]")) {
+      const active = seg.dataset.perfMode === value;
+      seg.classList.toggle("active", active);
+      seg.setAttribute("aria-pressed", String(active));
+    }
+    const status = $("perf-status");
+    if (status) status.textContent = lite ? "Lightweight mode is on right now." : "Full effects are on right now.";
+  }
+
+  function setupPerf() {
+    applyPerf(store("get", KEYS.perf));
+    $("perf-mode").addEventListener("click", (event) => {
+      const seg = event.target.closest("[data-perf-mode]");
+      if (!seg) return;
+      applyPerf(seg.dataset.perfMode);
+      store("set", KEYS.perf, seg.dataset.perfMode);
+    });
+    // Automatic follows the connection: when the browser reports a change, the line above must not go stale.
+    window.navigator.connection?.addEventListener?.("change", () => applyPerf(store("get", KEYS.perf)));
+  }
+
   // ---------- tab title while ZARVIS is working ----------
 
   const BUSY_MARK = "● ";
@@ -954,6 +980,7 @@
       ["scroll", setupScrollTop],
       ["sidebar", setupSidebar],
       ["text size", setupTextSize],
+      ["performance", setupPerf],
     ];
     // One part failing must never take the others (or the rest of the app) down with it.
     for (const [name, setup] of parts) {

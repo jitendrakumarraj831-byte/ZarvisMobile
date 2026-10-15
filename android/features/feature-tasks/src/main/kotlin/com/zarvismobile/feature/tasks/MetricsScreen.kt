@@ -31,7 +31,7 @@ import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
-import com.zarvismobile.core.ui.theme.GlowColors
+import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.TaskDto
 import com.zarvismobile.domain.presentation.StatusLabels
@@ -127,7 +127,8 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
 
 @Composable
 private fun LatencyRow(metric: TurnMetric) {
-    val glow = if (metric.success) GlowColors.success else GlowColors.error
+    // Text colour, so the theme's readable green and red, not the bright dark-page glows (1.8:1 on the light page).
+    val glow = if (metric.success) ZarvisAccents.success else ZarvisAccents.danger
     GlassSurface(modifier = Modifier.fillMaxWidth(), contentPadding = ZarvisSpacing.sm) {
         Row(
             modifier = Modifier.fillMaxWidth(),

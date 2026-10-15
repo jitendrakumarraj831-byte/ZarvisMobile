@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -24,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +35,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -66,6 +74,10 @@ fun ConversationScreen(
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    // derivedStateOf: the screen recomposes when the keyboard opens or closes, not on every frame of its slide.
+    val keyboardOpen by remember { derivedStateOf { imeInsets.getBottom(density) > 0 } }
 
     LaunchedEffect(initialText, submitInitialText, listenOnStart) {
         // Runs again after rotation / process recreation; the ViewModel handles it only once.
@@ -124,7 +136,8 @@ fun ConversationScreen(
                 Text(
                     tr(UiString.CHAT_TITLE),
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f).padding(start = if (onBack == null) ZarvisSpacing.sm else 0.dp),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f).padding(start = if (onBack == null) ZarvisSpacing.sm else 0.dp).semantics { heading() },
                 )
                 // Always enabled: after a failed restore the screen can look empty while the server still holds the conversation, and the user must be able to leave it.
                 TextButton(onClick = viewModel::startNewConversation) { Text(tr(UiString.CHAT_NEW)) }
@@ -182,14 +195,18 @@ fun ConversationScreen(
                     StatusPulseBadge(label = statusText(uiState.voiceState), glowColor = GlowColorsFor(uiState.voiceState))
                 }
                 uiState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                Box(contentAlignment = Alignment.Center) {
-                    AiOrb(
-                        state = uiState.voiceState,
-                        size = 72.dp,
-                        onClick = {
-                            if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening()
-                        },
-                    )
+                // While the keyboard is up the orb is only dead space between the messages and the keys (on a 640dp phone it left the messages
+                // under two lines); it comes back when the keyboard closes, and stays whenever it is showing a live state.
+                if (!keyboardOpen || uiState.voiceState != VoiceState.IDLE) {
+                    Box(contentAlignment = Alignment.Center) {
+                        AiOrb(
+                            state = uiState.voiceState,
+                            size = 72.dp,
+                            onClick = {
+                                if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening()
+                            },
+                        )
+                    }
                 }
                 ZarvisComposer(
                     value = uiState.composerText,

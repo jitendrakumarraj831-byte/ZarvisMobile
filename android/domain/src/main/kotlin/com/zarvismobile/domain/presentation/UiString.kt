@@ -234,12 +234,12 @@ enum class UiString(val en: String, val hi: String) {
     LANGUAGE_HINDI_SUB("Menus and labels, voice input and read-aloud", "मेन्यू और लेबल, बोलकर लिखना और ज़ोर से पढ़ना"),
     LANGUAGE_SCOPE_TITLE("What Hindi changes today", "आज हिंदी में क्या बदलता है"),
     LANGUAGE_SCOPE_BODY(
-        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, the Settings list and this page, and the welcome pages. It also sets the language for voice input and read-aloud. " +
+        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, the Settings list, Appearance, Voice and this page, the sign-out and delete-account questions, and the welcome pages. It also sets the language for voice input and read-aloud. " +
             "It does not decide the language of your conversation: ZARVIS answers in the language you write or speak in, and uses this setting only when that is not clear, such as a plain \"hi\". " +
-            "Error messages, longer explanations, Permissions & Device Access, Plans, Developer Agent and the other Settings pages are still in English.",
-        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, सेटिंग्स की सूची और यह पन्ना, तथा स्वागत पन्नों के मेन्यू, शीर्षक और बटन हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
+            "Error messages, longer explanations, Permissions & Device Access, Plans, Developer Agent and the other Settings pages (AI, Notifications, Privacy, Data, Rules & Protection) are still in English.",
+        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, सेटिंग्स की सूची, दिखावट, वॉइस और यह पन्ना, साइन आउट और खाता हटाने के सवाल, तथा स्वागत पन्नों के मेन्यू, शीर्षक और बटन हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
             "यह आपकी बातचीत की भाषा तय नहीं करता: ZARVIS उसी भाषा में जवाब देता है जिसमें आप लिखते या बोलते हैं, और यह सेटिंग तभी काम आती है जब भाषा साफ़ न हो, जैसे सिर्फ़ \"hi\"। " +
-            "त्रुटि संदेश, लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और सेटिंग्स के बाकी पन्ने अभी अंग्रेज़ी में हैं।",
+            "त्रुटि संदेश, लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और सेटिंग्स के बाकी पन्ने (AI, सूचनाएँ, गोपनीयता, डेटा, नियम और सुरक्षा) अभी अंग्रेज़ी में हैं।",
     ),
 
     // ---- Memory (Settings > Memory and Work > Memory) -------------------------------------
@@ -307,6 +307,77 @@ enum class UiString(val en: String, val hi: String) {
     ONBOARDING_SKIP("Skip", "छोड़ें"),
     ONBOARDING_NEXT("Next", "आगे"),
     ONBOARDING_START("Get started", "शुरू करें"),
+
+    // ---- Accessibility labels (read aloud by TalkBack) ------------------------------------------
+    A11Y_SPEAK("Speak", "बोलें"),
+    A11Y_SEND("Send", "भेजें"),
+    A11Y_ORB_IDLE("Tap to speak", "बोलने के लिए टैप करें"),
+    A11Y_ORB_LISTENING("Listening", "सुन रहा है"),
+    A11Y_ORB_UNDERSTANDING("Understanding your request", "आपका अनुरोध समझ रहा है"),
+    A11Y_ORB_PLANNING("Planning", "योजना बना रहा है"),
+    A11Y_ORB_WORKING("Working on it", "काम हो रहा है"),
+    A11Y_ORB_DONE("Done", "हो गया"),
+    A11Y_ORB_SPEAKING("Speaking", "बोल रहा है"),
+    A11Y_ORB_ERROR("Something went wrong", "कुछ गड़बड़ हुई"),
+
+    // ---- Settings > Appearance ------------------------------------------------------------
+    APPEARANCE_DARK_TITLE("Dark theme", "डार्क थीम"),
+    APPEARANCE_DARK_ON("Dark mode is active", "डार्क मोड चालू है"),
+    APPEARANCE_DARK_OFF("Bright aurora mode is active", "चमकदार ऑरोरा मोड चालू है"),
+    APPEARANCE_DEFAULT_NOTE("Aurora Light is the default appearance.", "ऑरोरा लाइट डिफ़ॉल्ट दिखावट है।"),
+    APPEARANCE_MOTION_TITLE("Animations", "एनिमेशन"),
+    APPEARANCE_MOTION_BODY(
+        "The glowing orb moves only while ZARVIS is listening, working or speaking, and stands still when Android's \"Remove animations\" is on.",
+        "चमकता ऑर्ब तभी हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो, और Android में “एनिमेशन हटाएँ” चालू होने पर स्थिर रहता है।",
+    ),
+
+    // ---- Settings > Voice -----------------------------------------------------------------
+    VOICE_INPUT_TITLE("Voice input", "वॉइस इनपुट"),
+    VOICE_INPUT_BODY(
+        "Android speech recognition, started only when you tap the microphone. No wake word.",
+        "Android की स्पीच रिकग्निशन, सिर्फ़ तब शुरू होती है जब आप माइक्रोफ़ोन पर टैप करते हैं। कोई वेक वर्ड नहीं।",
+    ),
+    VOICE_SPEAK_TITLE("Speak replies aloud", "जवाब ज़ोर से सुनाएँ"),
+    VOICE_SPEAK_ON("Replies are spoken with a neural voice", "जवाब न्यूरल आवाज़ में सुनाए जाते हैं"),
+    VOICE_SPEAK_OFF("Off — replies are shown as text only", "बंद — जवाब सिर्फ़ टेक्स्ट में दिखते हैं"),
+    VOICE_OUTPUT_TITLE("Voice output", "वॉइस आउटपुट"),
+    VOICE_OUTPUT_BODY(
+        "Spoken replies are made on ZARVIS's server with a neural voice. If voice fails, the reply stays on screen as text.",
+        "बोले गए जवाब ZARVIS के सर्वर पर न्यूरल आवाज़ से बनते हैं। आवाज़ न चले तो जवाब स्क्रीन पर टेक्स्ट में रहता है।",
+    ),
+    VOICE_STYLE("Voice style", "आवाज़ की शैली"),
+    VOICE_TAP_TO_USE("Tap to use this voice", "यह आवाज़ चुनने के लिए टैप करें"),
+
+    // ---- Settings > Account, sign out and delete -------------------------------------------
+    SIGN_OUT("Sign out", "साइन आउट"),
+    SIGN_OUT_TITLE("Sign out?", "साइन आउट करें?"),
+    SIGN_OUT_GUEST_BODY(
+        "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email first if you want to keep it.",
+        "यह बिना साइन-इन ईमेल वाला गेस्ट खाता है। साइन आउट के बाद आप इसमें वापस नहीं जा पाएँगे। इसे रखना चाहते हैं तो पहले ईमेल जोड़ें।",
+    ),
+    SIGN_OUT_BODY(
+        "This ends the session on this device. Sign in again with your email to continue.",
+        "यह इस डिवाइस का सेशन खत्म करता है। जारी रखने के लिए अपने ईमेल से फिर साइन इन करें।",
+    ),
+    SIGN_OUT_CARD_BODY(
+        "Ends this device's session on the server. Your account and its data are not deleted.",
+        "यह सर्वर पर इस डिवाइस का सेशन खत्म करता है। आपका खाता और उसका डेटा नहीं हटता।",
+    ),
+    DELETE_ACCOUNT("Delete account", "खाता हटाएँ"),
+    DELETE_ACCOUNT_TITLE("Delete your account?", "अपना खाता हटाएँ?"),
+    DELETE_ACCOUNT_BODY(
+        "This permanently deletes your account, tasks, and usage history from the server. This cannot be undone.",
+        "यह आपका खाता, कार्य और उपयोग का इतिहास सर्वर से हमेशा के लिए हटा देता है। इसे वापस नहीं किया जा सकता।",
+    ),
+    DELETE_ACCOUNT_CARD_BODY(
+        "Permanently delete the authenticated account and its server-side task/usage data.",
+        "साइन-इन किया हुआ खाता और सर्वर पर उसका कार्य/उपयोग डेटा हमेशा के लिए हटाएँ।",
+    ),
+    DELETE_ACCOUNT_BUSY("Deleting…", "हटा रहा है…"),
+    DELETE_ACCOUNT_FAILED(
+        "Couldn't delete the account. Check the connection and try again.",
+        "खाता नहीं हट सका। कनेक्शन जाँचें और फिर कोशिश करें।",
+    ),
     ;
 
     /** The text in [locale] (`"hi"` or `"hi-IN"`; anything else is English). */

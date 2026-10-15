@@ -38,6 +38,7 @@ import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentPink
+import com.zarvismobile.core.ui.theme.readableAccent
 import com.zarvismobile.data.remote.dto.MemoryNoteDto
 import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
@@ -178,7 +179,7 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
 
 @Composable
 private fun SectionTitle(text: String, accent: androidx.compose.ui.graphics.Color) {
-    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = accent)
+    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = readableAccent(accent))
 }
 
 @Composable

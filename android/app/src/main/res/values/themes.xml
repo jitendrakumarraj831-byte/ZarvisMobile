@@ -7,7 +7,7 @@
     -->
     <style name="Theme.Zarvis" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:windowBackground">@color/ic_launcher_background</item>
+        <item name="android:windowBackground">@color/zarvis_window_background</item>
     </style>
 
     <!-- The assistant overlay: translucent so the app the user was in stays visible behind it. -->

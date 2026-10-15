@@ -108,4 +108,47 @@ class UiStringTest {
         assertEquals("कम जोखिम", UiString.RISK_LOW.hi)
         assertEquals("मध्यम जोखिम", UiString.RISK_MEDIUM.hi)
     }
+
+    @Test
+    fun `the words TalkBack reads for the orb and the composer exist in both languages`() {
+        val labels = listOf(
+            UiString.A11Y_SPEAK, UiString.A11Y_SEND, UiString.A11Y_ORB_IDLE, UiString.A11Y_ORB_LISTENING, UiString.A11Y_ORB_UNDERSTANDING,
+            UiString.A11Y_ORB_PLANNING, UiString.A11Y_ORB_WORKING, UiString.A11Y_ORB_DONE, UiString.A11Y_ORB_SPEAKING, UiString.A11Y_ORB_ERROR,
+        )
+        // The orb used to be announced in English whatever the app language was; these keep it from slipping back.
+        assertEquals(labels.size, labels.map { it.en }.toSet().size, "two orb states would be announced with the same words")
+        for (label in labels) {
+            assertTrue(label.en.isNotBlank() && hasDevanagari(label.hi), label.name)
+        }
+        assertEquals("Tap to speak", UiString.A11Y_ORB_IDLE.en)
+        assertEquals("Speak", UiString.A11Y_SPEAK.en)
+        assertEquals("Send", UiString.A11Y_SEND.en)
+    }
+
+    @Test
+    fun `the Settings pages that moved to UiString keep the English they always had`() {
+        // The emulator and the website use these words; only the Hindi is new.
+        assertEquals("Dark theme", UiString.APPEARANCE_DARK_TITLE.en)
+        assertEquals("Dark mode is active", UiString.APPEARANCE_DARK_ON.en)
+        assertEquals("Bright aurora mode is active", UiString.APPEARANCE_DARK_OFF.en)
+        assertEquals("Speak replies aloud", UiString.VOICE_SPEAK_TITLE.en)
+        assertEquals("Voice style", UiString.VOICE_STYLE.en)
+        assertEquals("Sign out", UiString.SIGN_OUT.en)
+        assertEquals("Sign out?", UiString.SIGN_OUT_TITLE.en)
+        assertEquals("Delete account", UiString.DELETE_ACCOUNT.en)
+        assertEquals("Delete your account?", UiString.DELETE_ACCOUNT_TITLE.en)
+        assertEquals("Deleting…", UiString.DELETE_ACCOUNT_BUSY.en)
+    }
+
+    @Test
+    fun `the Language page names the Settings pages that are translated and the ones that are not`() {
+        val en = UiString.LANGUAGE_SCOPE_BODY.en
+        val hi = UiString.LANGUAGE_SCOPE_BODY.hi
+        assertTrue("Appearance, Voice" in en, en)
+        assertTrue("sign-out and delete-account" in en, en)
+        // What is still English is listed by name, so the claim can be checked page by page.
+        for (page in listOf("AI", "Notifications", "Privacy", "Data", "Rules & Protection")) assertTrue(page in en, "$page is not named as still English")
+        assertTrue("दिखावट, वॉइस" in hi, hi)
+        assertTrue("अभी अंग्रेज़ी में हैं" in hi, hi)
+    }
 }

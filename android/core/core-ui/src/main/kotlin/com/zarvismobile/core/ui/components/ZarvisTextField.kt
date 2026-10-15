@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -22,15 +23,19 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
+import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.domain.presentation.UiString
 
 /**
  * The Home/Conversation composer — text input with an inline mic toggle, per
  * MASTER_SPEC.md §11 "text input must also remain available" and the Home screen concept in
- * §22 (`[ 🎙 Speak ]` next to `[ Type your task ]`). Gains an electric-cyan neon glow the
- * instant it's focused (§22 "Floating Command Bar with glowing electric neon border on
- * focus") — driven purely by [collectIsFocusedAsState], so it reacts the same frame as the
- * keyboard opens with no perceptible delay.
+ * §22 (`[ 🎙 Speak ]` next to `[ Type your task ]`). Gains a soft glow in the theme's primary colour the
+ * instant it's focused (§22 "Floating Command Bar with glowing neon border on focus") — driven purely by
+ * [collectIsFocusedAsState], so it reacts the same frame as the keyboard opens with no perceptible delay.
+ *
+ * The focus ring is the theme's primary (4.4:1 or better on both pages; the old cyan was 1.7:1 on the light one), the field sits on a
+ * glass fill, and the mic and send buttons are named in the app's language for TalkBack.
  */
 @Composable
 fun ZarvisComposer(
@@ -44,8 +49,10 @@ fun ZarvisComposer(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val glowAlpha by animateFloatAsState(targetValue = if (isFocused) 0.4f else 0f, label = "composer-glow")
+    val glowAlpha by animateFloatAsState(targetValue = if (isFocused) 0.32f else 0f, label = "composer-glow")
     val cornerRadius = 28.dp
+    val accent = MaterialTheme.colorScheme.primary
+    val fill = GlassColors.surfaceTintElevated
 
     OutlinedTextField(
         value = value,
@@ -56,7 +63,7 @@ fun ZarvisComposer(
                 if (glowAlpha > 0f) {
                     drawRoundRect(
                         brush = Brush.radialGradient(
-                            colors = listOf(ZarvisAccentCyan.copy(alpha = glowAlpha), Color.Transparent),
+                            colors = listOf(accent.copy(alpha = glowAlpha), Color.Transparent),
                             radius = size.maxDimension * 0.75f,
                         ),
                         cornerRadius = CornerRadius(cornerRadius.toPx()),
@@ -67,20 +74,26 @@ fun ZarvisComposer(
         enabled = enabled,
         shape = RoundedCornerShape(cornerRadius),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = ZarvisAccentCyan,
-            cursorColor = ZarvisAccentCyan,
-            focusedLeadingIconColor = ZarvisAccentCyan,
-            focusedTrailingIconColor = ZarvisAccentCyan,
+            focusedContainerColor = fill,
+            unfocusedContainerColor = fill,
+            disabledContainerColor = fill,
+            focusedBorderColor = accent,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            cursorColor = accent,
+            focusedLeadingIconColor = accent,
+            focusedTrailingIconColor = accent,
+            focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
         placeholder = { Text(placeholder) },
         leadingIcon = {
             IconButton(onClick = onMicClick, enabled = enabled) {
-                Icon(imageVector = Icons.Filled.Mic, contentDescription = "Speak")
+                Icon(imageVector = Icons.Filled.Mic, contentDescription = tr(UiString.A11Y_SPEAK))
             }
         },
         trailingIcon = {
             IconButton(onClick = onSubmit, enabled = enabled && value.isNotBlank()) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = tr(UiString.A11Y_SEND))
             }
         },
         singleLine = false,

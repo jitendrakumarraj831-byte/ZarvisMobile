@@ -36,7 +36,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.theme.GlassColors
-import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
 private data class PlanTier(
@@ -173,8 +172,9 @@ private fun BillingToggle(yearly: Boolean, onToggle: (Boolean) -> Unit) {
 
 @Composable
 private fun BillingToggleOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val backgroundColor = if (selected) ZarvisAccentCyan.copy(alpha = 0.18f) else Color.Transparent
-    val foregroundColor = if (selected) ZarvisAccentCyan else MaterialTheme.colorScheme.onSurfaceVariant
+    // The theme's primary, not the bright cyan: that is 1.7:1 as text on the light page.
+    val backgroundColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent
+    val foregroundColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
@@ -189,9 +189,9 @@ private fun BillingToggleOption(label: String, selected: Boolean, onClick: () ->
 
 @Composable
 private fun PlanComparisonCard(plan: PlanTier, isCurrent: Boolean, billingNote: String? = null) {
-    val borderColor = if (plan.highlighted) ZarvisAccentCyan else GlassColors.border
+    val borderColor = if (plan.highlighted) MaterialTheme.colorScheme.primary else GlassColors.border
     val borderWidth = if (plan.highlighted) 1.5.dp else 1.dp
-    val nameColor = if (plan.highlighted) ZarvisAccentCyan else MaterialTheme.colorScheme.onSurface
+    val nameColor = if (plan.highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
 
     Column(
         modifier = Modifier
@@ -206,7 +206,7 @@ private fun PlanComparisonCard(plan: PlanTier, isCurrent: Boolean, billingNote: 
             if (isCurrent) {
                 Text(text = "Current plan", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (plan.highlighted) {
-                Text(text = "Recommended", style = MaterialTheme.typography.labelMedium, color = ZarvisAccentCyan)
+                Text(text = "Recommended", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
         }
         Text(text = plan.tagline, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

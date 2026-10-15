@@ -10,24 +10,26 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.size
-import android.provider.Settings
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.GlowColors
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentIndigo
 import com.zarvismobile.core.ui.theme.ZarvisErrorDark
+import com.zarvismobile.core.ui.theme.zarvisReduceMotion
+import com.zarvismobile.domain.presentation.UiString
 
 /**
  * The primary voice-first affordance on the Home/Workspace screen (MASTER_SPEC.md §14). Each
@@ -36,6 +38,10 @@ import com.zarvismobile.core.ui.theme.ZarvisErrorDark
  * state-communication device, not decoration. Every transition is a plain state read, so the
  * orb reacts the instant [state] changes — there is no debounce or animation warm-up, which is
  * what keeps voice/text interactions feeling sub-second (§22).
+ *
+ * Motion costs battery, so it is spent only where it says something: the orb holds still while IDLE and whenever Android's
+ * animations are off ("Remove animations"), and only moves for listening, working and speaking. The animated values are read
+ * while drawing, not while composing, so a running orb redraws itself without recomposing the screen around it 60 times a second.
  */
 @Composable
 fun AiOrb(
@@ -44,54 +50,47 @@ fun AiOrb(
     modifier: Modifier = Modifier,
     size: Dp = 120.dp,
 ) {
-    val context = LocalContext.current
-    val reduceMotion = remember {
-        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    val reduceMotion = zarvisReduceMotion()
+    val moving = !reduceMotion && state != VoiceState.IDLE
+    val motion: OrbMotion = if (moving) {
+        val transition = rememberInfiniteTransition(label = "ai-orb")
+        OrbMotion(
+            pulse = transition.animateFloat(
+                initialValue = 0.9f,
+                targetValue = 1.08f,
+                animationSpec = infiniteRepeatable(tween(durationMillis = pulseDurationMs(state), easing = LinearEasing), RepeatMode.Reverse),
+                label = "ai-orb-pulse",
+            ),
+            glow = transition.animateFloat(
+                initialValue = 0.55f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(durationMillis = glowDurationMs(state), easing = LinearEasing), RepeatMode.Reverse),
+                label = "ai-orb-glow",
+            ),
+            rotation = transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(tween(durationMillis = rotationDurationMs(state), easing = LinearEasing)),
+                label = "ai-orb-rotation",
+            ),
+        )
+    } else {
+        OrbMotion.Still
     }
-    val transition = rememberInfiniteTransition(label = "ai-orb")
-
-    val pulse by transition.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = pulseDurationMs(state), easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "ai-orb-pulse",
-    )
-
-    val glowPulse by transition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = glowDurationMs(state), easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "ai-orb-glow",
-    )
-
-    val rotationDegrees by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = rotationDurationMs(state), easing = LinearEasing),
-        ),
-        label = "ai-orb-rotation",
-    )
 
     val (colorStart, colorEnd) = orbColors(state)
     val description = contentDescriptionFor(state)
     val interactionSource = remember { MutableInteractionSource() }
-    val scale = if (reduceMotion) 1f else if (state == VoiceState.LISTENING || state == VoiceState.SPEAKING) pulse else 1f
-    val glowStrength = if (reduceMotion) glowIntensity(state) else glowIntensity(state) * glowPulse
-    val rotation = if (reduceMotion) 0f else rotationDegrees
 
     Canvas(
         modifier = modifier
             .size(size)
             .semantics { contentDescription = description }
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
+            .clickable(interactionSource = interactionSource, indication = null, role = Role.Button, onClick = onClick),
     ) {
+        val scale = if (state == VoiceState.LISTENING || state == VoiceState.SPEAKING) motion.pulse?.value ?: 1f else 1f
+        val glowStrength = glowIntensity(state) * (motion.glow?.value ?: 1f)
+        val rotation = motion.rotation?.value ?: 0f
         val radius = (this.size.minDimension / 2f) * scale
         val center = Offset(this.size.width / 2f, this.size.height / 2f)
 
@@ -114,6 +113,13 @@ fun AiOrb(
                 center = center,
             )
         }
+    }
+}
+
+/** The three running values of an animated orb, or none at all while it holds still. */
+private class OrbMotion(val pulse: State<Float>?, val glow: State<Float>?, val rotation: State<Float>?) {
+    companion object {
+        val Still = OrbMotion(null, null, null)
     }
 }
 
@@ -155,13 +161,16 @@ private fun rotationDurationMs(state: VoiceState): Int = when (state) {
     else -> 6000
 }
 
-private fun contentDescriptionFor(state: VoiceState): String = when (state) {
-    VoiceState.IDLE -> "Tap to speak"
-    VoiceState.LISTENING -> "Listening"
-    VoiceState.UNDERSTANDING -> "Understanding your request"
-    VoiceState.PLANNING -> "Planning"
-    VoiceState.EXECUTING -> "Working on it"
-    VoiceState.SUCCESS -> "Done"
-    VoiceState.SPEAKING -> "Speaking"
-    VoiceState.ERROR -> "Something went wrong"
-}
+@Composable
+private fun contentDescriptionFor(state: VoiceState): String = tr(
+    when (state) {
+        VoiceState.IDLE -> UiString.A11Y_ORB_IDLE
+        VoiceState.LISTENING -> UiString.A11Y_ORB_LISTENING
+        VoiceState.UNDERSTANDING -> UiString.A11Y_ORB_UNDERSTANDING
+        VoiceState.PLANNING -> UiString.A11Y_ORB_PLANNING
+        VoiceState.EXECUTING -> UiString.A11Y_ORB_WORKING
+        VoiceState.SUCCESS -> UiString.A11Y_ORB_DONE
+        VoiceState.SPEAKING -> UiString.A11Y_ORB_SPEAKING
+        VoiceState.ERROR -> UiString.A11Y_ORB_ERROR
+    },
+)

@@ -2,6 +2,7 @@ package com.zarvismobile.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
@@ -20,10 +21,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -33,7 +36,9 @@ import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisTheme
+import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.feature.settings.CredentialsForm
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -66,6 +71,7 @@ private fun ZarvisRoot(
     val startupState by startupViewModel.state.collectAsState()
     val darkTheme by startupViewModel.darkTheme.collectAsState(initial = false)
     val locale by startupViewModel.locale.collectAsState()
+    SystemBarsFollowTheme(darkTheme)
     LifecycleResumeEffect(Unit) {
         permissionViewModel.onResume()
         onPauseOrDispose { }
@@ -97,11 +103,25 @@ private fun ZarvisRoot(
     }
 }
 
+/**
+ * Status and navigation bar icons follow the app's own light/dark choice (Settings > Appearance), not the phone's: the app can be dark on a
+ * light phone, and dark icons on a dark page are invisible. The bars stay transparent (edge to edge), only their icon shade changes.
+ */
+@Composable
+private fun SystemBarsFollowTheme(darkTheme: Boolean) {
+    val activity = LocalContext.current as? ComponentActivity ?: return
+    DisposableEffect(darkTheme) {
+        val bars = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { darkTheme }
+        activity.enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+        onDispose { }
+    }
+}
+
 @Composable
 private fun RevokedBanner(message: String, onDismiss: () -> Unit) {
     GlassSurface(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp)) {
         Text(message, style = MaterialTheme.typography.bodyMedium)
-        TextButton(onClick = onDismiss) { Text("OK") }
+        TextButton(onClick = onDismiss) { Text(tr(UiString.COMMON_OK)) }
     }
 }
 

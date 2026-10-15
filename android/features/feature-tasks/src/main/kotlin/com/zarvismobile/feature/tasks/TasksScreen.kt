@@ -2,13 +2,13 @@ package com.zarvismobile.feature.tasks
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,11 +21,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.StatusBadge
+import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
@@ -37,7 +40,8 @@ import com.zarvismobile.domain.presentation.UiString
 
 /**
  * Task list + lifecycle controls — MASTER_SPEC.md §18 (Task Engine). It is the Activity tab, and also Work > Tasks (then
- * [onBack] is set and the title is "Tasks").
+ * [onBack] is set and the title is "Tasks"). It sits on the same aurora page and header as Work and Capabilities, and the list scrolls
+ * as one column: the header, notices and cards all move together, so nothing is pinned above a short list on a small screen.
  */
 @Composable
 fun TasksScreen(
@@ -52,53 +56,65 @@ fun TasksScreen(
         onPauseOrDispose { }
     }
 
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(ZarvisSpacing.md)) {
-        if (onBack != null) {
-            TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
-        }
-        Text(text = tr(if (onBack != null) UiString.TASKS_TITLE_WORK else UiString.TASKS_TITLE), style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = tr(UiString.TASKS_SUBTITLE),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row {
-            TextButton(onClick = onOpenPlans) { Text(tr(UiString.COMMON_PLANS_QUOTAS)) }
-            TextButton(onClick = onOpenTasksFeature) { Text(tr(UiString.TASKS_ABOUT)) }
-        }
-
-        if (uiState.isLoading && uiState.tasks.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        }
-
-        if (uiState.tasks.isEmpty() && !uiState.isLoading && uiState.error == null) {
-            ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+    ZarvisBackground(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+            contentPadding = PaddingValues(ZarvisSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
+        ) {
+            item {
+                if (onBack != null) {
+                    TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
+                }
+                Text(text = tr(if (onBack != null) UiString.TASKS_TITLE_WORK else UiString.TASKS_TITLE), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
                 Text(
-                    text = tr(UiString.TASKS_EMPTY),
+                    text = tr(UiString.TASKS_SUBTITLE),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Row {
+                    TextButton(onClick = onOpenPlans) { Text(tr(UiString.COMMON_PLANS_QUOTAS)) }
+                    TextButton(onClick = onOpenTasksFeature) { Text(tr(UiString.TASKS_ABOUT)) }
+                }
             }
-        }
 
-        if (uiState.error != null) {
-            // The list could not be loaded: say so and offer the retry here, instead of asking the user to leave and come back.
-            Text(text = tr(UiString.TASKS_ERROR), color = MaterialTheme.colorScheme.error)
-            ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
-        }
-        if (uiState.actionFailed) {
-            Text(text = tr(UiString.TASKS_ACTION_ERROR), color = MaterialTheme.colorScheme.error)
-        }
+            if (uiState.isLoading && uiState.tasks.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
 
-        LazyColumn(
-            contentPadding = PaddingValues(vertical = ZarvisSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
-        ) {
-            items(uiState.tasks) { task ->
+            if (uiState.tasks.isEmpty() && !uiState.isLoading && uiState.error == null) {
+                item {
+                    ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = tr(UiString.TASKS_EMPTY),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            if (uiState.error != null) {
+                // The list could not be loaded: say so and offer the retry here, instead of asking the user to leave and come back.
+                item {
+                    ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+                        Text(text = tr(UiString.TASKS_ERROR), color = MaterialTheme.colorScheme.error)
+                        ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
+                    }
+                }
+            }
+            if (uiState.actionFailed) {
+                item { Text(text = tr(UiString.TASKS_ACTION_ERROR), color = MaterialTheme.colorScheme.error) }
+            }
+
+            items(uiState.tasks.distinctBy { it.id }, key = { it.id }) { task ->
                 TaskRow(task = task, viewModel = viewModel)
             }
+            item { Spacer(modifier = Modifier.size(ZarvisSpacing.xl)) }
         }
     }
 }
@@ -123,6 +139,7 @@ private fun TaskRow(task: TaskDto, viewModel: TasksViewModel) {
             Text(
                 text = tr(UiString.TASKS_NOT_AUTOMATIC),
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
