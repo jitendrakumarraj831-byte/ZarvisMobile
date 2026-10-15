@@ -22,6 +22,15 @@ Separately from the licence: the service the token is for is Microsoft's, is und
 reached here without an account, a key or a contract. Nothing in this notice grants any right to use
 it. See `PRIVACY.md` ("Spoken replies") and `AI_MODEL_GATEWAY.md` §2.14.
 
+## Icons — Lucide (ISC)
+
+| | |
+|---|---|
+| What | The 67 drawings in the web icon sprite (`web/index.html`, `<symbol id="i-…">`), each a Lucide icon mapped onto one of ZARVIS's icon ids. The Android app draws the same icons. |
+| Upstream | `lucide-static` 0.460.0 on npm, <https://lucide.dev>. Portions of Lucide come from Feather (MIT). |
+| Licence | ISC. Its text, with the copyright line, is in `LICENSES/ISC-lucide.txt` and in a comment next to the sprite in `web/index.html`. |
+| What the licence asks | That *"the above copyright notice and this permission notice appear in all copies"*. The notice travels with the sprite in the page itself. |
+
 ## Production dependencies
 
 A scan of the `package.json` licence field of the 133 packages the backend loads in production

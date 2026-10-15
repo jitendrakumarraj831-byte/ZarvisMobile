@@ -1,6 +1,8 @@
 # ZARVIS web design system
 
-One stylesheet (`web/styles.css`), one icon sprite (`web/index.html`), no framework and no web fonts. This file says
+One stylesheet (`web/styles.css`), one icon sprite (`web/index.html`, Lucide drawings under ISC, see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)), no framework and no web fonts. The look is **Aurora Glass**: bright
+aurora washes, cyan → blue → violet → pink gradients and glass surfaces, with a dark (dim) theme of the same tokens. This file says
 what the system is and how to extend it without adding a second one. Behaviour and data are in
 [WORKSPACE.md](WORKSPACE.md); product rules (no fake state, truthful status words) are in [README.md](README.md).
 
@@ -27,7 +29,7 @@ what the system is and how to extend it without adding a second one. Behaviour a
 | Group | Tokens |
 | --- | --- |
 | Surfaces and text | `--bg --surface --surface-2 --surface-3 --glass --text --text-2 --text-3 --line --line-2` |
-| Brand | `--cyan --blue --violet --pink --primary --primary-2 --primary-ink --primary-soft --grad --glow --aurora-1..3` |
+| Brand | `--cyan --blue --violet --pink --primary --primary-ink --primary-soft --grad --grad-aurora --glow --aurora-1..3 --p-tint --p-tint-line` |
 | Status (each with `-soft`) | `--ok --warn --err --info`: text on its own soft background is at least 4.5:1 |
 | Depth | `--shadow-1..3 --focus --card-bg --card-border --card-shadow` |
 | Shape and space | `--r-sm --r-md --r-lg --r-xl --r-pill`, `--s1..--s9` (4, 8, 12, 16, 20, 24, 32, 40, 56 px) |
@@ -36,9 +38,30 @@ what the system is and how to extend it without adding a second one. Behaviour a
 | Motion | `--ease --t-fast --t-med --t-slow` (140, 240, 420 ms) |
 | Code | `--code-bg --code-text --tok-com --tok-str --tok-num --tok-kw --tok-lit --tok-tag --tok-attr` (each at least 4.5:1 on `--code-bg`) |
 
-Fonts are system fonts (`system-ui`, Segoe UI, Roboto, Noto Sans, Noto Sans Devanagari), so Hindi and English render natively
-with no download. Per-element tone variables (`--tone`, `--tone-a`, `--tone-b`, `--tone-soft`) are set by `.tone-*` classes
+Fonts are system fonts (Segoe UI Variable where Windows has it, then `system-ui`, Roboto, Noto Sans, Noto Sans Devanagari, Nirmala UI),
+so Hindi and English render natively with no download. Per-element tone variables (`--tone`, `--tone-a`, `--tone-b`, `--tone-soft`) are set by `.tone-*` classes
 (`blue violet cyan pink amber green coral`) and read by icon tiles and chips.
+
+### Aurora Glass colour rules
+
+* **Two gradients, two jobs.** `--grad` (blue `#2563eb` → violet `#6d28d9` → pink `#be185d`) is the one under white text and
+  icons: primary buttons, the sent-message bubble, the avatar, the tab bar's Chat orb. Every stop is at least 4.5:1 with white.
+  `--grad-aurora` (cyan `#06b6d4` → `#3b82f6` → `#8b5cf6` → pink `#ec4899`) is decoration only: progress and trend bars, the
+  waveform, rings and hairlines. Nothing is ever written on it.
+* **Ink, not fills, for words and icons.** In light mode `--cyan --blue --violet --pink` are the dark "ink" shades (`#0e7490`,
+  `#1d4ed8`, `#6d28d9`, `#be185d`); in dim they are the light ones (`#67e8f9`, `#a5c4ff`, `#c9b8ff`, `#f9a8d4`). The bright fills
+  appear only inside gradients.
+* `web/tests/contrast.test.js` computes the contrast of every text token on every surface (glass and translucent backgrounds
+  are blended first), of each status colour on its own soft background, of white on every `--grad` stop and of the icon accents
+  (3:1), in both themes. A token change that breaks one fails the suite.
+
+## App shell
+
+The sidebar, the phone top bar, the desktop top bar, the phone tab bar and the phone menu drawer are styled in one section at
+the end of `styles.css` (*App shell (Aurora Glass)*), and nowhere else. Phone (under 700px): top bar and a glass tab bar
+whose centre Chat button is a `--grad` orb in an aurora ring; the sidebar is a drawer. Tablet (700–1099px): an icon rail.
+Desktop: the full sidebar, which *Collapse* turns into the same rail (`body.sidebar-rail`). The current page is a tinted glass
+pill with an aurora bar on its leading edge, never colour alone (the label is bolder and `aria-current` is set).
 
 ## Components
 
@@ -97,20 +120,23 @@ suite runs axe (serious/critical) on every page in light, dark and Hindi, on the
 ## Android uses the same tokens
 
 The native app (`android/core/core-ui/.../theme/Color.kt`, `Theme.kt`) mirrors this file's tokens, so the two clients read as one product.
-When a token changes here, change it there (and the other way round).
+When a token changes here, change it there (and the other way round). The values below are the Aurora Glass ones.
 
 | Web token (light / dim) | Android |
 | --- | --- |
-| `--bg` `#f4f3ff` / `#070a1d` | `ZarvisSurfaceLight` / `ZarvisSpaceBlack` (colour scheme `background`) |
-| `--surface` `#ffffff` / `#0f1436` | `ZarvisSurfaceLightElevated` / `ZarvisSurfaceDark` (`surface`) |
+| `--bg` `#f6f7ff` / `#070b1f` | `ZarvisSurfaceLight` / `ZarvisSpaceBlack` (colour scheme `background`) |
+| `--surface` `#ffffff` / `#0e1433` | `ZarvisSurfaceLightElevated` / `ZarvisSurfaceDark` (`surface`) |
 | `--surface-2` / `--surface-3` | `surfaceVariant`, `surfaceContainerHigh`, `surfaceContainerHighest` |
 | `--text`, `--text-2` | `onSurface`, `onSurfaceVariant` |
-| `--primary` `#4a4de0` / `#8da2ff` | `primary` (the user bubble, focus ring, selected tab, links) |
+| `--primary` `#3346d6` / `#a9b6ff` | `primary` (the user bubble, focus ring, selected tab, links) |
 | `--ok --warn --err` | `ZarvisAccents.success / warning / danger`, `error` |
 | `--glass`, `--card-bg`, `--card-border` | `GlassColors.surfaceTint / surfaceTintElevated / border` (`ZarvisExtras`) |
 | `--aurora-1..3` | the three washes in `ZarvisBackground` |
 | `--r-lg` 20px | `GlassSurface` / `ZarvisCard` corner 20dp |
-| 44px touch target | chips 44dp, tabs 56dp, switch and choice rows 56dp |
+| 44px touch target | chips 44dp, tabs 56dp, switch and choice rows 56dp, primary buttons 48dp |
+| `--grad` | `zarvisActionBrush()`: `ZarvisPrimaryButton` (white text) |
+| `--grad-aurora` | `zarvisAuroraBrush()` and the tab bar's aurora edge (decoration only) |
+| the icon sprite (`#i-…`) | `ZarvisIcons` (`core-ui/.../icons/ZarvisIcons.kt`), generated from `web/index.html` by `node scripts/generate-android-icons.mjs`; CI runs it with `--check` |
 
 Rules that carry over: text on glass is at least 4.5:1 in both themes (the bright brand cyan, pink, amber and green are for glows and icons,
 never for words on the light page; Android reads text accents from `ZarvisAccents` / `readableAccent`); glass is a tint plus a hairline,
@@ -120,6 +146,10 @@ a page title is a heading (`semantics { heading() }`); a switch or a choice is o
 ## How the system is kept honest
 
 * `node --test web/tests/css.test.js`: theme defined once, no undefined or unused token, no dead class, braces balanced.
+* `node --test web/tests/contrast.test.js`: every text and icon colour pair, in both themes (see *Aurora Glass colour rules*).
+* `PaletteContrastTest` (Android `core-ui` unit test): the same rules for the app's palette, light and dark.
+* Android emulator phase G (`ShellScreenshotTest`) photographs every tab in light + English and dark + Hindi on the real app and
+  backend; the pictures are in the `emulator-evidence-api*` CI artifacts under `screenshots/`.
 * A token or CSS refactor is proven, not eyeballed: dump the computed value of every custom property in a real browser
   before and after (light and dark, three widths) and compare; screenshot every page before and after and compare pixels.
   The consolidation in this release was value-identical for all 88 shared properties and pixel-identical on 107 of 108
