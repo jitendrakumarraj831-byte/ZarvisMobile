@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { AIProviderError, abortError, retryDelayMs, sleep, type ProviderFailure } from "./geminiErrors.js";
 import { beginModelCall, type ModelCallRecord } from "./callTrace.js";
 import { classifyOpenRouterFailure, openRouterBodyError, toOpenRouterError } from "./openRouterErrors.js";
+import { DEFAULT_OPENROUTER_BASE_URL, NO_REDIRECTS, isUsableApiKey, openRouterHeaders, openRouterUrl, unusableKeyError } from "./openRouterHttp.js";
 import { IMAGE_ANALYSIS_MAX_OUTPUT_TOKENS, IMAGE_ANALYSIS_SYSTEM_PROMPT, IMAGE_ANALYSIS_USER_PROMPT } from "./imageAnalysisPrompts.js";
 import { logger } from "../security/redact.js";
 import type {
@@ -12,10 +13,11 @@ import type {
   ImageAnalysisRequest,
   ImageAnalysisResult,
   ProviderTrace,
+  TokenUsage,
   ToolCallRequest,
   ToolDefinition,
 } from "./provider.js";
-import { isAbortError, isTransportError, readJsonBody, timeoutError, transportFailure, unreadableResponse } from "./transportErrors.js";
+import { isAbortError, isTransportError, readJsonBody, readWithIdleLimit, timeoutError, transportFailure, unreadableResponse } from "./transportErrors.js";
 
 /**
  * OpenRouter through its OpenAI-compatible Chat Completions API
@@ -23,34 +25,53 @@ import { isAbortError, isTransportError, readJsonBody, timeoutError, transportFa
  *
  * This adapter translates ZARVIS's provider-neutral request into that wire format and back. It
  * does not decide *whether* a model may be used for a request: that is the ModelGateway's job,
- * from the declared capability of the configured model. What it does guarantee is that it never
- * pretends:
+ * from the model's capabilities (declared by the operator or read from OpenRouter's live model
+ * list, see `openRouterModels.ts`). What it does guarantee is that it never pretends:
  *
- * - tools are sent with `provider.require_parameters = true`, so OpenRouter routes only to an
- *   endpoint that actually supports them instead of silently dropping them;
+ * - tools and structured outputs are sent with `provider.require_parameters = true`, so OpenRouter
+ *   routes only to an endpoint that actually supports them instead of silently dropping them;
  * - a tool call whose arguments are not valid JSON becomes an EMPTY input (the pipeline then
  *   reports the missing fields), never an invented one;
  * - a tool-using request is refused for streaming rather than losing the calls.
  *
- * Retry policy is the shared one (ai/geminiErrors.ts `retryDelayMs`). One model per call: the
- * gateway picks it, and a router such as `openrouter/free` does its own selection server side;
- * `servedModel` records which model OpenRouter says actually answered.
+ * Retry policy is the shared one (ai/geminiErrors.ts `retryDelayMs`). The gateway picks the model.
+ * When it also names `fallbackModels`, they are sent in OpenRouter's `models` array: OpenRouter then
+ * tries them in order inside the SAME HTTP request (so a retired or unavailable model costs no extra
+ * request of ours), and `servedModel` records which one actually answered. A router such as
+ * `openrouter/free` does its own selection server side.
+ *
+ * The time limit covers the whole answer, not only the headers: a body that stalls after a 200 is
+ * given up on (`timeoutMs` for a JSON answer; `streamIdleTimeoutMs` of silence for a stream).
  */
-export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-/** Optional attribution headers OpenRouter documents; they identify this app, not the user. */
-const APP_REFERER = "https://zarvismobile.com";
-const APP_TITLE = "ZARVIS";
+export { DEFAULT_OPENROUTER_BASE_URL };
 const LABEL = "OpenRouter chat completions";
 const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 30_000;
 /** Requested when the caller sets no limit: an unbounded request can be refused for credit reasons. */
 const DEFAULT_MAX_TOKENS = 4096;
+/** OpenRouter accepts at most this many models in the `models` array (the first is the primary). */
+export const MAX_MODELS_PER_REQUEST = 3;
+
+/** Per-request limits that keep spend and data handling inside what the operator chose. */
+export interface OpenRouterRequestPolicy {
+  /** Sent as `provider.data_collection`. Unset: the account's own privacy settings decide. */
+  dataCollection?: "allow" | "deny";
+  /** Sent as `provider.max_price` (US dollars per million tokens): OpenRouter skips pricier endpoints. */
+  maxPricePromptPerM?: number;
+  maxPriceCompletionPerM?: number;
+  /** A hard ceiling on `max_tokens`, whatever the caller asked for. */
+  maxOutputTokens?: number;
+}
 
 export interface OpenRouterProviderOptions {
   /** A function, so the key is read per request and the gateway can ask `isConfigured()`. */
   apiKey: string | (() => string | undefined);
   baseUrl?: string;
-  /** Time allowed until response headers arrive (a streamed body is bounded by the caller's signal). */
+  /** Time allowed for one request: the response headers and, for a JSON answer, the body (default 60 s). */
   timeoutMs?: number;
+  /** How long a stream may go quiet before it is given up (default 30 s). */
+  streamIdleTimeoutMs?: number;
+  policy?: OpenRouterRequestPolicy;
 }
 
 interface OpenAiToolCall {
@@ -66,11 +87,18 @@ interface OpenRouterChoice {
   error?: unknown;
 }
 
+interface OpenRouterUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  /** What this request cost, in US dollars. */
+  cost?: number;
+}
+
 interface OpenRouterResponse {
   id?: string;
   model?: string;
   choices?: OpenRouterChoice[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: OpenRouterUsage;
   error?: unknown;
 }
 
@@ -80,8 +108,19 @@ interface OpenAiMessage {
   content: OpenAiContent;
 }
 
+/** A request that has been answered with a 2xx status; the caller reads the body, then calls `stop()`. */
+interface Posted {
+  res: Response;
+  call: ModelCallRecord;
+  /** Ends the time limit of this request. Always call it once the body is read (or abandoned). */
+  stop(): void;
+  /** True when the limit, not the caller, aborted the request. */
+  timedOut(): boolean;
+}
+
 export class OpenRouterProvider implements AIProvider {
   readonly id = "openrouter";
+  readonly supportsJsonSchema = true;
 
   constructor(private readonly options: OpenRouterProviderOptions) {}
 
@@ -90,15 +129,16 @@ export class OpenRouterProvider implements AIProvider {
     if (!key) {
       throw new AIProviderError("OpenRouter API key is not configured", "AI_UNAVAILABLE", 503, false, undefined, undefined, {}, { provider: this.id });
     }
+    if (!isUsableApiKey(key)) throw unusableKeyError(this.id);
     return key;
   }
 
   async generate(request: AIRequest): Promise<AIResponse> {
     const model = request.modelConfig.model;
-    const { names, body } = buildChatBody(request, false);
-    const { res, call } = await this.post(body, { kind: request.purpose ?? "planner", model, request });
-    const json = await readJsonBody<OpenRouterResponse>(res, LABEL, this.id, model);
-    return this.fromResponse(json, model, names, call, request.trace);
+    const { names, body } = buildChatBody(request, false, this.options.policy);
+    const posted = await this.post(body, { kind: request.purpose ?? "planner", model, request });
+    const json = await this.readJson<OpenRouterResponse>(posted, LABEL, model, request);
+    return this.fromResponse(json, model, names, posted.call, request.trace);
   }
 
   async *streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk> {
@@ -111,15 +151,19 @@ export class OpenRouterProvider implements AIProvider {
       });
     }
     const model = request.modelConfig.model;
-    const { body } = buildChatBody(request, true);
+    const { body } = buildChatBody(request, true, this.options.policy);
     // Retries happen only inside post(), before any byte of the stream was read, so text that
     // was already delivered is never repeated.
-    const { res, call } = await this.post(body, { kind: request.purpose ?? "planner", model, request, stream: true });
+    const { res, call, stop } = await this.post(body, { kind: request.purpose ?? "planner", model, request, stream: true });
+    // The header time limit is over; from here a stream is bounded by how long it may stay silent.
+    stop();
     if (!res.body) throw unreadableResponse(LABEL, this.id, model);
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    const idleMs = this.options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
     let buffer = "";
     let finished = false;
+    let usage: OpenRouterUsage | undefined;
     const handle = (line: string): string | undefined => {
       const trimmed = line.trim();
       // Comment lines (": OPENROUTER PROCESSING") keep the connection alive; they carry no data.
@@ -141,12 +185,14 @@ export class OpenRouterProvider implements AIProvider {
       if (choice?.error) throw openRouterBodyError(LABEL, choice.error, model);
       if (chunk.id && request.trace && !request.trace.responseIds.includes(chunk.id)) request.trace.responseIds.push(chunk.id);
       if (chunk.model) call.servedModel = chunk.model;
+      // The last chunk carries the usage (and cost) of the whole answer.
+      if (chunk.usage) usage = chunk.usage;
       const delta = choice?.delta?.content;
       return typeof delta === "string" && delta.length > 0 ? delta : undefined;
     };
     try {
       while (!finished) {
-        const { value, done } = await reader.read();
+        const { value, done } = await readWithIdleLimit(() => reader.read(), idleMs, () => timeoutError("OpenRouter stream", this.id, model));
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -168,7 +214,7 @@ export class OpenRouterProvider implements AIProvider {
       // Also runs when the consumer stops early: cancel the upstream response.
       await reader.cancel().catch(() => {});
     }
-    this.noteServed({ model: call.servedModel }, model, call, request.trace);
+    this.noteServed({ model: call.servedModel, usage }, model, call, request.trace);
     yield { delta: "", done: true };
   }
 
@@ -184,12 +230,14 @@ export class OpenRouterProvider implements AIProvider {
         ],
       },
     ];
-    const body = { model, messages, max_tokens: IMAGE_ANALYSIS_MAX_OUTPUT_TOKENS, stream: false };
-    const { res, call } = await this.post(body, { kind: "vision", model, request });
-    const json = await readJsonBody<OpenRouterResponse>(res, "OpenRouter image analysis", this.id, model);
+    const body = modelFields(model, request.modelConfig.fallbackModels, { messages, max_tokens: capTokens(IMAGE_ANALYSIS_MAX_OUTPUT_TOKENS, this.options.policy), stream: false });
+    const price = providerPreferences(false, this.options.policy);
+    if (price) body.provider = price;
+    const posted = await this.post(body, { kind: "vision", model, request });
+    const json = await this.readJson<OpenRouterResponse>(posted, "OpenRouter image analysis", model, request);
     this.checkBody(json, model);
     if (json.id) request.trace?.responseIds.push(json.id);
-    this.noteServed(json, model, call, request.trace);
+    this.noteServed(json, model, posted.call, request.trace);
     const text = json.choices?.[0]?.message?.content;
     // An empty analysis is not a provider outage and not a reason to switch providers.
     if (typeof text !== "string" || !text.trim()) throw new Error("OpenRouter returned an empty image analysis");
@@ -203,11 +251,11 @@ export class OpenRouterProvider implements AIProvider {
   private async post(
     body: unknown,
     context: { kind: ModelCallRecord["kind"]; model: string; request: Pick<AIRequest, "signal" | "trace" | "modelCallId">; stream?: boolean },
-  ): Promise<{ res: Response; call: ModelCallRecord }> {
+  ): Promise<Posted> {
     const { model, request } = context;
     const call = beginModelCall(context.kind, model, request.modelCallId, this.id);
     const key = this.key();
-    const url = `${(this.options.baseUrl ?? DEFAULT_OPENROUTER_BASE_URL).replace(/\/+$/, "")}/chat/completions`;
+    const url = openRouterUrl(this.options.baseUrl, "chat/completions");
     const payload = JSON.stringify(body);
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     let lastError: Error | undefined;
@@ -218,27 +266,28 @@ export class OpenRouterProvider implements AIProvider {
       call.httpRequests += 1;
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+      const stop = () => clearTimeout(timer);
       let res: Response;
       try {
         res = await fetch(url, {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${key}`,
-            "http-referer": APP_REFERER,
-            "x-title": APP_TITLE,
-            ...(context.stream ? { accept: "text/event-stream" } : {}),
-          },
+          headers: openRouterHeaders(key, { "content-type": "application/json", ...(context.stream ? { accept: "text/event-stream" } : {}) }),
           body: payload,
           signal: request.signal ? AbortSignal.any([controller.signal, request.signal]) : controller.signal,
+          ...NO_REDIRECTS,
         });
       } catch (error) {
+        stop();
         if (request.signal?.aborted) throw abortError();
         if (isAbortError(error)) {
-          const timedOut = timeoutError("OpenRouter request", this.id, model);
-          call.failure = { code: timedOut.code, model };
-          throw timedOut;
+          const failed = timeoutError("OpenRouter request", this.id, model);
+          call.failure = { code: failed.code, model };
+          throw failed;
         }
         if (!isTransportError(error)) throw error;
         lastError = transportFailure(LABEL, this.id, error, model);
@@ -247,19 +296,24 @@ export class OpenRouterProvider implements AIProvider {
         if (wait === null) throw lastError;
         await sleep(wait, request.signal);
         continue;
-      } finally {
-        clearTimeout(timer);
       }
 
       if (res.ok) {
         call.servedModel = model;
         call.outcome = "ok";
         request.trace?.servedModels?.push(model);
-        return { res, call };
+        return { res, call, stop, timedOut: () => timedOut };
       }
 
       call.status = res.status;
+      // The time limit is still running here: an error body that stalls cannot pin the request.
       const text = await res.text().catch(() => "");
+      stop();
+      if (timedOut && !request.signal?.aborted) {
+        const failed = timeoutError("OpenRouter request", this.id, model);
+        call.failure = { code: failed.code, model };
+        throw failed;
+      }
       const failure: ProviderFailure = classifyOpenRouterFailure(res.status, text, res.headers.get("retry-after"));
       const providerError = toOpenRouterError(LABEL, res.status, res.statusText, failure, text, model);
       lastError = providerError;
@@ -267,6 +321,22 @@ export class OpenRouterProvider implements AIProvider {
       const wait = retryDelayMs(failure, attempt);
       if (wait === null) throw lastError;
       await sleep(wait, request.signal);
+    }
+  }
+
+  /** Reads a 2xx JSON body inside the request's time limit; a body that stalls is a timeout, not a cancellation. */
+  private async readJson<T>(posted: Posted, label: string, model: string, request: Pick<AIRequest, "signal">): Promise<T> {
+    try {
+      return await readJsonBody<T>(posted.res, label, this.id, model);
+    } catch (error) {
+      if (isAbortError(error) && posted.timedOut() && !request.signal?.aborted) {
+        const failed = timeoutError("OpenRouter request", this.id, model);
+        posted.call.failure = { code: failed.code, model };
+        throw failed;
+      }
+      throw error;
+    } finally {
+      posted.stop();
     }
   }
 
@@ -278,12 +348,16 @@ export class OpenRouterProvider implements AIProvider {
     if (!choice) throw unreadableResponse(LABEL, this.id, model);
   }
 
-  private noteServed(json: OpenRouterResponse, model: string, call: ModelCallRecord, trace?: ProviderTrace): void {
+  private noteServed(json: { model?: string; usage?: OpenRouterUsage }, model: string, call: ModelCallRecord, trace?: ProviderTrace): void {
     const served = json.model || model;
     call.servedModel = served;
     // `servedModels` already holds the requested model from post(); replace it by the real one.
     const models = trace?.servedModels;
     if (models && models[models.length - 1] === model && served !== model) models[models.length - 1] = served;
+    const usage = toUsage(json.usage);
+    call.promptTokens = usage.promptTokens;
+    call.completionTokens = usage.completionTokens;
+    if (usage.costUsd !== undefined) call.costUsd = usage.costUsd;
   }
 
   private fromResponse(
@@ -307,19 +381,50 @@ export class OpenRouterProvider implements AIProvider {
     return {
       message: { role: "assistant", content: typeof message?.content === "string" ? message.content : "" },
       toolCalls,
-      usage: { promptTokens: json.usage?.prompt_tokens ?? 0, completionTokens: json.usage?.completion_tokens ?? 0 },
+      usage: toUsage(json.usage),
     };
   }
 }
 
+function toUsage(usage: OpenRouterUsage | undefined): TokenUsage {
+  const cost = typeof usage?.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0 ? usage.cost : undefined;
+  return { promptTokens: usage?.prompt_tokens ?? 0, completionTokens: usage?.completion_tokens ?? 0, ...(cost !== undefined ? { costUsd: cost } : {}) };
+}
+
 // ---- request translation -------------------------------------------------------------------------
+
+/** `model`, or OpenRouter's `models` array when the gateway named alternates (the first is the primary). */
+function modelFields(model: string, fallbackModels: readonly string[] | undefined, rest: Record<string, unknown>): Record<string, unknown> {
+  const models = [model, ...(fallbackModels ?? [])].filter((id, index, all) => all.indexOf(id) === index).slice(0, MAX_MODELS_PER_REQUEST);
+  return models.length > 1 ? { models, ...rest } : { model, ...rest };
+}
+
+function capTokens(requested: number, policy: OpenRouterRequestPolicy | undefined): number {
+  return policy?.maxOutputTokens !== undefined ? Math.min(requested, policy.maxOutputTokens) : requested;
+}
+
+/** The `provider` routing preferences: require supported parameters, and the operator's data and price limits. */
+function providerPreferences(needsParameters: boolean, policy: OpenRouterRequestPolicy | undefined): Record<string, unknown> | undefined {
+  const preferences: Record<string, unknown> = {};
+  if (needsParameters) preferences.require_parameters = true;
+  if (policy?.dataCollection) preferences.data_collection = policy.dataCollection;
+  const maxPrice: Record<string, number> = {};
+  if (policy?.maxPricePromptPerM !== undefined) maxPrice.prompt = policy.maxPricePromptPerM;
+  if (policy?.maxPriceCompletionPerM !== undefined) maxPrice.completion = policy.maxPriceCompletionPerM;
+  if (Object.keys(maxPrice).length > 0) preferences.max_price = maxPrice;
+  return Object.keys(preferences).length > 0 ? preferences : undefined;
+}
 
 /**
  * Builds the Chat Completions body. `names` maps the tool names sent to OpenRouter back to skill
  * ids: skill ids contain a dot (`web.search`), which the OpenAI-style function-name pattern
  * (`[A-Za-z0-9_-]`) does not allow.
  */
-export function buildChatBody(request: AIRequest, stream: boolean): { body: Record<string, unknown>; names?: Map<string, string> } {
+export function buildChatBody(
+  request: AIRequest,
+  stream: boolean,
+  policy?: OpenRouterRequestPolicy,
+): { body: Record<string, unknown>; names?: Map<string, string> } {
   const messages: OpenAiMessage[] = [];
   if (request.systemPrompt) messages.push({ role: "system", content: request.systemPrompt });
   for (const message of request.messages) {
@@ -331,12 +436,11 @@ export function buildChatBody(request: AIRequest, stream: boolean): { body: Reco
     else messages.push({ role: message.role, content: message.content });
   }
 
-  const body: Record<string, unknown> = {
-    model: request.modelConfig.model,
+  const body = modelFields(request.modelConfig.model, request.modelConfig.fallbackModels, {
     messages,
     stream,
-    max_tokens: request.modelConfig.maxTokens ?? DEFAULT_MAX_TOKENS,
-  };
+    max_tokens: capTokens(request.modelConfig.maxTokens ?? DEFAULT_MAX_TOKENS, policy),
+  });
   if (request.modelConfig.temperature !== undefined) body.temperature = request.modelConfig.temperature;
 
   let names: Map<string, string> | undefined;
@@ -345,9 +449,15 @@ export function buildChatBody(request: AIRequest, stream: boolean): { body: Reco
     body.tools = encoded.tools;
     names = encoded.names;
   }
-  if (request.responseFormat === "json") body.response_format = { type: "json_object" };
-  // Without this OpenRouter may pick an endpoint that ignores tools or response_format.
-  if (names || request.responseFormat) body.provider = { require_parameters: true };
+  if (request.responseFormat === "json") {
+    body.response_format = { type: "json_object" };
+  } else if (request.responseFormat) {
+    const { name, schema, strict } = request.responseFormat;
+    body.response_format = { type: "json_schema", json_schema: { name, strict: strict !== false, schema } };
+  }
+  // Without require_parameters OpenRouter may pick an endpoint that ignores tools or response_format.
+  const preferences = providerPreferences(Boolean(names || request.responseFormat), policy);
+  if (preferences) body.provider = preferences;
   return { body, names };
 }
 

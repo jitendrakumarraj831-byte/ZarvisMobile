@@ -47,6 +47,8 @@ export interface Requirements {
   maxOutputTokens: number;
   /** Set for an image analysis: the model must accept this MIME type. */
   imageMimeType?: string;
+  /** The reply must match a JSON Schema (not merely be JSON): the model must support schema-enforced output. */
+  jsonSchema?: boolean;
 }
 
 /**
@@ -66,7 +68,7 @@ export function requirementsFor(
 ): Requirements {
   const needs = new Set<Capability>(["text", ...(request.requires ?? [])]);
   if (request.tools && request.tools.length > 0) needs.add("tools");
-  if (request.responseFormat === "json") needs.add("structuredOutput");
+  if (request.responseFormat) needs.add("structuredOutput");
   if (extra.streaming) needs.add("streaming");
   if (extra.image) needs.add("vision");
   return {
@@ -74,5 +76,6 @@ export function requirementsFor(
     estimatedPromptTokens: estimatePromptTokens(request),
     maxOutputTokens: request.modelConfig.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     imageMimeType: extra.image?.mimeType,
+    ...(typeof request.responseFormat === "object" ? { jsonSchema: true } : {}),
   };
 }

@@ -63,6 +63,14 @@ receive a request.
 
 - The fallback is off unless `OPENROUTER_API_KEY` is set, and `AI_FALLBACK_PROVIDER=none` switches it
   off explicitly.
+- **Which OpenRouter models may receive a request.** With the live model list on (the default), the
+  server asks OpenRouter which models exist (`GET /models/user` with the key, else the public
+  `GET /models`; no user content is sent) and may send a request to any listed free model that can serve
+  it, not only to the one named in `OPENROUTER_MODEL`; paid models only if `OPENROUTER_ALLOW_PAID=true`.
+  Which upstream provider runs a model is OpenRouter's decision. `OPENROUTER_DATA_COLLECTION=deny` asks
+  OpenRouter to use only providers that do not store or train on prompts (it also applies to web search);
+  it can leave no free model available. Unset, the OpenRouter account's own privacy settings decide.
+  `OPENROUTER_DISCOVERY=false` returns to sending requests only to the one named model.
 - A fallback is never silent internally (the server log names the provider and the reason), but the
   user interface does not currently tell the user which model answered.
 - Text to speech is never sent to OpenRouter.
@@ -81,7 +89,9 @@ receive a request.
   same key as chat (Google then sees that text, as it does for chat). The response says which voice
   spoke (`X-Zarvis-TTS: gemini`, voice `gemini:Kore`) and the server log records the fall back, never
   the text. To keep the text on Microsoft's service only, set `TTS_FALLBACK_PROVIDER=none`; to use
-  only Google's voice, `TTS_PROVIDER=gemini`. `TTS_PROVIDER=none` switches spoken replies off. The
+  only Google's voice, `TTS_PROVIDER=gemini` (the text then goes nowhere else). With `TTS_PROVIDER=gemini`
+  and `TTS_FALLBACK_PROVIDER=edge`, Google's voice speaks first and, when it fails before any sound
+  (for example its free quota is spent), the same text goes to Microsoft's service instead. `TTS_PROVIDER=none` switches spoken replies off. The
   server log records the engine, the voice and sizes, never the text or the audio, and no spoken
   audio is stored.
 - Provider keys never leave the server and never appear in a log (see SECURITY.md).

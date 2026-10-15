@@ -28,6 +28,9 @@ import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { withModelCallLog, type ModelCallRecord } from "../src/ai/callTrace.js";
 import { AIProviderError } from "../src/ai/geminiErrors.js";
+import { MODEL_ID_PATTERN } from "../src/ai/modelCatalog.js";
+import { NO_REDIRECTS, openRouterHeaders, openRouterUrl } from "../src/ai/openRouterHttp.js";
+import { parseOpenRouterModels } from "../src/ai/openRouterModels.js";
 import { DEFAULT_OPENROUTER_BASE_URL, OpenRouterProvider } from "../src/ai/openRouterProvider.js";
 import type { AIRequest, ToolDefinition } from "../src/ai/provider.js";
 import { redactString, registerSecret } from "../src/security/redact.js";
@@ -53,6 +56,12 @@ export interface ProbeOptions {
   model?: string;
   /** How many other free models that the public list says support tools to try (0 to 5). */
   candidates?: number;
+  /**
+   * Also check the gateway's live model discovery (ai/openRouterModels.ts): read the account's model list, then
+   * send one request through the gateway with a model id OpenRouter does not list, which must be replaced by one
+   * it does. Off by default for the function; the command line turns it on (`PROBE_DISCOVERY=off` turns it off).
+   */
+  discovery?: boolean;
   /** Where lines go; defaults to the console. */
   print?: (line: string) => void;
 }
@@ -66,7 +75,7 @@ export interface ProbeOutcome {
 }
 
 const DEFAULT_MODEL = "openrouter/free";
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
+const MODEL_ID = MODEL_ID_PATTERN;
 const MIN_CONTEXT_FOR_CANDIDATES = 32_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 /**
@@ -90,26 +99,17 @@ export interface CatalogModel {
   tools: boolean;
 }
 
-const isZeroPrice = (value: unknown): boolean => (typeof value === "string" ? value.trim() !== "" && Number(value) === 0 : value === 0);
-
-/** Reads OpenRouter's `GET /models` payload defensively: an entry without an id is ignored. */
+/**
+ * Reads OpenRouter's `GET /models` payload defensively: an entry without a plain model id is ignored.
+ * The reading itself is the gateway's (`ai/openRouterModels.ts`); the probe keeps the few fields it prints.
+ */
 export function parseModelList(json: unknown): CatalogModel[] {
-  const data = (json as { data?: unknown } | null)?.data;
-  if (!Array.isArray(data)) return [];
-  const models: CatalogModel[] = [];
-  for (const entry of data) {
-    const item = entry as { id?: unknown; context_length?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; supported_parameters?: unknown } | null;
-    // An id that is not a plain model id is never printed or sent back to the API.
-    if (!item || typeof item.id !== "string" || !MODEL_ID.test(item.id)) continue;
-    const contextLength = Number(item.context_length);
-    models.push({
-      id: item.id,
-      contextLength: Number.isFinite(contextLength) ? contextLength : 0,
-      free: item.id.endsWith(":free") || (isZeroPrice(item.pricing?.prompt) && isZeroPrice(item.pricing?.completion)),
-      tools: Array.isArray(item.supported_parameters) && item.supported_parameters.includes("tools"),
-    });
-  }
-  return models;
+  return parseOpenRouterModels(json).map((info) => ({
+    id: info.id,
+    contextLength: info.contextLength,
+    free: info.free,
+    tools: info.supportedParameters.includes("tools"),
+  }));
 }
 
 /** Free models with tool support and a usable context, largest context first (a stable order). */
@@ -122,7 +122,7 @@ export function pickCandidates(models: readonly CatalogModel[], count: number, e
 
 async function fetchModelList(baseUrl: string): Promise<CatalogModel[]> {
   // Public endpoint: no credentials are sent.
-  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
+  const res = await fetch(openRouterUrl(baseUrl, "models"), { headers: openRouterHeaders(undefined, { accept: "application/json" }), signal: AbortSignal.timeout(20_000), ...NO_REDIRECTS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return parseModelList(await res.json());
 }
@@ -223,6 +223,76 @@ async function probeTools(provider: OpenRouterProvider, model: string): Promise<
   }
 }
 
+// ---- live model discovery, the way the gateway uses it ---------------------------------------------
+
+/** A model id that cannot exist on OpenRouter: stands in for a free model that was withdrawn. */
+const WITHDRAWN_MODEL = "zarvis-probe/withdrawn-model:free";
+
+async function discoveryChecks(options: { apiKey: string; baseUrl: string | undefined }): Promise<ProbeRow[]> {
+  const rows: ProbeRow[] = [];
+  const started = Date.now();
+  try {
+    const [{ createModelGateway }, { env }] = await Promise.all([import("../src/ai/providerFactory.js"), import("../src/config/env.js")]);
+    const gateway = createModelGateway(
+      {
+        ...env,
+        geminiApiKey: undefined,
+        openRouterApiKey: options.apiKey,
+        openRouterBaseUrl: options.baseUrl,
+        // A model OpenRouter does not list, declared to take tools like the model a deployment pinned.
+        openRouterModel: WITHDRAWN_MODEL,
+        openRouterModelCapabilities: "tools",
+        openRouterDiscovery: "true",
+        aiPrimaryProvider: "openrouter",
+        aiFallbackProvider: "none",
+      },
+      { isProduction: true },
+    );
+    const answered = await gateway
+      .generate({
+        systemPrompt: "You are a connectivity probe. Answer in one short sentence.",
+        messages: [{ role: "user", content: "What is 2 plus 2?" }],
+        modelConfig: { provider: "gateway", model: "ignored-by-routing", maxTokens: PROBE_MAX_TOKENS },
+        purpose: "generation",
+      })
+      .then(
+        (value) => ({ value }),
+        (failure: unknown) => ({ failure }),
+      );
+    // The list is reported whether or not the request after it was answered: they are separate findings.
+    const status = gateway.getProviderStatus().providers.find((provider) => provider.id === "openrouter");
+    const live = status?.liveModels;
+    rows.push({
+      status: live?.loaded ? "PASS" : "WARN",
+      name: "live model list",
+      detail: live?.loaded
+        ? `${live.models} models, ${live.freeModelsWithTools} free with tool support, read from ${live.source === "account" ? "the account's own list (GET /models/user)" : "the public list (GET /models)"}`
+        : "the gateway could not read OpenRouter's model list (see the log for the reason); it used the declared model",
+    });
+    if ("failure" in answered) {
+      rows.push({
+        status: "FAIL",
+        name: "a model OpenRouter does not list is replaced",
+        detail: `the request was refused after the replacement (the model list was ${live?.loaded ? "read" : "not read"}): ${describeError(answered.failure)}`,
+      });
+      return rows;
+    }
+    const answer = answered.value;
+    const replaced = answer.meta?.configuredModel !== WITHDRAWN_MODEL;
+    const content = oneLine(redactString(answer.message.content ?? "")).slice(0, 120);
+    rows.push({
+      status: replaced && /\b(4|four)\b/i.test(content) ? "PASS" : replaced ? "WARN" : "FAIL",
+      name: "a model OpenRouter does not list is replaced",
+      detail: replaced
+        ? `chose ${answer.meta?.configuredModel}${answer.meta?.model && answer.meta.model !== answer.meta.configuredModel ? `, served by ${answer.meta.model}` : ""}; answered: "${content}" in ${seconds(started)} s`
+        : `the id ${WITHDRAWN_MODEL} was kept although OpenRouter does not list it: the gateway did not use the live list (answered: "${content}")`,
+    });
+  } catch (error) {
+    rows.push({ status: "FAIL", name: "a model OpenRouter does not list is replaced", detail: describeError(error) });
+  }
+  return rows;
+}
+
 // ---- one real ZARVIS turn through an OpenRouter-only gateway ------------------------------------
 
 async function realTurn(options: { apiKey: string; baseUrl: string | undefined; model: string }): Promise<ProbeRow[]> {
@@ -245,6 +315,8 @@ async function realTurn(options: { apiKey: string; baseUrl: string | undefined; 
         openRouterModelCapabilities: "tools",
         aiPrimaryProvider: "openrouter",
         aiFallbackProvider: "none",
+        // This probe tests the model it was asked about; a gateway that swapped it for another would hide the answer.
+        openRouterDiscovery: "off",
       },
       { isProduction: true },
     );
@@ -388,6 +460,14 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
     add({ status: "SKIP", name: "a real ZARVIS turn (OpenRouter only)", detail: "not run: no tested model passed the tool-call request" });
   }
 
+  let discoveryFailed = false;
+  if (options.discovery && !keyRejected) {
+    const checks = (await discoveryChecks({ apiKey, baseUrl: options.baseUrl?.trim() || undefined })).map(add);
+    discoveryFailed = checks.some((row) => row.status === "FAIL");
+  } else if (options.discovery) {
+    add({ status: "SKIP", name: "live model discovery", detail: "not tried: OpenRouter rejected the API key (HTTP 401)" });
+  }
+
   const alsoPassed = results.filter((r) => r !== recommended && r.text.status === "PASS" && r.tools.status === "PASS").map((r) => r.model);
   print("");
   if (recommended) {
@@ -408,21 +488,31 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
     print("OpenRouter accepted the requests, but the tested models returned empty messages and none called the tool. Try another model with the workflow's `model` input.");
   } else {
     print("No tested model answered. The FAIL lines above carry the structured kind and HTTP status; the troubleshooting table in AI_MODEL_GATEWAY.md explains each.");
+    if (rows.some((row) => row.status === "FAIL" && /guardrail restrictions and data policy/.test(row.detail))) {
+      print(
+        "The key works, but OpenRouter's own account settings exclude every endpoint (\"ZDR violation (account settings)\" / \"(guardrail)\" above): " +
+          "Zero Data Retention is enforced, and free endpoints keep prompts. In OpenRouter: Settings > Privacy (openrouter.ai/settings/privacy) and the workspace Guardrails " +
+          "(openrouter.ai/workspaces/default/guardrails). Either turn the ZDR requirement off (free models then work, and their providers may log prompts: see PRIVACY.md), " +
+          "or keep it, add credit and use a paid model that supports ZDR (OPENROUTER_ALLOW_PAID=true with OPENROUTER_MAX_PRICE_PROMPT / _COMPLETION).",
+      );
+    }
   }
-  writeStepSummary(results, recommended?.model);
-  return { ok: recommended !== undefined, recommended: recommended?.model, rows, results };
+  writeStepSummary(results, recommended?.model, rows.filter((row) => row.name === "live model list" || row.name.startsWith("a model OpenRouter does not list")));
+  return { ok: recommended !== undefined && !discoveryFailed, recommended: recommended?.model, rows, results };
 }
 
 const escapeCell = (text: string): string => text.replace(/[|`\r\n]+/g, " ").trim();
 const cell = (row: ProbeRow): string => `${row.status}: ${escapeCell(row.detail)}`;
 
 /** Mirrors the result into the GitHub Actions job summary, when running there. */
-function writeStepSummary(results: readonly ModelResult[], recommended: string | undefined): void {
+function writeStepSummary(results: readonly ModelResult[], recommended: string | undefined, discovery: readonly ProbeRow[] = []): void {
   const path = process.env.GITHUB_STEP_SUMMARY;
   if (!path) return;
   const lines = ["## OpenRouter live probe", "", "| Model | Plain request | Tool call | Real ZARVIS turn |", "|---|---|---|---|"];
   for (const r of results) lines.push(`| \`${escapeCell(r.model)}\` | ${cell(r.text)} | ${cell(r.tools)} | ${r.turn ? cell(r.turn) : "not run"} |`);
   lines.push("");
+  for (const row of discovery) lines.push(`- **${escapeCell(row.name)}** — ${cell(row)}`);
+  if (discovery.length > 0) lines.push("");
   lines.push(
     recommended
       ? `**Recommended:** \`OPENROUTER_MODEL=${escapeCell(recommended)}\` and \`OPENROUTER_MODEL_CAPABILITIES=tools\` (Vercel, Preview and Production).`
@@ -444,6 +534,7 @@ if (invokedDirectly) {
     baseUrl: process.env.OPENROUTER_BASE_URL,
     model: process.env.PROBE_MODEL,
     candidates: Number.parseInt(process.env.PROBE_CANDIDATES ?? "2", 10),
+    discovery: process.env.PROBE_DISCOVERY !== "off",
   });
   process.exitCode = outcome.ok ? 0 : 1;
 }

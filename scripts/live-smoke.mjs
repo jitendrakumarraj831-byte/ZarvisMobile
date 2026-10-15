@@ -442,12 +442,16 @@ async function main() {
     return;
   }
   const h = health.json ?? {};
-  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, aiFallback: h.aiFallback, aiFallbackTools: h.aiFallbackTools, database: h.database, reason: h.reason })}`);
+  console.log(`     health: ${JSON.stringify({ status: h.status, provider: h.provider, aiFallback: h.aiFallback, aiFallbackTools: h.aiFallbackTools, aiKeyRejected: h.aiKeyRejected, database: h.database, reason: h.reason })}`);
   report(health.status === 200 && h.database !== undefined ? "PASS" : "FAIL", "GET /health", `HTTP ${health.status}`);
   if (h.aiFallback && h.aiFallbackTools === false) {
     // Not a failure: the deployment works as configured. But a fallback that cannot take a chat turn's
     // planner step does nothing for chat when the primary provider is out of quota or down.
     report("WARN", "the AI fallback cannot serve chat turns", "a fallback provider is configured but its model does not declare tool support, so chat turns will not fall back (set OPENROUTER_MODEL_CAPABILITIES=tools for a model that supports tool calling)");
+  }
+  if (Array.isArray(h.aiKeyRejected) && h.aiKeyRejected.length > 0) {
+    // Not a failure of this run, but the key is dead: every request to that provider is refused until it is replaced.
+    report("WARN", "an AI provider refused its API key", `${h.aiKeyRejected.join(", ")}: the provider answered HTTP 401/403. Create a new key at the provider, set it in the deployment's environment variables and redeploy; a key pasted with a space, quote or line break never works.`);
   }
   const provider = h.provider;
   // The providers that can answer a chat turn. Web search needs Gemini's Google Search grounding.

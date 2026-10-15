@@ -1,0 +1,56 @@
+name: Gemini live probe
+
+# Manual only. The environment this repository is developed in cannot reach Google, so the Gemini
+# voice (the second voice behind Edge, backend/src/tts/geminiTtsProvider.ts) has only ever been tested
+# against fakes. This runs the repository's own code against the real API with the repository secret
+# GEMINI_API_KEY: does chat answer, which speech models does the key list, does the voice produce
+# audio (English and Hindi), and which model to set in GEMINI_TTS_MODEL when the default does not work.
+# See backend/scripts/gemini-probe.ts and AI_MODEL_GATEWAY.md.
+#
+# Two ways to start it:
+#   - "Run workflow" in the Actions tab (workflow_dispatch). GitHub only offers that once this file is
+#     on the default branch.
+#   - From a pull request branch, before that: add the label `gemini-probe` to the pull request
+#     (remove and add it again to re-run). Same-repository pull requests only: GitHub passes no
+#     secrets to a fork's workflow run.
+#
+# The key is only sent in the x-goog-api-key header and is never printed. A run sends about eight short
+# requests (free-tier quotas are per model and per day), so it is never scheduled.
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    # Any other label on any pull request starts this workflow and is skipped here.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'gemini-probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Probe Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: npx tsx scripts/gemini-probe.ts

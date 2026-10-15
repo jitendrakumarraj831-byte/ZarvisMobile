@@ -159,6 +159,8 @@ Its named API: `generateText`, `generateWithTools`, `streamText`, `analyzeImage`
 | `backend/src/ai/providerFactory.ts` | Builds the gateway from the environment (`createModelGateway`, `getModelGateway`); `UnavailableAIProvider`; `selectDefaultModel` |
 | `backend/src/ai/geminiProvider.ts`, `geminiVision.ts`, `geminiErrors.ts` | The Gemini adapter, image analysis (moved out of the upload route), the shared failure classification and retry policy |
 | `backend/src/ai/openRouterProvider.ts`, `openRouterErrors.ts` | The OpenRouter adapter and its failure classification (same retry policy) |
+| `backend/src/ai/openRouterHttp.ts` | What every OpenRouter caller shares: the address, the attribution headers, the API-key check, refusing redirects (chat, the model list and web search all use it) |
+| `backend/src/ai/openRouterModels.ts` | OpenRouter's live model list: parser, cache, the selection policy, the `DynamicCatalog` the gateway reads (§2.15) |
 | `backend/src/ai/capabilities.ts`, `modelCatalog.ts` | The capability model and the declared, validated model catalog |
 | `backend/src/config/aiConfig.ts`, `aiConfigError.ts` | Startup validation and resolution of every AI setting |
 | `backend/src/ai/errorTaxonomy.ts`, `transportErrors.ts` | The structured error kinds; timeouts and network failures |
@@ -265,6 +267,10 @@ What each kind of request needs, and where it can go:
 
 The token estimate is deliberately pessimistic (3 characters per token, Hindi needs more than
 English), so it can only withhold a fallback, never send a prompt that will not fit.
+
+A model that OpenRouter's own list describes (§2.15) needs no declaration: its capabilities are read
+from the list (`supported_parameters` for tools, structured output and reasoning; `input_modalities`
+for images; `context_length`). What an operator declares is added to that, never taken away.
 
 ### 2.8 Errors a client can see
 
@@ -374,8 +380,11 @@ they are never copied into a skill output (skill outputs are sent to clients).
   `image_analysis_unavailable`) or returns the real provider error.
 - **Web search** is Gemini with Google Search grounding first, because only that returns real sources.
   It has its own fallback outside the gateway: OpenRouter's web search (the model's `:online`
-  variant, which also returns sources), tried after any Gemini error, or used alone when there is no
-  Gemini key. `AI_FALLBACK_PROVIDER=none` removes it while Gemini is configured. It is never answered
+  variant, or the explicit `web` plugin for a model that already carries a variant suffix such as
+  `:free`; both return sources), tried after any Gemini error, or used alone when there is no
+  Gemini key. It uses the same address (`OPENROUTER_BASE_URL`), key check, redirect refusal, error
+  classification and data policy (`OPENROUTER_DATA_COLLECTION`) as chat. OpenRouter bills web search
+  per result, so it needs credit even where a `:free` chat model does not. `AI_FALLBACK_PROVIDER=none` removes it while Gemini is configured. It is never answered
   by a model that did not search, and never claimed if it did not run.
 - **Text to speech** is not an AI provider call: it is Edge's neural voices on its own routes, behind
   its own boundary (§2.14). OpenRouter is never involved. Gemini's speech model is only the second
@@ -450,7 +459,9 @@ crowd of texts sent to Google), and never a cancellation) `FallbackTtsProvider` 
 never back, never in the middle of a reply (two voices are not mixed, and nothing is said twice), and
 for the WAV endpoint also after a part had started, because nothing has left the server yet. It needs
 `GEMINI_API_KEY` (the one chat uses) and is off with `TTS_FALLBACK_PROVIDER=none` or without the key;
-`TTS_PROVIDER=gemini` uses it alone. Gemini is asked with the shared retry policy (`ai/geminiErrors.ts`):
+`TTS_PROVIDER=gemini` makes it the main voice instead: alone by default (the text goes nowhere else),
+or with Edge behind it when `TTS_FALLBACK_PROVIDER=edge` (the same one-hop rules, the other way round:
+Gemini's free speech quota is small, and Edge then speaks when it is spent). Gemini is asked with the shared retry policy (`ai/geminiErrors.ts`):
 a temporary failure is retried briefly, a daily quota never, and a missing model or an exhausted one
 moves to the next speech model (`GEMINI_TTS_MODEL`, then `gemini-3.8-flash-tts`, then
 `gemini-3.8-flash-lite-tts`; speech quotas are per model). Its audio must be 24 kHz 16-bit mono like
@@ -494,6 +505,86 @@ that text is sent to Google instead; `PRIVACY.md` says so for the public notice.
 audio. Caching is deliberately not done: replies are private and rarely repeat, and a shared cache of
 them would be a leak.
 
+### 2.15 OpenRouter: live model list, cost and data controls
+
+**Why.** OpenRouter's free models come and go. `inclusionai/ling-3.0-flash-sante:free` passed the live
+probe on 2026-10-04 and was answered `HTTP 404 No endpoints found` on 2026-10-15, because it was no
+longer offered; every request that fell back to it failed until someone changed the environment
+variable. A model id in an environment variable goes stale; OpenRouter's list does not. So the
+gateway reads the list and chooses from it.
+
+**What it reads.** `GET /models/user` (the models this account may use, filtered by its provider
+preferences, privacy settings and guardrails; sent with the key) and, if that is unavailable,
+`GET /models` (public, no credential). The list is per server instance, in memory: fresh for 15 minutes,
+reused for up to 24 hours if OpenRouter cannot be reached (a failed refresh is not retried for a
+minute), one request for any number of concurrent callers. Nothing is stored.
+
+**When it reads it (lazily).** Never while Gemini answers. It is read when OpenRouter is about to be
+called (as the primary, as the fallback, or when the primary is skipped), and when the declared
+catalogs name no model for a request (a tool-using turn with the default OpenRouter model, which
+declares no tools) and the primary has failed in a way a fallback could answer.
+
+**How it chooses**, for the request's needs (tools, images, a JSON Schema, context size):
+
+1. the configured `OPENROUTER_MODEL`, if it is still listed and can serve the request;
+2. the models named in `OPENROUTER_FALLBACK_MODELS`, if listed and able;
+3. other models from the list that are able, not a router, not expired and not refused recently;
+   **free ones only** unless `OPENROUTER_ALLOW_PAID=true`; largest context first;
+4. OpenRouter's own free router `openrouter/free` last.
+
+At most three go into the request. They are sent in OpenRouter's `models` array, and OpenRouter tries
+them in order **inside the same HTTP request**: a retired or unavailable model costs no extra request of
+ours. `AICallMeta.model` and the call log say which model really answered. With no live data (discovery
+off, or OpenRouter unreachable) the declared model is used, exactly as before.
+
+**A model that answers 404 is not chosen again for 15 minutes**, and the gateway is told so by the
+failure, not by a timer. If every model in the list is refused the declared model is tried anyway, so a
+mistaken refusal cannot leave the provider with nothing to try.
+
+**Cost controls.** Free models only by default. `OPENROUTER_MAX_PRICE_PROMPT` / `_COMPLETION`
+(US dollars per million tokens) hold every choice to a ceiling, including the configured model, and are
+also sent to OpenRouter as `provider.max_price`, so a model it routes to cannot cost more. A
+model whose price OpenRouter does not state cannot be shown to be under a ceiling and is not chosen
+while one is set. `OPENROUTER_MAX_OUTPUT_TOKENS` caps every reply (default request: 4,096). Each
+`AI call` log line carries `usage` (tokens) and `costUsd` when OpenRouter reports it (`usage.cost`).
+There is no spending budget kept by the server: instances do not share state, so a per-account or
+per-day budget would be a guess. Set a credit limit on the key at OpenRouter for that.
+
+**Data controls.** `OPENROUTER_DATA_COLLECTION=deny` sends `provider.data_collection: deny`, so only
+providers that do not store or train on prompts may serve a request (this also applies to web search).
+Many free endpoints do store prompts; with `deny` the free list can shrink to nothing, and the answer is
+`404 No endpoints found ... data policy`. See `PRIVACY.md`.
+
+**Tools and structured outputs.** A request with tools (or a response format) is sent with
+`provider.require_parameters = true`: OpenRouter then routes only to an endpoint that supports them,
+instead of silently dropping them. `AIRequest.responseFormat` is `"json"` (JSON mode: OpenRouter
+`json_object`, Gemini `responseMimeType: application/json`) or a JSON Schema (`json_schema`, strict
+unless said otherwise; OpenRouter models whose list says `structured_outputs`). A schema is never sent
+to a model that does not declare it: no Gemini model declares schema support here, so a schema request
+goes to a listed OpenRouter model, or fails with `AI_PROVIDER_CAPABILITY_UNSUPPORTED` without calling any
+provider. No existing caller sets `responseFormat` yet (the Developer Agent still reads its plan from
+text); the capability is in place for callers that need it.
+
+**Offered tools only.** The orchestrator runs a tool only if it was offered in that turn. A model can
+name any skill, including one that was hidden (`developer.analyze_repo` is offered only when the user asks
+about a repository; "Ask Agent" shows only the chosen agent's skills) or one that does not exist: such a
+call is not run, not charged, and the model is told the tool is unavailable.
+
+**Keys.** A key containing a space, quote or line break can never work, and an HTTP client puts the whole
+header into its error text, so it is refused before anything is sent (`AI_PROVIDER_AUTH_ERROR`, no key
+text in the message). A key the provider refuses (HTTP 401/403) is shown on `/health` as
+`aiKeyRejected: ["openrouter"]` until a request with it succeeds, and the live smoke test prints a
+WARN. A 401 `User not found` means the key's account no longer exists: create a new key, set it in
+the deployment's environment and redeploy.
+
+**Time limits.** `OPENROUTER_TIMEOUT_MS` now covers the whole answer, not only the headers (a 200
+whose body stalls is a timeout); a stream is given up after 30 seconds of silence. Requests never follow
+a redirect (the key travels in a header).
+
+**Not done, on purpose.** Streaming to the client is unchanged (the orchestrator still sends one reply);
+model discovery does not use a second HTTP request per attempt; there is no per-instance spend budget;
+Gemini JSON Schema mapping is not implemented (not testable here), so Gemini gets JSON mode only.
+
 ---
 
 ## 3. Configuration reference
@@ -511,12 +602,19 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 | `OPENROUTER_MODEL` | `openrouter/free` | the model sent to OpenRouter |
 | `OPENROUTER_MODEL_CAPABILITIES` | none | extra capabilities the model declares: `tools`, `vision`, `structuredOutput`, `coding`, `reasoning` |
 | `OPENROUTER_MODEL_CONTEXT_TOKENS` | `32768` | declared context window (1,000 to 10,000,000) |
-| `OPENROUTER_TIMEOUT_MS` | `60000` | time to response headers (1,000 to 300,000) |
+| `OPENROUTER_TIMEOUT_MS` | `60000` | time for one request, headers and body (1,000 to 300,000) |
+| `OPENROUTER_DISCOVERY` | `true` | read OpenRouter's live model list (§2.15); `false` = use only the declared model |
+| `OPENROUTER_FALLBACK_MODELS` | none | up to two model ids tried after the main model, in the same request |
+| `OPENROUTER_ALLOW_PAID` | `false` | let discovery choose models that cost money |
+| `OPENROUTER_MAX_PRICE_PROMPT`, `OPENROUTER_MAX_PRICE_COMPLETION` | none | price ceilings, US dollars per million tokens; also sent to OpenRouter as `provider.max_price` |
+| `OPENROUTER_MAX_OUTPUT_TOKENS` | none | upper bound on tokens one reply may generate (1 to 1,000,000) |
+| `OPENROUTER_DATA_COLLECTION` | none | `allow` or `deny`: whether providers that may store or train on prompts can serve a request; unset = the OpenRouter account's setting |
 | `AI_PRIMARY_PROVIDER` | `gemini` | `gemini` (alias `google`) or `openrouter` |
 | `AI_FALLBACK_PROVIDER` | the other provider | `openrouter`, `gemini` or `none`; must differ from the primary |
 | `AI_QUOTA_COOLDOWN_MS` | `300000` | how long an exhausted provider is skipped; `0` = never |
 | `AI_MODEL_CATALOG_JSON` | none | describes several models (below) |
-| `TTS_PROVIDER` | `edge` | spoken replies: `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_PROVIDER` | `edge` | spoken replies: `edge`, `gemini` (Gemini's voice is the main one; needs `GEMINI_API_KEY`) or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_FALLBACK_PROVIDER` | `gemini` with `edge`; `none` with `gemini` | the second voice, asked only when the first fails before any sound: `gemini` behind Edge, `edge` behind Gemini, or `none` |
 | `TTS_HI_VOICE` | `hi-IN-SwaraNeural` | the voice for Hindi (Devanagari) text |
 | `TTS_EN_VOICE` | `en-US-JennyNeural` | the voice for English text |
 | `TTS_HINGLISH_VOICE` | the Hindi voice | the voice for Hindi written in Latin letters |
@@ -544,8 +642,10 @@ leave a capability off). A provider listed in the JSON is described entirely by 
 
 `/health` reports `provider` (the one answering by default: `google`, `openrouter`, `mock` or `none`)
 and, only while a fallback is active, `aiFallback: true` and `aiFallbackTools`. `aiFallbackTools: false`
-means the fallback model declares no tool support, so **chat turns will not fall back** (every chat
-turn starts with a tool-using planner step); only text-only skills can. It is the one-tap way to see,
+means neither a declared model nor (with discovery on) a model on OpenRouter's current list can take
+tool calls, so **chat turns will not fall back** (every chat turn starts with a tool-using planner step);
+only text-only skills can. `aiKeyRejected` (a list of provider names) appears only while a provider has
+refused its API key (HTTP 401/403). It is the one-tap way to see,
 from a phone, whether `OPENROUTER_MODEL_CAPABILITIES=tools` took effect. It names no model, address
 or key.
 
@@ -751,13 +851,16 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 | `/health` has no `aiFallback` after setting the `OPENROUTER_*` variables and redeploying | the deployment that was redeployed was built from `main`, which does not contain the gateway (the `...-git-main-...` alias, and any Production build made from `main`, have none until this change is merged), so the variables cannot show there. Variables are also per environment: a Preview value does not apply to a build made for Production, and a build promoted to Production keeps the values it was built with | redeploy the deployment whose source is the pull request's branch (or push a commit to it) and read `/health` on that branch's alias (`...-git-<branch>-...vercel.app`). The Actions run "Live preview API smoke test" names the branch it tested and prints the same `/health` |
 | Gemini hits its quota and users still see the quota error | the fallback is off, not configured, or cannot serve the request | `/health`: `aiFallback` present? `aiFallbackTools` true? (false = the OpenRouter model declares no `tools`, which every chat turn needs). In the `AI call failed` log line, `attempts` listing only `google` means the fallback was never tried |
 | No fallback for chat turns only; content skills do fall back | the OpenRouter model does not declare `tools` (the safe default) | verify the model supports function calling, then `OPENROUTER_MODEL_CAPABILITIES=tools` |
-| Nothing falls back, and logs show `AI_PROVIDER_AUTH_ERROR` | a provider rejects its key (never a fallback reason) | fix the key; `AI call failed` names which provider |
+| Nothing falls back, and logs show `AI_PROVIDER_AUTH_ERROR` | a provider rejects its key (never a fallback reason) | fix the key; `AI call failed` names which provider; `/health` lists it under `aiKeyRejected` |
+| OpenRouter answers HTTP 401 `User not found` | the key belongs to an account that no longer exists (or was deleted) | create a new key at https://openrouter.ai/keys in a live account, set `OPENROUTER_API_KEY`, redeploy. A key pasted with a space, quote or line break is refused before sending |
+| OpenRouter answers HTTP 404 `No endpoints found for <model>` | the pinned model is no longer offered (free models are withdrawn), or no endpoint of it fits the request's tools / data policy | with `OPENROUTER_DISCOVERY` on (the default) the gateway replaces it from the live list and does not choose it again for 15 minutes; check the `AI call` line's `model`. To pin one, run the probe (§5) and set `OPENROUTER_MODEL` |
 | `/health` 500 `ai_provider_config_invalid` | a present-but-wrong AI variable | read the function log's "Invalid AI configuration: ..." (it names the variable) |
 | Only `OPENROUTER_API_KEY` is set and chat fails | tool support not declared | declare `tools`; the Gemini fallback voice needs Gemini |
 | `AI_PROVIDER_CAPABILITY_UNSUPPORTED` | the request needs something no configured model declares (tools, vision, coding, a larger context, a HEIC image) | declare the capability, change the model, or configure Gemini |
 | OpenRouter 402 | the OpenRouter balance is empty (it blocks free models too) | add credits; it is reported as a spent quota, never retried |
 | OpenRouter 429 | free-model caps (OpenRouter documents per-minute and per-day limits that depend on the account's credit history: https://openrouter.ai/docs) | retried once if the wait is short; a daily cap is not retried |
 | `AI_PROVIDER_AUTH_ERROR`, HTTP 403, "... is only available on agentic harnesses" | that model is restricted to approved coding-agent apps; the key is fine. The live probe met it for two models that the public list showed as free with tool support | choose another model. A 403 is never a fallback reason; the probe walks past such models |
+| `AI_PROVIDER_CAPABILITY_UNSUPPORTED`, HTTP 404, "... ZDR violation (account settings): N endpoints excluded; ... ZDR violation (guardrail)" (**every** model, including `openrouter/free`; seen on the live probe of 2026-10-15 with a working new key) | the OpenRouter account enforces **Zero Data Retention** (Settings > Privacy) and/or a workspace guardrail does. Free endpoints keep prompts, so none of them qualifies; no choice of model in this repository can change that, and the live model list does not help | in OpenRouter: openrouter.ai/settings/privacy and openrouter.ai/workspaces/default/guardrails. Either turn the ZDR requirement off (free models then work; their providers may log prompts, see `PRIVACY.md`), or keep it, add credit and allow a paid ZDR-capable model (`OPENROUTER_ALLOW_PAID=true`, with `OPENROUTER_MAX_PRICE_PROMPT` / `_COMPLETION`). The `AI call failed` log line now carries OpenRouter's reason in `errorDetail` |
 | `AI_PROVIDER_CAPABILITY_UNSUPPORTED`, HTTP 404, "0 endpoints out of N requested are available matching your guardrail restrictions and data policy ..." | the OpenRouter account's own data-policy or guardrail settings (the message names the reason, for example ZDR, zero data retention) removed every endpoint that could serve this request. The probe met it for the real ZARVIS turn through `openrouter/free` while smaller requests were served | the setting is in OpenRouter (Settings, Privacy; Guardrails), not in this repository: allow the endpoints you need, or pin a model whose endpoints pass your policy (the probe tries the models its router served and prints the whole reason list) |
 | The probe shows `WARN ... plain request ... empty message` | a reasoning model spent its output budget thinking and wrote no text (the line gives the model and the tokens used); `openrouter/free` is a router, so which model answers varies per request | the real ZARVIS turn decides. For predictable behaviour pin a model id that passed (`OPENROUTER_MODEL`) |
 | A tool call runs with "missing details" | the model returned tool arguments that are not valid JSON, so the input is empty (never invented) | use a model with reliable function calling |
@@ -782,6 +885,10 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 | `test/ai/modelGateway.test.ts` | routing, the fallback matrix, what must not fall back, capability gating, cooldown, no provider configured, log fields and redaction, request economy |
 | `test/ai/modelGatewayStreamingVision.test.ts` | streaming failover and cleanup, vision routing by MIME type, OpenRouter failures inside a 200 |
 | `test/ai/openRouterProvider.test.ts` | the OpenRouter wire format, key handling, retries, timeouts, SSE |
+| `test/ai/openRouterFeatures.test.ts` | the `models` array, price / data / output limits, tokens and cost read from the answer, JSON mode and JSON Schema, tool calling, silent streams and stalled bodies, a key that cannot be a key, no redirects |
+| `test/ai/openRouterModels.test.ts` | the model-list parser (blank prices, bad ids, expiry), capabilities from metadata, the selection policy (free first, price ceilings, capability, named alternates, the free router last), the cache (TTL, stale, backoff, one request for many callers, no key = public list, rejected key noted) |
+| `test/ai/openRouterDiscovery.test.ts` | the gateway with live model data: lazy fetching, the 2026-10-15 incident (Gemini quota spent and the pinned model gone, answered anyway), 404 remembered, list unreachable, discovery off, vision from modalities, paid models and price limits, structured outputs gating, streaming, rejected key, usage and cost in the log |
+| `test/agents/orchestratorOfferedTools.test.ts` | a tool the model names that was not offered this turn is not run |
 | `test/ai/geminiProviderHardening.test.ts` | network retries, structured timeouts, key supplier, stream cancel |
 | `test/ai/errorTaxonomy.test.ts`, `test/config/aiConfig.test.ts`, `test/config/startup.test.ts` | the error kinds and wire mapping, config and catalog validation, startup failure and success |
 | `test/agents/gatewayTurns.test.ts` | one turn through the real orchestrator, pipeline, skills and providers: request counts, billing, replay, concurrent duplicates, Retry, disconnect (also on real Postgres in CI) |
@@ -806,6 +913,18 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 
 ## 8. Limitations and operating notes
 
+- **What the live probe showed on 2026-10-15 (new key, GitHub Actions).** The key is accepted (the
+  earlier HTTP 401 was a dead account). `GET /models` (public) listed 443 models, 17 free, 14 free
+  with tool support; `GET /models/user` (the account's own list, sent with the key) **works** and listed
+  266 models with **0 free models that support tools**: the account's privacy settings filter the list.
+  Every chat request, to `openrouter/free` and to named free models alike, answered
+  `404 ... ZDR violation (account settings) ... (guardrail)`: the OpenRouter account enforces Zero Data
+  Retention, which free endpoints cannot meet. Two free models answered `403 ... only available on
+  agentic harnesses`. So on this account the live list, the model replacement and the `models` array
+  all behave as designed, but **no free model can answer until the setting is changed in OpenRouter**
+  (Settings > Privacy, and the workspace Guardrails) **or** a paid ZDR-capable model is allowed
+  (`OPENROUTER_ALLOW_PAID=true`, with price ceilings). **Not verified:** a successful chat answer through
+  the gateway with live model replacement (nothing could answer under that policy), and any paid model.
 - **What the live OpenRouter probe has and has not shown (2026-10-04).** The build environment's
   network policy blocks `openrouter.ai`, so the unit tests use stubbed HTTP responses (as the Gemini
   tests always have). The manual **OpenRouter live probe** (§5) called the live API through this

@@ -1,5 +1,7 @@
 import { beginModelCall } from "../ai/callTrace.js";
 import { classifyGeminiFailure, providerErrorUserMessage, retryDelayMs, sleep, toProviderError } from "../ai/geminiErrors.js";
+import { classifyOpenRouterFailure, toOpenRouterError } from "../ai/openRouterErrors.js";
+import { NO_REDIRECTS, isUsableApiKey, openRouterHeaders, openRouterUrl, unusableKeyError } from "../ai/openRouterHttp.js";
 import { logger } from "../security/redact.js";
 import { SkillUserError } from "../tooling/toolPipeline.js";
 import type { SkillDefinition } from "../domain/types.js";
@@ -98,65 +100,101 @@ export class GeminiSearchProvider implements SearchProvider {
   }
 }
 
+/** Extra settings for {@link OpenRouterSearchProvider}; all optional. */
+export interface OpenRouterSearchOptions {
+  /** The OpenRouter API base URL (validated by the AI configuration); default: OpenRouter's own. */
+  baseUrl?: string;
+  /** Sent as `provider.data_collection`, like for chat: the query is user text. */
+  dataCollection?: "allow" | "deny";
+  timeoutMs?: number;
+}
+
+const SEARCH_RESULT_LIMIT = 8;
+
 /**
- * Live web search through OpenRouter's web plugin (the `:online` model suffix). Used behind
- * Gemini (see [FallbackSearchProvider]) or alone when only OPENROUTER_API_KEY is set. Sources
- * come back as `url_citation` annotations on the assistant message.
+ * Live web search through OpenRouter's web plugin. Used behind Gemini (see [FallbackSearchProvider])
+ * or alone when only OPENROUTER_API_KEY is set. Sources come back as `url_citation` annotations on the
+ * assistant message.
+ *
+ * A plain model id gets the documented `:online` shorthand. A model that already carries a variant
+ * suffix (`vendor/model:free`) cannot take a second one, so the same plugin is requested explicitly
+ * (`plugins: [{ id: "web" }]`). It goes through the same address, headers, key check, redirect refusal
+ * and error classification as chat (`ai/openRouterHttp.ts`, `ai/openRouterErrors.ts`).
  */
 export class OpenRouterSearchProvider implements SearchProvider {
+  private readonly options: OpenRouterSearchOptions;
+
   constructor(
     private readonly apiKey: string,
     private readonly model = "google/gemini-2.0-flash-001",
-    private readonly baseUrl = "https://openrouter.ai/api/v1",
-  ) {}
+    options: OpenRouterSearchOptions | string = {},
+  ) {
+    this.options = typeof options === "string" ? { baseUrl: options } : options;
+  }
 
   async search(query: string): Promise<SearchResponse> {
-    const model = this.model.endsWith(":online") ? this.model : `${this.model}:online`;
-    const call = beginModelCall("search", model);
+    if (!isUsableApiKey(this.apiKey)) throw unusableKeyError("openrouter");
+    const base = this.model.replace(/:online$/, "");
+    const hasVariant = /:[A-Za-z0-9_-]+$/.test(base);
+    const model = hasVariant ? base : `${base}:online`;
+    const call = beginModelCall("search", model, undefined, "openrouter");
     call.httpRequests += 1;
-    const response = await fetchWithTimeout(
-      `${this.baseUrl}/chat/completions`,
-      {
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 60_000);
+    try {
+      const response = await fetch(openRouterUrl(this.options.baseUrl, "chat/completions"), {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}`, "x-title": "ZARVIS" },
+        headers: openRouterHeaders(this.apiKey, { "content-type": "application/json" }),
         body: JSON.stringify({
           model,
+          ...(hasVariant ? { plugins: [{ id: "web", max_results: 5 }] } : {}),
           messages: [{
             role: "user",
             content: `Search the web for: ${query}. Return a concise answer and rely on current web sources. Do not invent sources.`,
           }],
           temperature: 0.2,
           max_tokens: 1200,
+          ...(this.options.dataCollection ? { provider: { data_collection: this.options.dataCollection } } : {}),
         }),
-      },
-      60_000,
-    );
-    if (!response.ok) {
-      call.status = response.status;
-      const detail = await response.text().catch(() => "");
-      call.failure = { code: "AI_UNAVAILABLE", model };
-      throw new Error(`OpenRouter web search failed: ${response.status} ${detail.slice(0, 200)}`);
-    }
-    call.servedModel = model;
-    call.outcome = "ok";
-    const json = (await response.json()) as OpenRouterSearchResponse;
-    const message = json.choices?.[0]?.message;
-    const results: SearchResult[] = [];
-    for (const annotation of message?.annotations ?? []) {
-      const cite = annotation.url_citation;
-      if (annotation.type !== "url_citation" || !cite?.url || results.some((result) => result.url === cite.url)) continue;
-      let title = cite.title;
-      if (!title) {
-        try {
-          title = new URL(cite.url).hostname;
-        } catch {
-          title = cite.url;
+        signal: controller.signal,
+        ...NO_REDIRECTS,
+      });
+      if (!response.ok) {
+        call.status = response.status;
+        const detail = await response.text().catch(() => "");
+        const failure = classifyOpenRouterFailure(response.status, detail, response.headers.get("retry-after"));
+        const error = toOpenRouterError("OpenRouter web search", response.status, response.statusText, failure, detail, model);
+        call.failure = { code: error.code, quotaType: error.quotaType, ...error.evidence };
+        // A spent quota or an empty balance is explainable: report it so the agent loop does not search again.
+        if (failure.kind === "quota") {
+          throw new SkillUserError(error.code === "AI_QUOTA_EXCEEDED" ? "ai_quota_exceeded" : "ai_rate_limited", providerErrorUserMessage(error), error.retryable);
         }
+        throw error;
       }
-      results.push({ title, url: cite.url, snippet: (cite.content ?? "").slice(0, 300) });
-      if (results.length >= 8) break;
+      const json = (await response.json()) as OpenRouterSearchResponse;
+      call.servedModel = model;
+      call.outcome = "ok";
+      const message = json.choices?.[0]?.message;
+      const results: SearchResult[] = [];
+      for (const annotation of message?.annotations ?? []) {
+        const cite = annotation.url_citation;
+        if (annotation.type !== "url_citation" || !cite?.url || results.some((result) => result.url === cite.url)) continue;
+        let title = cite.title;
+        if (!title) {
+          try {
+            title = new URL(cite.url).hostname;
+          } catch {
+            title = cite.url;
+          }
+        }
+        results.push({ title, url: cite.url, snippet: (cite.content ?? "").slice(0, 300) });
+        if (results.length >= SEARCH_RESULT_LIMIT) break;
+      }
+      return { answer: (message?.content ?? "").trim(), results };
+    } finally {
+      clearTimeout(timer);
     }
-    return { answer: (message?.content ?? "").trim(), results };
   }
 }
 

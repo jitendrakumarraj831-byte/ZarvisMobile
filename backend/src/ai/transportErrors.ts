@@ -88,3 +88,24 @@ export async function readJsonBody<T>(res: Response, label: string, provider: st
     throw isTransportError(error) ? transportFailure(label, provider, error, model) : unreadableResponse(label, provider, model);
   }
 }
+
+/**
+ * One read of a response stream, given up (with `onIdle()`'s error) when nothing arrives for `idleMs`.
+ * A header timeout stops mattering once the headers are in; this is what bounds a body that then goes
+ * quiet. The pending read is left to the caller to cancel (`reader.cancel()`).
+ */
+export function readWithIdleLimit<T>(read: () => Promise<T>, idleMs: number, onIdle: () => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(onIdle()), idleMs);
+    read().then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}

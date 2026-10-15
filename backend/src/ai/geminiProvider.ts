@@ -226,7 +226,7 @@ interface GeminiRequestBody {
   systemInstruction?: { parts: [{ text: string }] };
   contents: GeminiContent[];
   tools?: [{ functionDeclarations: GeminiFunctionDeclaration[] }];
-  generationConfig?: { temperature?: number; maxOutputTokens?: number };
+  generationConfig?: { temperature?: number; maxOutputTokens?: number; responseMimeType?: string };
 }
 
 interface GeminiGenerateResponse {
@@ -243,6 +243,8 @@ function toGeminiRequestBody(request: AIRequest): GeminiRequestBody {
     generationConfig: {
       temperature: request.modelConfig.temperature,
       maxOutputTokens: request.modelConfig.maxTokens,
+      // JSON mode. A JSON *schema* is not sent: the catalog does not claim it for Gemini, so the gateway never routes one here.
+      ...(request.responseFormat === "json" ? { responseMimeType: "application/json" } : {}),
     },
   };
 }

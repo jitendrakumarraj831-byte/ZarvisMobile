@@ -47,7 +47,14 @@ describe("backend/.env.example", () => {
         "AI_PRIMARY_PROVIDER",
         "AI_QUOTA_COOLDOWN_MS",
         "OPENROUTER_API_KEY",
+        "OPENROUTER_ALLOW_PAID",
         "OPENROUTER_BASE_URL",
+        "OPENROUTER_DATA_COLLECTION",
+        "OPENROUTER_DISCOVERY",
+        "OPENROUTER_FALLBACK_MODELS",
+        "OPENROUTER_MAX_OUTPUT_TOKENS",
+        "OPENROUTER_MAX_PRICE_COMPLETION",
+        "OPENROUTER_MAX_PRICE_PROMPT",
         "OPENROUTER_MODEL",
         "OPENROUTER_MODEL_CAPABILITIES",
         "OPENROUTER_MODEL_CONTEXT_TOKENS",
@@ -55,6 +62,22 @@ describe("backend/.env.example", () => {
       ].sort(),
     );
     for (const name of documented) expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
+  });
+
+  it("the commented OpenRouter cost and routing examples are accepted by the startup validation, with no warning and the defaults", () => {
+    const uncomment = (name: string) => assignments.find((entry) => entry.name === name && entry.commented)?.value.replace(/\s+#.*$/, "");
+    const config = resolveAIConfig({
+      geminiModel: "gemini-3.6-flash",
+      openRouterDiscovery: uncomment("OPENROUTER_DISCOVERY"),
+      openRouterFallbackModels: uncomment("OPENROUTER_FALLBACK_MODELS"),
+      openRouterAllowPaid: uncomment("OPENROUTER_ALLOW_PAID"),
+      openRouterMaxPricePrompt: uncomment("OPENROUTER_MAX_PRICE_PROMPT"),
+      openRouterMaxPriceCompletion: uncomment("OPENROUTER_MAX_PRICE_COMPLETION"),
+      openRouterMaxOutputTokens: uncomment("OPENROUTER_MAX_OUTPUT_TOKENS"),
+      openRouterDataCollection: uncomment("OPENROUTER_DATA_COLLECTION"),
+    });
+    expect(config.warnings).toEqual([]);
+    expect(config.openRouter).toMatchObject({ discovery: true, fallbackModels: [], allowPaid: false });
   });
 
   it("documents the voice variables, every one of them is read by config/env.ts, and the commented values are the ones the voice config accepts without a warning", () => {

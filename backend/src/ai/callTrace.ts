@@ -31,6 +31,10 @@ export interface ModelCallRecord {
   fallbackReason?: string;
   /** Wall-clock time of this attempt, set by the gateway. */
   latencyMs?: number;
+  /** Tokens and cost the provider reported for the answering request, when it does. */
+  promptTokens?: number;
+  completionTokens?: number;
+  costUsd?: number;
 }
 
 /** What a gateway attempt runs inside: records started in it are tagged and collected. */

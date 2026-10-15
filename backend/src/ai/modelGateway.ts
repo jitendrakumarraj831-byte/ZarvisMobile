@@ -7,6 +7,7 @@ import { cooldownReasonFor, fallbackReasonFor, isFallbackEligibleKind, type Atte
 import { AIProviderError, abortError } from "./geminiErrors.js";
 import { IMAGE_ANALYSIS_MAX_OUTPUT_TOKENS, IMAGE_ANALYSIS_SYSTEM_PROMPT, IMAGE_ANALYSIS_USER_PROMPT } from "./imageAnalysisPrompts.js";
 import { chooseEntry, describeEntry, type CatalogProvider, type ModelEntry } from "./modelCatalog.js";
+import type { DynamicCatalog } from "./openRouterModels.js";
 import type {
   AICallMeta,
   AIProvider,
@@ -46,6 +47,12 @@ import { isAbortError, isTransportError, transportFailure } from "./transportErr
  *    turn's later steps (and other users' requests) from spending a request on a provider that
  *    is known to refuse it. A Gemini-only deployment is unaffected.
  *
+ * 5. **Live model data (optional).** A provider can be given a `DynamicCatalog` (OpenRouter's own
+ *    model list). Then the model that answers is chosen from what the provider offers *now*: a
+ *    configured model that was withdrawn is replaced by a compatible one, the provider is told the
+ *    alternates to try inside the same request, and a model that answered 404 is not chosen again for a
+ *    while. With no live data the declared catalog decides, exactly as before.
+ *
  * Provider availability is evaluated per request from the credentials (`isConfigured()`), never
  * captured when the server starts.
  */
@@ -70,6 +77,8 @@ export interface ModelGatewayOptions {
   catalog: readonly ModelEntry[];
   /** 0 disables the cooldown. */
   quotaCooldownMs: number;
+  /** Live model data per provider (OpenRouter only today). Absent = the declared catalog decides. */
+  dynamic?: Partial<Record<CatalogProvider, DynamicCatalog>>;
   now?: () => number;
 }
 
@@ -78,6 +87,14 @@ type Purpose = "planner" | "generation" | "vision";
 interface Candidate {
   reg: GatewayProvider;
   entry: ModelEntry;
+  /** Models the provider may try, in order, if `entry` fails inside the same request (live data only). */
+  alternates?: ModelEntry[];
+}
+
+interface Pick {
+  entry: ModelEntry | undefined;
+  alternates: ModelEntry[];
+  missing: string[];
 }
 
 type Plan =
@@ -141,6 +158,10 @@ export interface GatewayStatus {
     live: boolean;
     models: ReturnType<typeof describeEntry>[];
     quotaCooldownUntil?: string;
+    /** The provider answered 401/403: its credential is not accepted (cleared by the next success). */
+    authRejected?: boolean;
+    /** Live model data, when the provider has it. */
+    liveModels?: { loaded: boolean; fresh: boolean; models: number; freeModelsWithTools: number; source?: "account" | "public" };
   }>;
   counters: {
     calls: number;
@@ -157,6 +178,7 @@ export class ModelGateway implements AIProvider {
 
   private readonly registrations = new Map<GatewayProviderId, GatewayProvider>();
   private readonly cooldowns = new Map<GatewayProviderId, Cooldown>();
+  private readonly authRejections = new Set<GatewayProviderId>();
   private readonly counters = { calls: 0, succeeded: 0, failed: 0, fallbacks: 0, cooldownSkips: 0, failuresByKind: {} as Record<string, number> };
   private readonly now: () => number;
 
@@ -209,7 +231,7 @@ export class ModelGateway implements AIProvider {
     const { primary, fallback } = this.effective();
     return [primary, fallback].some((reg) => {
       if (!reg || typeof reg.provider.analyzeImage !== "function") return false;
-      return chooseEntry(this.options.catalog, reg.id as CatalogProvider, needs).entry !== undefined;
+      return this.pick(reg, needs).entry !== undefined;
     });
   }
 
@@ -237,7 +259,9 @@ export class ModelGateway implements AIProvider {
     const purpose: Purpose = request.purpose ?? "planner";
     const needs = requirementsFor(request, { streaming: true });
     const call = this.beginCall(purpose, request.modelCallId);
-    const plan = this.plan(needs);
+    await this.warm();
+    let plan = this.plan(needs);
+    if (plan.kind === "unsupported" && (await this.refreshStale())) plan = this.plan(needs);
     if (plan.kind === "unsupported") throw this.reject(call, plan.detail);
     if (plan.kind === "offline") {
       yield* this.streamOffline(plan.reg, request, call);
@@ -252,15 +276,16 @@ export class ModelGateway implements AIProvider {
 
     for (let index = 0; index < attempts.length; index += 1) {
       const step = attempts[index]!;
-      const { reg, entry } = step.candidate;
       let reason = step.reason;
       if (index === 1) reason = fallbackReasonFor(plan.first.reg.label, primaryError!.kind);
       if (request.signal?.aborted) throw abortError();
+      const candidate = await this.settle(step.candidate, needs);
+      const { reg, entry } = candidate;
       call.attempts += 1;
-      if (index === 1) this.noteFallback(call, plan.first, primaryError!, step.candidate, reason!);
+      if (index === 1) this.noteFallback(call, plan.first, primaryError!, candidate, reason!);
       const scope: AttemptContext = { provider: reg.id, fallback: step.fallback, fallbackReason: reason, records: [] };
       const started = this.now();
-      const modelConfig: ModelConfiguration = { provider: reg.id, model: entry.model, temperature: request.modelConfig.temperature, maxTokens: request.modelConfig.maxTokens };
+      const modelConfig = this.modelConfigFor(candidate, request.modelConfig.temperature, request.modelConfig.maxTokens);
       const iterator = reg.provider.streamGenerate({ ...request, modelCallId: call.modelCallId, modelConfig })[Symbol.asyncIterator]();
       let emitted = false;
       try {
@@ -290,8 +315,12 @@ export class ModelGateway implements AIProvider {
         if (isAbortError(error)) throw error;
         const failure = this.normalize(error, reg, entry);
         if (!failure) throw this.internal(call, error);
-        this.recordFailure(call, reg, entry, failure);
+        this.recordFailure(call, candidate, failure);
         // Once text has been delivered the answer cannot be restarted elsewhere: never mix two models.
+        if (index === 0 && attempts.length === 1 && !plan.skippedPrimary && !emitted && isFallbackEligibleKind(failure.kind)) {
+          const late = await this.lateFallback(plan.first, needs);
+          if (late) attempts.push({ candidate: late, fallback: true });
+        }
         const canFallBack = index === 0 && attempts.length > 1 && !emitted && isFallbackEligibleKind(failure.kind);
         if (canFallBack) {
           primaryError = failure;
@@ -333,22 +362,31 @@ export class ModelGateway implements AIProvider {
    * and (only then) whether the fallback's model declares tool support, which every chat turn's
    * planner step needs. Names no model, URL or key.
    */
-  healthSummary(): { provider: string; fallback: boolean; fallbackTools?: boolean } {
+  healthSummary(): { provider: string; fallback: boolean; fallbackTools?: boolean; authRejected?: string[] } {
     const { primary, fallback } = this.effective();
     if (primary) {
+      const rejected = [primary, fallback].filter((reg): reg is GatewayProvider => reg !== undefined && this.isAuthRejected(reg.id)).map((reg) => reg.id);
       return {
         provider: primary.id,
         fallback: fallback !== undefined,
-        ...(fallback ? { fallbackTools: this.declaresTools(fallback) } : {}),
+        ...(fallback ? { fallbackTools: this.canUseTools(fallback) } : {}),
+        // Only present when a provider refused its key: a normal /health is unchanged.
+        ...(rejected.length > 0 ? { authRejected: rejected } : {}),
       };
     }
     const offline = this.offlineProvider();
     return { provider: offline?.id ?? "none", fallback: false };
   }
 
-  /** True when an enabled catalog model of this provider declares tool support. */
-  private declaresTools(reg: GatewayProvider): boolean {
-    return this.options.catalog.some((entry) => entry.provider === reg.id && entry.enabled && entry.capabilities.tools);
+  /** True when an enabled model of this provider can take tool-using requests (declared, or offered live). */
+  private canUseTools(reg: GatewayProvider): boolean {
+    if (this.options.catalog.some((entry) => entry.provider === reg.id && entry.enabled && entry.capabilities.tools)) return true;
+    const needs = requirementsFor({ systemPrompt: "", messages: [], modelConfig: { provider: "", model: "" }, tools: [{ name: "probe", description: "", inputSchema: { requiredFields: [] } }] });
+    return this.pick(reg, needs).entry !== undefined;
+  }
+
+  private isAuthRejected(id: GatewayProviderId): boolean {
+    return this.authRejections.has(id) || (this.options.dynamic?.[id as CatalogProvider]?.authRejected() ?? false);
   }
 
   /** The default model for logging and the orchestrator's `modelConfig` (routing ignores it). */
@@ -373,6 +411,8 @@ export class ModelGateway implements AIProvider {
         live: reg.live,
         models: this.options.catalog.filter((entry) => entry.provider === reg.id).map(describeEntry),
         ...(cooldown ? { quotaCooldownUntil: new Date(cooldown.until).toISOString() } : {}),
+        ...(this.isAuthRejected(reg.id) ? { authRejected: true } : {}),
+        ...(this.options.dynamic?.[reg.id as CatalogProvider] ? { liveModels: this.options.dynamic[reg.id as CatalogProvider]!.status() } : {}),
       };
     });
     return {
@@ -397,14 +437,11 @@ export class ModelGateway implements AIProvider {
     const { primary, fallback } = this.effective();
     if (!primary) return { kind: "offline", reg: this.offlineProvider() };
 
-    const choose = (reg: GatewayProvider | undefined) => {
-      if (!reg) return undefined;
-      if (adapterCan && !adapterCan(reg.provider)) return { entry: undefined, missing: ["adapter"] };
-      return chooseEntry(this.options.catalog, reg.id as CatalogProvider, needs);
-    };
+    const choose = (reg: GatewayProvider | undefined) => (reg ? this.pick(reg, needs, adapterCan) : undefined);
     const primaryChoice = choose(primary)!;
     const fallbackChoice = choose(fallback);
-    const fallbackCandidate: Candidate | undefined = fallback && fallbackChoice?.entry ? { reg: fallback, entry: fallbackChoice.entry } : undefined;
+    const fallbackCandidate: Candidate | undefined =
+      fallback && fallbackChoice?.entry ? { reg: fallback, entry: fallbackChoice.entry, alternates: fallbackChoice.alternates } : undefined;
 
     if (!primaryChoice.entry) {
       // The primary cannot serve this request at all (a capability it does not declare).
@@ -416,7 +453,7 @@ export class ModelGateway implements AIProvider {
       return { kind: "unsupported", detail: parts.join("; ") };
     }
 
-    const primaryCandidate: Candidate = { reg: primary, entry: primaryChoice.entry };
+    const primaryCandidate: Candidate = { reg: primary, entry: primaryChoice.entry, alternates: primaryChoice.alternates };
     const cooled = this.activeCooldown(primary.id);
     if (cooled && fallbackCandidate) {
       this.counters.cooldownSkips += 1;
@@ -425,11 +462,87 @@ export class ModelGateway implements AIProvider {
     return { kind: "route", first: primaryCandidate, second: fallbackCandidate };
   }
 
+  /**
+   * The model for `reg` and, when live data is available, the alternates the provider may try inside
+   * the same request. With live data the provider's current list decides; otherwise (or when it offers
+   * nothing usable) the declared catalog does, exactly as without live data.
+   */
+  private pick(reg: GatewayProvider, needs: Requirements, adapterCan?: (provider: AIProvider) => boolean): Pick {
+    if (adapterCan && !adapterCan(reg.provider)) return { entry: undefined, alternates: [], missing: ["adapter"] };
+    const dynamic = this.options.dynamic?.[reg.id as CatalogProvider];
+    if (dynamic?.hasData()) {
+      const declared = this.options.catalog.filter((entry) => entry.provider === reg.id);
+      const live = dynamic.select(needs, declared);
+      if (live && live.models.length > 0) return { entry: live.models[0], alternates: live.models.slice(1), missing: [] };
+    }
+    const chosen = chooseEntry(this.options.catalog, reg.id as CatalogProvider, needs);
+    return { entry: chosen.entry, alternates: [], missing: chosen.missing };
+  }
+
+  /** Brings the live data of the provider that is about to answer up to date (and of the fallback when the primary is being skipped). */
+  private async warm(): Promise<void> {
+    if (!this.options.dynamic) return;
+    const { primary, fallback } = this.effective();
+    const targets = [primary, primary && this.activeCooldown(primary.id) ? fallback : undefined];
+    await Promise.all(targets.map((reg) => (reg ? this.options.dynamic![reg.id as CatalogProvider]?.refresh() : undefined)));
+  }
+
+  /** Just before a provider is called: refresh its live data if it is stale and choose the model again from it. */
+  private async settle(candidate: Candidate, needs: Requirements, adapterCan?: (provider: AIProvider) => boolean): Promise<Candidate> {
+    const dynamic = this.options.dynamic?.[candidate.reg.id as CatalogProvider];
+    if (!dynamic) return candidate;
+    await dynamic.refresh();
+    const choice = this.pick(candidate.reg, needs, adapterCan);
+    return choice.entry ? { reg: candidate.reg, entry: choice.entry, alternates: choice.alternates } : candidate;
+  }
+
+  /** Refreshes the live data of every effective provider that has gone stale. True when any had. */
+  private async refreshStale(): Promise<boolean> {
+    const dynamic = this.options.dynamic;
+    if (!dynamic) return false;
+    const { primary, fallback } = this.effective();
+    const stale = [primary, fallback].flatMap((reg) => {
+      const catalog = reg ? dynamic[reg.id as CatalogProvider] : undefined;
+      return catalog && !catalog.isFresh() ? [catalog] : [];
+    });
+    await Promise.all(stale.map((catalog) => catalog.refresh()));
+    return stale.length > 0;
+  }
+
+  /**
+   * The primary failed in a way another provider could answer, but the declared catalog named no fallback
+   * model for this request. The fallback's own list may know one (it is read now, not before: a request
+   * the primary answers never costs a model-list fetch).
+   */
+  private async lateFallback(first: Candidate, needs: Requirements, adapterCan?: (provider: AIProvider) => boolean): Promise<Candidate | undefined> {
+    const { fallback } = this.effective();
+    if (!fallback || fallback.id === first.reg.id) return undefined;
+    const catalog = this.options.dynamic?.[fallback.id as CatalogProvider];
+    if (!catalog) return undefined;
+    await catalog.refresh();
+    const choice = this.pick(fallback, needs, adapterCan);
+    return choice.entry ? { reg: fallback, entry: choice.entry, alternates: choice.alternates } : undefined;
+  }
+
+  private modelConfigFor(candidate: Candidate, temperature?: number, maxTokens?: number): ModelConfiguration {
+    const alternates = candidate.alternates?.map((alternate) => alternate.model) ?? [];
+    return {
+      provider: candidate.reg.id,
+      model: candidate.entry.model,
+      temperature,
+      maxTokens,
+      ...(alternates.length > 0 ? { fallbackModels: alternates } : {}),
+    };
+  }
+
   // ---- one logical call -------------------------------------------------------------------------
 
   private async run<T>(operation: Operation<T>): Promise<T> {
     const call = this.beginCall(operation.purpose, operation.modelCallId);
-    const plan = this.plan(operation.needs, operation.adapterCan);
+    await this.warm();
+    let plan = this.plan(operation.needs, operation.adapterCan);
+    // The declared catalogs cannot serve this; a provider's live list may know a model that can.
+    if (plan.kind === "unsupported" && (await this.refreshStale())) plan = this.plan(operation.needs, operation.adapterCan);
     if (plan.kind === "unsupported") throw this.reject(call, plan.detail);
     if (plan.kind === "offline") return this.runOffline(plan.reg, operation, call);
 
@@ -439,13 +552,15 @@ export class ModelGateway implements AIProvider {
     if (!first.provider) throw this.internal(call, first.error);
     const primaryFailure = skipped?.error ?? (skipped ? undefined : first.provider);
 
-    if (skipped || !plan.second || !isFallbackEligibleKind(first.provider.kind)) {
+    if (skipped || !isFallbackEligibleKind(first.provider.kind)) {
       throw this.fail(call, skipped?.error, first.provider);
     }
+    const next = plan.second ?? (await this.lateFallback(plan.first, operation.needs, operation.adapterCan));
+    if (!next) throw this.fail(call, undefined, first.provider);
 
     const reason = fallbackReasonFor(plan.first.reg.label, first.provider.kind);
-    this.noteFallback(call, plan.first, first.provider, plan.second, reason);
-    const second = await this.attempt(plan.second, operation, call, true, reason);
+    this.noteFallback(call, plan.first, first.provider, next, reason);
+    const second = await this.attempt(next, operation, call, true, reason);
     if (second.ok) return second.value;
     if (!second.provider) throw this.internal(call, second.error);
     throw this.fail(call, primaryFailure, second.provider);
@@ -458,12 +573,13 @@ export class ModelGateway implements AIProvider {
     fallback: boolean,
     reason: FallbackReasonCode | undefined,
   ): Promise<AttemptResult<T>> {
-    const { reg, entry } = candidate;
     if (operation.signal?.aborted) throw abortError();
+    const settled = await this.settle(candidate, operation.needs, operation.adapterCan);
+    const { reg, entry } = settled;
     call.attempts += 1;
     const scope: AttemptContext = { provider: reg.id, fallback, fallbackReason: reason, records: [] };
     const started = this.now();
-    const modelConfig: ModelConfiguration = { provider: reg.id, model: entry.model, temperature: operation.temperature, maxTokens: operation.maxTokens };
+    const modelConfig = this.modelConfigFor(settled, operation.temperature, operation.maxTokens);
     let value: T;
     try {
       value = await withAttemptContext(scope, () => operation.invoke(reg.provider, modelConfig, call.modelCallId));
@@ -472,7 +588,7 @@ export class ModelGateway implements AIProvider {
       // A cancelled turn is not a provider failure: no fallback, nothing to count.
       if (isAbortError(error)) throw error;
       const failure = this.normalize(error, reg, entry);
-      if (failure) this.recordFailure(call, reg, entry, failure);
+      if (failure) this.recordFailure(call, settled, failure);
       return { ok: false, error, provider: failure };
     }
     this.finishAttempt(call, scope, started, reg);
@@ -530,9 +646,14 @@ export class ModelGateway implements AIProvider {
     return cooldown;
   }
 
-  private recordFailure(call: LogicalCall, reg: GatewayProvider, entry: ModelEntry, error: AIProviderError): void {
+  private recordFailure(call: LogicalCall, candidate: Candidate, error: AIProviderError): void {
+    const { reg, entry } = candidate;
     call.failures.push({ provider: reg.id, model: entry.model, kind: error.kind, status: error.status || undefined });
     this.counters.failuresByKind[error.kind] = (this.counters.failuresByKind[error.kind] ?? 0) + 1;
+    if (error.kind === "AI_PROVIDER_AUTH_ERROR") this.authRejections.add(reg.id);
+    // A 404 means the provider has no endpoint for the model(s) in this request: do not choose them again for a while.
+    const dynamic = this.options.dynamic?.[reg.id as CatalogProvider];
+    if (dynamic) for (const model of [entry, ...(candidate.alternates ?? [])]) dynamic.noteFailure(model.model, error);
     // A quota that is spent does not recover in minutes: remember it, so later calls go straight to
     // a fallback that can serve them (see plan()).
     if (error.kind === "AI_PROVIDER_QUOTA_EXCEEDED" && this.options.quotaCooldownMs > 0) {
@@ -541,8 +662,10 @@ export class ModelGateway implements AIProvider {
   }
 
   private succeed(call: LogicalCall, meta: AICallMeta): void {
-    // The provider answered: whatever cooldown it was under is over.
+    // The provider answered: whatever cooldown it was under is over, and its credential is evidently accepted.
     this.cooldowns.delete(meta.provider as GatewayProviderId);
+    this.authRejections.delete(meta.provider as GatewayProviderId);
+    this.options.dynamic?.[meta.provider as CatalogProvider]?.noteSuccess();
     this.counters.succeeded += 1;
     if (meta.fallback) this.counters.fallbacks += 1;
     this.logCall(call, "success", meta, undefined);
@@ -598,6 +721,10 @@ export class ModelGateway implements AIProvider {
     const records = call.records;
     const providerHttpRequests = records.reduce((sum, record) => sum + record.httpRequests, 0);
     const retryCount = records.reduce((sum, record) => sum + Math.max(0, record.httpRequests - 1), 0);
+    const promptTokens = records.reduce((sum, record) => sum + (record.promptTokens ?? 0), 0);
+    const completionTokens = records.reduce((sum, record) => sum + (record.completionTokens ?? 0), 0);
+    const costRecords = records.filter((record) => record.costUsd !== undefined);
+    const costUsd = costRecords.reduce((sum, record) => sum + record.costUsd!, 0);
     const fields = {
       ...correlationFields(),
       modelCallId: call.modelCallId,
@@ -610,6 +737,10 @@ export class ModelGateway implements AIProvider {
       latencyMs: this.now() - call.startedAt,
       providerHttpRequests,
       retryCount,
+      // Named "usage", not "...Tokens": the log redactor hides any field whose name contains "token".
+      ...(promptTokens + completionTokens > 0 ? { usage: { prompt: promptTokens, completion: completionTokens } } : {}),
+      // What the provider billed, when it says (OpenRouter reports `usage.cost`).
+      ...(costRecords.length > 0 ? { costUsd: Number(costUsd.toFixed(8)) } : {}),
       attempts: records.map((record) => ({
         provider: record.provider,
         model: record.servedModel ?? record.configuredModel,
@@ -619,7 +750,17 @@ export class ModelGateway implements AIProvider {
         latencyMs: record.latencyMs,
         fallback: record.fallback,
       })),
-      ...(error ? { errorKind: error.kind, errorStatus: error.status || undefined, quotaType: error.quotaType, failedAttempts: error.attempts } : {}),
+      ...(error
+        ? {
+            errorKind: error.kind,
+            errorStatus: error.status || undefined,
+            quotaType: error.quotaType,
+            // The provider's own explanation, already key-scrubbed and bounded: a 404 "0 endpoints ... ZDR violation (account
+            // settings)" names the OpenRouter setting to change, and the kind and status alone do not.
+            errorDetail: error.message.slice(0, 400),
+            failedAttempts: error.attempts,
+          }
+        : {}),
     };
     if (finalStatus === "success") logger.info("AI call", fields);
     else logger.warn("AI call failed", fields);

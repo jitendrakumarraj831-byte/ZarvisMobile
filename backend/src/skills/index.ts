@@ -1,6 +1,7 @@
 import { getModelGateway } from "../ai/providerFactory.js";
 import type { ModelGateway } from "../ai/modelGateway.js";
 import type { Capability } from "../ai/capabilities.js";
+import { resolveOpenRouterBaseUrl } from "../config/aiConfig.js";
 import { env } from "../config/env.js";
 import type { Store } from "../store/store.js";
 import { TaskService } from "../tasks/taskService.js";
@@ -40,6 +41,9 @@ export interface SearchProviderSettings {
   geminiModel: string;
   openRouterApiKey?: string;
   openRouterModel?: string;
+  /** Raw `OPENROUTER_BASE_URL` / `OPENROUTER_DATA_COLLECTION`: search follows the same address and data policy as chat. */
+  openRouterBaseUrl?: string;
+  openRouterDataCollection?: string;
   /** Raw `AI_FALLBACK_PROVIDER`; `none` / `off` / `disabled` means a query must not go to a second provider. */
   aiFallbackProvider?: string;
   isProduction: boolean;
@@ -54,7 +58,13 @@ const fallbackDisabled = (raw: string | undefined) => ["none", "off", "disabled"
  * search query is never sent to OpenRouter while Gemini is configured.
  */
 export function searchProvider(settings: SearchProviderSettings = env): SearchProvider {
-  const openRouter = settings.openRouterApiKey ? new OpenRouterSearchProvider(settings.openRouterApiKey, settings.openRouterModel) : undefined;
+  const dataCollection = settings.openRouterDataCollection?.trim().toLowerCase();
+  const openRouter = settings.openRouterApiKey
+    ? new OpenRouterSearchProvider(settings.openRouterApiKey, settings.openRouterModel?.trim() || undefined, {
+        baseUrl: settings.openRouterBaseUrl?.trim() ? resolveOpenRouterBaseUrl(settings.openRouterBaseUrl) : undefined,
+        ...(dataCollection === "allow" || dataCollection === "deny" ? { dataCollection } : {}),
+      })
+    : undefined;
   if (settings.geminiApiKey) {
     const gemini = new GeminiSearchProvider(settings.geminiApiKey, settings.geminiModel);
     return openRouter && !fallbackDisabled(settings.aiFallbackProvider) ? new FallbackSearchProvider(gemini, openRouter) : gemini;

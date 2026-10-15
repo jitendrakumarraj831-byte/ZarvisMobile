@@ -66,7 +66,7 @@ const callAs =
   };
 
 /** The kinds of request the probe sends, told apart the way OpenRouter would see them. */
-const isModelList = (call: RecordedCall) => call.url.endsWith("/models");
+const isModelList = (call: RecordedCall) => /\/models(\/user)?$/.test(call.url);
 const isToolProbe = (call: RecordedCall) => call.body?.tools?.length === 1 && call.body.tools[0].function.name === "probe-add";
 const isPlanner = (call: RecordedCall) => (call.body?.tools?.length ?? 0) > 1;
 
@@ -424,5 +424,77 @@ describe("runProbe against what a live OpenRouter returned", () => {
 
     expect(output).toMatch(/FAIL openrouter\/free · plain request — AI_PROVIDER_AUTH_ERROR \(HTTP 403\).*refused ::error::injected/);
     expect(output.split("\n").some((line) => line.startsWith("::"))).toBe(false);
+  });
+});
+
+describe("the live model discovery check (the gateway's feature, against what OpenRouter returned)", () => {
+  /** Answers the discovery request (which names `models`, not `model`) as the first model it names. */
+  const discoveryAware = (script: Script = {}): Responder => {
+    const base = openRouter(script);
+    return (call) => {
+      if (!isModelList(call) && Array.isArray(call.body?.models)) return openRouterText("2 plus 2 is 4.", String(call.body.models[0]))(call);
+      return base(call);
+    };
+  };
+  const run = async (options: Partial<ProbeOptions>, responder: Responder) => {
+    const lines: string[] = [];
+    const stub = stubProviders({ openrouter: responder });
+    const outcome = await runProbe({ apiKey: OPENROUTER_KEY, candidates: 0, ...options, print: (line) => lines.push(line) });
+    return { outcome, output: lines.join("\n"), stub };
+  };
+
+  it("reads the account's list, replaces a model OpenRouter does not list, and gets an answer", async () => {
+    const { outcome, output, stub } = await run({ discovery: true }, discoveryAware());
+
+    expect(output).toMatch(/PASS live model list — 6 models, 4 free with tool support, read from the account's own list \(GET \/models\/user\)/);
+    expect(output).toMatch(/PASS a model OpenRouter does not list is replaced — chose vendor\/free-no-tools:free/);
+    expect(outcome.ok).toBe(true);
+    const discoveryChat = stub.openrouter.filter((call) => Array.isArray(call.body?.models));
+    expect(discoveryChat).toHaveLength(1);
+    expect(JSON.stringify(discoveryChat[0]!.body)).not.toContain("withdrawn-model");
+    expect(discoveryChat[0]!.headers.authorization).toBe(`Bearer ${OPENROUTER_KEY}`);
+    expect(output).not.toContain(OPENROUTER_KEY);
+  });
+
+  it("reads the public list when only the account's list is unavailable, and still replaces the model", async () => {
+    const accountDown: Responder = (call) => (call.url.endsWith("/models/user") ? new Response("{}", { status: 404 }) : discoveryAware()(call));
+    const { outcome, output } = await run({ discovery: true }, accountDown);
+    expect(output).toMatch(/PASS live model list — 6 models, 4 free with tool support, read from the public list \(GET \/models\)/);
+    expect(output).toMatch(/PASS a model OpenRouter does not list is replaced/);
+    expect(outcome.ok).toBe(true);
+  });
+
+  it("is not run unless asked for: no account list is read and no extra request is sent", async () => {
+    const { stub, output } = await run({}, discoveryAware());
+    expect(stub.openrouter.filter((call) => call.url.endsWith("/models/user"))).toHaveLength(0);
+    expect(output).not.toMatch(/live model list|does not list is replaced/);
+  });
+
+  it("fails the check, and the probe, when the live list could not be read and the withdrawn id was sent as it was", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const listDown: Responder = (call) => (isModelList(call) ? new Response("down", { status: 503 }) : discoveryAware()(call));
+    const { outcome, output } = await run({ discovery: true }, listDown);
+
+    expect(output).toMatch(/WARN live model list — the gateway could not read OpenRouter's model list/);
+    expect(output).toMatch(/FAIL a model OpenRouter does not list is replaced — the id zarvis-probe\/withdrawn-model:free was kept/);
+    expect(outcome.ok).toBe(false);
+  });
+
+  it("when the account's data policy excludes every endpoint (the first live run with a working key), says so and what to change, and still reports the list", async () => {
+    const zdr =
+      "0 endpoints out of 8 requested are available matching your guardrail restrictions and data policy. We removed them for the following reasons (an endpoint may have matched multiple reasons): ZDR violation (account settings): 8 endpoints excluded; configurable at https://openrouter.ai/settings/privacy";
+    const { outcome, output } = await run({ discovery: true }, openRouter({ text: openRouterFail(404, zdr) }));
+
+    expect(output).toMatch(/PASS live model list — 6 models/);
+    expect(output).toMatch(/FAIL a model OpenRouter does not list is replaced — the request was refused after the replacement \(the model list was read\): AI_PROVIDER_CAPABILITY_UNSUPPORTED \(HTTP 404\)/);
+    expect(output).toMatch(/The key works, but OpenRouter's own account settings exclude every endpoint/);
+    expect(output).toMatch(/openrouter\.ai\/settings\/privacy/);
+    expect(outcome.ok).toBe(false);
+  });
+
+  it("does not spend a request on discovery once the key was rejected", async () => {
+    const { output, stub } = await run({ discovery: true, candidates: 2 }, openRouter({ catalog: longCatalog(), text: openRouterFail(401, "User not found.") }));
+    expect(output).toMatch(/SKIP live model discovery — not tried: OpenRouter rejected the API key/);
+    expect(stub.openrouter.filter((call) => call.url.endsWith("/models/user"))).toHaveLength(0);
   });
 });

@@ -74,6 +74,25 @@ describe("GET /health", () => {
     expect(switchedOff.body).toEqual({ status: "ok", provider: "google", database: "not_configured" });
   });
 
+  it("names a provider whose API key was refused (HTTP 401), only while that is true, and never the key", async () => {
+    stubProviders({ gemini: geminiFail(503, "down"), openrouter: openRouterFail(401, "User not found.") });
+    vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const gateway = createModelGateway(fakeEnv({ openRouterModelCapabilities: "tools" }), { isProduction: true });
+    const app = buildServer({ ...buildContainer(new InMemoryStore(), { modelGateway: gateway }), ttsProvider: null });
+    expect((await request(app).get("/health")).body).toEqual({ status: "ok", provider: "google", aiFallback: true, aiFallbackTools: true, database: "not_configured" });
+
+    await gateway.generate({ systemPrompt: "x", messages: [{ role: "user", content: "hi" }], modelConfig: { provider: "gateway", model: "m" } }).catch(() => undefined);
+    const after = await request(app).get("/health");
+    expect(after.body).toEqual({ status: "ok", provider: "google", aiFallback: true, aiFallbackTools: true, aiKeyRejected: ["openrouter"], database: "not_configured" });
+    expect(JSON.stringify(after.body)).not.toContain(OPENROUTER_KEY);
+
+    // The key starts working (replaced in the environment): the first success clears the note.
+    vi.unstubAllGlobals();
+    stubProviders({ gemini: geminiFail(503, "down"), openrouter: openRouterText("back") });
+    await gateway.generate({ systemPrompt: "x", messages: [{ role: "user", content: "hi" }], modelConfig: { provider: "gateway", model: "m" } });
+    expect((await request(app).get("/health")).body).not.toHaveProperty("aiKeyRejected");
+  });
+
   it("an unconfigured deployment says so: production fails closed, development shows the mock", async () => {
     const none = { geminiApiKey: undefined, openRouterApiKey: undefined };
     expect((await request(appWith(none, { isProduction: true })).get("/health")).body.provider).toBe("none");

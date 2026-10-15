@@ -1,12 +1,14 @@
 import { CAPABILITIES, type Capability } from "../ai/capabilities.js";
 import {
   geminiEntry,
+  MODEL_ID_PATTERN,
   openRouterEntry,
   parseCatalogJson,
   type CatalogProvider,
   type ModelEntry,
 } from "../ai/modelCatalog.js";
-import { DEFAULT_OPENROUTER_BASE_URL } from "../ai/openRouterProvider.js";
+import { DEFAULT_OPENROUTER_BASE_URL } from "../ai/openRouterHttp.js";
+import { MAX_MODELS_PER_REQUEST } from "../ai/openRouterProvider.js";
 import { AIConfigError } from "./aiConfigError.js";
 
 /**
@@ -29,6 +31,13 @@ export interface AIConfigInput {
   openRouterModelCapabilities?: string;
   openRouterModelContextTokens?: string;
   openRouterTimeoutMs?: string;
+  openRouterDiscovery?: string;
+  openRouterFallbackModels?: string;
+  openRouterAllowPaid?: string;
+  openRouterMaxPricePrompt?: string;
+  openRouterMaxPriceCompletion?: string;
+  openRouterMaxOutputTokens?: string;
+  openRouterDataCollection?: string;
   aiModelCatalogJson?: string;
   aiQuotaCooldownMs?: string;
 }
@@ -39,7 +48,20 @@ export interface ResolvedAIConfig {
   /** `null` when the fallback is disabled (`AI_FALLBACK_PROVIDER=none`). */
   preferredFallback: CatalogProvider | null;
   catalog: ModelEntry[];
-  openRouter: { baseUrl: string; timeoutMs: number };
+  openRouter: {
+    baseUrl: string;
+    timeoutMs: number;
+    /** Read OpenRouter's live model list (default on). */
+    discovery: boolean;
+    /** Operator-named alternates, in order (at most two: with the main model that is OpenRouter's limit of three per request). */
+    fallbackModels: string[];
+    allowPaid: boolean;
+    /** US dollars per million tokens. */
+    maxPricePromptPerM?: number;
+    maxPriceCompletionPerM?: number;
+    maxOutputTokens?: number;
+    dataCollection?: "allow" | "deny";
+  };
   /** How long a provider that reported an exhausted quota is skipped (0 = never skip). */
   quotaCooldownMs: number;
   /** Non-fatal findings, logged once at startup. */
@@ -49,7 +71,7 @@ export interface ResolvedAIConfig {
 export const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 const DEFAULT_OPENROUTER_TIMEOUT_MS = 60_000;
 const DEFAULT_QUOTA_COOLDOWN_MS = 5 * 60_000;
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
+const MODEL_ID = MODEL_ID_PATTERN;
 /** Capabilities an operator may declare for the default OpenRouter model. */
 const DECLARABLE: readonly Capability[] = ["tools", "vision", "structuredOutput", "coding", "reasoning"];
 
@@ -78,6 +100,44 @@ function parseInteger(name: string, raw: string | undefined, fallbackValue: numb
   return value;
 }
 
+function parseBoolean(name: string, raw: string | undefined, fallbackValue: boolean, problems: string[]): boolean {
+  if (blank(raw)) return fallbackValue;
+  const value = raw!.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off", "disabled"].includes(value)) return false;
+  problems.push(`${name} must be true or false`);
+  return fallbackValue;
+}
+
+/** A price in US dollars per million tokens, e.g. `0` (free only) or `0.5`. */
+function parsePrice(name: string, raw: string | undefined, problems: string[]): number | undefined {
+  if (blank(raw)) return undefined;
+  const text = raw!.trim();
+  const value = Number(text);
+  if (!/^\d+(\.\d+)?$/.test(text) || !Number.isFinite(value) || value > 1_000) {
+    problems.push(`${name} must be a number of US dollars per million tokens, from 0 to 1000`);
+    return undefined;
+  }
+  return value;
+}
+
+function parseModelList(name: string, raw: string | undefined, problems: string[]): string[] {
+  if (blank(raw)) return [];
+  const ids: string[] = [];
+  for (const token of raw!.split(/[\s,]+/).filter(Boolean)) {
+    if (!MODEL_ID.test(token)) {
+      problems.push(`${name} contains a value that is not a valid model id`);
+      return [];
+    }
+    if (!ids.includes(token)) ids.push(token);
+  }
+  if (ids.length > MAX_MODELS_PER_REQUEST - 1) {
+    problems.push(`${name} lists more than ${MAX_MODELS_PER_REQUEST - 1} models (OpenRouter accepts ${MAX_MODELS_PER_REQUEST} per request, including the main one)`);
+    return ids.slice(0, MAX_MODELS_PER_REQUEST - 1);
+  }
+  return ids;
+}
+
 function parseBaseUrl(raw: string | undefined, problems: string[], warnings: string[]): string {
   if (blank(raw)) return DEFAULT_OPENROUTER_BASE_URL;
   let url: URL;
@@ -98,6 +158,14 @@ function parseBaseUrl(raw: string | undefined, problems: string[], warnings: str
     warnings.push("OPENROUTER_BASE_URL points at a host other than openrouter.ai: the OpenRouter API key is sent to that host");
   }
   return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+}
+
+/** The validated OpenRouter base URL for callers outside the gateway (web search). Throws an `AIConfigError` like startup does. */
+export function resolveOpenRouterBaseUrl(raw: string | undefined): string {
+  const problems: string[] = [];
+  const url = parseBaseUrl(raw, problems, []);
+  if (problems.length > 0) throw new AIConfigError(problems);
+  return url;
 }
 
 function parseCapabilityList(raw: string | undefined, problems: string[]): Capability[] {
@@ -131,6 +199,27 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
   const contextTokens = parseInteger("OPENROUTER_MODEL_CONTEXT_TOKENS", input.openRouterModelContextTokens, 32_768, 1_000, 10_000_000, problems);
   const quotaCooldownMs = parseInteger("AI_QUOTA_COOLDOWN_MS", input.aiQuotaCooldownMs, DEFAULT_QUOTA_COOLDOWN_MS, 0, 86_400_000, problems);
 
+  const discovery = parseBoolean("OPENROUTER_DISCOVERY", input.openRouterDiscovery, true, problems);
+  const allowPaid = parseBoolean("OPENROUTER_ALLOW_PAID", input.openRouterAllowPaid, false, problems);
+  const fallbackModels = parseModelList("OPENROUTER_FALLBACK_MODELS", input.openRouterFallbackModels, problems);
+  const maxPricePromptPerM = parsePrice("OPENROUTER_MAX_PRICE_PROMPT", input.openRouterMaxPricePrompt, problems);
+  const maxPriceCompletionPerM = parsePrice("OPENROUTER_MAX_PRICE_COMPLETION", input.openRouterMaxPriceCompletion, problems);
+  const maxOutputTokens = blank(input.openRouterMaxOutputTokens)
+    ? undefined
+    : parseInteger("OPENROUTER_MAX_OUTPUT_TOKENS", input.openRouterMaxOutputTokens, 0, 1, 1_000_000, problems);
+  let dataCollection: "allow" | "deny" | undefined;
+  if (!blank(input.openRouterDataCollection)) {
+    const value = input.openRouterDataCollection!.trim().toLowerCase();
+    if (value === "allow" || value === "deny") dataCollection = value;
+    else problems.push('OPENROUTER_DATA_COLLECTION must be "allow" or "deny"');
+  }
+  if (allowPaid && maxPricePromptPerM === undefined && maxPriceCompletionPerM === undefined) {
+    warnings.push("OPENROUTER_ALLOW_PAID is on with no OPENROUTER_MAX_PRICE_PROMPT / OPENROUTER_MAX_PRICE_COMPLETION: any paid model OpenRouter lists may be chosen");
+  }
+  if (!discovery && (fallbackModels.length > 0 || allowPaid)) {
+    warnings.push("OPENROUTER_FALLBACK_MODELS / OPENROUTER_ALLOW_PAID have no effect while OPENROUTER_DISCOVERY is off");
+  }
+
   const openRouterModel = blank(input.openRouterModel) ? DEFAULT_OPENROUTER_MODEL : input.openRouterModel!.trim();
   if (!MODEL_ID.test(openRouterModel)) problems.push("OPENROUTER_MODEL is not a valid model id");
   const extraCapabilities = parseCapabilityList(input.openRouterModelCapabilities, problems);
@@ -161,5 +250,22 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
   }
   const catalog = [...defaults.filter((entry) => !listed.has(entry.provider)), ...fromJson];
 
-  return { preferredPrimary, preferredFallback, catalog, openRouter: { baseUrl, timeoutMs }, quotaCooldownMs, warnings };
+  return {
+    preferredPrimary,
+    preferredFallback,
+    catalog,
+    openRouter: {
+      baseUrl,
+      timeoutMs,
+      discovery,
+      fallbackModels,
+      allowPaid,
+      ...(maxPricePromptPerM !== undefined ? { maxPricePromptPerM } : {}),
+      ...(maxPriceCompletionPerM !== undefined ? { maxPriceCompletionPerM } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+      ...(dataCollection ? { dataCollection } : {}),
+    },
+    quotaCooldownMs,
+    warnings,
+  };
 }
