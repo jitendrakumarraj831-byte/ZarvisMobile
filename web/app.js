@@ -522,7 +522,15 @@
     }
     // Everything the page says in English that has a Hindi entry (see i18n.js); user content is left alone.
     if (window.ZarvisI18n) window.ZarvisI18n.apply(state.lang);
-    else if (state.lang !== "en") void loadI18n().then((ok) => { if (ok && state.lang !== "en") window.ZarvisI18n.apply(state.lang); });
+    else if (state.lang !== "en") {
+      // The dictionary arrives a moment later: translate the page when it does, and the tab title with it (it was composed in English).
+      void loadI18n().then((ok) => {
+        if (!ok || state.lang === "en") return;
+        window.ZarvisI18n.apply(state.lang);
+        const title = pageTitle();
+        document.title = kit("decorateTitle", title) || title;
+      });
+    }
   }
 
   /**

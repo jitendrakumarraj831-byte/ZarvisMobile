@@ -2264,19 +2264,17 @@ body[data-orb-state="SPEAKING"] #home-orb .orb { animation: orb-speak 0.9s ease-
 @media (max-height: 720px) { #home-orb { margin-top: var(--s6); } }
 .home-lower { display: flex; flex-direction: column; align-items: center; gap: var(--s4); margin: auto 0; padding: var(--s5) 0; text-align: center; }
 .view-home .home-quick { margin: 0; animation: none; }
-/* Phones: the quick actions are two rows that scroll sideways (four are visible, the next column peeks and the edge fades), not one row where only
-   one and a half chips showed. From 700px they wrap and centre. */
+/* Phones: the quick actions are two rows that scroll sideways (four are visible and the next column peeks; the edge fade is .scroll-fade, set by
+   the page), not one row where only one and a half chips showed. From 700px they wrap and centre. */
 .view-home .home-quick .chip-row {
   display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); grid-auto-columns: max-content; justify-content: start;
   overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter);
   margin-inline: calc(-1 * var(--gutter)); padding: 5px var(--gutter); margin-block: -3px; /* room for the focus ring: a row that scrolls clips what is drawn outside it */
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--gutter), #000 calc(100% - 32px), transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0, #000 var(--gutter), #000 calc(100% - 32px), transparent 100%);
 }
 .view-home .home-quick .chip-row::-webkit-scrollbar { display: none; }
 .view-home .home-quick .chip { flex: none; min-height: 44px; padding: 0 var(--s4); scroll-snap-align: start; border-radius: var(--r-pill); font-size: 15px; font-weight: 600; }
 .chip[class*="tone-"] .ico { width: 18px; height: 18px; color: var(--tone); }
-@media (min-width: 700px) { .view-home .home-quick .chip-row { display: flex; flex-wrap: wrap; justify-content: center; overflow: visible; margin: 0; padding: 0; -webkit-mask-image: none; mask-image: none; } }
+@media (min-width: 700px) { .view-home .home-quick .chip-row { display: flex; flex-wrap: wrap; justify-content: center; overflow: visible; margin: 0; padding: 0; } }
 
 /* ---------- Home orb: a neon ring with rippling waves and drifting sparks; "ZARVIS AI" inside ----------
    Same deep-blue glow in both themes. Only the Home orb (#home-orb); the Chat orb is unchanged.

@@ -1434,6 +1434,75 @@ const reply = (text, id = "t") => sse([["meta", { conversationId: "00000000-0000
     assert.deepEqual(problems, []);
   });
 
+  await step("Lightweight mode: Settings > Appearance > Performance turns it on and off, it survives a reload, it removes the blur and the idle orb loops, and Automatic follows Save-Data", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 }, hasTouch: true, isMobile: true });
+    const page = await pageOf(ctx);
+    await ready(page);
+    const perf = () => page.evaluate(() => document.documentElement.getAttribute("data-perf"));
+    const barBlur = () => page.evaluate(() => getComputedStyle(document.querySelector(".bottom-nav")).backdropFilter);
+    const orbAnimation = () => page.evaluate(() => getComputedStyle(document.querySelector("#home-orb .orb")).animationName);
+    const pressed = () => page.evaluate(() => [...document.querySelectorAll("#perf-mode [data-perf-mode]")].filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.perfMode));
+    // A desktop-class headless browser reports nothing slow: Automatic is full effects.
+    if ((await perf()) !== null) problems.push(`normal device: data-perf is "${await perf()}", expected none`);
+    if ((await barBlur()) === "none") problems.push("full effects: the tab bar has no backdrop blur");
+    if ((await orbAnimation()) === "none") problems.push("full effects: the idle Home orb does not move");
+    await openRoute(page, "#/settings/appearance");
+    if (JSON.stringify(await pressed()) !== '["auto"]') problems.push(`default choice is ${JSON.stringify(await pressed())}, expected ["auto"]`);
+    await page.click('#perf-mode [data-perf-mode="lite"]');
+    if ((await perf()) !== "lite") problems.push("choosing Lightweight did not set data-perf=lite");
+    if ((await barBlur()) !== "none") problems.push(`Lightweight: the tab bar still blurs (${await barBlur()})`);
+    const status = await page.evaluate(() => document.getElementById("perf-status").textContent);
+    if (!/Lightweight mode is on/.test(status)) problems.push(`status line says "${status}"`);
+    await openRoute(page, "#/home");
+    if ((await orbAnimation()) !== "none") problems.push(`Lightweight: the idle Home orb still animates (${await orbAnimation()})`);
+    const solid = await page.evaluate(() => getComputedStyle(document.querySelector(".bottom-nav")).backgroundColor);
+    if (/rgba\(.*,\s*0?\.\d+\)$/.test(solid)) problems.push(`Lightweight: the tab bar is translucent (${solid})`);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector("#orb")?.dataset.state === "IDLE", null, { timeout: 15000 });
+    if ((await perf()) !== "lite") problems.push("the choice did not survive a reload");
+    await openRoute(page, "#/settings/appearance");
+    if (JSON.stringify(await pressed()) !== '["lite"]') problems.push(`after reload the control shows ${JSON.stringify(await pressed())}`);
+    await page.click('#perf-mode [data-perf-mode="full"]');
+    if ((await perf()) !== null) problems.push("Full effects did not clear data-perf");
+    await ctx.close();
+
+    // Automatic on a device that asks to save data.
+    const saver = await browser.newContext({ viewport: { width: 390, height: 860 }, hasTouch: true, isMobile: true });
+    await saver.addInitScript(() => {
+      Object.defineProperty(navigator, "connection", { value: { saveData: true, effectiveType: "4g", addEventListener() {}, removeEventListener() {} }, configurable: true });
+    });
+    const quick = await pageOf(saver);
+    await ready(quick);
+    if ((await quick.evaluate(() => document.documentElement.getAttribute("data-perf"))) !== "lite") problems.push("Save-Data with Automatic did not turn Lightweight on");
+    await openRoute(quick, "#/settings/appearance");
+    await quick.click('#perf-mode [data-perf-mode="full"]');
+    if ((await quick.evaluate(() => document.documentElement.getAttribute("data-perf"))) !== null) problems.push("Full effects did not override Save-Data");
+    await saver.close();
+    assert.deepEqual(problems, []);
+  });
+
+  await step("Hindi dictionary: English readers never download i18n.js; choosing Hindi fetches it and translates; a saved Hindi choice loads it with the page", async () => {
+    const problems = [];
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 860 } });
+    const page = await pageOf(ctx);
+    const dictionary = [];
+    page.on("request", (r) => { if (/\/i18n\.js(\?|$)/.test(r.url())) dictionary.push(r.url()); });
+    await ready(page);
+    await page.waitForTimeout(500);
+    if (dictionary.length) problems.push(`English: i18n.js was requested ${dictionary.length} time(s)`);
+    if (await page.evaluate(() => !!window.ZarvisI18n)) problems.push("English: the dictionary is loaded anyway");
+    await openRoute(page, "#/settings/language");
+    await page.click('[data-lang="hi"]');
+    await page.waitForFunction(() => !!window.ZarvisI18n && document.querySelector('.bottom-nav [data-view="home"]')?.textContent.trim() === "होम", null, { timeout: 8000 }).catch(() => problems.push("choosing Hindi did not load and apply the dictionary"));
+    if (dictionary.length !== 1) problems.push(`choosing Hindi requested i18n.js ${dictionary.length} time(s), expected 1`);
+    await page.waitForFunction(() => document.title.includes("ZARVIS AI") && /[ऀ-ॿ]/.test(document.title), null, { timeout: 4000 }).catch(async () => problems.push(`the tab title was not translated: "${await page.title()}"`));
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('.bottom-nav [data-view="home"]')?.textContent.trim() === "होम", null, { timeout: 8000 }).catch(() => problems.push("a saved Hindi choice did not translate after a reload"));
+    await ctx.close();
+    assert.deepEqual(problems, []);
+  });
+
   await step("no uncaught page errors", async () => {
     assert.deepEqual(errors, []);
   });

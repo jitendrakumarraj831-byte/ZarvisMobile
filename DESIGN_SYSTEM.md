@@ -68,9 +68,24 @@ with no download. Per-element tone variables (`--tone`, `--tone-a`, `--tone-b`, 
 
 ## Motion
 
-CSS only. Page and card entrances, hover lift, the orb, the waveform and the streaming caret are the only animation.
-Everything is disabled under `prefers-reduced-motion: reduce`, and nothing moves unless something is happening. No blur
-heavier than the glass bars, no animation that runs while the page is idle (the aurora is painted once).
+CSS only. Page and card entrances, hover lift, the orb (breathing, ripples, drifting sparks), the waveform and the streaming caret are the
+animation. Everything is disabled under `prefers-reduced-motion: reduce`, nothing moves while the tab is in the background
+(`body.page-hidden`), and the aurora is painted once. The Home orb is the one decoration that loops while the page is idle (about ten
+layers), which is why **Lightweight mode** exists.
+
+### Lightweight mode (`html[data-perf="lite"]`)
+
+Set before first paint by `theme-init.js` (`window.ZarvisPerf.apply`), from the saved choice in Settings > Appearance > Performance
+(`zarvis.perf`: `auto` | `lite` | `full`). **Automatic** turns it on when the browser reports `navigator.connection.saveData`, an
+effective connection of `slow-2g`/`2g`/`3g`, `navigator.deviceMemory <= 2`, or `prefers-reduced-data: reduce`, and follows the connection
+if it changes while the page is open. It removes backdrop blur everywhere (`!important`, one rule) and the decorative loops (the idle
+orbs, the brand orb, the chat avatar, the tab-bar mic glow); the bars become solid (`--glass` and `--nav-bg` resolve to `--surface`), and
+the Chat orb still moves while it is listening or speaking, because that motion is a state, not decoration. Nothing is removed from the
+page. `web/tests/themeInit.test.js` runs `theme-init.js` in a stub browser; `quality.e2e.cjs` checks the switch, the reload, the
+computed blur and orb animation, and the Save-Data path.
+
+The Hindi dictionary (`i18n.js`, about 160 KB) is part of the same idea: it is fetched only when Hindi is in use
+(`theme-init.js` starts it early for a saved Hindi choice; choosing Hindi fetches it on the spot) and is not precached.
 
 ## Accessibility conventions
 
@@ -78,6 +93,29 @@ Landmarks and one `h1` per page; skip link; visible focus on every control; acce
 `aria-live` regions for asynchronous status (`#chat-announcer`, `#toast`, payment result, list counts such as "3 projects
 shown"); scrollable regions are focusable and named; touch targets are at least 44px under 1100px. The Playwright quality
 suite runs axe (serious/critical) on every page in light, dark and Hindi, on the data-rich pages, and on the phone menu.
+
+## Android uses the same tokens
+
+The native app (`android/core/core-ui/.../theme/Color.kt`, `Theme.kt`) mirrors this file's tokens, so the two clients read as one product.
+When a token changes here, change it there (and the other way round).
+
+| Web token (light / dim) | Android |
+| --- | --- |
+| `--bg` `#f4f3ff` / `#070a1d` | `ZarvisSurfaceLight` / `ZarvisSpaceBlack` (colour scheme `background`) |
+| `--surface` `#ffffff` / `#0f1436` | `ZarvisSurfaceLightElevated` / `ZarvisSurfaceDark` (`surface`) |
+| `--surface-2` / `--surface-3` | `surfaceVariant`, `surfaceContainerHigh`, `surfaceContainerHighest` |
+| `--text`, `--text-2` | `onSurface`, `onSurfaceVariant` |
+| `--primary` `#4a4de0` / `#8da2ff` | `primary` (the user bubble, focus ring, selected tab, links) |
+| `--ok --warn --err` | `ZarvisAccents.success / warning / danger`, `error` |
+| `--glass`, `--card-bg`, `--card-border` | `GlassColors.surfaceTint / surfaceTintElevated / border` (`ZarvisExtras`) |
+| `--aurora-1..3` | the three washes in `ZarvisBackground` |
+| `--r-lg` 20px | `GlassSurface` / `ZarvisCard` corner 20dp |
+| 44px touch target | chips 44dp, tabs 56dp, switch and choice rows 56dp |
+
+Rules that carry over: text on glass is at least 4.5:1 in both themes (the bright brand cyan, pink, amber and green are for glows and icons,
+never for words on the light page; Android reads text accents from `ZarvisAccents` / `readableAccent`); glass is a tint plus a hairline,
+never a blur, on Android; looping animation holds still when the system has animations off and while the thing it decorates is idle;
+a page title is a heading (`semantics { heading() }`); a switch or a choice is one row-sized control with the right role.
 
 ## How the system is kept honest
 
