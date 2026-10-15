@@ -36,11 +36,20 @@ if (!BASE) {
 const BYPASS = process.env.BYPASS || "";
 const results = [];
 
+function sanitizeLogDetail(detail) {
+  const text = String(detail ?? "");
+  const redacted = text
+    .replace(/(authorization\s*:\s*bearer\s+)[^\s]+/gi, "$1[REDACTED]")
+    .replace(/(refreshToken|accessToken|token|password)\s*[:=]\s*([^\s,;]+)/gi, "$1=[REDACTED]");
+  return redacted.replace(/[\r\n]+/g, " ").slice(0, 300);
+}
+
 function report(status, name, detail = "") {
   results.push(status);
-  console.log(`${status.padEnd(4)} ${name}${detail ? ` — ${detail}` : ""}`);
-  if (status === "WARN" && process.env.GITHUB_ACTIONS) console.log(`::warning::${name}: ${detail}`);
-  if (status === "FAIL" && process.env.GITHUB_ACTIONS) console.log(`::error::${name}: ${detail}`);
+  const safeDetail = sanitizeLogDetail(detail);
+  console.log(`${status.padEnd(4)} ${name}${safeDetail ? ` — ${safeDetail}` : ""}`);
+  if (status === "WARN" && process.env.GITHUB_ACTIONS) console.log(`::warning::${name}: ${safeDetail}`);
+  if (status === "FAIL" && process.env.GITHUB_ACTIONS) console.log(`::error::${name}: ${safeDetail}`);
 }
 
 /** The facts of a 16-bit PCM WAV file, or null when the bytes are not one. */
