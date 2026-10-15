@@ -98,8 +98,9 @@ async function makeThread(page) {
   await page.fill("#text-input", "Plan my launch week in three steps");
   await page.press("#text-input", "Enter");
   await page.waitForSelector(".bubble.assistant .bubble-actions", { timeout: 30000 });
-  await page.waitForTimeout(600);
-  return page.evaluate(() => location.hash);
+  // The thread's own address (#/chat/<id>): plain #/chat reopens whatever chat is current, which New Chat (the empty-chat shot) clears.
+  await page.waitForFunction(() => /^#\/chat\/[\w-]+/.test(location.hash) || !!localStorage.getItem("zarvis.conversationId"), null, { timeout: 15000 });
+  return page.evaluate(() => (/^#\/chat\/[\w-]+/.test(location.hash) ? location.hash : "#/chat/" + localStorage.getItem("zarvis.conversationId")));
 }
 
 async function measure(page, lang) {
