@@ -4,7 +4,8 @@
  * other file spells one.
  *
  * ZARVIS speaks Hindi, English and Hinglish (Hindi written in Latin letters). The language is
- * detected from the text itself, locally and instantly: no network call, no other service.
+ * detected from the text itself, locally and instantly, by the detector the planner also uses to
+ * choose the reply's language (`language/textLanguage.ts`): no network call, no other service.
  *
  * - Devanagari anywhere in the text: Hindi voice (the same rule the web client always used).
  * - Latin letters only, with enough common Hindi words (`aaj kya karna hai`): the Hinglish voice.
@@ -18,7 +19,9 @@
  * ignored and the voice is chosen from the text, as an unknown voice always was.
  */
 
-export type SpeechLanguage = "hi" | "en" | "hinglish";
+import { detectTextLanguage, type TextLanguage } from "../language/textLanguage.js";
+
+export type SpeechLanguage = TextLanguage;
 
 export interface VoiceSettings {
   hindi: string;
@@ -77,37 +80,10 @@ const LEGACY_STYLES: Readonly<Record<string, "default" | "male">> = {
 };
 
 /**
- * Common Hindi words as they are typed in Latin letters. Words that are also English words
- * (`main`, `to`, `me`, `do`, `hi`, `the`, `band`, `mat`, `par`, `ho`) are left out on purpose, so
- * an English sentence is not taken for Hinglish.
+ * The language of the text to be spoken. It is the same detector the planner uses to choose the reply's language
+ * (`language/textLanguage.ts`), so a reply written in Hinglish is also spoken by the Hinglish voice.
  */
-const ROMAN_HINDI_WORDS = new Set([
-  "hai", "hain", "hoon", "hun", "hoga", "hogi", "honge", "tha", "thi", "thaa", "raha", "rahi", "rahe", "rahega",
-  "karna", "karo", "karke", "karenge", "kijiye", "kijiyega", "kiya", "kiye", "kya", "kyun", "kyon", "kyunki",
-  "kaise", "kaisa", "kaisi", "kaun", "kab", "kahan", "kidhar", "kitna", "kitni", "kitne",
-  "aap", "aapko", "aapka", "aapki", "aapke", "tum", "tumhe", "tumhara", "tumhari", "mujhe", "mera", "meri", "mere",
-  "hum", "hamara", "hamari", "humein", "unko", "usko", "isko", "yeh", "woh", "kuch", "koi", "sab", "sabhi",
-  "bahut", "bohot", "bahot", "thoda", "zyada", "jyada", "accha", "achha", "acha", "theek", "thik", "sahi", "galat",
-  "nahi", "nahin", "nhi", "haan", "ji", "bhai", "yaar", "dost", "abhi", "aaj", "kal", "parso", "phir", "fir",
-  "lekin", "magar", "aur", "toh", "bhi", "ka", "ki", "ke", "ko", "se", "mein",
-  "wala", "wali", "wale", "chahiye", "chahta", "chahti", "samajh", "matlab", "batao", "bataiye", "bolo", "dekho",
-  "suno", "chalo", "ruko", "likho", "padho", "kholo", "lagta", "lagti", "gaya", "gayi", "gaye", "diya", "diye",
-  "liya", "liye", "hua", "hui", "hue", "namaste", "namaskar", "dhanyavad", "shukriya", "kripya", "jaldi", "pehle",
-  "baad", "saath", "andar", "bahar", "kaam", "paisa", "paise", "samay", "subah", "shaam", "raat",
-]);
-
-const DEVANAGARI = /\p{Script=Devanagari}/u;
-
-export function detectSpeechLanguage(text: string): SpeechLanguage {
-  if (DEVANAGARI.test(text)) return "hi";
-  const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
-  if (words.length === 0) return "en";
-  const hindi = words.filter((word) => ROMAN_HINDI_WORDS.has(word)).length;
-  // Two or more Hindi words that make up a fair share of the sentence; or a very short phrase
-  // that is Hindi (`haan ji`, `theek hai`, `kal`).
-  if ((hindi >= 2 && hindi / words.length >= 0.2) || (hindi >= 1 && words.length <= 3)) return "hinglish";
-  return "en";
-}
+export const detectSpeechLanguage: (text: string) => SpeechLanguage = detectTextLanguage;
 
 export function voiceForLanguage(language: SpeechLanguage, settings: VoiceSettings): string {
   return language === "hi" ? settings.hindi : language === "hinglish" ? settings.hinglish : settings.english;
