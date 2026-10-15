@@ -63,6 +63,14 @@ receive a request.
 
 - The fallback is off unless `OPENROUTER_API_KEY` is set, and `AI_FALLBACK_PROVIDER=none` switches it
   off explicitly.
+- **Which OpenRouter models may receive a request.** With the live model list on (the default), the
+  server asks OpenRouter which models exist (`GET /models/user` with the key, else the public
+  `GET /models`; no user content is sent) and may send a request to any listed free model that can serve
+  it, not only to the one named in `OPENROUTER_MODEL`; paid models only if `OPENROUTER_ALLOW_PAID=true`.
+  Which upstream provider runs a model is OpenRouter's decision. `OPENROUTER_DATA_COLLECTION=deny` asks
+  OpenRouter to use only providers that do not store or train on prompts (it also applies to web search);
+  it can leave no free model available. Unset, the OpenRouter account's own privacy settings decide.
+  `OPENROUTER_DISCOVERY=false` returns to sending requests only to the one named model.
 - A fallback is never silent internally (the server log names the provider and the reason), but the
   user interface does not currently tell the user which model answered.
 - Text to speech is never sent to OpenRouter.

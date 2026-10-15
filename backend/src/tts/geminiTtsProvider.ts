@@ -22,6 +22,7 @@
  */
 import { classifyGeminiFailure, retryDelayMs as defaultRetryDelayMs, shouldTryNextModel, toProviderError, type AIProviderError } from "../ai/geminiErrors.js";
 import { logger } from "../security/redact.js";
+import { readWithIdleLimit } from "../ai/transportErrors.js";
 import { Semaphore } from "./guard.js";
 import { TtsProviderError, abortError, isAbortError, sleep, type TtsOptions, type TtsProvider } from "./provider.js";
 import { speakableText } from "./ssml.js";
@@ -224,22 +225,7 @@ export class GeminiTtsProvider implements TtsProvider {
    * its slot, and the reply's voice, until the client gave up.
    */
   private readWithIdleLimit(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]>>> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new TtsProviderError("The Gemini voice stopped sending audio", "TIMEOUT", true)),
-        this.idleTimeoutMs,
-      );
-      reader.read().then(
-        (result) => {
-          clearTimeout(timer);
-          resolve(result);
-        },
-        (error) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
+    return readWithIdleLimit(() => reader.read(), this.idleTimeoutMs, () => new TtsProviderError("The Gemini voice stopped sending audio", "TIMEOUT", true));
   }
 
   /** The SSE answer as 16-bit mono PCM at 24 kHz, in order, never splitting a sample between two chunks. */

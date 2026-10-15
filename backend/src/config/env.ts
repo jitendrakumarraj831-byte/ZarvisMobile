@@ -80,6 +80,23 @@ export const env = {
   openRouterModelCapabilities: process.env.OPENROUTER_MODEL_CAPABILITIES,
   openRouterModelContextTokens: process.env.OPENROUTER_MODEL_CONTEXT_TOKENS,
   openRouterTimeoutMs: process.env.OPENROUTER_TIMEOUT_MS,
+  /**
+   * OpenRouter's model list is read live (default on; `off` disables it): the configured model is checked
+   * against it, a model that disappeared is replaced by a compatible one, and capabilities come from the
+   * provider's own metadata. The settings below bound what that may choose; see ai/openRouterModels.ts.
+   */
+  openRouterDiscovery: process.env.OPENROUTER_DISCOVERY,
+  /** Comma-separated model ids tried (in one request) when the main model fails. Free models only unless OPENROUTER_ALLOW_PAID. */
+  openRouterFallbackModels: process.env.OPENROUTER_FALLBACK_MODELS,
+  /** `true` lets live discovery choose models that cost money. Off by default: only `:free` and zero-priced models. */
+  openRouterAllowPaid: process.env.OPENROUTER_ALLOW_PAID,
+  /** Price ceilings in US dollars per million tokens, sent to OpenRouter as `provider.max_price` and checked against the list. */
+  openRouterMaxPricePrompt: process.env.OPENROUTER_MAX_PRICE_PROMPT,
+  openRouterMaxPriceCompletion: process.env.OPENROUTER_MAX_PRICE_COMPLETION,
+  /** Upper bound on tokens one OpenRouter reply may generate (cost control). */
+  openRouterMaxOutputTokens: process.env.OPENROUTER_MAX_OUTPUT_TOKENS,
+  /** `allow` or `deny`: whether providers that may store or train on prompts can serve a request (OpenRouter's `provider.data_collection`). Unset = OpenRouter's account setting. */
+  openRouterDataCollection: process.env.OPENROUTER_DATA_COLLECTION,
   /** `gemini` (default) or `openrouter`. */
   aiPrimaryProvider: process.env.AI_PRIMARY_PROVIDER,
   /** `openrouter` / `gemini` (default: the provider that is not the primary) or `none`. */

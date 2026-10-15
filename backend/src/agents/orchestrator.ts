@@ -347,6 +347,9 @@ export class Orchestrator {
         inputSchema: skill.inputSchema,
       }));
 
+    /** Only a skill that was offered this turn may run: a model can name any skill, and an unlisted one must not execute. */
+    const offeredSkills = new Set(tools.map((tool) => tool.name));
+
     const context: SkillExecutionContext = {
       accountId: request.accountId,
       taskId: request.taskId,
@@ -427,6 +430,17 @@ export class Orchestrator {
 
       let executedAny = false;
       for (const call of toolCalls) {
+        if (!offeredSkills.has(call.skillId)) {
+          // A skill that was hidden (another agent's, one this plan does not include, or a name the model made up).
+          // It is not run, charged or shown to the user as a tool call; the model is told, so it can answer another way.
+          logger.warn("The model asked for a tool that was not offered this turn", { turnId, skillId: call.skillId.slice(0, 80) });
+          messages.push({
+            role: "tool",
+            content: JSON.stringify({ skillId: call.skillId, result: "That tool is not available for this request. Answer without it.", success: false }).slice(0, MAX_TOOL_RESULT_CHARS),
+          });
+          executedAny = true;
+          continue;
+        }
         // Prevent accidental duplicate execution of the exact same request inside one run.
         // A later step may still call the same skill with different arguments.
         const requestKey = call.skillId + ":" + stableJson(call.input);

@@ -28,6 +28,11 @@ export interface ModelEntry {
   contextTokens: number;
   /** Image MIME types this model accepts. Empty unless `vision`. */
   imageMimeTypes: readonly string[];
+  /**
+   * The model can enforce a JSON Schema (not only "reply in JSON"). Meaningful with `structuredOutput`;
+   * a request that carries a schema is routed only to a model that says so.
+   */
+  jsonSchema?: boolean;
 }
 
 /** The image types the upload route accepts (`api/routes/documents.ts`). */
@@ -68,6 +73,7 @@ export function openRouterEntry(options: { model: string; extraCapabilities?: Ca
     contextTokens,
     capabilities: capabilitySet(["streaming", ...extra], contextTokens),
     imageMimeTypes: extra.includes("vision") ? OPENROUTER_IMAGE_MIME_TYPES : [],
+    jsonSchema: extra.includes("structuredOutput"),
   };
 }
 
@@ -82,6 +88,7 @@ export function missingCapabilities(entry: ModelEntry, needs: Requirements): str
   if (needs.imageMimeType && entry.capabilities.vision && !entry.imageMimeTypes.includes(needs.imageMimeType)) {
     missing.push(`imageType(${needs.imageMimeType})`);
   }
+  if (needs.jsonSchema && !entry.jsonSchema) missing.push("jsonSchema");
   return missing;
 }
 
@@ -105,7 +112,9 @@ export function chooseEntry(catalog: readonly ModelEntry[], provider: CatalogPro
 
 // ---- AI_MODEL_CATALOG_JSON ----------------------------------------------------------------------
 
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
+/** The shape of a model id anywhere it is read from configuration or from a provider's model list. */
+export const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
+const MODEL_ID = MODEL_ID_PATTERN;
 const FLAG_KEYS = ["streaming", "tools", "vision", "structuredOutput", "coding", "reasoning"] as const satisfies readonly Capability[];
 const ALLOWED_KEYS: ReadonlySet<string> = new Set(["provider", "model", "enabled", "free", "priority", "contextTokens", "imageMimeTypes", ...FLAG_KEYS]);
 const MAX_CATALOG_ENTRIES = 50;
@@ -198,6 +207,7 @@ export function parseCatalogJson(text: string): ModelEntry[] {
       contextTokens: tokens,
       capabilities: capabilitySet(flags, tokens),
       imageMimeTypes: vision ? (imageMimeTypes ?? (provider === "google" ? GEMINI_IMAGE_MIME_TYPES : OPENROUTER_IMAGE_MIME_TYPES)) : [],
+      jsonSchema: provider === "openrouter" && flags.includes("structuredOutput"),
     });
   });
   if (problems.length > 0) throw new AIConfigError(problems);

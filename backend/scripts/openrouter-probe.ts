@@ -28,6 +28,9 @@ import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { withModelCallLog, type ModelCallRecord } from "../src/ai/callTrace.js";
 import { AIProviderError } from "../src/ai/geminiErrors.js";
+import { MODEL_ID_PATTERN } from "../src/ai/modelCatalog.js";
+import { NO_REDIRECTS, openRouterHeaders, openRouterUrl } from "../src/ai/openRouterHttp.js";
+import { parseOpenRouterModels } from "../src/ai/openRouterModels.js";
 import { DEFAULT_OPENROUTER_BASE_URL, OpenRouterProvider } from "../src/ai/openRouterProvider.js";
 import type { AIRequest, ToolDefinition } from "../src/ai/provider.js";
 import { redactString, registerSecret } from "../src/security/redact.js";
@@ -66,7 +69,7 @@ export interface ProbeOutcome {
 }
 
 const DEFAULT_MODEL = "openrouter/free";
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
+const MODEL_ID = MODEL_ID_PATTERN;
 const MIN_CONTEXT_FOR_CANDIDATES = 32_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 /**
@@ -90,26 +93,17 @@ export interface CatalogModel {
   tools: boolean;
 }
 
-const isZeroPrice = (value: unknown): boolean => (typeof value === "string" ? value.trim() !== "" && Number(value) === 0 : value === 0);
-
-/** Reads OpenRouter's `GET /models` payload defensively: an entry without an id is ignored. */
+/**
+ * Reads OpenRouter's `GET /models` payload defensively: an entry without a plain model id is ignored.
+ * The reading itself is the gateway's (`ai/openRouterModels.ts`); the probe keeps the few fields it prints.
+ */
 export function parseModelList(json: unknown): CatalogModel[] {
-  const data = (json as { data?: unknown } | null)?.data;
-  if (!Array.isArray(data)) return [];
-  const models: CatalogModel[] = [];
-  for (const entry of data) {
-    const item = entry as { id?: unknown; context_length?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; supported_parameters?: unknown } | null;
-    // An id that is not a plain model id is never printed or sent back to the API.
-    if (!item || typeof item.id !== "string" || !MODEL_ID.test(item.id)) continue;
-    const contextLength = Number(item.context_length);
-    models.push({
-      id: item.id,
-      contextLength: Number.isFinite(contextLength) ? contextLength : 0,
-      free: item.id.endsWith(":free") || (isZeroPrice(item.pricing?.prompt) && isZeroPrice(item.pricing?.completion)),
-      tools: Array.isArray(item.supported_parameters) && item.supported_parameters.includes("tools"),
-    });
-  }
-  return models;
+  return parseOpenRouterModels(json).map((info) => ({
+    id: info.id,
+    contextLength: info.contextLength,
+    free: info.free,
+    tools: info.supportedParameters.includes("tools"),
+  }));
 }
 
 /** Free models with tool support and a usable context, largest context first (a stable order). */
@@ -122,7 +116,7 @@ export function pickCandidates(models: readonly CatalogModel[], count: number, e
 
 async function fetchModelList(baseUrl: string): Promise<CatalogModel[]> {
   // Public endpoint: no credentials are sent.
-  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
+  const res = await fetch(openRouterUrl(baseUrl, "models"), { headers: openRouterHeaders(undefined, { accept: "application/json" }), signal: AbortSignal.timeout(20_000), ...NO_REDIRECTS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return parseModelList(await res.json());
 }
@@ -245,6 +239,8 @@ async function realTurn(options: { apiKey: string; baseUrl: string | undefined; 
         openRouterModelCapabilities: "tools",
         aiPrimaryProvider: "openrouter",
         aiFallbackProvider: "none",
+        // This probe tests the model it was asked about; a gateway that swapped it for another would hide the answer.
+        openRouterDiscovery: "off",
       },
       { isProduction: true },
     );

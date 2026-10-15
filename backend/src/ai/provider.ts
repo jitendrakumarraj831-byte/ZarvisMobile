@@ -24,6 +24,12 @@ export interface ModelConfiguration {
   model: string;
   temperature?: number;
   maxTokens?: number;
+  /**
+   * Other models of the SAME provider that may answer if `model` cannot (chosen by the gateway from the
+   * provider's live catalog). OpenRouter tries them in order inside one HTTP request (its `models`
+   * parameter), so this adds no request of ours. Providers that have no such feature ignore it.
+   */
+  fallbackModels?: string[];
 }
 
 /**
@@ -40,6 +46,16 @@ export interface ProviderTrace {
    * configured model when the provider fell back (404 / 5xx), so a switch is never silent.
    */
   servedModels?: string[];
+}
+
+/** A reply that must match a JSON Schema (OpenAI-style `json_schema` structured output). */
+export interface JsonSchemaFormat {
+  type: "json_schema";
+  /** `[A-Za-z0-9_-]{1,64}`: the provider's name for the schema. */
+  name: string;
+  schema: Record<string, unknown>;
+  /** Default true: the provider must follow the schema exactly. */
+  strict?: boolean;
 }
 
 export interface AIRequest {
@@ -60,8 +76,12 @@ export interface AIRequest {
    * repository changes require `coding`. See ai/capabilities.ts.
    */
   requires?: Capability[];
-  /** `"json"`: the reply must be a JSON document; only a model declaring `structuredOutput` answers. */
-  responseFormat?: "json";
+  /**
+   * `"json"`: the reply must be a JSON document. A {@link JsonSchemaFormat}: it must also match that
+   * schema. Only a model declaring `structuredOutput` answers, and a schema only goes to a provider
+   * whose adapter sets `supportsJsonSchema`.
+   */
+  responseFormat?: "json" | JsonSchemaFormat;
 }
 
 export interface ToolCallRequest {
@@ -73,6 +93,8 @@ export interface ToolCallRequest {
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
+  /** What the provider charged for the call, in US dollars, when it reports it (OpenRouter does). */
+  costUsd?: number;
 }
 
 /**
@@ -127,6 +149,8 @@ export interface ImageAnalysisResult {
 
 export interface AIProvider {
   readonly id: string;
+  /** True when the adapter can send a {@link JsonSchemaFormat}. Absent means it can only ask for `"json"`. */
+  readonly supportsJsonSchema?: boolean;
   generate(request: AIRequest): Promise<AIResponse>;
   streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk>;
   /**

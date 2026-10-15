@@ -3,6 +3,7 @@ import { AIProviderError } from "./geminiErrors.js";
 import { MockAIProvider } from "./mockProvider.js";
 import { GeminiProvider } from "./geminiProvider.js";
 import { OpenRouterProvider } from "./openRouterProvider.js";
+import { OpenRouterCatalog, OpenRouterModelDirectory } from "./openRouterModels.js";
 import { ModelGateway, type GatewayProvider } from "./modelGateway.js";
 import { describeEntry } from "./modelCatalog.js";
 import { resolveAIConfig, DEFAULT_OPENROUTER_MODEL } from "../config/aiConfig.js";
@@ -72,6 +73,13 @@ export type GatewayEnvironment = Pick<
   | "openRouterModelCapabilities"
   | "openRouterModelContextTokens"
   | "openRouterTimeoutMs"
+  | "openRouterDiscovery"
+  | "openRouterFallbackModels"
+  | "openRouterAllowPaid"
+  | "openRouterMaxPricePrompt"
+  | "openRouterMaxPriceCompletion"
+  | "openRouterMaxOutputTokens"
+  | "openRouterDataCollection"
   | "aiPrimaryProvider"
   | "aiFallbackProvider"
   | "aiModelCatalogJson"
@@ -99,6 +107,13 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
     openRouterModelCapabilities: source.openRouterModelCapabilities,
     openRouterModelContextTokens: source.openRouterModelContextTokens,
     openRouterTimeoutMs: source.openRouterTimeoutMs,
+    openRouterDiscovery: source.openRouterDiscovery,
+    openRouterFallbackModels: source.openRouterFallbackModels,
+    openRouterAllowPaid: source.openRouterAllowPaid,
+    openRouterMaxPricePrompt: source.openRouterMaxPricePrompt,
+    openRouterMaxPriceCompletion: source.openRouterMaxPriceCompletion,
+    openRouterMaxOutputTokens: source.openRouterMaxOutputTokens,
+    openRouterDataCollection: source.openRouterDataCollection,
     aiModelCatalogJson: source.aiModelCatalogJson,
     aiQuotaCooldownMs: source.aiQuotaCooldownMs,
   });
@@ -114,12 +129,39 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
     return key;
   };
 
+  const openRouter = config.openRouter;
+  const directory = openRouter.discovery
+    ? new OpenRouterModelDirectory({ apiKey: () => source.openRouterApiKey, baseUrl: openRouter.baseUrl, now: options.now })
+    : undefined;
+  const dynamic = directory
+    ? new OpenRouterCatalog(
+        directory,
+        {
+          allowPaid: openRouter.allowPaid,
+          maxPricePromptPerM: openRouter.maxPricePromptPerM,
+          maxPriceCompletionPerM: openRouter.maxPriceCompletionPerM,
+          explicitAlternates: openRouter.fallbackModels,
+        },
+        options.now,
+      )
+    : undefined;
+
   const providers: GatewayProvider[] = [
     { id: "google", label: "GEMINI", provider: new GeminiProvider(geminiKey), isConfigured: () => !!source.geminiApiKey, live: true },
     {
       id: "openrouter",
       label: "OPENROUTER",
-      provider: new OpenRouterProvider({ apiKey: openRouterKey, baseUrl: config.openRouter.baseUrl, timeoutMs: config.openRouter.timeoutMs }),
+      provider: new OpenRouterProvider({
+        apiKey: openRouterKey,
+        baseUrl: openRouter.baseUrl,
+        timeoutMs: openRouter.timeoutMs,
+        policy: {
+          dataCollection: openRouter.dataCollection,
+          maxPricePromptPerM: openRouter.maxPricePromptPerM,
+          maxPriceCompletionPerM: openRouter.maxPriceCompletionPerM,
+          maxOutputTokens: openRouter.maxOutputTokens,
+        },
+      }),
       isConfigured: () => !!source.openRouterApiKey,
       live: true,
     },
@@ -136,6 +178,7 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
     preferredFallback: config.preferredFallback,
     catalog: config.catalog,
     quotaCooldownMs: config.quotaCooldownMs,
+    ...(dynamic ? { dynamic: { openrouter: dynamic } } : {}),
     now: options.now,
   });
   startupWarnings.set(gateway, config.warnings);

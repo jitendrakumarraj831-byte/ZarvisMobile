@@ -133,12 +133,17 @@ export function buildServer(container: Container): Express {
     const healthy = database === "ok" || database === "not_configured";
     // `provider` is the one that answers by default. `aiFallback` appears only while a fallback
     // provider is active, and `aiFallbackTools` then says whether its model can take the tool-using
-    // planner step of a chat turn (false: chat turns will not fall back). Neither names a model,
-    // address or key.
+    // planner step of a chat turn (false: chat turns will not fall back). `aiKeyRejected` appears only
+    // while a provider has refused its API key (HTTP 401/403) and lists which one, so a dead key shows up
+    // here instead of only as failed chat turns. None of them names a model, address or key.
     const ai = container.modelGateway.healthSummary();
-    res
-      .status(healthy ? 200 : 503)
-      .json({ status: healthy ? "ok" : "degraded", provider: ai.provider, ...(ai.fallback ? { aiFallback: true, aiFallbackTools: ai.fallbackTools === true } : {}), database });
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? "ok" : "degraded",
+      provider: ai.provider,
+      ...(ai.fallback ? { aiFallback: true, aiFallbackTools: ai.fallbackTools === true } : {}),
+      ...(ai.authRejected && ai.authRejected.length > 0 ? { aiKeyRejected: ai.authRejected } : {}),
+      database,
+    });
   });
 
   // Coarse per-IP ceiling for every API route, generous enough for shared mobile-carrier IPs.

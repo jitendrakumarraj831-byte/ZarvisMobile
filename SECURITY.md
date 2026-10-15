@@ -45,6 +45,15 @@ Tool execution should expose truthful states such as COMPLETED, DENIED, PERMISSI
   its value; an OpenRouter address must be https (http only for localhost) and must not contain
   credentials.
 - A rejected provider key is never a reason to answer from another provider: it must stay visible.
+  `/health` lists the provider under `aiKeyRejected` (a name, never the key) until a request with the key
+  succeeds, and the live smoke test warns.
+- A key containing whitespace, a quote or a line break is refused before any request is made (an HTTP
+  client would put the whole header into its error message), and no OpenRouter request follows a
+  redirect: the key travels in a header and must not be sent anywhere an answer points.
+- The OpenRouter model list that the server reads is untrusted input: ids must look like plain model ids
+  (otherwise they are dropped), the body is capped at 8 MB and 3,000 entries, and an unreachable or
+  malformed list changes nothing (the declared model is used).
+- A model can name any tool; the orchestrator runs only the tools it offered in that turn.
 - Local `.env` and `.env.*` files are git-ignored; only `backend/.env.example` (placeholders) is
   tracked.
 

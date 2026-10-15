@@ -22,7 +22,8 @@ describe("resolveAIConfig defaults", () => {
     const config = resolveAIConfig(base);
     expect(config.preferredPrimary).toBe("google");
     expect(config.preferredFallback).toBe("openrouter");
-    expect(config.openRouter).toEqual({ baseUrl: "https://openrouter.ai/api/v1", timeoutMs: 60_000 });
+    // Discovery is on by default; nothing that costs money or limits a request is set until the operator asks.
+    expect(config.openRouter).toEqual({ baseUrl: "https://openrouter.ai/api/v1", timeoutMs: 60_000, discovery: true, fallbackModels: [], allowPaid: false });
     expect(config.quotaCooldownMs).toBe(300_000);
     expect(config.warnings).toEqual([]);
 
@@ -73,6 +74,14 @@ describe("resolveAIConfig validation (a present-but-wrong value stops startup; n
     ["an invalid OpenRouter model id", { openRouterModel: "bad model!" }, "OPENROUTER_MODEL is not a valid model id"],
     ["an unknown declared capability", { openRouterModelCapabilities: "tools,telepathy" }, "OPENROUTER_MODEL_CAPABILITIES"],
     ["an invalid Gemini model id", { geminiModel: "x y" }, "GEMINI_MODEL"],
+    ["a discovery switch that is not a boolean", { openRouterDiscovery: "maybe" }, "OPENROUTER_DISCOVERY"],
+    ["an allow-paid switch that is not a boolean", { openRouterAllowPaid: "2" }, "OPENROUTER_ALLOW_PAID"],
+    ["a fallback model that is not a model id", { openRouterFallbackModels: "a/b, bad model!" }, "OPENROUTER_FALLBACK_MODELS"],
+    ["more fallback models than one request can carry", { openRouterFallbackModels: "a/b,c/d,e/f" }, "OPENROUTER_FALLBACK_MODELS lists more than 2"],
+    ["a negative price limit", { openRouterMaxPricePrompt: "-1" }, "OPENROUTER_MAX_PRICE_PROMPT"],
+    ["a price limit that is not a number", { openRouterMaxPriceCompletion: "cheap" }, "OPENROUTER_MAX_PRICE_COMPLETION"],
+    ["an output cap of zero", { openRouterMaxOutputTokens: "0" }, "OPENROUTER_MAX_OUTPUT_TOKENS"],
+    ["a data-collection value that is not allow or deny", { openRouterDataCollection: "sometimes" }, "OPENROUTER_DATA_COLLECTION"],
   ])("rejects %s", (_label, input, expected) => {
     const problems = problemsOf(input);
     expect(problems.join("\n")).toContain(expected);
@@ -91,6 +100,30 @@ describe("resolveAIConfig validation (a present-but-wrong value stops startup; n
     const proxied = resolveAIConfig({ ...base, openRouterBaseUrl: "https://gateway.example.com/openrouter/v1/" });
     expect(proxied.openRouter.baseUrl).toBe("https://gateway.example.com/openrouter/v1");
     expect(proxied.warnings.join("\n")).toContain("other than openrouter.ai");
+  });
+
+  it("reads the OpenRouter cost and routing settings, and says so when paid models are allowed with no price limit", () => {
+    const config = resolveAIConfig({
+      ...base,
+      openRouterDiscovery: "off",
+      openRouterFallbackModels: "vendor/a:free, vendor/b:free",
+      openRouterMaxPricePrompt: "0.5",
+      openRouterMaxPriceCompletion: "2",
+      openRouterMaxOutputTokens: "2048",
+      openRouterDataCollection: "DENY",
+    });
+    expect(config.openRouter).toMatchObject({
+      discovery: false,
+      fallbackModels: ["vendor/a:free", "vendor/b:free"],
+      maxPricePromptPerM: 0.5,
+      maxPriceCompletionPerM: 2,
+      maxOutputTokens: 2048,
+      dataCollection: "deny",
+    });
+    // Fallback models need the live list to be checked against, so they do nothing with discovery off: the operator is told.
+    expect(config.warnings.join("\n")).toContain("no effect while OPENROUTER_DISCOVERY is off");
+    expect(resolveAIConfig({ ...base, openRouterAllowPaid: "true" }).warnings.join("\n")).toContain("any paid model");
+    expect(resolveAIConfig({ ...base, openRouterAllowPaid: "true", openRouterMaxPricePrompt: "1" }).warnings.join("\n")).not.toContain("any paid model");
   });
 
   it("warns that OPENROUTER_MODEL is ignored when the catalog JSON lists OpenRouter models", () => {
