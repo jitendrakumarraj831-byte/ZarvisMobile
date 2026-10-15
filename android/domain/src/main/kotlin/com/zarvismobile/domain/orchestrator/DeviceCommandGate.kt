@@ -16,6 +16,17 @@ object DeviceCommandGate {
      * "later".
      */
     private val notACallTarget = setOf("me", "us", "later", "back", "tomorrow", "tonight", "soon", "again", "off", "out", "in")
+
+    /**
+     * Words that make a sentence with "call" something other than "ring this person now": a negation ("call mat karo", "don't call
+     * Rahul"), a deferral ("baad mein call karna") or a question about calling ("call kaise karte hain"). Hindi puts them after the
+     * verb, so they are looked for anywhere in the sentence, as whole words. Such a sentence goes to the Brain, which only answers it:
+     * "call mat karo" used to open the call flow for a contact matching "mat".
+     */
+    private val notACallRequest = setOf(
+        "mat", "nahi", "nahin", "na", "don't", "dont", "don’t", "never", "baad", "later", "kaise", "kyun", "kyon", "kab",
+        "मत", "नहीं", "बाद", "कैसे", "क्यों", "कब",
+    )
     private val describeVerbs = setOf("describe", "analyze", "analyse", "identify", "explain")
     private val questionStarts = setOf("what", "why", "how", "which", "explain", "kya", "kaise", "kyun", "kyon", "क्या", "कैसे", "क्यों")
 
@@ -28,6 +39,7 @@ object DeviceCommandGate {
             "phone.open_app" -> commandSubject(words, listOf("open", "launch", "kholo", "khol")) != null &&
                 !containsAny(lower, "settings", "bluetooth", "wifi", "wi-fi", "notification", "recent")
             "phone.call" -> !utterance.contains("call it", ignoreCase = true) &&
+                words.none { it.trim(',', '.', '!', '?') in notACallRequest } &&
                 commandSubject(words, listOf("call", "dial"), notACallTarget) != null
             "phone.find_contact" -> words.take(4).any { it == "find" || it == "contact" || it == "number" } && words.size >= 2
             "personal.reminder" -> words.take(4).any { it == "remind" || it == "reminder" || it == "reminders" || it == "yaad" }
