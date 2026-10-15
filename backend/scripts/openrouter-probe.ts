@@ -248,13 +248,20 @@ async function discoveryChecks(options: { apiKey: string; baseUrl: string | unde
       },
       { isProduction: true },
     );
-    const answer = await gateway.generate({
-      systemPrompt: "You are a connectivity probe. Answer in one short sentence.",
-      messages: [{ role: "user", content: "What is 2 plus 2?" }],
-      modelConfig: { provider: "gateway", model: "ignored-by-routing", maxTokens: PROBE_MAX_TOKENS },
-      purpose: "generation",
-    });
-    const live = gateway.getProviderStatus().providers.find((provider) => provider.id === "openrouter")?.liveModels;
+    const answered = await gateway
+      .generate({
+        systemPrompt: "You are a connectivity probe. Answer in one short sentence.",
+        messages: [{ role: "user", content: "What is 2 plus 2?" }],
+        modelConfig: { provider: "gateway", model: "ignored-by-routing", maxTokens: PROBE_MAX_TOKENS },
+        purpose: "generation",
+      })
+      .then(
+        (value) => ({ value }),
+        (failure: unknown) => ({ failure }),
+      );
+    // The list is reported whether or not the request after it was answered: they are separate findings.
+    const status = gateway.getProviderStatus().providers.find((provider) => provider.id === "openrouter");
+    const live = status?.liveModels;
     rows.push({
       status: live?.loaded ? "PASS" : "WARN",
       name: "live model list",
@@ -262,6 +269,15 @@ async function discoveryChecks(options: { apiKey: string; baseUrl: string | unde
         ? `${live.models} models, ${live.freeModelsWithTools} free with tool support, read from ${live.source === "account" ? "the account's own list (GET /models/user)" : "the public list (GET /models)"}`
         : "the gateway could not read OpenRouter's model list (see the log for the reason); it used the declared model",
     });
+    if ("failure" in answered) {
+      rows.push({
+        status: "FAIL",
+        name: "a model OpenRouter does not list is replaced",
+        detail: `the request was refused after the replacement (the model list was ${live?.loaded ? "read" : "not read"}): ${describeError(answered.failure)}`,
+      });
+      return rows;
+    }
+    const answer = answered.value;
     const replaced = answer.meta?.configuredModel !== WITHDRAWN_MODEL;
     const content = oneLine(redactString(answer.message.content ?? "")).slice(0, 120);
     rows.push({
@@ -472,6 +488,14 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
     print("OpenRouter accepted the requests, but the tested models returned empty messages and none called the tool. Try another model with the workflow's `model` input.");
   } else {
     print("No tested model answered. The FAIL lines above carry the structured kind and HTTP status; the troubleshooting table in AI_MODEL_GATEWAY.md explains each.");
+    if (rows.some((row) => row.status === "FAIL" && /guardrail restrictions and data policy/.test(row.detail))) {
+      print(
+        "The key works, but OpenRouter's own account settings exclude every endpoint (\"ZDR violation (account settings)\" / \"(guardrail)\" above): " +
+          "Zero Data Retention is enforced, and free endpoints keep prompts. In OpenRouter: Settings > Privacy (openrouter.ai/settings/privacy) and the workspace Guardrails " +
+          "(openrouter.ai/workspaces/default/guardrails). Either turn the ZDR requirement off (free models then work, and their providers may log prompts: see PRIVACY.md), " +
+          "or keep it, add credit and use a paid model that supports ZDR (OPENROUTER_ALLOW_PAID=true with OPENROUTER_MAX_PRICE_PROMPT / _COMPLETION).",
+      );
+    }
   }
   writeStepSummary(results, recommended?.model, rows.filter((row) => row.name === "live model list" || row.name.startsWith("a model OpenRouter does not list")));
   return { ok: recommended !== undefined && !discoveryFailed, recommended: recommended?.model, rows, results };

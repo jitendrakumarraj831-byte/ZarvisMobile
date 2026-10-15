@@ -480,6 +480,18 @@ describe("the live model discovery check (the gateway's feature, against what Op
     expect(outcome.ok).toBe(false);
   });
 
+  it("when the account's data policy excludes every endpoint (the first live run with a working key), says so and what to change, and still reports the list", async () => {
+    const zdr =
+      "0 endpoints out of 8 requested are available matching your guardrail restrictions and data policy. We removed them for the following reasons (an endpoint may have matched multiple reasons): ZDR violation (account settings): 8 endpoints excluded; configurable at https://openrouter.ai/settings/privacy";
+    const { outcome, output } = await run({ discovery: true }, openRouter({ text: openRouterFail(404, zdr) }));
+
+    expect(output).toMatch(/PASS live model list — 6 models/);
+    expect(output).toMatch(/FAIL a model OpenRouter does not list is replaced — the request was refused after the replacement \(the model list was read\): AI_PROVIDER_CAPABILITY_UNSUPPORTED \(HTTP 404\)/);
+    expect(output).toMatch(/The key works, but OpenRouter's own account settings exclude every endpoint/);
+    expect(output).toMatch(/openrouter\.ai\/settings\/privacy/);
+    expect(outcome.ok).toBe(false);
+  });
+
   it("does not spend a request on discovery once the key was rejected", async () => {
     const { output, stub } = await run({ discovery: true, candidates: 2 }, openRouter({ catalog: longCatalog(), text: openRouterFail(401, "User not found.") }));
     expect(output).toMatch(/SKIP live model discovery — not tried: OpenRouter rejected the API key/);

@@ -750,7 +750,17 @@ export class ModelGateway implements AIProvider {
         latencyMs: record.latencyMs,
         fallback: record.fallback,
       })),
-      ...(error ? { errorKind: error.kind, errorStatus: error.status || undefined, quotaType: error.quotaType, failedAttempts: error.attempts } : {}),
+      ...(error
+        ? {
+            errorKind: error.kind,
+            errorStatus: error.status || undefined,
+            quotaType: error.quotaType,
+            // The provider's own explanation, already key-scrubbed and bounded: a 404 "0 endpoints ... ZDR violation (account
+            // settings)" names the OpenRouter setting to change, and the kind and status alone do not.
+            errorDetail: error.message.slice(0, 400),
+            failedAttempts: error.attempts,
+          }
+        : {}),
     };
     if (finalStatus === "success") logger.info("AI call", fields);
     else logger.warn("AI call failed", fields);

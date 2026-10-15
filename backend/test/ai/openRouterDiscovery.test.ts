@@ -238,6 +238,29 @@ describe("OpenRouter live model discovery inside the gateway", () => {
   });
 });
 
+describe("a data-policy refusal names its cause in the log", () => {
+  it("the 'AI call failed' line carries OpenRouter's own reason (the account setting to change), without the key", async () => {
+    const lines = captureLogs();
+    const zdr =
+      "0 endpoints out of 8 requested are available matching your guardrail restrictions and data policy. We removed them for the following reasons (an endpoint may have matched multiple reasons): ZDR violation (account settings): 8 endpoints excluded; configurable at https://openrouter.ai/settings/privacy";
+    stubProviders({ gemini: geminiFail(503, "down"), openrouter: openRouter(openRouterFail(404, zdr)) });
+    await gatewayFor(pinnedGone).generate(chatRequest()).catch(() => undefined);
+
+    const failed = lines.find((line) => line.message === "AI call failed")!;
+    expect(failed.data.failedAttempts).toContainEqual(expect.objectContaining({ provider: "openrouter", status: 404, kind: "AI_PROVIDER_CAPABILITY_UNSUPPORTED" }));
+    expect(JSON.stringify(failed.data)).not.toContain(OPENROUTER_KEY);
+  });
+
+  it("when OpenRouter is the last provider asked, its reason is the one logged", async () => {
+    const lines = captureLogs();
+    stubProviders({ openrouter: openRouter(openRouterFail(404, "0 endpoints out of 1 requested are available ... ZDR violation (account settings): 1 endpoint excluded")) });
+    await gatewayFor({ ...pinnedGone, geminiApiKey: undefined, aiPrimaryProvider: "openrouter" }).generate(chatRequest()).catch(() => undefined);
+
+    const failed = lines.find((line) => line.message === "AI call failed")!;
+    expect(String(failed.data.errorDetail)).toContain("ZDR violation (account settings)");
+  });
+});
+
 describe("a rejected OpenRouter key is visible instead of silent", () => {
   it("the account list answers 401 and the chat answers 401: /health says OpenRouter's key is rejected, and a later success clears it", async () => {
     let healthy = false;
