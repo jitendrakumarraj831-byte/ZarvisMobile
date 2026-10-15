@@ -2,7 +2,8 @@ package com.zarvismobile.feature.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -47,6 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -59,6 +64,7 @@ import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentPink
 import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
+import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.domain.presentation.UiString
 
 private enum class SettingsPage(val title: UiString, val subtitle: UiString, val icon: ImageVector) {
@@ -109,20 +115,22 @@ fun SettingsScreen(
         }
         SettingsPage.Permissions -> PermissionCenterScreen(onBack = goBack)
         SettingsPage.Voice -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Voice input", "Android speech recognition, started only when you tap the microphone. No wake word.", ZarvisAccentCyan)
+            ReadOnlyCard(tr(UiString.VOICE_INPUT_TITLE), tr(UiString.VOICE_INPUT_BODY), ZarvisAccentCyan)
             GlassSurface(Modifier.fillMaxWidth()) {
                 SettingSwitchRow(
-                    "Speak replies aloud",
-                    if (uiState.autoSpeak) "Replies are spoken with a neural voice" else "Off — replies are shown as text only",
+                    tr(UiString.VOICE_SPEAK_TITLE),
+                    tr(if (uiState.autoSpeak) UiString.VOICE_SPEAK_ON else UiString.VOICE_SPEAK_OFF),
                     uiState.autoSpeak,
                     viewModel::setAutoSpeak,
                 )
             }
-            ReadOnlyCard("Voice output", "Spoken replies are made on ZARVIS's server with a neural voice. If voice fails, the reply stays on screen as text.", ZarvisAccentViolet)
-            Text("Voice style", style = MaterialTheme.typography.titleSmall)
-            listOf("Kore", "Puck", "Charon", "Aoede", "Fenrir").forEach { voice ->
-                SettingRow(voice, if (uiState.ttsVoice == voice) "Selected" else "Tap to use this voice", uiState.ttsVoice == voice) {
-                    viewModel.setTtsVoice(voice)
+            ReadOnlyCard(tr(UiString.VOICE_OUTPUT_TITLE), tr(UiString.VOICE_OUTPUT_BODY), ZarvisAccentViolet)
+            Text(tr(UiString.VOICE_STYLE), style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
+            GlassSurface(Modifier.fillMaxWidth()) {
+                listOf("Kore", "Puck", "Charon", "Aoede", "Fenrir").forEach { voice ->
+                    SettingRow(voice, if (uiState.ttsVoice == voice) tr(UiString.COMMON_SELECTED) else tr(UiString.VOICE_TAP_TO_USE), uiState.ttsVoice == voice) {
+                        viewModel.setTtsVoice(voice)
+                    }
                 }
             }
         }
@@ -137,13 +145,14 @@ fun SettingsScreen(
         SettingsPage.Appearance -> SettingsSubPage(selected, goBack) {
             GlassSurface(Modifier.fillMaxWidth()) {
                 SettingSwitchRow(
-                    "Dark theme",
-                    if (uiState.darkTheme) "Dark mode is active" else "Bright aurora mode is active",
+                    tr(UiString.APPEARANCE_DARK_TITLE),
+                    tr(if (uiState.darkTheme) UiString.APPEARANCE_DARK_ON else UiString.APPEARANCE_DARK_OFF),
                     uiState.darkTheme,
                     viewModel::setDarkTheme,
                 )
-                Text("Aurora Light is the default appearance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr(UiString.APPEARANCE_DEFAULT_NOTE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            ReadOnlyCard(tr(UiString.APPEARANCE_MOTION_TITLE), tr(UiString.APPEARANCE_MOTION_BODY), ZarvisAccentCyan)
         }
         SettingsPage.Ai -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("AI orchestration", "The existing AndroidOrchestrator and backend API remain the source of AI behavior. There is no client-side model/provider selector in this build.", ZarvisAccentViolet)
@@ -161,9 +170,9 @@ fun SettingsScreen(
         SettingsPage.Security -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard("Secure storage", "Access and refresh tokens use Android Keystore-backed EncryptedSharedPreferences. Refresh tokens rotate on every use; a replayed token ends the session.", ZarvisAccentCyan)
             GlassSurface(Modifier.fillMaxWidth()) {
-                Text("Sign out", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Ends this device's session on the server. Your account and its data are not deleted.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ZarvisSecondaryButton("Sign out", onClick = { showClearConfirmation = true })
+                Text(tr(UiString.SIGN_OUT), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(tr(UiString.SIGN_OUT_CARD_BODY), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ZarvisSecondaryButton(tr(UiString.SIGN_OUT), onClick = { showClearConfirmation = true })
             }
         }
         SettingsPage.Data -> SettingsSubPage(selected, goBack) {
@@ -191,35 +200,39 @@ fun SettingsScreen(
     if (showDeleteConfirmation) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
-            title = { Text("Delete your account?") },
-            text = { Text("This permanently deletes your account, tasks, and usage history from the server. This cannot be undone.") },
+            title = { Text(tr(UiString.DELETE_ACCOUNT_TITLE)) },
+            text = { Text(tr(UiString.DELETE_ACCOUNT_BODY)) },
             confirmButton = {
-                TextButton(onClick = { showDeleteConfirmation = false; viewModel.deleteAccount(onDeleted = onSessionCleared) }) { Text("Delete") }
+                TextButton(onClick = { showDeleteConfirmation = false; viewModel.deleteAccount(onDeleted = onSessionCleared) }) {
+                    Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
+                }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirmation = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
         )
     }
 
     if (showClearConfirmation) {
         AlertDialog(
             onDismissRequest = { showClearConfirmation = false },
-            title = { Text("Sign out?") },
+            title = { Text(tr(UiString.SIGN_OUT_TITLE)) },
             text = {
                 Text(
-                    if ((session as? com.zarvismobile.data.repository.SessionState.Active)?.isGuest != false) {
-                        "This is a guest account with no sign-in email. After signing out you can't get back into it. Link an email first if you want to keep it."
-                    } else {
-                        "This ends the session on this device. Sign in again with your email to continue."
-                    },
+                    tr(
+                        if ((session as? com.zarvismobile.data.repository.SessionState.Active)?.isGuest != false) {
+                            UiString.SIGN_OUT_GUEST_BODY
+                        } else {
+                            UiString.SIGN_OUT_BODY
+                        },
+                    ),
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showClearConfirmation = false
                     viewModel.signOut(onSessionCleared)
-                }) { Text("Sign out") }
+                }) { Text(tr(UiString.SIGN_OUT)) }
             },
-            dismissButton = { TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showClearConfirmation = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
         )
     }
 }
@@ -234,7 +247,7 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
         ) {
             item {
                 TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
-                Text(tr(UiString.COMMON_SETTINGS), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(tr(UiString.COMMON_SETTINGS), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { heading() })
                 Text(tr(UiString.SETTINGS_INTRO), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
@@ -244,17 +257,16 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                     Text(trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_AURORA_LIGHT)))
                 }
             }
-            items(SettingsPage.values().toList()) { entry ->
-                GlassSurface(Modifier.fillMaxWidth().clickable { onOpen(entry) }) {
+            items(SettingsPage.values().toList(), key = { it.name }) { entry ->
+                GlassSurface(Modifier.fillMaxWidth(), onClick = { onOpen(entry) }) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.background(ZarvisAccentCyan.copy(alpha = 0.12f), RoundedCornerShape(15.dp)).padding(11.dp)
-                        ) {
-                            Icon(entry.icon, contentDescription = null, tint = when (entry) {
-                                SettingsPage.Developer, SettingsPage.Memory -> ZarvisAccentPink
-                                SettingsPage.Ai, SettingsPage.Appearance -> ZarvisAccentViolet
-                                else -> ZarvisAccentCyan
-                            })
+                        val accent = when (entry) {
+                            SettingsPage.Developer, SettingsPage.Memory -> ZarvisAccents.pink
+                            SettingsPage.Ai, SettingsPage.Appearance -> ZarvisAccents.violet
+                            else -> ZarvisAccents.cyan
+                        }
+                        Box(Modifier.background(accent.copy(alpha = 0.14f), RoundedCornerShape(15.dp)).padding(11.dp)) {
+                            Icon(entry.icon, contentDescription = null, tint = accent)
                         }
                         Column(Modifier.weight(1f)) {
                             Text(tr(entry.title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -264,7 +276,7 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -283,7 +295,7 @@ private fun SettingsSubPage(page: SettingsPage, onBack: () -> Unit, content: @Co
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onBack) { Text("‹ " + tr(UiString.COMMON_BACK)) }
                 Column {
-                    Text(tr(page.title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(tr(page.title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { heading() })
                     Text(tr(UiString.SETTINGS_SUBPAGE_KICKER), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -294,8 +306,13 @@ private fun SettingsSubPage(page: SettingsPage, onBack: () -> Unit, content: @Co
 
 @Composable
 private fun SettingRow(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Column {
+    // One radio-style choice: TalkBack reads "title, selected, radio button", and the whole row is the 56dp target.
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected = selected, role = Role.RadioButton, onClick = onClick).padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -306,13 +323,13 @@ private fun SettingRow(title: String, subtitle: String, selected: Boolean, onCli
 @Composable
 private fun AccountDeleteCard(status: DeleteAccountStatus, onDelete: () -> Unit) {
     GlassSurface(Modifier.fillMaxWidth()) {
-        Text("Delete account", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text("Permanently delete the authenticated account and its server-side task/usage data.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(tr(UiString.DELETE_ACCOUNT), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(tr(UiString.DELETE_ACCOUNT_CARD_BODY), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (status == DeleteAccountStatus.FAILED) {
-            Text("Couldn't delete the account. Check the connection and try again.", color = MaterialTheme.colorScheme.error)
+            Text(tr(UiString.DELETE_ACCOUNT_FAILED), color = MaterialTheme.colorScheme.error)
         }
         ZarvisDestructiveButton(
-            text = if (status == DeleteAccountStatus.IN_PROGRESS) "Deleting…" else "Delete account",
+            text = tr(if (status == DeleteAccountStatus.IN_PROGRESS) UiString.DELETE_ACCOUNT_BUSY else UiString.DELETE_ACCOUNT),
             enabled = status != DeleteAccountStatus.IN_PROGRESS,
             onClick = onDelete,
         )

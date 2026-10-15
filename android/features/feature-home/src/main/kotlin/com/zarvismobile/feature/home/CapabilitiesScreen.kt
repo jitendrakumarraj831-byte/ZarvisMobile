@@ -36,6 +36,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -66,7 +68,7 @@ fun CapabilitiesScreen(
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             Column(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg)) {
-                Text(text = tr(UiString.CAPABILITIES_TITLE), style = MaterialTheme.typography.headlineLarge)
+                Text(text = tr(UiString.CAPABILITIES_TITLE), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.semantics { heading() })
                 Text(text = tr(UiString.CAPABILITIES_KICKER), style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.8.sp), color = MaterialTheme.colorScheme.primary)
                 TextButton(onClick = onOpenPlans) { Text(tr(UiString.COMMON_PLANS_QUOTAS)) }
                 Text(
@@ -96,8 +98,7 @@ fun CapabilitiesScreen(
                         item {
                             Text(tr(UiString.CAPABILITIES_BROWSE_BY_PRODUCT), style = MaterialTheme.typography.titleMedium)
                         }
-                        items(FeatureCatalog.pages.size) { index ->
-                            val page = FeatureCatalog.pages[index]
+                        items(FeatureCatalog.pages, key = { it.id }) { page ->
                             GlassSurface(modifier = Modifier.fillMaxWidth()) {
                                 Text(page.category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                                 Text(page.title, style = MaterialTheme.typography.titleMedium)

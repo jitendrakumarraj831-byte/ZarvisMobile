@@ -7,28 +7,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
-import com.zarvismobile.core.ui.theme.GlowColors
-import com.zarvismobile.core.ui.theme.ZarvisAccentIndigoLight
-import com.zarvismobile.core.ui.theme.ZarvisErrorLight
-import com.zarvismobile.core.ui.theme.ZarvisSuccessLight
-import com.zarvismobile.core.ui.theme.ZarvisWarningLight
+import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.domain.presentation.StatusTone
 
 /**
  * A short, readable state ("Running", "Completed") with a colour that says whether it is going well. The words come from
- * `StatusLabels`, never from a raw server code. Colour is never the only signal: the label is always there.
+ * `StatusLabels`, never from a raw server code. Colour is never the only signal: the label is always there. The colours are the
+ * theme's text-safe ones (see [ZarvisAccents]), so the label reads on a pale chip in light and on a dark one in dark.
  */
 @Composable
 fun StatusBadge(label: String, tone: StatusTone, modifier: Modifier = Modifier) {
-    // The glow colours are made for the dark theme; on the light theme they would be pale text on a pale chip.
-    val light = MaterialTheme.colorScheme.background.luminance() > 0.5f
     val color = when (tone) {
-        StatusTone.ACTIVE -> if (light) ZarvisAccentIndigoLight else GlowColors.active
-        StatusTone.WAITING -> if (light) ZarvisWarningLight else GlowColors.warning
-        StatusTone.SUCCESS -> if (light) ZarvisSuccessLight else GlowColors.success
-        StatusTone.PROBLEM -> if (light) ZarvisErrorLight else GlowColors.error
+        StatusTone.ACTIVE -> MaterialTheme.colorScheme.primary
+        StatusTone.WAITING -> ZarvisAccents.warning
+        StatusTone.SUCCESS -> ZarvisAccents.success
+        StatusTone.PROBLEM -> ZarvisAccents.danger
         StatusTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Text(

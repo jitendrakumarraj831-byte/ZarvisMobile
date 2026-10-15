@@ -18,19 +18,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.core.ui.theme.zarvisReduceMotion
 
 /**
  * The optimistic-UI "Executing…" (and Listening/Speaking) feedback pill — appears the instant
  * a voice/text turn is submitted, before any network round-trip completes, so the system
  * always feels like it reacted in well under a second (MASTER_SPEC.md §11/§22 sub-second
- * feedback rule). The dot's pulse is a plain alpha tween — no bitmap work, safe at 60fps on
- * low-end Android WebViews/devices.
+ * feedback rule). The dot's pulse is a plain alpha tween applied in the draw layer (no recomposition per
+ * frame, no bitmap work), and it holds still when Android's animations are off.
  */
 @Composable
 fun StatusPulseBadge(
@@ -38,16 +40,19 @@ fun StatusPulseBadge(
     glowColor: Color,
     modifier: Modifier = Modifier,
 ) {
-    val transition = rememberInfiniteTransition(label = "status-pulse")
-    val alpha by transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "status-pulse-alpha",
-    )
+    val pulse: State<Float>? = if (zarvisReduceMotion()) {
+        null
+    } else {
+        rememberInfiniteTransition(label = "status-pulse").animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 600, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "status-pulse-alpha",
+        )
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -59,9 +64,11 @@ fun StatusPulseBadge(
         Box(
             modifier = Modifier
                 .size(8.dp)
-                .background(color = glowColor.copy(alpha = alpha), shape = CircleShape),
+                .graphicsLayer { alpha = pulse?.value ?: 1f }
+                .background(color = glowColor, shape = CircleShape),
         )
         Spacer(modifier = Modifier.size(ZarvisSpacing.xs))
-        Text(text = label, style = MaterialTheme.typography.labelMedium, color = glowColor)
+        // The glow colour is for the dot and the edge; the words use the theme's text colour (cyan or green text is 1.7:1 on the light page).
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
     }
 }

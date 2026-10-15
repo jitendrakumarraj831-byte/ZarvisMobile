@@ -37,12 +37,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.AiOrb
+import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.ZarvisComposer
@@ -98,7 +101,11 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.lg),
             ) {
                 item {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "ZARVIS", style = MaterialTheme.typography.headlineMedium.copy(letterSpacing = 2.sp), fontWeight = FontWeight.ExtraBold)
+                            Text(text = tr(UiString.HOME_TAGLINE), style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp), color = MaterialTheme.colorScheme.primary)
+                        }
                         IconButton(onClick = onNavigateToSettings) {
                             Icon(
                                 imageVector = Icons.Filled.Settings,
@@ -106,21 +113,18 @@ fun HomeScreen(
                             )
                         }
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text(text = "ZARVIS", style = MaterialTheme.typography.displayLarge.copy(fontSize = 34.sp, letterSpacing = 2.sp))
-                        Text(text = tr(UiString.HOME_TAGLINE), style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp), color = MaterialTheme.colorScheme.primary)
+                }
+
+                item {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md), modifier = Modifier.fillMaxWidth()) {
+                        // Still while idle (see AiOrb): the first thing on screen costs nothing to keep open.
+                        AiOrb(state = VoiceState.IDLE, size = 96.dp, onClick = { onNavigateToConversation(null) })
                         Text(
                             text = tr(UiString.HOME_INTRO),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                         )
-                    }
-                }
-
-                item {
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        AiOrb(state = VoiceState.IDLE, size = 72.dp, onClick = { onNavigateToConversation(null) })
                     }
                 }
 
@@ -202,7 +206,20 @@ fun HomeScreen(
                             )
                         }
                         uiState.tasks.take(3).forEach { task ->
-                            Text(text = "${task.goal} · ${StatusLabels.taskText(task.status, task.lifecycle, locale)}", style = MaterialTheme.typography.bodyMedium)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = task.goal,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                StatusBadge(label = StatusLabels.taskText(task.status, task.lifecycle, locale), tone = StatusLabels.taskTone(task.status, task.lifecycle))
+                            }
                         }
                     }
                 }

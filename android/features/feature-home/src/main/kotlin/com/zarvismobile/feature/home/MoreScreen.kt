@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -55,7 +56,7 @@ fun MoreScreen(
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
             item {
-                Text(tr(UiString.WORK_TITLE), style = MaterialTheme.typography.headlineMedium)
+                Text(tr(UiString.WORK_TITLE), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
                 Text(
                     tr(UiString.WORK_INTRO),
                     style = MaterialTheme.typography.bodyMedium,
