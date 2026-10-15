@@ -271,6 +271,7 @@ All permanent Markdown documentation is kept in the repository root so the proje
 | [DEVELOPER_AGENT.md](./DEVELOPER_AGENT.md) | Developer Agent workflow and safety |
 | [SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md) | Billing, credits and entitlement rules |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | Development and verification rules |
+| [ZARVIS_ASSISTANT_UPGRADE_PLAN.md](./ZARVIS_ASSISTANT_UPGRADE_PLAN.md) | Owner-requested audit and phased upgrade plan (voice, phone agent, screen/camera, memory, task automation, PC companion), mapped onto the blueprint's phases |
 
 **Documentation rule:** `ZARVIS_MASTER_PRODUCT_BLUEPRINT.md` remains the single authoritative source of truth. Supporting root-level MD files must not contradict it.
 
