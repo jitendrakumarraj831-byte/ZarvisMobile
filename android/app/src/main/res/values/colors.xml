@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0B0D14</color>
-    <!-- The window behind Compose before its first frame: the light page (Aurora Light is the default), not the dark launcher colour. -->
+    <!-- The window behind Compose before its first frame: the light page (Aurora Light is the default), not a dark colour that flashes first. -->
     <color name="zarvis_window_background">#F4F3FF</color>
 </resources>
