@@ -155,6 +155,10 @@ a page title is a heading (`semantics { heading() }`); a switch or a choice is o
   The consolidation in this release was value-identical for all 88 shared properties and pixel-identical on 107 of 108
   screenshots (the last differs by one pixel).
 * Run `web/e2e/quality.e2e.cjs` for overflow at 320, 360, 390, 412, 768, 1024, 1280 and 1440 px and for axe.
+* Run `web/e2e/gallery.cjs` (against a real backend) for a screenshot of every page at 360, 768, 1024 and 1440 px in light and
+  dark, English and Hindi, with each shot's overflow, console and network errors, its h1, and the interface labels still in Latin
+  script in Hindi. It writes `index.html` and `report.json` to `GALLERY_OUT` (outside the repository by default);
+  `GALLERY_MATRIX=quick` takes 360 and 1440 px in light English and dark Hindi only.
 
 ## Adding to it
 
