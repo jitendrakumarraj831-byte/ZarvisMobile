@@ -658,6 +658,17 @@
                 </div>
                 <p class="chat-text-sample" id="chat-text-sample" data-user-text>The quick brown fox jumps over the lazy dog.</p>
               </div>
+              <div class="panel">
+                <div class="control-row control-row-stack">
+                  <div class="row-copy"><strong>Performance</strong><small>Lightweight mode removes blur and decorative motion, so ZARVIS stays smooth on slow phones and slow networks. Automatic turns it on when your browser asks to save data, the connection is slow, or the device has little memory.</small></div>
+                  <div class="segmented" id="perf-mode" role="group" aria-label="Performance">
+                    <button type="button" class="seg active" data-perf-mode="auto" aria-pressed="true">Automatic</button>
+                    <button type="button" class="seg" data-perf-mode="lite" aria-pressed="false">Lightweight</button>
+                    <button type="button" class="seg" data-perf-mode="full" aria-pressed="false">Full effects</button>
+                  </div>
+                </div>
+                <p class="hint" id="perf-status" role="status"></p>
+              </div>
             </section>
 
             <section class="settings-panel" data-settings-panel="ai" hidden>
@@ -963,7 +974,6 @@
   <script src="./chat-kit.js"></script>
   <script src="./exec-cards.js"></script>
   <script src="./workspace.js"></script>
-  <script src="./i18n.js"></script>
   <script src="./app.js"></script>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <div class="sr-only" id="route-announcer" role="status" aria-live="polite"></div>

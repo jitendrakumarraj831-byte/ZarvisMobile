@@ -57,7 +57,7 @@
   --card-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(30, 38, 90, 0.06), 0 16px 32px -22px rgba(40, 50, 120, 0.32);
 
   /* Component surfaces */
-  --nav-bg: rgba(255, 255, 255, 0.86);
+  --nav-bg: rgba(255, 255, 255, 0.94);
   --input-bg: #ffffff;
   --bubble-ai-bg: #ffffff;
   --bubble-ai-text: #0c1222;
@@ -149,7 +149,7 @@
   --card-border: rgba(170, 182, 255, 0.15);
   --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 1px 2px rgba(0, 0, 0, 0.32), 0 18px 38px -24px rgba(0, 0, 0, 0.8);
 
-  --nav-bg: rgba(9, 12, 38, 0.8);
+  --nav-bg: rgba(9, 12, 38, 0.92);
   --input-bg: rgba(8, 11, 36, 0.7);
   --bubble-ai-bg: linear-gradient(180deg, rgba(160, 175, 255, 0.15), rgba(160, 175, 255, 0.07));
   --bubble-ai-text: var(--text);
@@ -247,27 +247,34 @@ button:disabled { cursor: not-allowed; }
 .brand-orb-lg { width: 48px; height: 48px; margin-bottom: var(--s3); }
 
 .sidebar { display: none; }
+/* Mobile tab bar: Home, Work, the round Chat mic, Agents, Settings. One block (it used to be restated in five later layers).
+   Glass with a soft aurora glow along its top edge; the current tab sits on a tinted pill, so it is never colour alone
+   (the label is also bolder, and aria-current is set by app.js). */
 .bottom-nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
   height: calc(var(--nav-h) + var(--safe-b));
-  padding: 6px var(--s2) calc(6px + var(--safe-b));
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s1);
-  background: var(--glass);
-  -webkit-backdrop-filter: saturate(160%) blur(18px);
-  backdrop-filter: saturate(160%) blur(18px);
-  border-top: 1px solid var(--line);
+  padding: 6px max(var(--s2), env(safe-area-inset-right, 0px)) calc(6px + var(--safe-b)) max(var(--s2), env(safe-area-inset-left, 0px));
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end; gap: var(--s1);
+  background: var(--nav-bg);
+  -webkit-backdrop-filter: saturate(170%) blur(22px);
+  backdrop-filter: saturate(170%) blur(22px);
+  border-top: 1px solid var(--card-border);
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -10px 30px -18px var(--glow);
 }
 .bottom-nav .nav-item {
-  position: relative;
+  position: relative; isolation: isolate;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  min-height: 48px; border-radius: var(--r-md);
-  color: var(--text-3); font-size: 11px; font-weight: 600;
+  min-width: 0; min-height: 48px; border-radius: var(--r-md);
+  color: var(--text-3); font-size: 11px; font-weight: 600; white-space: nowrap;
   transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
-.bottom-nav .nav-item .ico { width: 22px; height: 22px; }
-.bottom-nav .nav-item.active { color: var(--primary); }
-.bottom-nav .nav-item.active::before {
-  content: ""; position: absolute; top: 2px; width: 28px; height: 3px; border-radius: 3px; background: var(--grad);
+.bottom-nav .nav-item .ico { width: 22px; height: 22px; transition: transform 260ms var(--ease); }
+.bottom-nav .nav-item.active { color: var(--primary); font-weight: 700; }
+.bottom-nav .nav-item.active .ico { transform: scale(1.06); }
+.bottom-nav .nav-item.active:not(.nav-fab)::before {
+  content: ""; position: absolute; z-index: -1; top: 2px; left: 50%; width: 56px; height: 30px; margin-left: -28px;
+  border-radius: var(--r-pill); background: var(--primary-soft);
 }
 .nav-badge {
   position: absolute; top: 8px; right: calc(50% - 18px);
@@ -1067,6 +1074,24 @@ body.keyboard-open .composer { bottom: var(--kb, 0px); padding-bottom: var(--s2)
   }
 }
 
+/* ---------- Lightweight mode ----------
+   <html data-perf="lite"> is set before first paint by theme-init.js: chosen in Settings > Appearance > Performance, or, while the
+   choice is Auto, when the browser reports Save-Data, a 2G/3G link, 2 GB of memory or fewer, or reduced data.
+   It drops the two things that cost a low-end phone the most: backdrop blur (every scroll frame re-blurs what lies behind a bar)
+   and the decorative loops that never stop (the Home orb runs ten at once). Layout, colour, content and every state are unchanged;
+   the bars become solid so nothing ghosts through them, and the Chat orb still moves while it is listening or speaking. */
+[data-perf="lite"] { --glass: var(--surface); --nav-bg: var(--surface); }
+[data-perf="lite"] *, [data-perf="lite"] *::before, [data-perf="lite"] *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+[data-perf="lite"] .topbar { background: var(--bg); }
+[data-perf="lite"] .sidebar { background: var(--surface); }
+[data-perf="lite"] .orb, [data-perf="lite"] .orb::before, [data-perf="lite"] .orb-ring::before, [data-perf="lite"] .orb-glint::before,
+[data-perf="lite"] #home-orb .orb-glint::before, [data-perf="lite"] .orb-waves i, [data-perf="lite"] .orb-sparks b,
+[data-perf="lite"] .brand-orb, [data-perf="lite"] .brand-orb::after, [data-perf="lite"] .chat-avatar, [data-perf="lite"] .nav-fab .fab-orb { animation: none; will-change: auto; }
+[data-perf="lite"] .orb-waves i:nth-child(1) { transform: scale(1.12); opacity: 0.5; }
+[data-perf="lite"] .orb-waves i:nth-child(2) { transform: scale(1.22); opacity: 0.34; }
+[data-perf="lite"] .orb-waves i:nth-child(3) { transform: scale(1.31); opacity: 0.22; }
+[data-perf="lite"] .orb-waves i:nth-child(4) { transform: scale(1.39); opacity: 0.12; }
+
 /* ---------- Breakpoint refinements ---------- */
 @media (max-width: 380px) {
   :root { --gutter: 12px; }
@@ -1143,6 +1168,7 @@ button.cap-copy:hover .cap-name > span:first-child { color: var(--primary); }
 /* ---------- Touch: 44px targets where practical ---------- */
 @media (max-width: 1099px), (pointer: coarse) {
   .chip, .seg, #activity-filters .seg, .link-btn, .task-action-btn, .cap-action, .bubble-actions button, .bubble-retry-btn { min-height: 44px; }
+  .seg, .crumb { min-width: 44px; } /* a short label ("होम", "बड़ा") is still a 44px target */
   .search-field input { min-height: 44px; }
   .composer-input { min-height: 44px; padding: 10px 0; }
 }
@@ -1319,15 +1345,6 @@ body::before {
 .topbar { background: transparent; border-bottom-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .topbar-activity { position: relative; }
 .topbar-activity .nav-badge { top: 8px; right: 8px; }
-.bottom-nav {
-  grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end;
-  background: var(--nav-bg); border-top: 1px solid var(--line);
-  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
-  border-radius: 22px 22px 0 0;
-}
-.bottom-nav .nav-item { min-width: 0; font-size: 11px; white-space: nowrap; }
-.bottom-nav .nav-item.active { color: var(--primary); }
-.bottom-nav .nav-item.active::before { display: none; }
 .nav-fab { overflow: visible; justify-content: flex-end; }
 .nav-fab .fab-orb {
   display: grid; place-items: center; width: 58px; height: 58px; margin-top: -30px; border-radius: 50%;
@@ -1595,8 +1612,6 @@ body::before {
 .brand-orb { animation: spin-slow 12s linear infinite; }
 .brand-orb::after { animation: spin-slow 12s linear infinite reverse; }
 .chat-avatar { animation: fab-glow 3.6s ease-in-out infinite; }
-.bottom-nav .nav-item .ico { transition: transform 260ms var(--ease); }
-.bottom-nav .nav-item.active .ico { transform: translateY(-2px) scale(1.08); }
 .sidebar .nav-item .ico { transition: transform 260ms var(--ease); }
 .sidebar .nav-item:hover .ico { transform: scale(1.12); }
 .bubble.assistant .bubble-body, .bubble.user .bubble-body { animation: bubble-in 420ms var(--ease) both; transform-origin: left bottom; }
@@ -1902,15 +1917,13 @@ h1, h2, h3, h4 { text-wrap: balance; }
 .input:focus, .select:focus, .search-field:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
 
 /* Navigation: you are here = tinted glass, not a solid block of colour. */
-.sidebar, .bottom-nav { -webkit-backdrop-filter: saturate(170%) blur(22px); backdrop-filter: saturate(170%) blur(22px); }
+.sidebar { -webkit-backdrop-filter: saturate(170%) blur(22px); backdrop-filter: saturate(170%) blur(22px); }
 @media (min-width: 700px) {
   .sidebar .nav-item { transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast); border: 1px solid transparent; }
   .sidebar .nav-item.active { background: var(--p-tint); border-color: var(--p-tint-line); color: var(--text); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 24px -16px var(--glow); }
   .sidebar .nav-item.active .ico { color: var(--primary); }
   .desk-avatar, .topbar-avatar { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 8px 18px -10px var(--glow); }
 }
-.bottom-nav { border-top: 1px solid var(--card-border); background: var(--nav-bg); }
-.bottom-nav .nav-item.active { color: var(--primary); }
 
 /* Chat: the command bar shares the depth language. */
 .command-bar { box-shadow: var(--card-shadow); }
@@ -2038,7 +2051,6 @@ body.modal-open, body.drawer-open { overflow: hidden; }
 
 /* Notches and status bars (standalone PWA, viewport-fit=cover): nothing sits under them. */
 .topbar { padding-top: env(safe-area-inset-top, 0px); padding-left: max(var(--s4), env(safe-area-inset-left, 0px)); padding-right: max(var(--s3), env(safe-area-inset-right, 0px)); }
-.bottom-nav { padding-left: max(var(--s2), env(safe-area-inset-left, 0px)); padding-right: max(var(--s2), env(safe-area-inset-right, 0px)); }
 @media (max-width: 699px) { .views { padding-left: max(var(--s4), env(safe-area-inset-left, 0px)); padding-right: max(var(--s4), env(safe-area-inset-right, 0px)); } }
 .composer { padding-left: max(var(--s3), env(safe-area-inset-left, 0px)); padding-right: max(var(--s3), env(safe-area-inset-right, 0px)); }
 .offline-banner { padding-top: calc(var(--s2) + env(safe-area-inset-top, 0px)); }
@@ -2252,11 +2264,19 @@ body[data-orb-state="SPEAKING"] #home-orb .orb { animation: orb-speak 0.9s ease-
 @media (max-height: 720px) { #home-orb { margin-top: var(--s6); } }
 .home-lower { display: flex; flex-direction: column; align-items: center; gap: var(--s4); margin: auto 0; padding: var(--s5) 0; text-align: center; }
 .view-home .home-quick { margin: 0; animation: none; }
-.view-home .home-quick .chip-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter); margin-inline: calc(-1 * var(--gutter)); padding: 5px var(--gutter); margin-block: -3px; /* room for the focus ring: a row that scrolls clips what is drawn outside it */ }
+/* Phones: the quick actions are two rows that scroll sideways (four are visible, the next column peeks and the edge fades), not one row where only
+   one and a half chips showed. From 700px they wrap and centre. */
+.view-home .home-quick .chip-row {
+  display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); grid-auto-columns: max-content; justify-content: start;
+  overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter);
+  margin-inline: calc(-1 * var(--gutter)); padding: 5px var(--gutter); margin-block: -3px; /* room for the focus ring: a row that scrolls clips what is drawn outside it */
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--gutter), #000 calc(100% - 32px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--gutter), #000 calc(100% - 32px), transparent 100%);
+}
 .view-home .home-quick .chip-row::-webkit-scrollbar { display: none; }
 .view-home .home-quick .chip { flex: none; min-height: 44px; padding: 0 var(--s4); scroll-snap-align: start; border-radius: var(--r-pill); font-size: 15px; font-weight: 600; }
 .chip[class*="tone-"] .ico { width: 18px; height: 18px; color: var(--tone); }
-@media (min-width: 700px) { .view-home .home-quick .chip-row { flex-wrap: wrap; justify-content: center; overflow: visible; margin: 0; padding: 0; } }
+@media (min-width: 700px) { .view-home .home-quick .chip-row { display: flex; flex-wrap: wrap; justify-content: center; overflow: visible; margin: 0; padding: 0; -webkit-mask-image: none; mask-image: none; } }
 
 /* ---------- Home orb: a neon ring with rippling waves and drifting sparks; "ZARVIS AI" inside ----------
    Same deep-blue glow in both themes. Only the Home orb (#home-orb); the Chat orb is unchanged.
@@ -2472,6 +2492,20 @@ body.chat-loading .chat-empty { display: none; }
 .starter-copy small { font-size: 12.5px; line-height: 1.35; color: var(--text-3); }
 @media (min-width: 700px) { .starter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 379px) { .starter-grid { grid-template-columns: 1fr; } }
+/* Short phones (about 700px of height or less, e.g. 360x640): the empty chat gives the starters the room. The orb shrinks, the kicker and the
+   sub-line step aside (the message box says the same), and each starter is a one-line row, so three rows show above the message box
+   instead of one card. */
+@media (max-width: 699px) and (max-height: 700px) {
+  .chat-empty { padding-top: var(--s2); }
+  .chat-empty .orb-md { width: 64px; height: 64px; }
+  .chat-empty .orb-stage { margin-bottom: var(--s2); }
+  .chat-empty-kicker, .chat-empty-sub { display: none; }
+  .starter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); margin-top: var(--s3); }
+  .starter-card { flex-direction: row; align-items: center; gap: var(--s2); min-height: 52px; padding: var(--s2) var(--s3); }
+  .starter-ico { flex: none; width: 32px; height: 32px; border-radius: 10px; }
+  .starter-copy strong { font-size: 14px; line-height: 1.2; }
+  .starter-copy small { display: none; }
+}
 
 .chat-recent { width: 100%; max-width: 640px; margin-top: var(--s7); text-align: left; }
 .chat-row { display: flex; align-items: center; gap: 2px; border-radius: 14px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-1); }

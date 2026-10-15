@@ -521,7 +521,38 @@
       btn.classList.toggle("active", btn.dataset.lang === state.lang);
     }
     // Everything the page says in English that has a Hindi entry (see i18n.js); user content is left alone.
-    window.ZarvisI18n?.apply(state.lang);
+    if (window.ZarvisI18n) window.ZarvisI18n.apply(state.lang);
+    else if (state.lang !== "en") void loadI18n().then((ok) => { if (ok && state.lang !== "en") window.ZarvisI18n.apply(state.lang); });
+  }
+
+  /**
+   * i18n.js (the Hindi dictionary, about 160 KB) is only downloaded when Hindi is in use: theme-init.js starts it before first paint for a saved
+   * Hindi choice, and choosing Hindi in Settings starts it here. English readers never fetch or parse it. Resolves true once it is ready; a failed
+   * download resolves false (the page stays in English, which is the honest fallback) and the next attempt tries again.
+   */
+  let i18nLoad = null;
+  function loadI18n() {
+    if (window.ZarvisI18n) return Promise.resolve(true);
+    if (!i18nLoad) {
+      i18nLoad = new Promise((resolve) => {
+        let script = document.querySelector("script[data-i18n]");
+        if (!script) {
+          script = document.createElement("script");
+          script.src = "./i18n.js";
+          script.async = true;
+          script.setAttribute("data-i18n", "");
+          document.head.appendChild(script);
+        }
+        script.addEventListener("load", () => resolve(true));
+        script.addEventListener("error", () => {
+          script.remove();
+          i18nLoad = null;
+          resolve(false);
+        });
+        if (window.ZarvisI18n) resolve(true); // the early copy may have finished before this listener existed
+      });
+    }
+    return i18nLoad;
   }
 
   // The tool buttons leave a 320-360px phone only 80-120px for the placeholder. A textarea wraps a placeholder that does not
@@ -654,7 +685,8 @@
     else if (state.activeView === "work") name = workTitle() ? workTitle() + " · Work" : "Work";
     else if (state.activeView === "agents") name = agentTitle() || "Agents";
     else name = document.querySelector(".view:not([hidden]) h1:not(.sr-only)")?.textContent || "";
-    name = window.ZarvisI18n?.translate((name || PAGE_TITLES[state.activeView] || "").trim(), state.lang) || "";
+    const plain = (name || PAGE_TITLES[state.activeView] || "").trim();
+    name = (window.ZarvisI18n ? window.ZarvisI18n.translate(plain, state.lang) : plain) || "";
     return name ? name + " · " + brand : brand;
   }
 

@@ -11,8 +11,9 @@
  * MASTER_SPEC.md Product Principle #4 forbids; a real network failure there should surface
  * as the honest error app.js already shows, not a stale cache hit.
  */
-const CACHE_NAME = "zarvis-shell-v57";
-const SHELL_FILES = ["/", "/index.html", "/app.js", "/logic.js", "/feature-pages.js", "/shell.js", "/chat-kit.js", "/exec-cards.js", "/workspace.js", "/theme-init.js", "/i18n.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE_NAME = "zarvis-shell-v58";
+// i18n.js (the Hindi dictionary) is not precached: English readers never need it, and the fetch handler below caches it the first time Hindi loads it.
+const SHELL_FILES = ["/", "/index.html", "/app.js", "/logic.js", "/feature-pages.js", "/shell.js", "/chat-kit.js", "/exec-cards.js", "/workspace.js", "/theme-init.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES)));
