@@ -106,7 +106,7 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
             if (statusCounts.isNotEmpty()) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                        statusCounts.forEach { (label, count) -> ZarvisChip(label = "$label · $count", onClick = {}) }
+                        statusCounts.forEach { (label, count) -> ZarvisChip(label = "$label · $count", onClick = null) }
                     }
                 }
             }
