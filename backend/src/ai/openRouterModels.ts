@@ -338,6 +338,11 @@ export class OpenRouterModelDirectory {
       this.source = source;
       this.loadedAt = this.now();
       this.failedAt = 0;
+      // The account's list is filtered by its privacy settings. With none of its free models able to take tools, the
+      // free fallback cannot serve a chat turn, and the reason is a setting in OpenRouter, not something to retry.
+      if (source === "account" && !infos.some((info) => info.free && info.supportedParameters.includes("tools") && !info.id.startsWith("openrouter/"))) {
+        logger.warn("OpenRouter's list for this account has no free model that supports tools: the account's privacy settings (for example Zero Data Retention) or a guardrail may exclude them. Free fallback will fail until that is changed in OpenRouter, or OPENROUTER_ALLOW_PAID is set", { models: infos.length });
+      }
     } catch (error) {
       this.failedAt = this.now();
       logger.warn("OpenRouter model list could not be refreshed", { reason: error instanceof Error ? error.message.slice(0, 120) : "unknown", keptLast: this.infos !== undefined });

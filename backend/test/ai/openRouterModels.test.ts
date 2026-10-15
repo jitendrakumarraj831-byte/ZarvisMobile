@@ -11,6 +11,7 @@ import {
   type OpenRouterModelInfo,
   type OpenRouterRoutingPolicy,
 } from "../../src/ai/openRouterModels.js";
+import { logger } from "../../src/security/redact.js";
 import { OPENROUTER_KEY } from "./gatewayHarness.js";
 
 afterEach(() => {
@@ -251,6 +252,25 @@ describe("OpenRouterModelDirectory", () => {
     expect(hits[0]!.redirect).toBe("error");
     expect(dir.status()).toMatchObject({ loaded: true, fresh: true, models: 8, source: "account", authRejected: false });
     expect(dir.status().freeModelsWithTools).toBe(4);
+  });
+
+  it("warns, once per refresh, when the account's own list holds no free model that supports tools (the account's privacy settings exclude them)", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const noFree = listBody({ id: "vendor/paid", prompt: "0.000001", completion: "0.000002" }, { id: "openrouter/free" });
+    stubList((url) => (url.endsWith("/models/user") ? ok(noFree) : ok()));
+    await directory().ensureFresh();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain("no free model that supports tools");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(OPENROUTER_KEY);
+
+    warn.mockClear();
+    stubList(() => ok());
+    await directory().ensureFresh();
+    expect(warn).not.toHaveBeenCalled();
+    // The public list names models the account may not be allowed to use, so it cannot say anything about the account.
+    stubList(() => ok(noFree));
+    await directory({ key: undefined }).ensureFresh();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("uses the public list, with no credential at all, when there is no key", async () => {

@@ -910,6 +910,18 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 
 ## 8. Limitations and operating notes
 
+- **What the live probe showed on 2026-10-15 (new key, GitHub Actions).** The key is accepted (the
+  earlier HTTP 401 was a dead account). `GET /models` (public) listed 443 models, 17 free, 14 free
+  with tool support; `GET /models/user` (the account's own list, sent with the key) **works** and listed
+  266 models with **0 free models that support tools**: the account's privacy settings filter the list.
+  Every chat request, to `openrouter/free` and to named free models alike, answered
+  `404 ... ZDR violation (account settings) ... (guardrail)`: the OpenRouter account enforces Zero Data
+  Retention, which free endpoints cannot meet. Two free models answered `403 ... only available on
+  agentic harnesses`. So on this account the live list, the model replacement and the `models` array
+  all behave as designed, but **no free model can answer until the setting is changed in OpenRouter**
+  (Settings > Privacy, and the workspace Guardrails) **or** a paid ZDR-capable model is allowed
+  (`OPENROUTER_ALLOW_PAID=true`, with price ceilings). **Not verified:** a successful chat answer through
+  the gateway with live model replacement (nothing could answer under that policy), and any paid model.
 - **What the live OpenRouter probe has and has not shown (2026-10-04).** The build environment's
   network policy blocks `openrouter.ai`, so the unit tests use stubbed HTTP responses (as the Gemini
   tests always have). The manual **OpenRouter live probe** (§5) called the live API through this
