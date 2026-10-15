@@ -56,6 +56,12 @@ export interface ProbeOptions {
   model?: string;
   /** How many other free models that the public list says support tools to try (0 to 5). */
   candidates?: number;
+  /**
+   * Also check the gateway's live model discovery (ai/openRouterModels.ts): read the account's model list, then
+   * send one request through the gateway with a model id OpenRouter does not list, which must be replaced by one
+   * it does. Off by default for the function; the command line turns it on (`PROBE_DISCOVERY=off` turns it off).
+   */
+  discovery?: boolean;
   /** Where lines go; defaults to the console. */
   print?: (line: string) => void;
 }
@@ -215,6 +221,60 @@ async function probeTools(provider: OpenRouterProvider, model: string): Promise<
   } catch (error) {
     return { row: { status: "FAIL", name, detail: describeError(error) } };
   }
+}
+
+// ---- live model discovery, the way the gateway uses it ---------------------------------------------
+
+/** A model id that cannot exist on OpenRouter: stands in for a free model that was withdrawn. */
+const WITHDRAWN_MODEL = "zarvis-probe/withdrawn-model:free";
+
+async function discoveryChecks(options: { apiKey: string; baseUrl: string | undefined }): Promise<ProbeRow[]> {
+  const rows: ProbeRow[] = [];
+  const started = Date.now();
+  try {
+    const [{ createModelGateway }, { env }] = await Promise.all([import("../src/ai/providerFactory.js"), import("../src/config/env.js")]);
+    const gateway = createModelGateway(
+      {
+        ...env,
+        geminiApiKey: undefined,
+        openRouterApiKey: options.apiKey,
+        openRouterBaseUrl: options.baseUrl,
+        // A model OpenRouter does not list, declared to take tools like the model a deployment pinned.
+        openRouterModel: WITHDRAWN_MODEL,
+        openRouterModelCapabilities: "tools",
+        openRouterDiscovery: "true",
+        aiPrimaryProvider: "openrouter",
+        aiFallbackProvider: "none",
+      },
+      { isProduction: true },
+    );
+    const answer = await gateway.generate({
+      systemPrompt: "You are a connectivity probe. Answer in one short sentence.",
+      messages: [{ role: "user", content: "What is 2 plus 2?" }],
+      modelConfig: { provider: "gateway", model: "ignored-by-routing", maxTokens: PROBE_MAX_TOKENS },
+      purpose: "generation",
+    });
+    const live = gateway.getProviderStatus().providers.find((provider) => provider.id === "openrouter")?.liveModels;
+    rows.push({
+      status: live?.loaded ? "PASS" : "WARN",
+      name: "live model list",
+      detail: live?.loaded
+        ? `${live.models} models, ${live.freeModelsWithTools} free with tool support, read from ${live.source === "account" ? "the account's own list (GET /models/user)" : "the public list (GET /models)"}`
+        : "the gateway could not read OpenRouter's model list (see the log for the reason); it used the declared model",
+    });
+    const replaced = answer.meta?.configuredModel !== WITHDRAWN_MODEL;
+    const content = oneLine(redactString(answer.message.content ?? "")).slice(0, 120);
+    rows.push({
+      status: replaced && /\b(4|four)\b/i.test(content) ? "PASS" : replaced ? "WARN" : "FAIL",
+      name: "a model OpenRouter does not list is replaced",
+      detail: replaced
+        ? `chose ${answer.meta?.configuredModel}${answer.meta?.model && answer.meta.model !== answer.meta.configuredModel ? `, served by ${answer.meta.model}` : ""}; answered: "${content}" in ${seconds(started)} s`
+        : `the id ${WITHDRAWN_MODEL} was kept although OpenRouter does not list it: the gateway did not use the live list (answered: "${content}")`,
+    });
+  } catch (error) {
+    rows.push({ status: "FAIL", name: "a model OpenRouter does not list is replaced", detail: describeError(error) });
+  }
+  return rows;
 }
 
 // ---- one real ZARVIS turn through an OpenRouter-only gateway ------------------------------------
@@ -384,6 +444,14 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
     add({ status: "SKIP", name: "a real ZARVIS turn (OpenRouter only)", detail: "not run: no tested model passed the tool-call request" });
   }
 
+  let discoveryFailed = false;
+  if (options.discovery && !keyRejected) {
+    const checks = (await discoveryChecks({ apiKey, baseUrl: options.baseUrl?.trim() || undefined })).map(add);
+    discoveryFailed = checks.some((row) => row.status === "FAIL");
+  } else if (options.discovery) {
+    add({ status: "SKIP", name: "live model discovery", detail: "not tried: OpenRouter rejected the API key (HTTP 401)" });
+  }
+
   const alsoPassed = results.filter((r) => r !== recommended && r.text.status === "PASS" && r.tools.status === "PASS").map((r) => r.model);
   print("");
   if (recommended) {
@@ -405,20 +473,22 @@ export async function runProbe(options: ProbeOptions): Promise<ProbeOutcome> {
   } else {
     print("No tested model answered. The FAIL lines above carry the structured kind and HTTP status; the troubleshooting table in AI_MODEL_GATEWAY.md explains each.");
   }
-  writeStepSummary(results, recommended?.model);
-  return { ok: recommended !== undefined, recommended: recommended?.model, rows, results };
+  writeStepSummary(results, recommended?.model, rows.filter((row) => row.name === "live model list" || row.name.startsWith("a model OpenRouter does not list")));
+  return { ok: recommended !== undefined && !discoveryFailed, recommended: recommended?.model, rows, results };
 }
 
 const escapeCell = (text: string): string => text.replace(/[|`\r\n]+/g, " ").trim();
 const cell = (row: ProbeRow): string => `${row.status}: ${escapeCell(row.detail)}`;
 
 /** Mirrors the result into the GitHub Actions job summary, when running there. */
-function writeStepSummary(results: readonly ModelResult[], recommended: string | undefined): void {
+function writeStepSummary(results: readonly ModelResult[], recommended: string | undefined, discovery: readonly ProbeRow[] = []): void {
   const path = process.env.GITHUB_STEP_SUMMARY;
   if (!path) return;
   const lines = ["## OpenRouter live probe", "", "| Model | Plain request | Tool call | Real ZARVIS turn |", "|---|---|---|---|"];
   for (const r of results) lines.push(`| \`${escapeCell(r.model)}\` | ${cell(r.text)} | ${cell(r.tools)} | ${r.turn ? cell(r.turn) : "not run"} |`);
   lines.push("");
+  for (const row of discovery) lines.push(`- **${escapeCell(row.name)}** — ${cell(row)}`);
+  if (discovery.length > 0) lines.push("");
   lines.push(
     recommended
       ? `**Recommended:** \`OPENROUTER_MODEL=${escapeCell(recommended)}\` and \`OPENROUTER_MODEL_CAPABILITIES=tools\` (Vercel, Preview and Production).`
@@ -440,6 +510,7 @@ if (invokedDirectly) {
     baseUrl: process.env.OPENROUTER_BASE_URL,
     model: process.env.PROBE_MODEL,
     candidates: Number.parseInt(process.env.PROBE_CANDIDATES ?? "2", 10),
+    discovery: process.env.PROBE_DISCOVERY !== "off",
   });
   process.exitCode = outcome.ok ? 0 : 1;
 }
