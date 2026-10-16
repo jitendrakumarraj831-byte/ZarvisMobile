@@ -42,7 +42,7 @@ section).
 | A photo: from the camera sheet, the Android photo picker, or "Attach an image" | The server (`POST /api/v1/documents/extract` or `/api/v1/files/upload`, 4 MB limit), which holds it in memory and sends the picture to Gemini's vision model (or to an OpenRouter vision model if one is declared) to describe it. | The picture is **not** stored by the server. The description text is: in the conversation if it is attached to a message, or in Files if it is saved there (Files keeps text only). |
 | A PDF or DOCX | The server reads it in memory (never written to disk); the extracted text then goes where message text goes. | Only the extracted text, as above. |
 | Metadata inside a photo (EXIF, including location when the camera recorded it) | A photo taken with the web camera sheet is re-encoded in the browser and carries none. A photo **picked from the gallery or a file** on the web is sent as it is, metadata included, to the server and on to the vision model. The Android app re-encodes the photo in memory before sending (from the code; not run on a device in this review). | Not stored with the picture, because the picture is not stored. |
-| A reply read aloud ("Spoken replies") | The text to be spoken goes to Microsoft's speech service. If that fails before any sound and `GEMINI_API_KEY` is set (and `TTS_FALLBACK_PROVIDER` is not `none`), the same text goes to Google's Gemini speech model instead. | No. The server keeps no audio and logs no spoken text. |
+| A reply read aloud ("Spoken replies") | When `GEMINI_API_KEY` is set, the text to be spoken goes to Google's Gemini speech model. If that fails before any sound (and `TTS_FALLBACK_PROVIDER` is not `none`), the same text goes to Microsoft's speech service instead. Without the key, it goes to Microsoft's service only. | No. The server keeps no audio and logs no spoken text. |
 | A web search | Google (Gemini with Google Search grounding); OpenRouter as the search's own fallback (see below). | The query is part of the conversation. |
 | Your voice, when you dictate | The browser's or the phone's own speech recogniser handles the audio, and depending on the browser or device that may be a cloud service of its vendor. The ZARVIS server has no endpoint that accepts audio and receives only the recognised text. | No audio reaches ZARVIS. |
 | Logs | Structured and redacted: keys, tokens and credential-shaped strings are removed. Message, document, photo and spoken text are not logged. A provider's error reply is cut to 300 or 600 characters inside an internal error message that can reach the server log; a provider that echoes part of a request into an error could therefore put a fragment of it there. Voice errors log only a code and a status. | Per the host's log retention. |
@@ -84,14 +84,14 @@ receive a request.
   it, but Microsoft sees the server's address. It is an unofficial service, used here without a
   contract or a guarantee: review Microsoft's terms and decide whether this fits your privacy notice
   before enabling it in production.
-- **Spoken replies, fallback voice.** If Microsoft's service fails before any sound, and
-  `GEMINI_API_KEY` is set, the same text is sent to Google's Gemini speech model instead, under the
-  same key as chat (Google then sees that text, as it does for chat). The response says which voice
-  spoke (`X-Zarvis-TTS: gemini`, voice `gemini:Kore`) and the server log records the fall back, never
-  the text. To keep the text on Microsoft's service only, set `TTS_FALLBACK_PROVIDER=none`; to use
-  only Google's voice, `TTS_PROVIDER=gemini` (the text then goes nowhere else). With `TTS_PROVIDER=gemini`
-  and `TTS_FALLBACK_PROVIDER=edge`, Google's voice speaks first and, when it fails before any sound
-  (for example its free quota is spent), the same text goes to Microsoft's service instead. `TTS_PROVIDER=none` switches spoken replies off. The
+- **Spoken replies, main and fallback voice.** By default, when `GEMINI_API_KEY` is set, the text is
+  sent to Google's Gemini speech model first, under the same key as chat (Google then sees that text,
+  as it does for chat). When it fails before any sound (for example its free quota is spent), the same
+  text goes to Microsoft's service instead. The response says which voice spoke (`X-Zarvis-TTS: gemini`
+  or `edge`) and the server log records the fall back, never the text. To use only Google's voice, set
+  `TTS_FALLBACK_PROVIDER=none` (the text then goes nowhere else); to keep the text on Microsoft's
+  service only, set `TTS_PROVIDER=edge` and `TTS_FALLBACK_PROVIDER=none` (`TTS_PROVIDER=edge` alone puts
+  Microsoft first and Google behind it). `TTS_PROVIDER=none` switches spoken replies off. The
   server log records the engine, the voice and sizes, never the text or the audio, and no spoken
   audio is stored.
 - Provider keys never leave the server and never appear in a log (see SECURITY.md).

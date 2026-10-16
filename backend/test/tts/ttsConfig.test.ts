@@ -10,10 +10,10 @@ import { parseWav, pcmTone } from "./helpers.js";
 afterEach(() => vi.restoreAllMocks());
 
 describe("resolveTtsConfig", () => {
-  it("defaults to Edge, with Swara for Hindi, Jenny for English, and the Hindi voice for Hinglish", () => {
+  it("defaults to Gemini with Edge behind it, with Swara for Hindi, Jenny for English, and the Hindi voice for Hinglish", () => {
     expect(resolveTtsConfig({})).toEqual({
-      provider: "edge",
-      fallback: "gemini",
+      provider: "gemini",
+      fallback: "edge",
       voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" },
       gemini: { model: DEFAULT_GEMINI_TTS_MODEL, voice: "Kore" },
     });
@@ -38,31 +38,32 @@ describe("resolveTtsConfig", () => {
     expect(resolveTtsConfig({ ttsProvider: " none " }).provider).toBe("none");
   });
 
-  it("reports a provider it does not know and uses Edge instead of stopping the server", () => {
+  it("reports a provider it does not know and uses the default (Gemini) instead of stopping the server", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    for (const value of ["google_cloud", "azure", "true"]) expect(resolveTtsConfig({ ttsProvider: value }).provider).toBe("edge");
+    for (const value of ["google_cloud", "azure", "true"]) expect(resolveTtsConfig({ ttsProvider: value }).provider).toBe("gemini");
     expect(warn).toHaveBeenCalledTimes(3);
     expect(String(warn.mock.calls[0]![0])).toContain("TTS_PROVIDER");
   });
 
-  it("reads the fallback setting: `gemini` by default, `none` switches it off, anything else is reported and ignored", () => {
+  it("reads the fallback setting: `edge` by default, `none` switches it off, anything else is reported and ignored", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    expect(resolveTtsConfig({}).fallback).toBe("gemini");
+    expect(resolveTtsConfig({}).fallback).toBe("edge");
     expect(resolveTtsConfig({ ttsFallbackProvider: " NONE " }).fallback).toBe("none");
-    expect(resolveTtsConfig({ ttsFallbackProvider: "" }).fallback).toBe("gemini");
+    expect(resolveTtsConfig({ ttsFallbackProvider: "" }).fallback).toBe("edge");
     expect(warn).not.toHaveBeenCalled();
-    expect(resolveTtsConfig({ ttsFallbackProvider: "azure" }).fallback).toBe("gemini");
+    expect(resolveTtsConfig({ ttsFallbackProvider: "azure" }).fallback).toBe("edge");
     expect(String(warn.mock.calls[0]![0])).toContain("TTS_FALLBACK_PROVIDER");
   });
 
-  it("with Gemini as the main voice the second voice is Edge only when asked for; the default stays Gemini alone", () => {
+  it("the second voice is the other engine by default: Edge behind Gemini, Gemini behind Edge", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    expect(resolveTtsConfig({ ttsProvider: "gemini" }).fallback).toBe("none");
+    expect(resolveTtsConfig({ ttsProvider: "gemini" }).fallback).toBe("edge");
+    expect(resolveTtsConfig({ ttsProvider: "edge" }).fallback).toBe("gemini");
     expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: " Edge " }).fallback).toBe("edge");
     expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: "none" }).fallback).toBe("none");
     expect(warn).not.toHaveBeenCalled();
     // "gemini" behind Gemini, and "edge" behind Edge, make no sense: reported, and the default for that main voice is used.
-    expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: "gemini" }).fallback).toBe("none");
+    expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: "gemini" }).fallback).toBe("edge");
     expect(resolveTtsConfig({ ttsProvider: "edge", ttsFallbackProvider: "edge" }).fallback).toBe("gemini");
     expect(warn).toHaveBeenCalledTimes(2);
     expect(String(warn.mock.calls[0]![0])).toContain('TTS_FALLBACK_PROVIDER must be "edge" or "none" with TTS_PROVIDER="gemini"');
@@ -94,8 +95,10 @@ describe("resolveTtsConfig", () => {
 });
 
 describe("buildTtsProvider", () => {
-  it("builds the Edge voice by default, and needs no key to do it", () => {
+  it("builds the Edge voice alone when there is no Gemini key, and needs no key to do it (quietly: the default asked for nothing)", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     const provider = buildTtsProvider({});
+    expect(warn).not.toHaveBeenCalled();
     expect(provider).toBeInstanceOf(EdgeTtsProvider);
     expect(provider!.id).toBe("edge");
     expect(provider!.getDefaultVoice("How are you?")).toBe("en-US-JennyNeural");
@@ -103,7 +106,7 @@ describe("buildTtsProvider", () => {
   });
 
   it("builds it with the configured voices", () => {
-    const provider = buildTtsProvider({ ttsHindiVoice: "hi-IN-MadhurNeural", ttsEnglishVoice: "en-US-AriaNeural" });
+    const provider = buildTtsProvider({ ttsProvider: "edge", ttsHindiVoice: "hi-IN-MadhurNeural", ttsEnglishVoice: "en-US-AriaNeural" });
     expect(provider!.getDefaultVoice("आप कैसे हैं?")).toBe("hi-IN-MadhurNeural");
     expect(provider!.getDefaultVoice("How are you?")).toBe("en-US-AriaNeural");
   });
@@ -113,31 +116,39 @@ describe("buildTtsProvider", () => {
     expect(buildTtsProvider({ ttsProvider: "none", geminiApiKey: "k" })).toBeNull();
   });
 
-  it("puts Gemini's voice behind Edge's when there is a key, and still reports itself as Edge", () => {
-    const provider = buildTtsProvider({ geminiApiKey: "test-key-1234567890" });
+  it("by default puts Gemini's voice first with Edge's behind it when there is a key, and reports itself as Gemini", () => {
+    const provider = buildTtsProvider({ geminiApiKey: "test-key-1234567890", geminiTtsVoice: "Puck" });
+    expect(provider).toBeInstanceOf(FallbackTtsProvider);
+    expect(provider!.id).toBe("gemini");
+    expect(provider!.getDefaultVoice()).toBe("gemini:Puck");
+  });
+
+  it("puts Gemini's voice behind Edge's with TTS_PROVIDER=edge, and still reports itself as Edge", () => {
+    const provider = buildTtsProvider({ ttsProvider: "edge", geminiApiKey: "test-key-1234567890" });
     expect(provider).toBeInstanceOf(FallbackTtsProvider);
     expect(provider!.id).toBe("edge");
     expect(provider!.getDefaultVoice("आप कैसे हैं?")).toBe("hi-IN-SwaraNeural");
   });
 
   it("keeps Edge alone when the fallback is off, when there is no key, or when the key is blank", () => {
-    expect(buildTtsProvider({ geminiApiKey: "test-key-1234567890", ttsFallbackProvider: "none" })).toBeInstanceOf(EdgeTtsProvider);
-    expect(buildTtsProvider({})).toBeInstanceOf(EdgeTtsProvider);
+    expect(buildTtsProvider({ ttsProvider: "edge", geminiApiKey: "test-key-1234567890", ttsFallbackProvider: "none" })).toBeInstanceOf(EdgeTtsProvider);
+    expect(buildTtsProvider({ ttsProvider: "edge" })).toBeInstanceOf(EdgeTtsProvider);
+    expect(buildTtsProvider({ ttsProvider: "edge", geminiApiKey: "   " })).toBeInstanceOf(EdgeTtsProvider);
     expect(buildTtsProvider({ geminiApiKey: "   " })).toBeInstanceOf(EdgeTtsProvider);
   });
 
-  it("puts Edge behind Gemini's voice when asked, and reports itself as Gemini", () => {
+  it("puts Edge behind Gemini's voice when asked explicitly, and reports itself as Gemini", () => {
     const provider = buildTtsProvider({ ttsProvider: "gemini", ttsFallbackProvider: "edge", geminiApiKey: "test-key-1234567890", geminiTtsVoice: "Puck" });
     expect(provider).toBeInstanceOf(FallbackTtsProvider);
     expect(provider!.id).toBe("gemini");
     expect(provider!.getDefaultVoice()).toBe("gemini:Puck");
-    // Without the setting, Gemini speaks alone and the text goes nowhere else.
-    expect(buildTtsProvider({ ttsProvider: "gemini", geminiApiKey: "test-key-1234567890" })).toBeInstanceOf(GeminiTtsProvider);
+    // TTS_FALLBACK_PROVIDER=none: Gemini speaks alone and the text goes nowhere else.
+    expect(buildTtsProvider({ ttsProvider: "gemini", ttsFallbackProvider: "none", geminiApiKey: "test-key-1234567890" })).toBeInstanceOf(GeminiTtsProvider);
   });
 
   it("builds Gemini's voice alone when asked, and says so (and uses Edge) when it has no key to do it with", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    const alone = buildTtsProvider({ ttsProvider: "gemini", geminiApiKey: "test-key-1234567890", geminiTtsVoice: "Puck" });
+    const alone = buildTtsProvider({ ttsProvider: "gemini", ttsFallbackProvider: "none", geminiApiKey: "test-key-1234567890", geminiTtsVoice: "Puck" });
     expect(alone).toBeInstanceOf(GeminiTtsProvider);
     expect(alone!.getDefaultVoice()).toBe("gemini:Puck");
     expect(warn).not.toHaveBeenCalled();

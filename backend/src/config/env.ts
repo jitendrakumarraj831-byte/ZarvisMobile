@@ -50,7 +50,7 @@ export const env = {
    * Voice output (see ../tts/edgeTtsProvider.ts): Microsoft Edge's neural voices. It needs no key,
    * so there is no secret here. Read raw; `config/ttsConfig.ts` validates and resolves them, and a
    * bad value is reported and replaced by the default rather than stopping the server.
-   * `TTS_PROVIDER` is `edge` (default), `gemini` (Gemini's voice only) or `none` (no spoken replies from this server).
+   * `TTS_PROVIDER` is `gemini` (default: Gemini's voice first, needs GEMINI_API_KEY), `edge` or `none` (no spoken replies).
    */
   ttsProvider: process.env.TTS_PROVIDER,
   ttsHindiVoice: process.env.TTS_HI_VOICE,
@@ -58,9 +58,9 @@ export const env = {
   /** The voice for Hindi written in Latin letters (Hinglish). Defaults to the Hindi voice. */
   ttsHinglishVoice: process.env.TTS_HINGLISH_VOICE,
   /**
-   * The voice behind Edge's. If Edge fails before it has produced any sound, Gemini's voice speaks
-   * instead (same GEMINI_API_KEY, no extra credential). `TTS_FALLBACK_PROVIDER` is `gemini` (default)
-   * or `none`; the model and voice are Gemini's own names. Read raw; `config/ttsConfig.ts` resolves them.
+   * The second voice, asked only when the main one fails before any sound: by default Edge behind
+   * Gemini (`edge`), or Gemini behind Edge with TTS_PROVIDER=edge (`gemini`); `none` turns it off.
+   * The model and voice are Gemini's own names. Read raw; `config/ttsConfig.ts` resolves them.
    */
   ttsFallbackProvider: process.env.TTS_FALLBACK_PROVIDER,
   geminiTtsModel: process.env.GEMINI_TTS_MODEL,

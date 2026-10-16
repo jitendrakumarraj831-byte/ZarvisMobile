@@ -98,8 +98,8 @@ describe("backend/.env.example", () => {
     });
     expect(warn).not.toHaveBeenCalled();
     expect(config).toEqual({
-      provider: "edge",
-      fallback: "gemini",
+      provider: "gemini",
+      fallback: "edge",
       voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" },
       gemini: { model: DEFAULT_GEMINI_TTS_MODEL, voice: DEFAULT_GEMINI_TTS_VOICE },
     });
