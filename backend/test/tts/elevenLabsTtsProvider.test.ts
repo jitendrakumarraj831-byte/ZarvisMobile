@@ -103,6 +103,9 @@ describe("ElevenLabsTtsProvider", () => {
     const error = elevenLabsError(400, JSON.stringify({ detail: { status: "bad", message: "secret user words" } }), null);
     expect(error.message).not.toContain("secret user words");
     expect(elevenLabsError(429, "", "7").retryAfterMs).toBe(7000);
+    // The service's code is repeated only when it is a short code: it names the cause in the log.
+    expect(elevenLabsError(401, JSON.stringify({ detail: { status: "detected_unusual_activity" } }), null).message).toContain("HTTP 401, detected_unusual_activity");
+    expect(elevenLabsError(404, JSON.stringify({ detail: { status: "voice not found <b>x</b>" } }), null).message).toBe("The ElevenLabs voice refused the request (HTTP 404)");
   });
 
   it("a service that does not answer in time is a TIMEOUT; one that cannot be reached is UNAVAILABLE", async () => {
@@ -159,5 +162,19 @@ describe("ElevenLabs as the main voice: a spent quota hands the reply to the nex
     expect(spoken.equals(pcmTone(0.1, 880))).toBe(true);
     expect(backup.calls).toEqual([expect.objectContaining({ kind: "stream", text: "Hello there." })]);
     expect(chain.id).toBe("elevenlabs");
+  });
+
+  it("the fallback log says why the main voice was refused (status and service code), never the text", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const { voice: elevenLabs } = voiceWith(() => new Response(JSON.stringify({ detail: { status: "invalid_api_key" } }), { status: 401 }));
+    await collect(new FallbackTtsProvider(elevenLabs, new FakeTtsProvider()).synthesizeStream("Private words."));
+
+    expect(warn).toHaveBeenCalledWith("Primary voice failed; using the fallback voice", {
+      primary: "elevenlabs",
+      fallback: "fake",
+      kind: "REJECTED",
+      detail: "The ElevenLabs voice refused the request (HTTP 401, invalid_api_key)",
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Private words");
   });
 });

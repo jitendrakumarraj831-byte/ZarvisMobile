@@ -118,7 +118,7 @@ describe("FallbackTtsProvider", () => {
     const { voice } = pair({ error: fail("REJECTED") });
     await collect(voice.synthesizeStream("My secret sentence about my bank"));
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![1]).toEqual({ primary: "edge", fallback: "gemini", kind: "REJECTED" });
+    expect(warn.mock.calls[0]![1]).toEqual({ primary: "edge", fallback: "gemini", kind: "REJECTED", detail: "edge REJECTED" });
     expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
   });
 
