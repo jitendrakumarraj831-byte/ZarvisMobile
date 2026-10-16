@@ -101,11 +101,12 @@ describe("Gemini requests per user turn", () => {
     expect(calls).toEqual(["planner", "generation", "planner"]);
   });
 
-  it("an exhausted daily quota on the first call: exactly 1 request, then a structured error", async () => {
-    const calls = stubGemini({ planner: [{ status: 429, body: quotaBody(DAILY) }] });
+  it("an exhausted daily quota on the first call: 1 request per Gemini model, then a structured error", async () => {
+    // The quota is counted per model, so Gemini's fallback model is asked once too; neither is retried.
+    const calls = stubGemini({ planner: [{ status: 429, body: quotaBody(DAILY) }, { status: 429, body: quotaBody(DAILY) }] });
     const { orchestrator, accountId } = await setup();
     await expect(orchestrator.runTurn({ accountId, utterance: "write a long report on rivers" })).rejects.toMatchObject({ code: "AI_QUOTA_EXCEEDED" });
-    expect(calls).toEqual(["planner"]);
+    expect(calls).toEqual(["planner", "planner"]);
   });
 
   it("a search that hits the daily quota: 2 requests, no re-search and no further planning", async () => {

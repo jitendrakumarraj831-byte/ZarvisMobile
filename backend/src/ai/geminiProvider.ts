@@ -3,6 +3,7 @@ import {
   AIProviderError,
   abortError,
   classifyGeminiFailure,
+  isPerModelQuota,
   retryDelayMs,
   shouldTryNextModel,
   sleep,
@@ -45,10 +46,26 @@ export class GeminiProvider implements AIProvider {
    * construction: the ModelGateway registers this provider once and asks `isConfigured()` per
    * request, which keeps image analysis honest about a key that is absent or later configured.
    */
+  /** Models whose per-model daily quota was reported spent, and until when they are asked last. */
+  private readonly exhausted = new Map<string, number>();
+
   constructor(
     private readonly apiKey: string | (() => string | undefined),
     private readonly baseUrl = "https://generativelanguage.googleapis.com/v1beta",
+    /**
+     * Tried in order after the configured model (`GEMINI_FALLBACK_MODELS`): when it does not exist, is
+     * overloaded, or its own free-tier quota (counted per model) is spent.
+     */
+    private readonly fallbackModels: readonly string[] = [FALLBACK_MODEL],
+    private readonly now: () => number = Date.now,
   ) {}
+
+  /** The configured model first, then the fallbacks; a model whose daily quota is spent goes last for a while. */
+  private modelOrder(configured: string): string[] {
+    const models = [configured, ...this.fallbackModels].filter((model, index, all) => model && all.indexOf(model) === index);
+    const spent = (model: string) => (this.exhausted.get(model) ?? 0) > this.now();
+    return [...models.filter((model) => !spent(model)), ...models.filter(spent)];
+  }
 
   private key(): string {
     const key = typeof this.apiKey === "function" ? this.apiKey() : this.apiKey;
@@ -122,14 +139,13 @@ export class GeminiProvider implements AIProvider {
   }
 
   /**
-   * Sends one logical request. Retries follow ai/geminiErrors.ts: a daily quota fails at once
-   * (no retry, no fallback model), a short per-minute limit is retried once, transient 5xx
-   * errors get a bounded backoff and may move to the fallback model.
+   * Sends one logical request. Retries follow ai/geminiErrors.ts: a daily quota is never retried, a
+   * short per-minute limit is retried once, transient 5xx errors get a bounded backoff. The next model
+   * is tried after a 404, a transient failure that outlasted its retries, or a quota Google counts per
+   * model (each model has its own free-tier allowance); any other quota ends the call.
    */
   private async send(request: AIRequest, method: string, label: string, timeoutMs: number): Promise<Response> {
-    const models = [request.modelConfig.model, FALLBACK_MODEL].filter(
-      (model, index, all) => model && all.indexOf(model) === index,
-    );
+    const models = this.modelOrder(request.modelConfig.model);
     const body = JSON.stringify(toGeminiRequestBody(request));
     let lastError: Error | undefined;
     const call = beginModelCall(request.purpose ?? "planner", request.modelConfig.model, request.modelCallId, this.id);
@@ -192,7 +208,9 @@ export class GeminiProvider implements AIProvider {
         if (failure.kind === "fatal") throw lastError;
         const wait = retryDelayMs(failure, attempt);
         if (wait === null) {
-          if (!shouldTryNextModel(failure)) throw lastError;
+          const perModel = isPerModelQuota(failure);
+          if (perModel && failure.kind === "quota" && failure.quotaType === "daily") this.exhausted.set(model, this.now() + EXHAUSTED_MODEL_MS);
+          if (!shouldTryNextModel(failure) && !perModel) throw lastError;
           break;
         }
         await sleep(wait, request.signal);
@@ -203,8 +221,10 @@ export class GeminiProvider implements AIProvider {
   }
 }
 
-/** Used when the configured model is unavailable (404) or overloaded (5xx). */
-const FALLBACK_MODEL = "gemini-3.8-flash";
+/** The default `GEMINI_FALLBACK_MODELS`: used when the configured model is unavailable (404), overloaded (5xx) or out of its own quota. */
+export const FALLBACK_MODEL = "gemini-3.8-flash";
+/** How long a model whose daily quota was reported spent is asked last (it is still asked when nothing else answers). */
+const EXHAUSTED_MODEL_MS = 60 * 60_000;
 
 interface GeminiPart {
   text?: string;

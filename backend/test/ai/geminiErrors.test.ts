@@ -82,8 +82,8 @@ describe("retry policy", () => {
 });
 
 describe("GeminiProvider quota handling", () => {
-  it("sends exactly ONE request for a daily-quota 429 and fails with AI_QUOTA_EXCEEDED", async () => {
-    const fetchMock = vi.fn(async () => new Response(quotaBody(DAILY), { status: 429, statusText: "Too Many Requests" }));
+  it("a daily quota is never retried: ONE request per model, then AI_QUOTA_EXCEEDED", async () => {
+    const fetchMock = vi.fn(async (_url: unknown) => new Response(quotaBody(DAILY), { status: 429, statusText: "Too Many Requests" }));
     vi.stubGlobal("fetch", fetchMock);
     const trace = { httpRequests: 0, responseIds: [] as string[] };
 
@@ -93,11 +93,41 @@ describe("GeminiProvider quota handling", () => {
     expect(error).toMatchObject({ code: "AI_QUOTA_EXCEEDED", retryable: false, quotaType: "daily", status: 429 });
     // Keeps the prefix the server's error mapping and logs rely on.
     expect(error.message).toMatch(/^Gemini generateContent failed: 429/);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(trace.httpRequests).toBe(1);
+    // Google counts this quota per model, so the fallback model (its own allowance) is asked once too.
+    expect(fetchMock.mock.calls.map(([url]) => String(url).match(/models\/([^:]+)/)?.[1])).toEqual(["gemini-3.6-flash", "gemini-3.8-flash"]);
+    expect(trace.httpRequests).toBe(2);
   });
 
-  it("streams: a daily quota is not retried or moved to the fallback model either", async () => {
+  it("when one model's own daily quota is spent, the next Gemini model answers", async () => {
+    const fetchMock = vi.fn(async (url: unknown) =>
+      String(url).includes("gemini-3.6-flash")
+        ? new Response(quotaBody(DAILY), { status: 429 })
+        : new Response(JSON.stringify({ responseId: "r", candidates: [{ content: { parts: [{ text: "from 3.8" }] } }] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let clock = 1_000;
+    const provider = new GeminiProvider("k", undefined, ["gemini-3.8-flash"], () => clock);
+
+    expect((await provider.generate(request)).message.content).toBe("from 3.8");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The spent model is asked last for a while: the next call costs one request, not two.
+    expect((await provider.generate(request)).message.content).toBe("from 3.8");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // After that it is asked first again (its quota may have been reset).
+    clock += 61 * 60_000;
+    await provider.generate(request);
+    expect(String(fetchMock.mock.calls[3]![0])).toContain("gemini-3.6-flash");
+  });
+
+  it("a quota that is not counted per model (project-wide) ends the call after ONE request", async () => {
+    const fetchMock = vi.fn(async () => new Response(quotaBody("GenerateRequestsPerDayPerProject-FreeTier"), { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const error = await new GeminiProvider("k").generate(request).catch((e) => e);
+    expect(error).toMatchObject({ code: "AI_QUOTA_EXCEEDED" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("streams: a daily quota is not retried on the same model either", async () => {
     const fetchMock = vi.fn(async () => new Response(quotaBody(DAILY), { status: 429 }));
     vi.stubGlobal("fetch", fetchMock);
     const consume = async () => {
@@ -106,7 +136,7 @@ describe("GeminiProvider quota handling", () => {
       }
     };
     await expect(consume()).rejects.toMatchObject({ code: "AI_QUOTA_EXCEEDED" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // once per model
   });
 
   it("retries a short per-minute limit once and then succeeds", async () => {
@@ -132,7 +162,8 @@ describe("GeminiProvider quota handling", () => {
     const error = await new GeminiProvider("k").generate(request).catch((e) => e);
 
     expect(error).toMatchObject({ code: "AI_RATE_LIMITED", retryable: true, retryAfterMs: 40_000 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Not waited for on either model; the per-minute limit is per model too, so the next one is asked once.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(providerErrorPayload(error)).toEqual({
       type: "AI_RATE_LIMITED",
       code: "AI_RATE_LIMITED",

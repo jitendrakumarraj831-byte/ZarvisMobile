@@ -81,8 +81,19 @@ describe("backend/.env.example", () => {
   });
 
   it("documents the voice variables, every one of them is read by config/env.ts, and the commented values are the ones the voice config accepts without a warning", () => {
-    const documented = [...new Set(assignments.map((entry) => entry.name).filter((name) => /^(TTS_|GEMINI_TTS_)/.test(name)))].sort();
-    expect(documented).toEqual(["GEMINI_TTS_MODEL", "GEMINI_TTS_VOICE", "TTS_EN_VOICE", "TTS_FALLBACK_PROVIDER", "TTS_HINGLISH_VOICE", "TTS_HI_VOICE", "TTS_PROVIDER"]);
+    const documented = [...new Set(assignments.map((entry) => entry.name).filter((name) => /^(TTS_|GEMINI_TTS_|ELEVENLABS_)/.test(name)))].sort();
+    expect(documented).toEqual([
+      "ELEVENLABS_API_KEY",
+      "ELEVENLABS_MODEL",
+      "ELEVENLABS_VOICE_ID",
+      "GEMINI_TTS_MODEL",
+      "GEMINI_TTS_VOICE",
+      "TTS_EN_VOICE",
+      "TTS_FALLBACK_PROVIDER",
+      "TTS_HINGLISH_VOICE",
+      "TTS_HI_VOICE",
+      "TTS_PROVIDER",
+    ]);
     for (const name of documented) expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
 
     const uncomment = (name: string) => assignments.find((entry) => entry.name === name && entry.commented)?.value.replace(/\s+#.*$/, "");
@@ -95,13 +106,17 @@ describe("backend/.env.example", () => {
       ttsHinglishVoice: uncomment("TTS_HINGLISH_VOICE"),
       geminiTtsModel: uncomment("GEMINI_TTS_MODEL"),
       geminiTtsVoice: uncomment("GEMINI_TTS_VOICE"),
+      elevenLabsVoiceId: uncomment("ELEVENLABS_VOICE_ID"),
+      elevenLabsModel: uncomment("ELEVENLABS_MODEL"),
     });
     expect(warn).not.toHaveBeenCalled();
     expect(config).toEqual({
       provider: "gemini",
       fallback: "edge",
+      fallbacks: ["edge"],
       voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" },
       gemini: { model: DEFAULT_GEMINI_TTS_MODEL, voice: DEFAULT_GEMINI_TTS_VOICE },
+      elevenLabs: { model: "eleven_flash_v2_5", voiceId: "21m00Tcm4TlvDq8ikWAM" },
     });
   });
 

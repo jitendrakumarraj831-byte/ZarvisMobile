@@ -13,8 +13,8 @@
  * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), plus at most one extra attempt for an AI
  * step whose first failure the backend marked temporary (a per-minute limit or a retryable outage); a refusal or a daily quota is never retried.
  * The voice checks (about 25 requests, see voiceChecks) print a VOICE SUMMARY at the end. The main voice is
- * Gemini's by default (TTS_PROVIDER=gemini, X-Zarvis-TTS: gemini), with Edge's behind it; `EXPECT_TTS_PRIMARY=edge`
- * checks a deployment set to TTS_PROVIDER=edge. When the other engine answers, the audio is still checked but the
+ * Gemini's by default (TTS_PROVIDER=gemini, X-Zarvis-TTS: gemini), with Edge's behind it; `EXPECT_TTS_PRIMARY=edge` (or
+ * `elevenlabs`) checks a deployment set to that TTS_PROVIDER. When the other engine answers, the audio is still checked but the
  * result is a WARN, never a PASS: spoken replies work, and the main voice being down stays visible. Gemini's speech
  * quota is small and metered, so once Gemini is seen speaking only English, Hindi and Hinglish are asked of it
  * (6 requests); the longer checks (a long reply, the longest WAV, cancelling, choosing an Edge voice) are reported
@@ -184,7 +184,8 @@ const VOICE_TEXT = {
   hi: "नमस्ते, मैं ज़ारविस हूँ। आज मौसम साफ़ है, और मेरी आवाज़ स्वाभाविक और शांत सुनाई देनी चाहिए।",
   hinglish: "Namaste, main ZARVIS hoon. Aaj mausam saaf hai, aur meri awaaz natural aur shaant sunaai deni chahiye.",
 };
-const PRIMARY_ENGINE = (process.env.EXPECT_TTS_PRIMARY || "gemini").trim().toLowerCase() === "edge" ? "edge" : "gemini";
+const ENGINES = ["gemini", "elevenlabs", "edge"];
+const PRIMARY_ENGINE = ENGINES.find((engine) => engine === (process.env.EXPECT_TTS_PRIMARY || "gemini").trim().toLowerCase()) ?? "gemini";
 const EXPECT_VOICE = {
   en: process.env.EXPECT_EN_VOICE || "en-US-JennyNeural",
   hi: process.env.EXPECT_HI_VOICE || "hi-IN-SwaraNeural",
@@ -245,9 +246,10 @@ async function streamCall(token, body, { abortAfterBytes, timeoutMs = 90_000 } =
  * Gemini's says `gemini:<name>`, Edge's the voice expected for the language.
  */
 function spokenBy(engine, suffix, voice, expected) {
-  const base = engine === `gemini${suffix}` ? "gemini" : engine === `edge${suffix}` ? "edge" : undefined;
-  if (!base) return { ok: false, why: `X-Zarvis-TTS was ${engine}, not gemini${suffix} or edge${suffix}` };
-  if (base === "gemini" && !/^gemini:[A-Za-z]+$/.test(voice || "")) return { ok: false, why: `X-Zarvis-TTS was ${engine} but the voice was ${voice}, not gemini:<name>` };
+  const base = ENGINES.find((name) => engine === `${name}${suffix}`);
+  if (!base) return { ok: false, why: `X-Zarvis-TTS was ${engine}, not ${ENGINES.map((name) => `${name}${suffix}`).join(", ")}` };
+  // Gemini and ElevenLabs label their voices with their engine (gemini:Kore, elevenlabs:<voice id>); Edge's is the configured name.
+  if (base !== "edge" && !new RegExp(`^${base}:[A-Za-z0-9]+$`).test(voice || "")) return { ok: false, why: `X-Zarvis-TTS was ${engine} but the voice was ${voice}, not ${base}:<name>` };
   if (base === "edge" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
   const fallback = base !== PRIMARY_ENGINE;
   return { ok: true, base, fallback, note: fallback ? ` (FALLBACK: ${PRIMARY_ENGINE} did not answer)` : "" };
@@ -283,7 +285,7 @@ async function voiceChecks(token) {
     if (!lengthPlausible(text, wav.seconds)) return { ok: false, why: `${text.length} characters came back as ${wav.seconds.toFixed(1)} s of audio` };
     const by = spokenBy(res.headers.get("x-zarvis-tts"), "", voice, expected);
     if (!by.ok) return { ok: false, why: by.why };
-    return { ok: true, fallback: by.fallback, metered: by.base === "gemini", detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}${by.note}` };
+    return { ok: true, fallback: by.fallback, metered: by.base !== "edge", detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}${by.note}` };
   };
   const checkStream = (res, text, expected) => {
     const type = res.headers.get("content-type") || "";
@@ -296,7 +298,7 @@ async function voiceChecks(token) {
     if (!lengthPlausible(text, seconds)) return { ok: false, why: `${text.length} characters came back as ${seconds.toFixed(1)} s of audio` };
     const by = spokenBy(res.headers.get("x-zarvis-tts"), "-stream", voice, expected);
     if (!by.ok) return { ok: false, why: by.why };
-    return { ok: true, fallback: by.fallback, metered: by.base === "gemini", seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}${by.note}` };
+    return { ok: true, fallback: by.fallback, metered: by.base !== "edge", seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}${by.note}` };
   };
 
   // ---- Is the voice service reachable from here at all? English first; the rest is pointless if not.
@@ -325,7 +327,7 @@ async function voiceChecks(token) {
   // told to wait). The remaining checks are long or about Edge's voices, so while Gemini speaks they would only spend that quota.
   meteredVoice = meteredVoice || Boolean(firstStreamCheck.metered);
   const notRun = (names, name) =>
-    vreport(names, "WARN", name, "not run: Gemini's voice (metered by its speech quota) is speaking; this check would only spend that quota");
+    vreport(names, "WARN", name, "not run: a metered voice (Gemini's speech quota, or ElevenLabs' credits) is speaking; this check would only spend that quota");
 
   // ---- Hindi and Hinglish, on both endpoints.
   for (const [group, key, label] of [["hindi", "hi", "Hindi"], ["hinglish", "hinglish", "Hinglish"]]) {

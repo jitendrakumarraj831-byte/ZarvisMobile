@@ -94,9 +94,10 @@ describe("ModelGateway: choosing a provider", () => {
 
 describe("ModelGateway: controlled fallback (Gemini -> OpenRouter)", () => {
   it.each([
-    ["an exhausted daily quota: one request, no retry", geminiFail(429, quotaBody(DAILY)), 1, "GEMINI_QUOTA_EXCEEDED"],
-    ["a per-minute limit with a long advised wait: one request", geminiFail(429, quotaBody(PER_MINUTE, "40s")), 1, "GEMINI_RATE_LIMITED"],
-    ["a per-minute limit with a short wait: one bounded retry first", geminiFail(429, quotaBody(PER_MINUTE, "1s")), 2, "GEMINI_RATE_LIMITED"],
+    // Google counts these quotas per model, so each Gemini model (the configured one and the fallback model) is asked.
+    ["an exhausted daily quota: one request per Gemini model, no retry", geminiFail(429, quotaBody(DAILY)), 2, "GEMINI_QUOTA_EXCEEDED"],
+    ["a per-minute limit with a long advised wait: one request per Gemini model", geminiFail(429, quotaBody(PER_MINUTE, "40s")), 2, "GEMINI_RATE_LIMITED"],
+    ["a per-minute limit with a short wait: one bounded retry on each Gemini model first", geminiFail(429, quotaBody(PER_MINUTE, "1s")), 4, "GEMINI_RATE_LIMITED"],
     ["a 503: bounded retries on two models, then OpenRouter", geminiFail(503), 6, "GEMINI_UNAVAILABLE"],
   ])("%s", async (_label, gemini, geminiRequests, reason) => {
     const stub = stubProviders({ gemini, openrouter: openRouterText("Answered by OpenRouter.") });
@@ -151,7 +152,7 @@ describe("ModelGateway: controlled fallback (Gemini -> OpenRouter)", () => {
     const stub = stubProviders({ gemini: geminiFail(429, quotaBody(DAILY)), openrouter: openRouterFail(503, "overloaded") });
     const failure = await error(gatewayFor().generate(chatRequest()));
 
-    expect(stub.gemini).toHaveLength(1);
+    expect(stub.gemini).toHaveLength(2); // once per Gemini model
     expect(stub.openrouter).toHaveLength(3); // the shared policy: two bounded retries of a transient 5xx
     expect(failure).toBeInstanceOf(AIProviderError);
     expect(failure.kind).toBe("AI_PROVIDER_UNAVAILABLE"); // the last provider asked is the final state
@@ -199,7 +200,6 @@ describe("ModelGateway: failures that must NOT fall back", () => {
     ["Gemini rejects the API key (403)", 403, "AI_PROVIDER_AUTH_ERROR"],
     ["Gemini rejects the credentials (401)", 401, "AI_PROVIDER_AUTH_ERROR"],
     ["Gemini rejects the request itself (400)", 400, "AI_PROVIDER_INVALID_REQUEST"],
-    ["the configured Gemini model does not exist (404)", 404, "AI_PROVIDER_CAPABILITY_UNSUPPORTED"],
   ])("%s: one request, no OpenRouter request", async (_label, status, kind) => {
     const stub = stubProviders({ gemini: geminiFail(status, JSON.stringify({ error: { message: `provider said no ${GEMINI_KEY}` } })), openrouter: openRouterText("must not run") });
     const failure = await error(gatewayFor().generate(chatRequest()));
@@ -207,12 +207,20 @@ describe("ModelGateway: failures that must NOT fall back", () => {
     expect(failure).toBeInstanceOf(AIProviderError);
     expect(failure.kind).toBe(kind);
     expect(failure.code).toBe("AI_UNAVAILABLE");
-    // 404 tries Gemini's own next model first; nothing else ever repeats the request.
-    expect(stub.gemini).toHaveLength(status === 404 ? 2 : 1);
+    expect(stub.gemini).toHaveLength(1);
     expect(stub.openrouter).toHaveLength(0);
     // What reaches a client names no provider, key or kind.
     expect(JSON.stringify(providerErrorPayload(failure))).not.toContain(GEMINI_KEY);
     expect(providerErrorPayload(failure)).not.toHaveProperty("kind");
+  });
+
+  it("a model that does not exist (404) is not the request's fault: after Gemini's own next model, OpenRouter answers", async () => {
+    const stub = stubProviders({ gemini: geminiFail(404, JSON.stringify({ error: { message: "models/x is not found" } })), openrouter: openRouterText("From OpenRouter.") });
+    const response = await gatewayFor().generate(chatRequest());
+
+    expect(response.message.content).toBe("From OpenRouter.");
+    expect(stub.gemini).toHaveLength(2); // the configured model, then Gemini's fallback model
+    expect(response.meta).toMatchObject({ provider: "openrouter", fallback: true, fallbackReason: "GEMINI_CAPABILITY_UNSUPPORTED" });
   });
 
   it("an OpenRouter primary with a rejected key does not fall back to Gemini", async () => {
@@ -390,26 +398,27 @@ describe("ModelGateway: quota cooldown", () => {
   it("after a spent Gemini quota, later calls go straight to a capable fallback; Gemini is probed again after the cooldown", async () => {
     let clock = 1_000_000;
     const stub = stubProviders({
-      gemini: sequence(geminiFail(429, quotaBody(DAILY)), geminiText("Gemini is back.")),
+      // Both Gemini models are out of their daily quota, then Gemini answers again.
+      gemini: sequence(geminiFail(429, quotaBody(DAILY)), geminiFail(429, quotaBody(DAILY)), geminiText("Gemini is back.")),
       openrouter: openRouterText("Fallback answer."),
     });
     const gateway = gatewayFor({ aiQuotaCooldownMs: "60000" }, { now: () => clock });
 
     const first = await gateway.generate(chatRequest());
     expect(first.meta).toMatchObject({ provider: "openrouter", fallbackReason: "GEMINI_QUOTA_EXCEEDED" });
-    expect(stub.gemini).toHaveLength(1);
+    expect(stub.gemini).toHaveLength(2);
 
     clock += 10_000; // still cooling down
     const second = await gateway.generate(chatRequest());
     expect(second.meta).toMatchObject({ provider: "openrouter", fallback: true, fallbackReason: "GEMINI_QUOTA_COOLDOWN" });
-    expect(stub.gemini).toHaveLength(1); // no request wasted on a provider known to refuse it
+    expect(stub.gemini).toHaveLength(2); // no request wasted on a provider known to refuse it
     expect(stub.openrouter).toHaveLength(2);
 
     clock += 60_000; // cooldown over: Gemini is tried again, and its success clears the state
     const third = await gateway.generate(chatRequest());
     expect(third.message.content).toBe("Gemini is back.");
     expect(third.meta).toMatchObject({ provider: "google", fallback: false });
-    expect(stub.gemini).toHaveLength(2);
+    expect(stub.gemini).toHaveLength(3);
   });
 
   it("a Gemini-only deployment is unaffected: a request is still tried on Gemini every time", async () => {
@@ -419,18 +428,21 @@ describe("ModelGateway: quota cooldown", () => {
     await error(gateway.generate(chatRequest()));
     await error(gateway.generate(chatRequest()));
 
-    expect(stub.gemini).toHaveLength(2);
+    expect(stub.gemini).toHaveLength(4); // each call asks both Gemini models
   });
 
   it("a request the fallback cannot serve is still tried on Gemini during the cooldown", async () => {
-    const stub = stubProviders({ gemini: sequence(geminiFail(429, quotaBody(DAILY)), geminiCall("web.search", { query: "q" })), openrouter: openRouterText("plain") });
+    const stub = stubProviders({
+      gemini: sequence(geminiFail(429, quotaBody(DAILY)), geminiFail(429, quotaBody(DAILY)), geminiCall("web.search", { query: "q" })),
+      openrouter: openRouterText("plain"),
+    });
     const gateway = gatewayFor();
 
-    await gateway.generate(chatRequest()); // spends the quota, falls back (no tools needed)
+    await gateway.generate(chatRequest()); // spends the quota of both Gemini models, falls back (no tools needed)
     const withTools = await gateway.generate(chatRequest({ purpose: "planner", tools: [searchTool] }));
 
     expect(withTools.toolCalls[0]?.skillId).toBe("web.search");
-    expect(stub.gemini).toHaveLength(2);
+    expect(stub.gemini).toHaveLength(3);
   });
 
   it("AI_QUOTA_COOLDOWN_MS=0 turns the cooldown off", async () => {
@@ -440,7 +452,7 @@ describe("ModelGateway: quota cooldown", () => {
     await gateway.generate(chatRequest());
     await gateway.generate(chatRequest());
 
-    expect(stub.gemini).toHaveLength(2);
+    expect(stub.gemini).toHaveLength(4);
   });
 });
 
@@ -467,7 +479,7 @@ describe("ModelGateway: no provider configured", () => {
     const stub = stubProviders({ gemini: geminiFail(429, quotaBody(DAILY)) });
     const failure = await error(gatewayFor({ openRouterApiKey: undefined }, { isProduction: false }).generate(chatRequest()));
     expect(failure.code).toBe("AI_QUOTA_EXCEEDED"); // not a canned mock reply
-    expect(stub.gemini).toHaveLength(1);
+    expect(stub.gemini).toHaveLength(2); // both Gemini models, nothing else
 
     stubProviders({ openrouter: openRouterText("must not run") });
     const capability = await error(gatewayFor({ geminiApiKey: undefined }, { isProduction: false }).generate(chatRequest({ purpose: "planner", tools: [searchTool] })));
@@ -488,12 +500,12 @@ describe("ModelGateway: one logical call, one log line, no secrets", () => {
       model: "vendor/served-free-model:free",
       fallback: true,
       fallbackReason: "GEMINI_RATE_LIMITED",
-      providerHttpRequests: 3,
-      retryCount: 1, // Gemini's one bounded retry
+      providerHttpRequests: 5,
+      retryCount: 3, // Gemini's one bounded retry on each of its two models, and the move between them
     });
     expect(typeof call?.data.latencyMs).toBe("number");
     expect(call?.data.attempts).toEqual([
-      expect.objectContaining({ provider: "google", outcome: "error", status: 429, httpRequests: 2 }),
+      expect.objectContaining({ provider: "google", outcome: "error", status: 429, httpRequests: 4 }),
       expect.objectContaining({ provider: "openrouter", outcome: "ok", fallback: true }),
     ]);
     expect(lines.find((line) => line.message === "AI provider fallback")?.data).toMatchObject({
@@ -519,7 +531,7 @@ describe("ModelGateway: one logical call, one log line, no secrets", () => {
     const output = written.join("\n");
     expect(output).toContain("AI call");
     expect(output).not.toContain("[REDACTED]");
-    for (const expected of ['"fallbackReason":"GEMINI_QUOTA_EXCEEDED"', '"provider":"openrouter"', '"retryCount":0', '"providerHttpRequests":2', '"finalStatus":"success"', '"latencyMs"', '"modelCallId"', '"attempts"']) {
+    for (const expected of ['"fallbackReason":"GEMINI_QUOTA_EXCEEDED"', '"provider":"openrouter"', '"retryCount":1', '"providerHttpRequests":3', '"finalStatus":"success"', '"latencyMs"', '"modelCallId"', '"attempts"']) {
       expect(output, expected).toContain(expected);
     }
   });
@@ -579,7 +591,8 @@ describe("ModelGateway: request economy (one user turn must not multiply model r
     });
     await gatewayFor().generate(chatRequest());
 
-    expect(order).toEqual(["gemini:start", "gemini:end", "openrouter:start"]);
+    // Both Gemini models (one after the other), then OpenRouter: never two at once.
+    expect(order).toEqual(["gemini:start", "gemini:end", "gemini:start", "gemini:end", "openrouter:start"]);
   });
 });
 
@@ -588,7 +601,9 @@ describe("ModelGateway: status", () => {
     const gateway = gatewayFor({ openRouterModelCapabilities: "tools,vision" });
     const status = gateway.getProviderStatus();
 
-    expect(status.effective).toEqual({ mode: "live", primary: "google", fallback: "openrouter" });
+    // The OpenAI-compatible provider has no key here, so the chain is Gemini then OpenRouter.
+    expect(status.effective).toEqual({ mode: "live", primary: "google", fallback: "openrouter", fallbacks: ["openrouter"] });
+    expect(status.preferred).toEqual({ primary: "google", fallback: "openrouter", fallbacks: ["openrouter", "openai"] });
     expect(status.providers.find((provider) => provider.id === "openrouter")?.models[0]).toMatchObject({
       model: "openrouter/free",
       free: true,
@@ -612,7 +627,7 @@ describe("ModelGateway: status", () => {
   });
 
   it("counts calls, fallbacks and failures by kind", async () => {
-    stubProviders({ gemini: sequence(geminiFail(429, quotaBody(DAILY)), geminiText("ok")), openrouter: openRouterText("fb") });
+    stubProviders({ gemini: sequence(geminiFail(429, quotaBody(DAILY)), geminiFail(429, quotaBody(DAILY)), geminiText("ok")), openrouter: openRouterText("fb") });
     const gateway = gatewayFor({ aiQuotaCooldownMs: "0" });
     await gateway.generate(chatRequest());
     await gateway.generate(chatRequest());

@@ -137,6 +137,14 @@ export function shouldTryNextModel(failure: GeminiFailure): boolean {
   return failure.kind === "not_found" || failure.kind === "transient";
 }
 
+/**
+ * A quota Google counts per model (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`): another model has its
+ * own, so the next configured model may still answer. A project-wide quota or an empty balance is not.
+ */
+export function isPerModelQuota(failure: GeminiFailure): boolean {
+  return failure.kind === "quota" && /permodel/i.test(failure.quotaId ?? "");
+}
+
 /** The structured error for a final failure. `label` keeps the existing log/error prefix. */
 export function toProviderError(label: string, status: number, statusText: string, failure: GeminiFailure, bodyText: string, model?: string): AIProviderError {
   const message = `${label} failed: ${status} ${statusText} ${bodyText.slice(0, 300)}`.trim();

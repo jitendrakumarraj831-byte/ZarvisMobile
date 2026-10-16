@@ -25,9 +25,9 @@ export function isUsableApiKey(key: string): boolean {
 }
 
 /** The error for a key that cannot be sent. Says nothing about the key itself. */
-export function unusableKeyError(provider: string): AIProviderError {
+export function unusableKeyError(provider: string, name = "OpenRouter"): AIProviderError {
   return new AIProviderError(
-    "The OpenRouter API key contains characters an API key cannot have (whitespace, quotes or a line break); set it again without them",
+    `The ${name} API key contains characters an API key cannot have (whitespace, quotes or a line break); set it again without them`,
     "AI_UNAVAILABLE",
     503,
     false,

@@ -59,7 +59,7 @@ describe("ModelGateway streaming", () => {
 
     expect(chunks.filter((chunk) => !chunk.done).map((chunk) => chunk.delta).join("")).toBe("Fallback");
     expect(chunks.at(-1)).toMatchObject({ done: true, meta: { provider: "openrouter", model: "vendor/streaming-model:free", fallback: true, fallbackReason: "GEMINI_QUOTA_EXCEEDED" } });
-    expect(stub.gemini).toHaveLength(1);
+    expect(stub.gemini).toHaveLength(2); // once per Gemini model (the quota is counted per model)
     expect(stub.openrouter).toHaveLength(1);
     expect(stub.openrouter[0]!.body).toMatchObject({ stream: true });
   });

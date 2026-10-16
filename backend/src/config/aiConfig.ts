@@ -1,22 +1,26 @@
 import { CAPABILITIES, type Capability } from "../ai/capabilities.js";
 import {
+  CATALOG_PROVIDERS,
   geminiEntry,
   MODEL_ID_PATTERN,
+  openAIEntry,
   openRouterEntry,
   parseCatalogJson,
   type CatalogProvider,
   type ModelEntry,
 } from "../ai/modelCatalog.js";
+import { FALLBACK_MODEL as GEMINI_FALLBACK_MODEL } from "../ai/geminiProvider.js";
 import { DEFAULT_OPENROUTER_BASE_URL } from "../ai/openRouterHttp.js";
-import { MAX_MODELS_PER_REQUEST } from "../ai/openRouterProvider.js";
+import { DEFAULT_OPENAI_BASE_URL, MAX_MODELS_PER_REQUEST } from "../ai/openRouterProvider.js";
 import { AIConfigError } from "./aiConfigError.js";
 
 /**
  * Validates and resolves every AI setting once, when the server is built, so a typo stops the
  * server with a clear message instead of surfacing later as an unexplained AI failure.
  *
- * Absent is not invalid: with no OpenRouter key the fallback is simply off, with no Gemini key the
- * gateway answers through OpenRouter, with neither the AI reports itself unavailable. Only a
+ * Absent is not invalid: a provider without credentials is skipped (with no OpenRouter key the
+ * OpenRouter step of the fallback chain is simply off), with no Gemini key the next provider in the
+ * chain answers first, with none the AI reports itself unavailable. Only a
  * value that is *present and wrong* is an error.
  *
  * Every message names variables and problems, never a configured value (a mistyped variable can
@@ -24,6 +28,7 @@ import { AIConfigError } from "./aiConfigError.js";
  */
 export interface AIConfigInput {
   geminiModel: string;
+  geminiFallbackModels?: string;
   aiPrimaryProvider?: string;
   aiFallbackProvider?: string;
   openRouterBaseUrl?: string;
@@ -38,6 +43,12 @@ export interface AIConfigInput {
   openRouterMaxPriceCompletion?: string;
   openRouterMaxOutputTokens?: string;
   openRouterDataCollection?: string;
+  openAiBaseUrl?: string;
+  openAiModel?: string;
+  openAiModelCapabilities?: string;
+  openAiModelContextTokens?: string;
+  openAiTimeoutMs?: string;
+  openAiMaxOutputTokens?: string;
   aiModelCatalogJson?: string;
   aiQuotaCooldownMs?: string;
 }
@@ -45,8 +56,12 @@ export interface AIConfigInput {
 export interface ResolvedAIConfig {
   /** What the operator prefers; whether it is usable depends on credentials, per request. */
   preferredPrimary: CatalogProvider;
-  /** `null` when the fallback is disabled (`AI_FALLBACK_PROVIDER=none`). */
+  /** The first fallback; `null` when fallback is disabled (`AI_FALLBACK_PROVIDER=none`). */
   preferredFallback: CatalogProvider | null;
+  /** Every fallback, in the order they are tried after the primary (empty when disabled). */
+  preferredFallbacks: CatalogProvider[];
+  /** Gemini models tried after `GEMINI_MODEL` inside one request (`GEMINI_FALLBACK_MODELS`). */
+  geminiFallbackModels: string[];
   catalog: ModelEntry[];
   openRouter: {
     baseUrl: string;
@@ -61,6 +76,13 @@ export interface ResolvedAIConfig {
     maxPriceCompletionPerM?: number;
     maxOutputTokens?: number;
     dataCollection?: "allow" | "deny";
+  };
+  /** The OpenAI-compatible endpoint (the `openai` provider). It has a catalog entry only when `OPENAI_MODEL` is set. */
+  openAI: {
+    baseUrl: string;
+    timeoutMs: number;
+    model?: string;
+    maxOutputTokens?: number;
   };
   /** How long a provider that reported an exhausted quota is skipped (0 = never skip). */
   quotaCooldownMs: number;
@@ -79,14 +101,44 @@ function blank(value: string | undefined): boolean {
   return value === undefined || value.trim() === "";
 }
 
-function parseProvider(name: string, raw: string | undefined, fallbackValue: CatalogProvider | null, allowNone: boolean, problems: string[]): CatalogProvider | null {
-  if (blank(raw)) return fallbackValue;
-  const value = raw!.trim().toLowerCase();
+function providerName(value: string): CatalogProvider | undefined {
   if (value === "gemini" || value === "google") return "google";
   if (value === "openrouter") return "openrouter";
-  if (allowNone && (value === "none" || value === "off" || value === "disabled")) return null;
-  problems.push(`${name} must be ${allowNone ? '"gemini", "openrouter" or "none"' : '"gemini" or "openrouter"'}`);
-  return fallbackValue;
+  if (value === "openai") return "openai";
+  return undefined;
+}
+
+function parsePrimary(raw: string | undefined, problems: string[]): CatalogProvider {
+  if (blank(raw)) return "google";
+  const provider = providerName(raw!.trim().toLowerCase());
+  if (provider) return provider;
+  problems.push('AI_PRIMARY_PROVIDER must be "gemini", "openrouter" or "openai"');
+  return "google";
+}
+
+/**
+ * `AI_FALLBACK_PROVIDER`: one provider, or several in the order they are tried ("openrouter,openai"), or `none`.
+ * Unset: every other provider, in the order gemini, openrouter, openai (a provider without credentials is
+ * simply skipped, per request).
+ */
+function parseFallbacks(raw: string | undefined, primary: CatalogProvider, problems: string[]): CatalogProvider[] {
+  if (blank(raw)) return CATALOG_PROVIDERS.filter((provider) => provider !== primary);
+  const tokens = raw!.split(/[\s,]+/).filter(Boolean).map((token) => token.toLowerCase());
+  if (tokens.length === 1 && ["none", "off", "disabled"].includes(tokens[0]!)) return [];
+  const out: CatalogProvider[] = [];
+  for (const token of tokens) {
+    const provider = providerName(token);
+    if (!provider) {
+      problems.push('AI_FALLBACK_PROVIDER must list "gemini", "openrouter" and/or "openai" (comma-separated, in order), or be "none"');
+      return [];
+    }
+    if (provider === primary) {
+      problems.push('AI_FALLBACK_PROVIDER must not list AI_PRIMARY_PROVIDER (use "none" to disable the fallback)');
+      return [];
+    }
+    if (!out.includes(provider)) out.push(provider);
+  }
+  return out;
 }
 
 function parseInteger(name: string, raw: string | undefined, fallbackValue: number, min: number, max: number, problems: string[]): number {
@@ -121,7 +173,7 @@ function parsePrice(name: string, raw: string | undefined, problems: string[]): 
   return value;
 }
 
-function parseModelList(name: string, raw: string | undefined, problems: string[]): string[] {
+function parseModelList(name: string, raw: string | undefined, problems: string[], max = MAX_MODELS_PER_REQUEST - 1): string[] {
   if (blank(raw)) return [];
   const ids: string[] = [];
   for (const token of raw!.split(/[\s,]+/).filter(Boolean)) {
@@ -131,31 +183,43 @@ function parseModelList(name: string, raw: string | undefined, problems: string[
     }
     if (!ids.includes(token)) ids.push(token);
   }
-  if (ids.length > MAX_MODELS_PER_REQUEST - 1) {
-    problems.push(`${name} lists more than ${MAX_MODELS_PER_REQUEST - 1} models (OpenRouter accepts ${MAX_MODELS_PER_REQUEST} per request, including the main one)`);
-    return ids.slice(0, MAX_MODELS_PER_REQUEST - 1);
+  if (ids.length > max) {
+    problems.push(
+      max === MAX_MODELS_PER_REQUEST - 1
+        ? `${name} lists more than ${max} models (OpenRouter accepts ${MAX_MODELS_PER_REQUEST} per request, including the main one)`
+        : `${name} lists more than ${max} models`,
+    );
+    return ids.slice(0, max);
   }
   return ids;
 }
 
-function parseBaseUrl(raw: string | undefined, problems: string[], warnings: string[]): string {
-  if (blank(raw)) return DEFAULT_OPENROUTER_BASE_URL;
+/** The default URL and the host it is expected on, per variable. Another host is allowed, with a warning. */
+const BASE_URLS = {
+  OPENROUTER_BASE_URL: { fallback: DEFAULT_OPENROUTER_BASE_URL, host: "openrouter.ai", key: "OpenRouter" },
+  OPENAI_BASE_URL: { fallback: DEFAULT_OPENAI_BASE_URL, host: "api.openai.com", key: "OPENAI" },
+} as const;
+
+function parseBaseUrl(raw: string | undefined, problems: string[], warnings: string[], name: keyof typeof BASE_URLS = "OPENROUTER_BASE_URL"): string {
+  const { fallback, host, key } = BASE_URLS[name];
+  if (blank(raw)) return fallback;
   let url: URL;
   try {
     url = new URL(raw!.trim());
   } catch {
-    problems.push("OPENROUTER_BASE_URL is not a valid URL");
-    return DEFAULT_OPENROUTER_BASE_URL;
+    problems.push(`${name} is not a valid URL`);
+    return fallback;
   }
   const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
     // The API key travels in the Authorization header of every request to this address.
-    problems.push("OPENROUTER_BASE_URL must use https (http is allowed only for localhost)");
+    problems.push(`${name} must use https (http is allowed only for localhost)`);
   }
-  if (url.username || url.password) problems.push("OPENROUTER_BASE_URL must not contain credentials");
-  if (url.search || url.hash) problems.push("OPENROUTER_BASE_URL must not contain a query string or fragment");
-  if (url.hostname !== "openrouter.ai" && !loopback) {
-    warnings.push("OPENROUTER_BASE_URL points at a host other than openrouter.ai: the OpenRouter API key is sent to that host");
+  if (url.username || url.password) problems.push(`${name} must not contain credentials`);
+  if (url.search || url.hash) problems.push(`${name} must not contain a query string or fragment`);
+  // An OpenAI-compatible endpoint is often not OpenAI's own (that is what the variable is for): no warning for it.
+  if (name === "OPENROUTER_BASE_URL" && url.hostname !== host && !loopback) {
+    warnings.push(`${name} points at a host other than ${host}: the ${key} API key is sent to that host`);
   }
   return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
 }
@@ -168,14 +232,16 @@ export function resolveOpenRouterBaseUrl(raw: string | undefined): string {
   return url;
 }
 
-function parseCapabilityList(raw: string | undefined, problems: string[]): Capability[] {
+function parseCapabilityList(raw: string | undefined, problems: string[], name = "OPENROUTER_MODEL_CAPABILITIES"): Capability[] {
   if (blank(raw)) return [];
   const out: Capability[] = [];
   for (const token of raw!.split(/[\s,]+/).filter(Boolean)) {
+    // "none" states "text and streaming only" (OPENAI_MODEL_CAPABILITIES otherwise defaults to tools).
+    if (token.toLowerCase() === "none") continue;
     const match = CAPABILITIES.find((capability) => capability.toLowerCase() === token.toLowerCase());
     if (match === "text" || match === "streaming") continue; // always on for the default entry
     if (!match || !DECLARABLE.includes(match)) {
-      problems.push(`OPENROUTER_MODEL_CAPABILITIES lists an unknown capability; allowed: ${DECLARABLE.join(", ")}`);
+      problems.push(`${name} lists an unknown capability; allowed: ${DECLARABLE.join(", ")}, or none`);
       return out;
     }
     if (!out.includes(match)) out.push(match);
@@ -187,12 +253,9 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
   const problems: string[] = [];
   const warnings: string[] = [];
 
-  const preferredPrimary = parseProvider("AI_PRIMARY_PROVIDER", input.aiPrimaryProvider, "google", false, problems) ?? "google";
-  const defaultFallback: CatalogProvider = preferredPrimary === "google" ? "openrouter" : "google";
-  const preferredFallback = parseProvider("AI_FALLBACK_PROVIDER", input.aiFallbackProvider, defaultFallback, true, problems);
-  if (preferredFallback !== null && preferredFallback === preferredPrimary) {
-    problems.push("AI_FALLBACK_PROVIDER must differ from AI_PRIMARY_PROVIDER (use \"none\" to disable the fallback)");
-  }
+  const preferredPrimary = parsePrimary(input.aiPrimaryProvider, problems);
+  const preferredFallbacks = parseFallbacks(input.aiFallbackProvider, preferredPrimary, problems);
+  const geminiFallbackModels = blank(input.geminiFallbackModels) ? [GEMINI_FALLBACK_MODEL] : parseModelList("GEMINI_FALLBACK_MODELS", input.geminiFallbackModels, problems, 5);
 
   const baseUrl = parseBaseUrl(input.openRouterBaseUrl, problems, warnings);
   const timeoutMs = parseInteger("OPENROUTER_TIMEOUT_MS", input.openRouterTimeoutMs, DEFAULT_OPENROUTER_TIMEOUT_MS, 1_000, 300_000, problems);
@@ -226,6 +289,17 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
 
   if (!MODEL_ID.test(input.geminiModel)) problems.push("GEMINI_MODEL is not a valid model id");
 
+  const openAiBaseUrl = parseBaseUrl(input.openAiBaseUrl, problems, warnings, "OPENAI_BASE_URL");
+  const openAiTimeoutMs = parseInteger("OPENAI_TIMEOUT_MS", input.openAiTimeoutMs, DEFAULT_OPENROUTER_TIMEOUT_MS, 1_000, 300_000, problems);
+  const openAiContextTokens = parseInteger("OPENAI_MODEL_CONTEXT_TOKENS", input.openAiModelContextTokens, 32_768, 1_000, 10_000_000, problems);
+  const openAiMaxOutputTokens = blank(input.openAiMaxOutputTokens)
+    ? undefined
+    : parseInteger("OPENAI_MAX_OUTPUT_TOKENS", input.openAiMaxOutputTokens, 0, 1, 1_000_000, problems);
+  const openAiModel = blank(input.openAiModel) ? undefined : input.openAiModel!.trim();
+  if (openAiModel !== undefined && !MODEL_ID.test(openAiModel)) problems.push("OPENAI_MODEL is not a valid model id");
+  // Unset means the default (tools); "none" means text and streaming only.
+  const openAiCapabilities = blank(input.openAiModelCapabilities) ? undefined : parseCapabilityList(input.openAiModelCapabilities, problems, "OPENAI_MODEL_CAPABILITIES");
+
   let fromJson: ModelEntry[] = [];
   if (!blank(input.aiModelCatalogJson)) {
     try {
@@ -241,6 +315,7 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
   const defaults: ModelEntry[] = [
     geminiEntry(input.geminiModel),
     openRouterEntry({ model: openRouterModel, extraCapabilities, contextTokens }),
+    ...(openAiModel ? [openAIEntry({ model: openAiModel, capabilities: openAiCapabilities, contextTokens: openAiContextTokens })] : []),
   ];
   // A provider the JSON mentions is described entirely by the JSON; the simple variables only
   // describe providers the JSON leaves out.
@@ -252,7 +327,9 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
 
   return {
     preferredPrimary,
-    preferredFallback,
+    preferredFallback: preferredFallbacks[0] ?? null,
+    preferredFallbacks,
+    geminiFallbackModels,
     catalog,
     openRouter: {
       baseUrl,
@@ -264,6 +341,12 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
       ...(maxPriceCompletionPerM !== undefined ? { maxPriceCompletionPerM } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       ...(dataCollection ? { dataCollection } : {}),
+    },
+    openAI: {
+      baseUrl: openAiBaseUrl,
+      timeoutMs: openAiTimeoutMs,
+      ...(openAiModel ? { model: openAiModel } : {}),
+      ...(openAiMaxOutputTokens !== undefined ? { maxOutputTokens: openAiMaxOutputTokens } : {}),
     },
     quotaCooldownMs,
     warnings,
