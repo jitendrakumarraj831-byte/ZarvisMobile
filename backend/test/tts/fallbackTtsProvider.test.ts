@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../../src/security/redact.js";
+import { EdgeTtsProvider } from "../../src/tts/edgeTtsProvider.js";
 import { FallbackTtsProvider } from "../../src/tts/fallbackTtsProvider.js";
 import { GeminiTtsProvider } from "../../src/tts/geminiTtsProvider.js";
 import { TtsProviderError, type TtsErrorKind, type TtsOptions } from "../../src/tts/provider.js";
-import { FakeTtsProvider, parseWav, pcmTone } from "./helpers.js";
+import { FakeEdgeTransport, FakeTtsProvider, parseWav, pcmTone, pieces, toneMp3 } from "./helpers.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -184,5 +185,24 @@ describe("Gemini as the main voice with Edge behind it (TTS_PROVIDER=gemini, TTS
     // Both speech models were tried (their quotas are separate) before Edge was asked, and then only once per request.
     expect(googleCalls.length).toBeGreaterThanOrEqual(2);
     expect(edge.calls.map((call) => call.kind)).toEqual(["stream", "unary"]);
+  });
+
+  it("when Edge speaks for Gemini, the last report names Edge as the engine, not only its voice", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const google = new GeminiTtsProvider({
+      apiKey: "test-key-1234567890",
+      model: "gemini-3.8-flash-lite-tts",
+      voice: "Kore",
+      retryDelayMs: () => null,
+      fetchImpl: (async () => new Response(dailyQuota, { status: 429 })) as typeof fetch,
+    });
+    const voices = { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" };
+    const edge = new EdgeTtsProvider({ voices, transport: new FakeEdgeTransport([{ audio: pieces(toneMp3(220), 600) }]) });
+    const seen: Array<{ voice: string; engine?: string }> = [];
+    await collect(new FallbackTtsProvider(google, edge).synthesizeStream("नमस्ते, आप कैसे हैं?", { onResolved: (info) => seen.push({ voice: info.voice, engine: info.engine }) }));
+    expect(seen).toEqual([
+      { voice: "gemini:Kore", engine: "gemini" },
+      { voice: "hi-IN-SwaraNeural", engine: "edge" },
+    ]);
   });
 });

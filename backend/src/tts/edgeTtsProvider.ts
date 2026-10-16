@@ -89,7 +89,7 @@ export class EdgeTtsProvider implements TtsProvider {
     const { signal } = options;
     const prepared = this.prepare(text);
     const voice = resolveVoice(prepared, options.voice, this.voices);
-    options.onResolved?.({ voice: voice.voice, language: voice.language });
+    options.onResolved?.({ voice: voice.voice, language: voice.language, engine: this.id });
     const parts = splitForSynthesis(prepared, this.maxPartBytes);
     if (signal?.aborted) throw abortError();
 

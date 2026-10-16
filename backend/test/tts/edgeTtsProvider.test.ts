@@ -496,15 +496,15 @@ describe("the options it was given", () => {
 });
 
 describe("telling the caller which voice speaks", () => {
-  type Reported = { voice: string; language: string };
+  type Reported = { voice: string; language: string; engine?: string };
 
   it("reports the chosen voice and language before the first sound, for each kind of text", async () => {
     const cases: Array<[string, unknown, Reported]> = [
-      ["आप कैसे हैं?", undefined, { voice: "hi-IN-SwaraNeural", language: "hi" }],
-      ["How are you today?", undefined, { voice: "en-US-JennyNeural", language: "en" }],
-      ["Hello sir, aaj kya karna hai? Mujhe batao.", undefined, { voice: "hi-IN-SwaraNeural", language: "hinglish" }],
-      ["How are you today?", "en-US-GuyNeural", { voice: "en-US-GuyNeural", language: "en" }],
-      ["How are you today?", "Puck", { voice: "en-US-GuyNeural", language: "en" }],
+      ["आप कैसे हैं?", undefined, { voice: "hi-IN-SwaraNeural", language: "hi", engine: "edge" }],
+      ["How are you today?", undefined, { voice: "en-US-JennyNeural", language: "en", engine: "edge" }],
+      ["Hello sir, aaj kya karna hai? Mujhe batao.", undefined, { voice: "hi-IN-SwaraNeural", language: "hinglish", engine: "edge" }],
+      ["How are you today?", "en-US-GuyNeural", { voice: "en-US-GuyNeural", language: "en", engine: "edge" }],
+      ["How are you today?", "Puck", { voice: "en-US-GuyNeural", language: "en", engine: "edge" }],
     ];
     for (const [text, voice, expected] of cases) {
       const reported: Reported[] = [];
@@ -517,10 +517,10 @@ describe("telling the caller which voice speaks", () => {
     }
   });
 
-  it("reports it for a WAV request too, and not at all when there is nothing to say", async () => {
+  it("reports it (with its engine, so a fallback behind Gemini is told apart) for a WAV request too, and not at all when there is nothing to say", async () => {
     const reported: Reported[] = [];
     await provider(new FakeEdgeTransport([speaks(220)])).synthesize("आप कैसे हैं?", { onResolved: (info) => reported.push(info) });
-    expect(reported).toEqual([{ voice: "hi-IN-SwaraNeural", language: "hi" }]);
+    expect(reported).toEqual([{ voice: "hi-IN-SwaraNeural", language: "hi", engine: "edge" }]);
 
     const none: Reported[] = [];
     const error = await failure(collect(provider(new FakeEdgeTransport([])).synthesizeStream("... !!", { onResolved: (info) => none.push(info) })));

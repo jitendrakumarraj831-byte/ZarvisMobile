@@ -15,10 +15,11 @@
  * cancel the reply being spoken; does the Listen button (the WAV endpoint) play; and when the voice
  * fails, does the AI's reply still appear and the next one still work.
  *
- * The voice is Edge's. If Edge refuses the deployment, the server answers with its fallback voice
- * (Gemini: `X-Zarvis-TTS: gemini-stream`, voice `gemini:Kore`). That is sound the user hears, so the
- * audio is still checked in full, but the step is a WARN, never a PASS: Edge is down on this deployment.
- * That voice is metered by a small Gemini speech quota. Once it has spoken, a scenario that is then refused
+ * The main voice is Gemini's by default (`X-Zarvis-TTS: gemini-stream`, voice `gemini:Kore`), with Edge's
+ * voices behind it; `EXPECT_TTS_PRIMARY=edge` audits a deployment set to `TTS_PROVIDER=edge` instead. When the
+ * other engine speaks, that is sound the user hears, so the audio is still checked in full, but the step is a
+ * WARN, never a PASS: the main voice did not answer this deployment.
+ * Gemini's voice is metered by a small speech quota. Once it has spoken, a scenario that is then refused
  * with 503 is a WARN ("not completed: the quota is spent"), like the real-AI scenario when the AI has no quota,
  * and the scenarios after it, which need the voice, are reported as not run instead of waiting out their timeouts.
  * Before any browser scenario one short sentence is asked of the voice directly; if both voices refuse it (Edge is
@@ -29,7 +30,8 @@
  *   ZARVIS_URL / BASE_URL   the deployment (default http://localhost:3100)
  *   BYPASS                  Vercel Deployment Protection bypass secret; sent only to that origin
  *   EXPECT_HI_VOICE, EXPECT_EN_VOICE, EXPECT_HINGLISH_VOICE
- *                           the voices the deployment is configured with (defaults: the built-in ones)
+ *                           the Edge voices the deployment is configured with (defaults: the built-in ones)
+ *   EXPECT_TTS_PRIMARY      gemini (default) or edge: the engine that should speak first (TTS_PROVIDER)
  *   AUDIT_FAILURES          intercept (default): the browser makes the TTS endpoints fail
  *                           natural: nothing is intercepted, the server's own voice is failing, and only
  *                           the failure scenario runs (a failing server cannot pass the others)
@@ -160,6 +162,9 @@ const INIT = `
 
 const results = [];
 
+/** The engine that should speak first; the other one speaking is the fallback. */
+const PRIMARY = (process.env.EXPECT_TTS_PRIMARY || "gemini").trim().toLowerCase() === "edge" ? "edge" : "gemini";
+const PRIMARY_LABEL = PRIMARY === "gemini" ? "Gemini" : "Edge";
 /** Voices heard from the fallback engine during the current step: a step that heard one is a WARN. */
 const fallbackVoices = new Set();
 /** The fallback voice is metered. After it has spoken on this deployment, a 503 from the voice means its quota is spent. */
@@ -170,15 +175,19 @@ let stepQuotaHits = 0;
 let interceptingTts = false;
 /** Set when a direct request found the voice refusing on this deployment (see voicePreflight). */
 let voiceDown = "";
-const isFallbackSpeech = (entry, engine) => entry.engine === engine && /^gemini:[A-Za-z]+$/.test(entry.voice || "");
-/** The engine and voice that spoke one request: Edge's, as configured, or (noted, and reported as a WARN) the fallback's. */
-function expectVoice(entry, edgeEngine, fallbackEngine, voice) {
-  if (isFallbackSpeech(entry, fallbackEngine)) {
-    fallbackVoices.add(entry.voice);
-    return;
-  }
-  assert.equal(entry.engine, edgeEngine);
-  assert.equal(entry.voice, voice, `the voice that spoke was ${entry.voice}, not ${voice}`);
+const engineOf = (entry) => (entry.engine || "").replace(/-stream$/, "");
+/** One request spoken by the engine that is not the expected main one. */
+const isFallbackSpeech = (entry) => engineOf(entry) !== "" && engineOf(entry) !== PRIMARY;
+/**
+ * The engine and voice that spoke one request. Gemini reports `gemini:<name>`; Edge, the configured voice for the
+ * language. Either engine is accepted; the one that is not the main voice is noted, and the step is a WARN.
+ */
+function expectVoice(entry, suffix, voice) {
+  const engine = engineOf(entry);
+  assert.ok(entry.engine === `${engine}${suffix}` && (engine === "gemini" || engine === "edge"), `the voice engine was ${entry.engine}, not gemini${suffix} or edge${suffix}`);
+  if (engine === "gemini") assert.match(entry.voice || "", /^gemini:[A-Za-z]+$/, `Gemini spoke but reported the voice ${entry.voice}`);
+  else assert.equal(entry.voice, voice, `the voice that spoke was ${entry.voice}, not ${voice}`);
+  if (engine !== PRIMARY) fallbackVoices.add(entry.voice);
 }
 
 async function step(name, fn, { voice = true } = {}) {
@@ -205,7 +214,7 @@ async function step(name, fn, { voice = true } = {}) {
   try {
     const outcome = (await fn()) || {};
     if (!outcome.warn && fallbackVoices.size) {
-      outcome.warn = `spoken, but by the fallback voice (${[...fallbackVoices].join(", ")}), not Edge: Edge did not answer this deployment${outcome.detail ? `; ${outcome.detail}` : ""}`;
+      outcome.warn = `spoken, but by the fallback voice (${[...fallbackVoices].join(", ")}), not ${PRIMARY_LABEL}: ${PRIMARY_LABEL} did not answer this deployment${outcome.detail ? `; ${outcome.detail}` : ""}`;
     }
     if (outcome.warn) {
       results.push({ name, status: "WARN" });
@@ -434,7 +443,7 @@ function checkSpoken(run, { voice, requests }) {
   for (const entry of streams) {
     assert.equal(entry.status, 200, `a stream request answered ${entry.status} (${entry.failed || "no failure"})`);
     assert.equal(entry.type, "audio/l16; codec=pcm; rate=24000");
-    expectVoice(entry, "edge-stream", "gemini-stream", voice);
+    expectVoice(entry, "-stream", voice);
     assert.ok(entry.bytes > 0 && entry.bytes % 2 === 0, `a stream body of ${entry.bytes} bytes is not whole 16-bit samples`);
     if (LIVE) assert.ok(seconds(entry.bytes) >= entry.text.length / 40, `${entry.text.length} characters came back as only ${seconds(entry.bytes).toFixed(1)} s of audio`);
   }
@@ -508,7 +517,7 @@ async function main() {
       const pre = await voicePreflight().catch(() => ({ definite: false }));
       if (pre.definite) {
         voiceDown = `HTTP ${pre.status} ${pre.code}`;
-        const why = `the voice refused a direct request (${voiceDown}): Edge is not accepted here and the fallback voice is out of quota or not configured, so nothing can speak`;
+        const why = `the voice refused a direct request (${voiceDown}): neither Gemini's voice nor Edge's answered (out of quota, not accepted, or not configured), so nothing can speak`;
         results.push({ name: "the voice answers a direct request", status: "FAIL" });
         console.log("FAIL the voice answers a direct request —", why);
         if (process.env.GITHUB_ACTIONS) console.log(`::error::the voice answers a direct request: ${why}`);
@@ -593,8 +602,8 @@ async function main() {
           assert.equal(lateOld.length, 0, `${lateOld.length} voice requests for the old reply started after the new message`);
           const newReply = run.tts.filter((entry) => fresh.has(entry.text.trim()));
           assert.ok(newReply.length >= 1, "the new reply was never asked for");
-          assert.ok(newReply.every((entry) => entry.status === 200 && (entry.voice === EXPECT.hi || isFallbackSpeech(entry, "gemini-stream"))), "the new reply was not spoken in the Hindi voice");
-          for (const entry of newReply) if (isFallbackSpeech(entry, "gemini-stream")) fallbackVoices.add(entry.voice);
+          assert.ok(newReply.every((entry) => entry.status === 200), "a request for the new reply failed");
+          for (const entry of newReply) expectVoice(entry, "-stream", EXPECT.hi);
           return { detail: `${run.stops} sources stopped; ${newReply.length} requests for the new reply, in ${EXPECT.hi}` };
         }),
       );
@@ -615,7 +624,7 @@ async function main() {
             const [entry] = wavs;
             assert.equal(entry.status, 200, `the WAV endpoint answered ${entry.status}`);
             assert.match(entry.type || "", /audio\/wav/);
-            expectVoice(entry, "edge", "gemini", EXPECT[language]);
+            expectVoice(entry, "", EXPECT[language]);
             const received = (await page.evaluate(() => window.__wavs))[0];
             assert.ok(received, "the page received no WAV");
             const wav = wavHead(Buffer.from(received.head), received.bytes);
@@ -642,7 +651,7 @@ async function main() {
             assert.ok(bubbles.some((text) => text.includes(SENTENCES.en[0].slice(0, 30))), "the reply text is not on screen");
             const run = await snapshot(page, tts);
             assert.ok(run.tts.length >= 1, "the page never asked for the voice");
-            if (!fulfil && run.tts.every((entry) => isFallbackSpeech(entry, "gemini-stream") && entry.status === 200)) {
+            if (!fulfil && run.tts.every((entry) => isFallbackSpeech(entry) && entry.status === 200)) {
               // The server's own voice was meant to be failing, but its fallback voice answered: there is no failure to observe.
               for (const entry of run.tts) fallbackVoices.add(entry.voice);
               return { warn: "the primary voice failed and the fallback voice spoke, so the failure path could not be observed; use AUDIT_FAILURES=intercept to test it" };
