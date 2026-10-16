@@ -458,10 +458,11 @@ this server's own "busy" answer (`local`: a crowd here is not a failure of Edge,
 crowd of texts sent to Google), and never a cancellation) `FallbackTtsProvider` asks `GeminiTtsProvider` for the same text: one hop,
 never back, never in the middle of a reply (two voices are not mixed, and nothing is said twice), and
 for the WAV endpoint also after a part had started, because nothing has left the server yet. It needs
-`GEMINI_API_KEY` (the one chat uses) and is off with `TTS_FALLBACK_PROVIDER=none` or without the key;
-`TTS_PROVIDER=gemini` makes it the main voice instead: alone by default (the text goes nowhere else),
-or with Edge behind it when `TTS_FALLBACK_PROVIDER=edge` (the same one-hop rules, the other way round:
-Gemini's free speech quota is small, and Edge then speaks when it is spent). Gemini is asked with the shared retry policy (`ai/geminiErrors.ts`):
+`GEMINI_API_KEY` (the one chat uses). **The default order is Gemini first, Edge behind it**
+(`TTS_PROVIDER=gemini`, `TTS_FALLBACK_PROVIDER=edge`; the same one-hop rules, the other way round:
+Gemini's free speech quota is small, and Edge then speaks when it is spent). Without the key Edge
+speaks alone; `TTS_FALLBACK_PROVIDER=none` leaves the main voice alone; `TTS_PROVIDER=edge` puts Edge
+first with Gemini behind it. Gemini is asked with the shared retry policy (`ai/geminiErrors.ts`):
 a temporary failure is retried briefly, a daily quota never, and a missing model or an exhausted one
 moves to the next speech model (`GEMINI_TTS_MODEL`, then `gemini-3.8-flash-tts`, then
 `gemini-3.8-flash-lite-tts`; speech quotas are per model). Its audio must be 24 kHz 16-bit mono like
@@ -500,8 +501,8 @@ per process, like the rate limiter.
 
 **Privacy.** The text a person asks to hear is sent to Microsoft's speech service, never to OpenRouter.
 Nothing else goes with it (no account, no key); Microsoft sees the server's address. If the fallback
-voice is on (a `GEMINI_API_KEY` and no `TTS_FALLBACK_PROVIDER=none`) and Edge fails before any sound,
-that text is sent to Google instead; `PRIVACY.md` says so for the public notice. The logs record the engine, the voice, the language, sizes and timings, never the text or the
+By default, with a `GEMINI_API_KEY`, the text goes to Google first and to Microsoft only when Gemini
+fails before any sound; `PRIVACY.md` says so for the public notice. The logs record the engine, the voice, the language, sizes and timings, never the text or the
 audio. Caching is deliberately not done: replies are private and rarely repeat, and a shared cache of
 them would be a leak.
 
@@ -613,8 +614,8 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 | `AI_FALLBACK_PROVIDER` | the other provider | `openrouter`, `gemini` or `none`; must differ from the primary |
 | `AI_QUOTA_COOLDOWN_MS` | `300000` | how long an exhausted provider is skipped; `0` = never |
 | `AI_MODEL_CATALOG_JSON` | none | describes several models (below) |
-| `TTS_PROVIDER` | `edge` | spoken replies: `edge`, `gemini` (Gemini's voice is the main one; needs `GEMINI_API_KEY`) or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
-| `TTS_FALLBACK_PROVIDER` | `gemini` with `edge`; `none` with `gemini` | the second voice, asked only when the first fails before any sound: `gemini` behind Edge, `edge` behind Gemini, or `none` |
+| `TTS_PROVIDER` | `gemini` | spoken replies: `gemini` (Gemini's voice is the main one; without `GEMINI_API_KEY` Edge speaks alone), `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_FALLBACK_PROVIDER` | `edge` with `gemini`; `gemini` with `edge` | the second voice, asked only when the first fails before any sound: `gemini` behind Edge, `edge` behind Gemini, or `none` |
 | `TTS_HI_VOICE` | `hi-IN-SwaraNeural` | the voice for Hindi (Devanagari) text |
 | `TTS_EN_VOICE` | `en-US-JennyNeural` | the voice for English text |
 | `TTS_HINGLISH_VOICE` | the Hindi voice | the voice for Hindi written in Latin letters |
@@ -682,7 +683,7 @@ that must work, and **redeploy**: a changed variable applies to new deployments 
 | `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL_CONTEXT_TOKENS`, `OPENROUTER_TIMEOUT_MS` | optional | optional | |
 | `AI_PRIMARY_PROVIDER`, `AI_FALLBACK_PROVIDER`, `AI_QUOTA_COOLDOWN_MS`, `AI_MODEL_CATALOG_JSON` | optional | optional | |
 | `TTS_PROVIDER`, `TTS_HI_VOICE`, `TTS_EN_VOICE`, `TTS_HINGLISH_VOICE` | optional (the defaults speak) | optional | none is a secret; Edge's voices need no key. `TTS_PROVIDER=none` switches spoken replies off |
-| `TTS_FALLBACK_PROVIDER`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | optional (default: Gemini's voice behind Edge's, when `GEMINI_API_KEY` is set) | optional | none is a secret. `TTS_FALLBACK_PROVIDER=none` keeps spoken text on Microsoft's service only: with Edge refusing the deployment, replies then stay text-only (checked: the reply is shown, the next turn works) |
+| `TTS_FALLBACK_PROVIDER`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE` | optional (default: Gemini's voice first, Edge's behind it, when `GEMINI_API_KEY` is set) | optional | none is a secret. `TTS_FALLBACK_PROVIDER=none` keeps spoken text on Microsoft's service only: with Edge refusing the deployment, replies then stay text-only (checked: the reply is shown, the next turn works) |
 
 Runtime facts, from the code and `vercel.json` (a real Vercel build was not run from this
 environment): `vercel.json` is unchanged and needs no change. The new files are imported, directly
