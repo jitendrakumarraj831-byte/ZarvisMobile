@@ -461,7 +461,8 @@ async function main() {
   }
   const provider = h.provider;
   // The providers that can answer a chat turn. Web search needs Gemini's Google Search grounding.
-  const liveProvider = provider === "google" ? "Gemini" : provider === "openrouter" ? "OpenRouter" : undefined;
+  const PROVIDER_NAMES = { groq: "Groq", openrouter: "OpenRouter", google: "Gemini", openai: "OpenAI" };
+  const liveProvider = PROVIDER_NAMES[provider];
 
   // ---- Auth lifecycle ----------------------------------------------------------------------
   const guest = await call("POST", "/api/v1/auth/guest");
@@ -517,14 +518,16 @@ async function main() {
 
   const { res: model, note: modelNote } = await aiTurn(guestToken, "Reply with the single word OK.", "AI model turn");
   if (model.done) {
-    // The response deliberately does not say which provider produced it, so this can only name the
-    // deployment's DEFAULT provider (from /health). With a fallback configured the answer may have
-    // come from either; the function log's `AI call` line records which.
+    // The reply says which provider wrote it (`ai`: provider and whether it was a fallback); an older backend
+    // does not, and then only the deployment's DEFAULT provider (from /health) can be named.
+    const answeredBy = PROVIDER_NAMES[model.done.ai?.provider];
     report(
       liveProvider ? "PASS" : "FAIL",
       "a turn that needs the AI model",
       (liveProvider
-        ? `an AI answer was returned (default provider: ${liveProvider}${h.aiFallback ? "; a fallback provider is also configured, and the response does not say which one answered" : ""})`
+        ? answeredBy
+          ? `an AI answer was returned by ${answeredBy}${model.done.ai.fallback ? " as a fallback (the provider before it was unavailable)" : ""} (default provider: ${liveProvider})`
+          : `an AI answer was returned (default provider: ${liveProvider}${h.aiFallback ? "; a fallback provider is also configured, and the response does not say which one answered" : ""})`
         : `answered by provider ${provider}, not a live AI provider`) + modelNote,
     );
   } else if (quota(model.error?.code)) {

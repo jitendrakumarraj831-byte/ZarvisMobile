@@ -455,13 +455,53 @@
 
   /**
    * What the server's `/health` `provider` means for the Settings and Metrics pages. Truthful
-   * for every value the server can report: Gemini or OpenRouter answering, or nothing configured
-   * (the development mock and the production fail-closed `none` both read "Not configured").
+   * for every value the server can report: Groq, OpenRouter, Gemini or the OpenAI-compatible endpoint
+   * answering, or nothing configured (the development mock and the production fail-closed `none` both
+   * read "Not configured").
    */
   function aiProviderStatus(provider) {
+    if (provider === "groq") return { configured: true, label: "Groq", sentence: "Groq is answering your requests." };
     if (provider === "google") return { configured: true, label: "Gemini", sentence: "Google Gemini is answering your requests." };
     if (provider === "openrouter") return { configured: true, label: "OpenRouter", sentence: "OpenRouter is answering your requests." };
+    if (provider === "openai") return { configured: true, label: "OpenAI", sentence: "An OpenAI-compatible model is answering your requests." };
     return { configured: false, label: "Not configured", sentence: "No AI provider is configured on this server, so answers are limited." };
+  }
+
+  /** Display names of the providers a reply can come from, and the mode one is known for. */
+  var REPLY_PROVIDERS = {
+    groq: { name: "Groq", mode: "Fast" },
+    openrouter: { name: "OpenRouter" },
+    google: { name: "Gemini" },
+    openai: { name: "OpenAI" },
+  };
+
+  /**
+   * The "answered by" label of one reply, from the turn's `ai` field (`{ provider, fallback }`, see the server's
+   * TurnResult.ai): e.g. "Groq · Fast", or "Gemini · Backup" when the provider before it was busy or out of quota.
+   * Null when no live model wrote the reply (a greeting, the development mock) or the provider is unknown: no label
+   * rather than a guessed one.
+   */
+  function replyProviderBadge(ai) {
+    var known = ai && typeof ai.provider === "string" && Object.prototype.hasOwnProperty.call(REPLY_PROVIDERS, ai.provider) ? REPLY_PROVIDERS[ai.provider] : null;
+    if (!known) return null;
+    var fallback = ai.fallback === true;
+    var parts = [known.name];
+    if (fallback) parts.push("Backup");
+    else if (known.mode) parts.push(known.mode);
+    var title = "Answered by " + known.name + (fallback ? ". The preferred AI provider was busy or out of quota, so a backup answered." : ".");
+    return { label: parts.join(" · "), title: title, fallback: fallback };
+  }
+
+  /**
+   * Which voice spoke, from the TTS response's `X-Zarvis-TTS` header (`elevenlabs-stream`, `gemini`, `edge-stream`):
+   * "ElevenLabs", "Gemini" or "Edge". Null for a missing or unknown engine.
+   */
+  function voiceEngineLabel(header) {
+    var engine = typeof header === "string" ? header.trim().toLowerCase().replace(/-stream$/, "") : "";
+    if (engine === "elevenlabs") return "ElevenLabs";
+    if (engine === "gemini") return "Gemini";
+    if (engine === "edge") return "Edge";
+    return null;
   }
 
 
@@ -979,6 +1019,8 @@
     SESSION_ENDED_CODES,
     classifyRefreshFailure,
     parseSseEvents,
+    replyProviderBadge,
+    voiceEngineLabel,
     escapeHtml,
     formatReplyHtml,
     highlightCode,

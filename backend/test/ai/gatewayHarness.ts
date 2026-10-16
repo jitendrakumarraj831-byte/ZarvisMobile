@@ -12,6 +12,7 @@ import type { AIRequest } from "../../src/ai/provider.js";
 export const GEMINI_KEY = "gemini-test-key-AAAA1111";
 export const OPENROUTER_KEY = "sk-or-v1-testkeyBBBB2222cccc3333dddd";
 export const OPENAI_KEY = "sk-proj-testkeyCCCC3333dddd4444eeee";
+export const GROQ_KEYS = ["gsk_testkeyGROQ0001aaaabbbbccccdddd", "gsk_testkeyGROQ0002eeeeffffgggghhhh", "gsk_testkeyGROQ0003iiiijjjjkkkkllll"] as const;
 
 export function fakeEnv(overrides: Partial<GatewayEnvironment> = {}): GatewayEnvironment {
   return {
@@ -40,7 +41,9 @@ export function fakeEnv(overrides: Partial<GatewayEnvironment> = {}): GatewayEnv
     openAiModelContextTokens: undefined,
     openAiTimeoutMs: undefined,
     openAiMaxOutputTokens: undefined,
-    aiPrimaryProvider: undefined,
+    // These suites describe a Gemini-primary deployment (Gemini, then OpenRouter, then OpenAI). The default order
+    // (Groq, OpenRouter, Gemini, OpenAI) has its own tests in modelGatewayKeys.test.ts.
+    aiPrimaryProvider: "gemini",
     aiFallbackProvider: undefined,
     aiModelCatalogJson: undefined,
     aiQuotaCooldownMs: undefined,
@@ -50,7 +53,7 @@ export function fakeEnv(overrides: Partial<GatewayEnvironment> = {}): GatewayEnv
 
 export interface RecordedCall {
   url: string;
-  host: "gemini" | "openrouter" | "openai" | "other";
+  host: "gemini" | "openrouter" | "openai" | "groq" | "other";
   method: string;
   headers: Record<string, string>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -75,6 +78,7 @@ export interface ProviderStub {
   gemini: RecordedCall[];
   openrouter: RecordedCall[];
   openai: RecordedCall[];
+  groq: RecordedCall[];
 }
 
 /** The request's host name, parsed (never matched as a substring, so a look-alike URL cannot pass for a provider). */
@@ -87,7 +91,7 @@ function hostnameOf(url: string): string {
 }
 
 /** Routes `fetch` by provider host. A host with no responder fails the test: nothing may reach it. */
-export function stubProviders(handlers: { gemini?: Responder; openrouter?: Responder; openai?: Responder }, extraOpenRouterHosts: string[] = []): ProviderStub {
+export function stubProviders(handlers: { gemini?: Responder; openrouter?: Responder; openai?: Responder; groq?: Responder }, extraOpenRouterHosts: string[] = []): ProviderStub {
   const calls: RecordedCall[] = [];
   vi.stubGlobal(
     "fetch",
@@ -101,12 +105,14 @@ export function stubProviders(handlers: { gemini?: Responder; openrouter?: Respo
             ? "openrouter"
             : hostname === "api.openai.com"
               ? "openai"
-              : "other";
+              : hostname === "api.groq.com"
+                ? "groq"
+                : "other";
       const headers: Record<string, string> = {};
       for (const [name, value] of Object.entries((init?.headers ?? {}) as Record<string, string>)) headers[name.toLowerCase()] = value;
       const call: RecordedCall = { url, host, method: init?.method ?? "GET", headers, body: init?.body ? JSON.parse(String(init.body)) : undefined, signal: init?.signal };
       calls.push(call);
-      const responder = host === "gemini" ? handlers.gemini : host === "openrouter" ? handlers.openrouter : host === "openai" ? handlers.openai : undefined;
+      const responder = { gemini: handlers.gemini, openrouter: handlers.openrouter, openai: handlers.openai, groq: handlers.groq, other: undefined }[host];
       if (!responder) throw new Error(`unexpected request to ${host}: ${url}`);
       return responder(call);
     }),
@@ -121,6 +127,9 @@ export function stubProviders(handlers: { gemini?: Responder; openrouter?: Respo
     },
     get openai() {
       return calls.filter((call) => call.host === "openai");
+    },
+    get groq() {
+      return calls.filter((call) => call.host === "groq");
     },
   };
 }

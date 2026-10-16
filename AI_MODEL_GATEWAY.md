@@ -133,13 +133,18 @@ shipped client, and neither calls an AI provider.
         │   ModelGateway         │   ai/modelGateway.ts: capability routing, ONE controlled
         │   (an AIProvider)      │   fallback hop, quota cooldown, metadata, logs
         └──────────┬─────────────┘
-                   │  chooses by declared capability (ai/modelCatalog.ts)
-          ┌────────┴─────────┐
-          ▼                  ▼
-    GeminiProvider     OpenRouterProvider        the only code that speaks a vendor's wire format
-    (Gemini REST)      (OpenAI-compatible API)
-          │                  │
-   Gemini models      free / paid models         (a router such as openrouter/free picks its own)
+                   │  chooses by declared capability (ai/modelCatalog.ts), in the order
+                   │  Groq → OpenRouter → Gemini → OpenAI (a provider without a key is skipped)
+                   ▼
+        KeyRotatingProvider (one per provider)      ai/keyRotatingProvider.ts: several keys per provider;
+                   │                                 a rate-limited / spent / refused key hands the SAME
+                   │                                 request to the next key before the chain moves on (§2.16)
+     ┌─────────────┼───────────────┬─────────────────┐
+     ▼             ▼               ▼                 ▼
+ OpenRouterProvider  OpenRouterProvider  GeminiProvider  OpenRouterProvider   the only code that speaks a
+ flavor "groq"       (OpenRouter)        (Gemini REST)   flavor "openai"      vendor's wire format
+     │             │               │                 │
+ Groq models   free / paid models   Gemini models    any OpenAI-compatible endpoint
 
    Not behind the gateway, by design:   web search (Gemini + Google Search grounding, with its own
                                         OpenRouter web-search fallback, see 2.13)
@@ -156,9 +161,11 @@ Its named API: `generateText`, `generateWithTools`, `streamText`, `analyzeImage`
 | File | Role |
 |---|---|
 | `backend/src/ai/modelGateway.ts` | Routing, fallback, quota cooldown, `AICallMeta`, one log line per call |
+| `backend/src/ai/keyRotatingProvider.ts`, `backend/src/security/keyRotator.ts` | Several API keys per provider: which key a request uses, which keys rest and why (§2.16) |
+| `backend/src/tts/keyRotatingTtsProvider.ts` | The same for the ElevenLabs voice |
 | `backend/src/ai/providerFactory.ts` | Builds the gateway from the environment (`createModelGateway`, `getModelGateway`); `UnavailableAIProvider`; `selectDefaultModel` |
 | `backend/src/ai/geminiProvider.ts`, `geminiVision.ts`, `geminiErrors.ts` | The Gemini adapter, image analysis (moved out of the upload route), the shared failure classification and retry policy |
-| `backend/src/ai/openRouterProvider.ts`, `openRouterErrors.ts` | The OpenRouter adapter and its failure classification (same retry policy) |
+| `backend/src/ai/openRouterProvider.ts`, `openRouterErrors.ts` | The OpenAI-compatible adapter (flavors `openrouter`, `groq`, `openai`) and its failure classification (same retry policy) |
 | `backend/src/ai/openRouterHttp.ts` | What every OpenRouter caller shares: the address, the attribution headers, the API-key check, refusing redirects (chat, the model list and web search all use it) |
 | `backend/src/ai/openRouterModels.ts` | OpenRouter's live model list: parser, cache, the selection policy, the `DynamicCatalog` the gateway reads (§2.15) |
 | `backend/src/ai/capabilities.ts`, `modelCatalog.ts` | The capability model and the declared, validated model catalog |
@@ -426,6 +433,14 @@ engine spoke except through the two headers above (`elevenlabs`/`elevenlabs-stre
 `pcm_24000`, the same 24 kHz 16-bit mono PCM every voice here produces, and does not retry: the next
 voice is the retry. **Not verified against the live ElevenLabs API from here** (the tests fake the network).
 
+**ElevenLabs first, with several keys.** Once ElevenLabs has a key (`ELEVENLABS_KEYS` or `ELEVENLABS_API_KEY`) and
+`TTS_PROVIDER` is unset, ElevenLabs is the main voice (then Gemini, then Edge). With several keys the ElevenLabs
+voice is a `KeyRotatingTtsProvider` (`tts/keyRotatingTtsProvider.ts`): a key whose character quota is spent
+(`quota_exceeded`, 402), that is rate limited (429, but not ElevenLabs' service-wide `system_busy`) or refused
+(401/403) rests, and the same sentence goes to the next key at once, before any sound. Only when every key is
+refused does the chain move on to the next voice. An outage, a timeout, nothing to say or this server being full
+leave at once, as before. All keys share one in-flight limit, so more keys do not mean more syntheses held open.
+
 **The voice** is Microsoft Edge's neural voices (the service behind Edge's Read Aloud), reached by
 `tts/edgeTtsProvider.ts` behind the `TtsProvider` interface (`tts/provider.ts`): the routes ask for
 audio and know nothing about the engine, so it can change, or its transport can move to a separate
@@ -479,7 +494,7 @@ this server's own "busy" answer (`local`: a crowd here is not a failure of Edge,
 crowd of texts sent to Google), and never a cancellation) `FallbackTtsProvider` asks `GeminiTtsProvider` for the same text: one hop,
 never back, never in the middle of a reply (two voices are not mixed, and nothing is said twice), and
 for the WAV endpoint also after a part had started, because nothing has left the server yet. It needs
-`GEMINI_API_KEY` (the one chat uses). **The default order is Gemini first, Edge behind it**
+`GEMINI_API_KEY` (the one chat uses). **Without an ElevenLabs key the default order is Gemini first, Edge behind it**
 (`TTS_PROVIDER=gemini`, `TTS_FALLBACK_PROVIDER=edge`; the same one-hop rules, the other way round:
 Gemini's free speech quota is small, and Edge then speaks when it is spent). Without the key Edge
 speaks alone; `TTS_FALLBACK_PROVIDER=none` leaves the main voice alone; `TTS_PROVIDER=edge` puts Edge
@@ -522,8 +537,9 @@ per process, like the rate limiter.
 
 **Privacy.** The text a person asks to hear is sent to Microsoft's speech service, never to OpenRouter.
 Nothing else goes with it (no account, no key); Microsoft sees the server's address. If the fallback
-By default, with a `GEMINI_API_KEY`, the text goes to Google first and to Microsoft only when Gemini
-fails before any sound; `PRIVACY.md` says so for the public notice. The logs record the engine, the voice, the language, sizes and timings, never the text or the
+By default, with an ElevenLabs key, the text goes to ElevenLabs first, then to Google and Microsoft only when the
+voice before fails before any sound; without one, with a `GEMINI_API_KEY`, it goes to Google first and to Microsoft
+only when Gemini fails before any sound; `PRIVACY.md` says so for the public notice. The logs record the engine, the voice, the language, sizes and timings, never the text or the
 audio. Caching is deliberately not done: replies are private and rarely repeat, and a shared cache of
 them would be a leak.
 
@@ -607,6 +623,58 @@ a redirect (the key travels in a header).
 model discovery does not use a second HTTP request per attempt; there is no per-instance spend budget;
 Gemini JSON Schema mapping is not implemented (not testable here), so Gemini gets JSON mode only.
 
+### 2.16 Several keys per provider (key rotation), and Groq
+
+Every provider takes a comma-separated list of keys: `GROQ_KEYS`, `OPENROUTER_KEYS`, `GEMINI_KEYS`,
+`OPENAI_KEYS` (and `ELEVENLABS_KEYS` for the voice, §2.14). The single-key variables older deployments use
+(`GEMINI_API_KEY`, ...) still work: their key is added after the list, each key once. Only a comma separates
+keys: a key pasted with a line break in it stays one broken key, which the adapter refuses before anything is
+sent, rather than two half keys sent to the provider.
+
+The gateway sees one provider; inside it a `KeyRotatingProvider` holds one adapter per key and a `KeyRotator`
+(`security/keyRotator.ts`) that decides which key a request starts with:
+
+| What the provider answered | What happens |
+|---|---|
+| 429 rate limit (a per-minute window) | the key rests for the advised wait (default 60 s, at most 15 min) and the **same request** goes out at once with the next key. With another key free, the short wait-and-retry on the limited key is skipped |
+| 429/402 daily quota or credits spent | the key rests at least 15 min (longer when the provider names a later reset); next key at once |
+| 401/403 key refused | the key rests 30 min; next key at once; `/health` lists the provider in `aiKeyRejected` while any of its keys is refused, even though another key answered |
+| 5xx, network failure, timeout | **not a key problem**: the same for every key. No other key is tried; the provider's own bounded retries, then the gateway's next provider |
+| 400/413/422 refused request, a bug, a cancelled turn | unchanged: fails at once, on one key, no fallback |
+
+- The key that answered becomes the **active** key: later requests start with it (no ping-pong back to key 1).
+- While **every** key rests, the one that recovers first is still asked: one request, exactly as a single key is
+  always asked. A provider is never refused without being asked.
+- Only when every key has been refused does the failure reach the gateway, which then moves down its chain as
+  before (`GROQ_QUOTA_EXCEEDED` → OpenRouter, ...).
+- Streams follow the gateway's rule: the next key only before any text was delivered.
+- One adapter per key, so per-key state stays per key (Gemini remembers which of its models spent their daily
+  quota, per key). A request never shares a key with another request's retry.
+- Logs and status name a key by slot only (`"slot": 1, "of": 3`, `keySlot` in the turn's `aiCallLog` and in the
+  gateway's `attempts`); `getProviderStatus()` has each provider's `keys` (`total`, `available`, `activeSlot`,
+  `rotations`, and per slot `ready` / `cooling` / `rejected` with the reason and until when). With one key nothing
+  is tagged and nothing extra is logged.
+- Web search grounding and Gemini's voice use the first Gemini key; the OpenRouter model list is read with the key
+  requests currently start with.
+
+**Groq** is the first provider of the default order: `OpenRouterProvider` with `flavor: "groq"`, the plain
+OpenAI Chat Completions request to `https://api.groq.com/openai/v1` (no `models` array, no `provider`
+preferences, no OpenRouter headers). Its default model is `openai/gpt-oss-120b`, a Groq production model with
+tool calling and a 131,072-token context (Groq retired `llama-3.3-70b-versatile` on its free and developer tiers
+on 16 August 2026). Groq's rate-limit answers name their window ("tokens per minute", "requests per day"), which
+the shared classifier reads: a per-minute limit is a rate limit, a daily one an exhausted quota.
+
+**The default order changed** from Gemini → OpenRouter → OpenAI to Groq → OpenRouter → Gemini → OpenAI. A
+deployment with both `OPENROUTER_API_KEY` and `GEMINI_API_KEY` and no Groq key now sends plain generation (content
+skills) to OpenRouter's model first; tool-using chat turns still go to Gemini, because the default OpenRouter
+model declares no tools. `AI_PRIMARY_PROVIDER=gemini` restores the previous order.
+
+**What a client sees.** A reply a live model wrote carries `ai: { provider, fallback }` in the turn's JSON and in
+the stream's `done` event: which provider wrote it, and whether it did so because the provider before it was
+unavailable. The web client shows it next to the reply ("Groq · Fast", "Gemini · Backup"). A provider passed
+over only because it cannot call tools is routing, not a fallback. Model names, keys, slots, reasons and hosts
+stay on the server.
+
 ---
 
 ## 3. Configuration reference
@@ -617,6 +685,14 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `GROQ_KEYS`, `OPENROUTER_KEYS`, `GEMINI_KEYS`, `OPENAI_KEYS` | none | comma-separated keys per provider, tried in order (§2.16). Secrets. The single-key variables below are added after the list |
+| `GROQ_API_KEY` | none | one Groq key (as an alternative to `GROQ_KEYS`). Secret |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | the Groq model |
+| `GROQ_MODEL_CAPABILITIES` | `tools` | what it can do besides text and streaming: `tools`, `vision`, `structuredOutput`, `coding`, `reasoning`, or `none` |
+| `GROQ_MODEL_CONTEXT_TOKENS` | `131072` | declared context window |
+| `GROQ_TIMEOUT_MS` | `60000` | time for one request, headers and body |
+| `GROQ_MAX_OUTPUT_TOKENS` | none | upper bound on tokens one reply may generate |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | https only (http for localhost); another host is allowed with a warning (the key is sent there) |
 | `GEMINI_API_KEY` | none | Gemini key (chat, search grounding, images). Secret |
 | `GEMINI_MODEL` | `gemini-3.6-flash` | the Gemini chat model |
 | `GEMINI_FALLBACK_MODELS` | `gemini-3.8-flash` | Gemini models tried after `GEMINI_MODEL` inside one request (up to 5): when it does not exist, is overloaded, or its own per-model quota is spent |
@@ -639,13 +715,14 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 | `OPENAI_MODEL_CONTEXT_TOKENS` | `32768` | declared context window |
 | `OPENAI_TIMEOUT_MS` | `60000` | time for one request, headers and body |
 | `OPENAI_MAX_OUTPUT_TOKENS` | none | upper bound on tokens one reply may generate (cost control: this provider is usually paid) |
-| `AI_PRIMARY_PROVIDER` | `gemini` | `gemini` (alias `google`), `openrouter` or `openai` |
-| `AI_FALLBACK_PROVIDER` | every other provider: `openrouter,openai` | the fallback chain in order (comma-separated), or `none`; must not list the primary. Web search never goes to OpenRouter when the chain leaves it out |
+| `AI_PRIMARY_PROVIDER` | `groq` | `groq`, `openrouter`, `gemini` (alias `google`) or `openai`; without a key the next provider in the chain answers first |
+| `AI_FALLBACK_PROVIDER` | every other provider, in the order `groq,openrouter,gemini,openai` | the fallback chain in order (comma-separated), or `none`; must not list the primary. Web search never goes to OpenRouter when the chain leaves it out |
 | `AI_QUOTA_COOLDOWN_MS` | `300000` | how long an exhausted provider is skipped; `0` = never |
 | `AI_MODEL_CATALOG_JSON` | none | describes several models (below) |
-| `TTS_PROVIDER` | `gemini` | spoken replies: `gemini` (Gemini's voice is the main one; without `GEMINI_API_KEY` Edge speaks alone), `elevenlabs` (needs `ELEVENLABS_API_KEY`), `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_PROVIDER` | `elevenlabs` with an ElevenLabs key, else `gemini` | spoken replies: `elevenlabs` (needs `ELEVENLABS_KEYS` or `ELEVENLABS_API_KEY`), `gemini` (Gemini's voice is the main one; without a Gemini key Edge speaks alone), `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
 | `TTS_FALLBACK_PROVIDER` | `edge` with `gemini`; `gemini` with `edge`; `gemini,edge` with `elevenlabs` | the voices behind the main one, in order (comma-separated), each asked only when the one before fails before any sound; a voice without its key is skipped, and with none left Edge speaks; `none` = the main voice alone |
-| `ELEVENLABS_API_KEY` | none | ElevenLabs' key. Secret. Absent = the ElevenLabs voice is skipped |
+| `ELEVENLABS_KEYS` | none | comma-separated ElevenLabs keys: when one is out of characters, rate limited or refused, the next key speaks the same sentence before the chain moves on to the next voice. Secrets |
+| `ELEVENLABS_API_KEY` | none | one ElevenLabs key, added after the list. Secret. No key at all = the ElevenLabs voice is skipped |
 | `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` ("Rachel") | the voice id from the account's voice library |
 | `ELEVENLABS_MODEL` | `eleven_flash_v2_5` | the ElevenLabs model (`eleven_multilingual_v2` is slower and richer) |
 | `TTS_HI_VOICE` | `hi-IN-SwaraNeural` | the voice for Hindi (Devanagari) text |
@@ -658,7 +735,7 @@ names the variable and never its value; on Vercel `/health` then answers 500
 an error. Warnings (logged once): a base URL that is not `openrouter.ai` (the key is sent there);
 `OPENROUTER_MODEL` ignored because the catalog JSON lists OpenRouter models.
 
-`AI_MODEL_CATALOG_JSON` is a one-line JSON array. Keys: `provider` (`gemini`, `openrouter` or `openai`),
+`AI_MODEL_CATALOG_JSON` is a one-line JSON array. Keys: `provider` (`groq`, `gemini`, `openrouter` or `openai`),
 `model`, `enabled`, `free`, `priority` (lower is preferred), `streaming`, `tools`, `vision`,
 `structuredOutput`, `coding`, `reasoning`, `contextTokens`, `imageMimeTypes`. Anything not stated is
 the conservative value. Unknown keys are rejected (a typo such as `tool` would otherwise silently
@@ -673,12 +750,12 @@ leave a capability off). A provider listed in the JSON is described entirely by 
 ]
 ```
 
-`/health` reports `provider` (the one answering by default: `google`, `openrouter`, `mock` or `none`)
+`/health` reports `provider` (the one answering by default: `groq`, `openrouter`, `google`, `openai`, `mock` or `none`)
 and, only while a fallback is active, `aiFallback: true` and `aiFallbackTools`. `aiFallbackTools: false`
 means neither a declared model nor (with discovery on) a model on OpenRouter's current list can take
 tool calls, so **chat turns will not fall back** (every chat turn starts with a tool-using planner step);
 only text-only skills can. `aiKeyRejected` (a list of provider names) appears only while a provider has
-refused its API key (HTTP 401/403). It is the one-tap way to see,
+refused its API key (HTTP 401/403), or, with several keys, while any one of them is refused. It is the one-tap way to see,
 from a phone, whether `OPENROUTER_MODEL_CAPABILITIES=tools` took effect. It names no model, address
 or key.
 

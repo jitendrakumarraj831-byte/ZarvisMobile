@@ -29,6 +29,11 @@ export interface ModelCallRecord {
   /** True when this call answered a request that had already failed on its primary provider. */
   fallback?: boolean;
   fallbackReason?: string;
+  /**
+   * Which of the provider's configured keys made this call (1-based, "key 2 of 3"), when it has several
+   * (ai/keyRotatingProvider.ts). A key that is refused and replaced leaves its own record, so a rotation is visible.
+   */
+  keySlot?: number;
   /** Wall-clock time of this attempt, set by the gateway. */
   latencyMs?: number;
   /** Tokens and cost the provider reported for the answering request, when it does. */
@@ -47,6 +52,7 @@ export interface AttemptContext {
 
 const current = new AsyncLocalStorage<ModelCallRecord[]>();
 const attempt = new AsyncLocalStorage<AttemptContext>();
+const keySlot = new AsyncLocalStorage<number>();
 
 /** Runs `fn` with a fresh call log; every provider call inside it is recorded there. */
 export function withModelCallLog<T>(log: ModelCallRecord[], fn: () => Promise<T>): Promise<T> {
@@ -56,6 +62,11 @@ export function withModelCallLog<T>(log: ModelCallRecord[], fn: () => Promise<T>
 /** Runs `fn` as one gateway attempt: records it starts get the attempt's provider and fallback tags. */
 export function withAttemptContext<T>(context: AttemptContext, fn: () => T): T {
   return attempt.run(context, fn);
+}
+
+/** Runs `fn` with one of a provider's keys: records it starts name that key's slot. */
+export function withKeySlot<T>(slot: number, fn: () => T): T {
+  return keySlot.run(slot, fn);
 }
 
 /** Starts one upstream call. Returns its record (already in the active log, if any). */
@@ -73,6 +84,8 @@ export function beginModelCall(
     record.fallback = true;
     if (scope.fallbackReason) record.fallbackReason = scope.fallbackReason;
   }
+  const slot = keySlot.getStore();
+  if (slot !== undefined) record.keySlot = slot;
   current.getStore()?.push(record);
   scope?.records.push(record);
   return record;

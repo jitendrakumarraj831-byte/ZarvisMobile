@@ -2144,10 +2144,16 @@ button.crumb:hover { color: var(--primary); background: var(--primary-soft); }
 }
 
 /* ---------- Messages ---------- */
-.bubble.assistant .bubble-role { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+.bubble.assistant .bubble-role { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--text-2); }
 .bubble.assistant .bubble-role::before {
   content: ""; flex: none; width: 22px; height: 22px; border-radius: 50%;
   background: radial-gradient(circle at 50% 38%, #4a58f0, #1a1c78 78%); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+/* Which AI provider wrote a reply ("Groq · Fast", "Gemini · Backup") and which voice spoke it, as the server reported. */
+.bubble-engine {
+  display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2);
+  font-size: 11px; font-weight: 650; letter-spacing: 0.01em; line-height: 1; white-space: nowrap;
 }
 .bubble.assistant .bubble-body { line-height: 1.7; }
 .day-sep { display: flex; align-items: center; gap: var(--s3); margin: var(--s2) 0; color: var(--text-3); font-size: 12px; font-weight: 650; letter-spacing: 0.02em; }

@@ -7,7 +7,7 @@ import { explainOutcome } from "../tooling/explainOutcome.js";
 import { stableJson } from "../util/stableJson.js";
 import { previewInput } from "../tooling/executionRecord.js";
 import type { ConversationMessage as StoredConversationMessage, Store, TurnRecord } from "../store/store.js";
-import type { AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
+import type { AICallMeta, AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import type { ToolPipeline } from "../tooling/toolPipeline.js";
@@ -69,6 +69,28 @@ export interface TurnResult {
   turnId: string;
   /** True when this is the stored result of an already-completed turn: nothing was executed. */
   replayed?: boolean;
+  /**
+   * Which AI provider wrote `message`, for the client's "answered by" label: its id (`groq`, `openrouter`,
+   * `google`, `openai`) and whether it answered because the provider before it was unavailable (rate limited,
+   * out of quota, down). Absent when no live model wrote the reply (a greeting, a fixed message, the development
+   * mock). Nothing else about the call (model, keys, reasons, timings) leaves the server.
+   */
+  ai?: ReplyProvider;
+}
+
+export interface ReplyProvider {
+  provider: string;
+  fallback: boolean;
+}
+
+/**
+ * The client-facing part of the gateway's call meta. A provider skipped only because it cannot do what the
+ * request needs (no tool support) is routing, not an outage, so the answer is not labelled a fallback.
+ */
+export function replyProvider(meta: AICallMeta | undefined): ReplyProvider | undefined {
+  if (!meta || meta.provider === "mock" || meta.provider === "none") return undefined;
+  const routedByCapability = meta.fallbackReason?.endsWith("_CAPABILITY_UNSUPPORTED") ?? false;
+  return { provider: meta.provider, fallback: meta.fallback && !routedByCapability };
 }
 
 /** The same logical turn (clientTurnId) is being executed by another request right now. */
@@ -409,7 +431,8 @@ export class Orchestrator {
         const message = aiResponse.message.content?.trim();
         if (message) {
           await this.persistAssistantMessage(activeConversation.id, message);
-          return { message, toolCalls: results, conversationId: activeConversation.id, turnId };
+          const ai = replyProvider(aiResponse.meta);
+          return { message, toolCalls: results, conversationId: activeConversation.id, turnId, ...(ai ? { ai } : {}) };
         }
         const fallbackMessage = results.length > 0
           ? results.map((r) => explainOutcome(r.outcome)).join("\n")

@@ -58,6 +58,11 @@ export class GeminiProvider implements AIProvider {
      */
     private readonly fallbackModels: readonly string[] = [FALLBACK_MODEL],
     private readonly now: () => number = Date.now,
+    /**
+     * `skipRateLimitWait`: asked when a short rate limit arrives; true fails the model at once instead of
+     * waiting to retry it, because another key can take the request now (ai/keyRotatingProvider.ts).
+     */
+    private readonly options: { skipRateLimitWait?: () => boolean } = {},
   ) {}
 
   /** The configured model first, then the fallbacks; a model whose daily quota is spent goes last for a while. */
@@ -206,7 +211,8 @@ export class GeminiProvider implements AIProvider {
         if (failure.kind !== "not_found" || !lastError) lastError = providerError;
         call.failure = { code: providerError.code, quotaType: providerError.quotaType, ...providerError.evidence };
         if (failure.kind === "fatal") throw lastError;
-        const wait = retryDelayMs(failure, attempt);
+        // Another key can take a rate-limited request now: waiting out this key's window would only delay it.
+        const wait = failure.kind === "quota" && this.options.skipRateLimitWait?.() ? null : retryDelayMs(failure, attempt);
         if (wait === null) {
           const perModel = isPerModelQuota(failure);
           if (perModel && failure.kind === "quota" && failure.quotaType === "daily") this.exhausted.set(model, this.now() + EXHAUSTED_MODEL_MS);

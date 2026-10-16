@@ -50,6 +50,11 @@ export interface ElevenLabsTtsProviderOptions {
   idleTimeoutMs?: number;
   maxConcurrent?: number;
   maxQueued?: number;
+  /**
+   * The in-flight limit to share. Several keys mean several instances of this provider (one per key); they share
+   * one limit, so a second key does not double how many syntheses this server holds open.
+   */
+  slots?: Semaphore;
   /** Longest text one call accepts (default 4000 characters), a limit behind the route's own. */
   maxTextChars?: number;
   now?: () => number;
@@ -73,7 +78,7 @@ export class ElevenLabsTtsProvider implements TtsProvider {
     this.idleTimeoutMs = options.idleTimeoutMs ?? 20_000;
     this.maxTextChars = options.maxTextChars ?? 4000;
     this.now = options.now ?? Date.now;
-    this.slots = new Semaphore(options.maxConcurrent ?? 8, options.maxQueued ?? 16);
+    this.slots = options.slots ?? new Semaphore(options.maxConcurrent ?? 8, options.maxQueued ?? 16);
   }
 
   getDefaultVoice(): string {
@@ -181,6 +186,9 @@ export class ElevenLabsTtsProvider implements TtsProvider {
  * An ElevenLabs refusal as the voice boundary names it. ElevenLabs reports `{"detail": {"status", "message"}}`;
  * a spent character quota arrives as 401 with `detail.status: "quota_exceeded"`, which is not a bad key. The
  * service's own words stay out of the message (they can quote the text).
+ *
+ * `keyFailure` says when the refusal is about the key (its quota, its rate or concurrency limit, the key itself),
+ * so another key may speak instead. "system_busy" is ElevenLabs as a whole being overloaded: the same for every key.
  */
 export function elevenLabsError(status: number, bodyText: string, retryAfter: string | null): TtsProviderError {
   let reason = "";
@@ -193,8 +201,14 @@ export function elevenLabsError(status: number, bodyText: string, retryAfter: st
   }
   const seconds = Number(retryAfter);
   const retryAfterMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined;
-  if (reason === "quota_exceeded") return new TtsProviderError("The ElevenLabs voice has used up its character quota", "UNAVAILABLE", false);
-  if (status === 429) return new TtsProviderError("The ElevenLabs voice is rate limited", "UNAVAILABLE", true, { retryAfterMs });
+  if (reason === "quota_exceeded" || status === 402) {
+    return new TtsProviderError("The ElevenLabs voice has used up its character quota", "UNAVAILABLE", false, { keyFailure: "quota_exhausted" });
+  }
+  if (status === 429) {
+    return new TtsProviderError("The ElevenLabs voice is rate limited", "UNAVAILABLE", true, { retryAfterMs, ...(reason === "system_busy" ? {} : { keyFailure: "rate_limited" as const }) });
+  }
   if (status >= 500 || status === 408) return new TtsProviderError("The ElevenLabs voice is unavailable", "UNAVAILABLE", true, { retryAfterMs });
-  return new TtsProviderError(`The ElevenLabs voice refused the request (HTTP ${status}${reason ? `, ${reason}` : ""})`, "REJECTED", false);
+  return new TtsProviderError(`The ElevenLabs voice refused the request (HTTP ${status}${reason ? `, ${reason}` : ""})`, "REJECTED", false, {
+    ...(status === 401 || status === 403 ? { keyFailure: "auth_rejected" as const } : {}),
+  });
 }

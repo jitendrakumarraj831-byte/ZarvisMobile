@@ -47,9 +47,21 @@ import { isAbortError, isTransportError, readJsonBody, readWithIdleLimit, timeou
  * Completions endpoint, OpenAI's own by default. It sends the plain OpenAI request: no `models` array, no
  * `provider` routing preferences and no OpenRouter attribution headers, which such an endpoint would reject or
  * ignore. Everything else (tool encoding, the time limits, the retry policy, the error classification) is shared.
+ *
+ * And for the `groq` provider (`flavor: "groq"`): Groq's OpenAI-compatible endpoint
+ * (`https://api.groq.com/openai/v1`), the same plain request. Groq's rate-limit answers name their window
+ * ("tokens per minute", "requests per day") the way the shared classifier reads them.
  */
 export { DEFAULT_OPENROUTER_BASE_URL };
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+export const DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+
+export type OpenAiCompatibleFlavor = "openrouter" | "openai" | "groq";
+const FLAVORS: Record<OpenAiCompatibleFlavor, { name: string; baseUrl: string }> = {
+  openrouter: { name: "OpenRouter", baseUrl: DEFAULT_OPENROUTER_BASE_URL },
+  openai: { name: "OpenAI-compatible", baseUrl: DEFAULT_OPENAI_BASE_URL },
+  groq: { name: "Groq", baseUrl: DEFAULT_GROQ_BASE_URL },
+};
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 30_000;
 /** Requested when the caller sets no limit: an unbounded request can be refused for credit reasons. */
@@ -69,10 +81,16 @@ export interface OpenRouterRequestPolicy {
 }
 
 export interface OpenRouterProviderOptions {
-  /** `openrouter` (default) or `openai`: any other OpenAI-compatible endpoint (see the note above). */
-  flavor?: "openrouter" | "openai";
+  /** `openrouter` (default), `openai` (any other OpenAI-compatible endpoint) or `groq` (see the note above). */
+  flavor?: OpenAiCompatibleFlavor;
   /** A function, so the key is read per request and the gateway can ask `isConfigured()`. */
   apiKey: string | (() => string | undefined);
+  /**
+   * Asked when a short rate limit arrives (HTTP 429 that would be retried after a wait): true makes the call
+   * fail at once instead, because another key of this provider can take the request now
+   * (ai/keyRotatingProvider.ts). Absent: the wait-and-retry-once policy, as with a single key.
+   */
+  skipRateLimitWait?: () => boolean;
   baseUrl?: string;
   /** Time allowed for one request: the response headers and, for a JSON answer, the body (default 60 s). */
   timeoutMs?: number;
@@ -126,18 +144,20 @@ interface Posted {
 }
 
 export class OpenRouterProvider implements AIProvider {
-  readonly id: "openrouter" | "openai";
+  readonly id: OpenAiCompatibleFlavor;
   readonly supportsJsonSchema = true;
-  /** For messages and logs: "OpenRouter" or "OpenAI-compatible". */
+  /** For messages and logs: "OpenRouter", "OpenAI-compatible" or "Groq". */
   private readonly name: string;
   private readonly label: string;
   /** OpenRouter's request extensions: the `models` array and `provider` preferences. */
   private readonly extensions: boolean;
+  private readonly defaultBaseUrl: string;
 
   constructor(private readonly options: OpenRouterProviderOptions) {
     this.id = options.flavor ?? "openrouter";
     this.extensions = this.id === "openrouter";
-    this.name = this.extensions ? "OpenRouter" : "OpenAI-compatible";
+    this.name = FLAVORS[this.id].name;
+    this.defaultBaseUrl = FLAVORS[this.id].baseUrl;
     this.label = `${this.name} chat completions`;
   }
 
@@ -273,7 +293,7 @@ export class OpenRouterProvider implements AIProvider {
     const { model, request } = context;
     const call = beginModelCall(context.kind, model, request.modelCallId, this.id);
     const key = this.key();
-    const url = openRouterUrl(this.options.baseUrl ?? (this.extensions ? DEFAULT_OPENROUTER_BASE_URL : DEFAULT_OPENAI_BASE_URL), "chat/completions");
+    const url = openRouterUrl(this.options.baseUrl ?? this.defaultBaseUrl, "chat/completions");
     const payload = JSON.stringify(body);
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     let lastError: Error | undefined;
@@ -336,7 +356,8 @@ export class OpenRouterProvider implements AIProvider {
       const providerError = toOpenRouterError(this.label, res.status, res.statusText, failure, text, model, this.id);
       lastError = providerError;
       call.failure = { code: providerError.code, quotaType: providerError.quotaType, ...providerError.evidence };
-      const wait = retryDelayMs(failure, attempt);
+      // Another key can take a rate-limited request now: waiting out this key's window would only delay it.
+      const wait = failure.kind === "quota" && this.options.skipRateLimitWait?.() ? null : retryDelayMs(failure, attempt);
       if (wait === null) throw lastError;
       await sleep(wait, request.signal);
     }

@@ -121,14 +121,18 @@ describe("a user turn through the gateway: request economy and billing", () => {
     ]);
   });
 
-  it("nothing reaches the client that names the fallback: the result and its tool calls carry no provider detail", async () => {
+  it("nothing reaches the client that names a skill's fallback: only the provider that wrote the reply is named", async () => {
     stubProviders({ gemini: gemini({ planner: [geminiCall("creative.write_poem", { prompt: "x" }), geminiText("ok")], generation: geminiFail(429, quotaBody(DAILY)) }), openrouter: openRouter() });
     const { orchestrator, accountId } = await setup(new InMemoryStore());
 
     const result = await orchestrator.runTurn({ accountId, utterance: "poem likho" });
 
-    // Structural check on what is sent to a client: no provider, model, fallback or meta field anywhere.
-    const wire = JSON.stringify(result);
+    // The one sanctioned field: the planner (Gemini) wrote the reply, as the primary. The poem skill's own
+    // fallback to OpenRouter stays server-side.
+    expect(result.ai).toEqual({ provider: "google", fallback: false });
+    // Structural check on everything else sent to a client: no provider, model, fallback or meta field anywhere.
+    const { ai: _ai, ...rest } = result;
+    const wire = JSON.stringify(rest);
     expect(wire).toContain(FALLBACK_POEM); // the fallback really answered
     expect(wire).not.toMatch(/"(provider|providers|meta|model|servedModel|configuredModel|fallback\w*|attempts)"\s*:/);
     expect(wire).not.toMatch(/openrouter|GEMINI_QUOTA|vendor\/|gen-or-/i);

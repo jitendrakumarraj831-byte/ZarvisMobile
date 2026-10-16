@@ -12,6 +12,7 @@
  * - `synthesizeStream`: headerless 16-bit little-endian mono PCM at 24 kHz, in order, as it is
  *   produced (what the web client's AudioContext schedules).
  */
+import type { KeyFailureReason } from "../security/keyRotator.js";
 import type { SpeechLanguage } from "./voices.js";
 
 export interface TtsOptions {
@@ -61,15 +62,21 @@ export class TtsProviderError extends Error {
     readonly kind: TtsErrorKind,
     /** Whether asking again later can succeed. Sent to clients as `retryable`. */
     readonly retryable: boolean,
-    options: { cause?: unknown; retryAfterMs?: number; local?: boolean } = {},
+    options: { cause?: unknown; retryAfterMs?: number; local?: boolean; keyFailure?: KeyFailureReason } = {},
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "TtsProviderError";
     this.retryAfterMs = options.retryAfterMs;
     this.local = options.local === true;
+    if (options.keyFailure) this.keyFailure = options.keyFailure;
   }
 
   readonly retryAfterMs?: number;
+  /**
+   * Set when the service refused the API key that was used, not the request: it was rate limited, its quota is
+   * spent, or the key was rejected. Another key of the same service may still speak (tts/keyRotatingTtsProvider.ts).
+   */
+  readonly keyFailure?: KeyFailureReason;
   /**
    * This server declined the request to protect itself (too many syntheses in flight), which says
    * nothing about the voice service. A fallback voice must not be asked, or a crowd on our side would

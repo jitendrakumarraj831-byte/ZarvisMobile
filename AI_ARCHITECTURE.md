@@ -40,17 +40,25 @@ The AI must distinguish permission denial, unsupported capability, required user
 
 ## AI Model Gateway
 
-Nothing in ZARVIS names an AI vendor except the two adapters. The planner, the content skills and
+Nothing in ZARVIS names an AI vendor except the adapters. The planner, the content skills and
 image analysis call one **ModelGateway** (`backend/src/ai/modelGateway.ts`), which is itself an
 `AIProvider`. It routes each request to a configured model that **declares** every capability the
 request needs (text, streaming, tools, vision, structured output, long context, coding, reasoning),
-and, when the primary provider fails for a temporary, provider-side reason, makes exactly one more
-attempt on the fallback provider if it can serve the same request.
+and, when a provider fails for a temporary, provider-side reason, asks the next provider in the chain
+that can serve the same request (each provider at most once).
 
 ```
-ZARVIS Brain → ModelGateway → Gemini      (primary: chat, tools, vision, search grounding, voice)
-                            → OpenRouter  (fallback: only what its configured model declares)
+ZARVIS Brain → ModelGateway → Groq        (first by default: fast; tools)
+                            → OpenRouter  (only what its configured model declares)
+                            → Gemini      (chat, tools, vision; also search grounding and a voice)
+                            → OpenAI-compatible endpoint (with OPENAI_MODEL)
 ```
+
+Each provider takes several API keys (`GROQ_KEYS=k1,k2`, ...). A key that is rate limited, out of quota or
+refused hands the same request to the provider's next key at once; only when every key is refused does the
+request move down the chain. An outage is the same for every key and moves on to the next provider directly
+(AI_MODEL_GATEWAY.md §2.16). A reply names the provider that wrote it (`ai: { provider, fallback }`), and the
+web client shows it; model, keys and reasons stay on the server.
 
 - The fallback never hides a real bug: authentication errors, invalid requests, a missing model, a
   capability the fallback does not declare, an application error and a cancelled turn never fall
@@ -128,8 +136,8 @@ reported as running: `resume` / `retry` answer `task_execution_unavailable`.
 
 ## No AI credential
 
-In production with neither `GEMINI_API_KEY` nor `OPENROUTER_API_KEY`, every model call fails with
-`AI_UNAVAILABLE` (503) and `/health` reports `provider: none`. With only `OPENROUTER_API_KEY`,
+In production with no AI key at all (no Groq, OpenRouter, Gemini or OpenAI-compatible key), every model call
+fails with `AI_UNAVAILABLE` (503) and `/health` reports `provider: none`. With only `OPENROUTER_API_KEY`,
 OpenRouter answers the requests its model declares it can serve. The deterministic mock provider, mock search and mock
 content generators exist for development and tests only. Greetings and creator questions need
 no model and still answer.

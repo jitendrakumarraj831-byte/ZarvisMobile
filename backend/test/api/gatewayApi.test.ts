@@ -142,7 +142,7 @@ describe("request ids and log correlation", () => {
 });
 
 describe("what a client sees when the gateway falls back or fails", () => {
-  it("a turn answered by the fallback model looks like any other turn: no provider, model or fallback detail", async () => {
+  it("a turn answered by the fallback provider names only the provider and that it was a fallback: no model, reason, host or key", async () => {
     stubProviders({
       gemini: plannerOnly(geminiFail(429, quotaBody(DAILY))),
       openrouter: openRouterText("Rivers form from rain and snow melt.", "vendor/secret-served-model:free"),
@@ -154,9 +154,34 @@ describe("what a client sees when the gateway falls back or fails", () => {
 
     const events = frames(res.text);
     expect(events.map((event) => event.event)).toEqual(expect.arrayContaining(["meta", "progress", "delta", "done"]));
-    expect(events.find((event) => event.event === "done")!.data.message).toBe("Rivers form from rain and snow melt.");
-    expect(res.text).not.toMatch(/openrouter|vendor\/|secret-served|fallback|GEMINI_QUOTA|generativelanguage/i);
+    const done = events.find((event) => event.event === "done")!.data;
+    expect(done.message).toBe("Rivers form from rain and snow melt.");
+    // What the client's "answered by" label needs, and nothing more.
+    expect(done.ai).toEqual({ provider: "openrouter", fallback: true });
+    expect(res.text).not.toMatch(/vendor\/|secret-served|GEMINI_QUOTA|QUOTA_EXCEEDED|generativelanguage|openrouter\.ai|keySlot/i);
     expect(res.text).not.toContain(OPENROUTER_KEY);
+  });
+
+  it("a turn the primary answers says which provider wrote it, not a fallback", async () => {
+    stubProviders({ gemini: plannerOnly(geminiText("Rivers start as rain.")) });
+    const app = appWith();
+    const token = await guestToken(app);
+
+    const res = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`).send({ utterance: "explain how rivers form" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ message: "Rivers start as rain.", ai: { provider: "google", fallback: false } });
+  });
+
+  it("a provider skipped only because it cannot call tools is routing, not a fallback, in what the client sees", async () => {
+    stubProviders({ gemini: plannerOnly(geminiText("Planned by Gemini.")), openrouter: openRouterText("never") });
+    // The default order puts OpenRouter (no tools declared) before Gemini: the planner goes to Gemini.
+    const app = appWith({ aiPrimaryProvider: undefined });
+    const token = await guestToken(app);
+
+    const res = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`).send({ utterance: "explain how rivers form" });
+
+    expect(res.body.ai).toEqual({ provider: "google", fallback: false });
   });
 
   it("when every provider fails the stream ends with ONE structured error and nothing internal", async () => {

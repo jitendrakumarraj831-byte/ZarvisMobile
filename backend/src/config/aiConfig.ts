@@ -1,7 +1,9 @@
 import { CAPABILITIES, type Capability } from "../ai/capabilities.js";
 import {
   CATALOG_PROVIDERS,
+  DEFAULT_GROQ_CONTEXT_TOKENS,
   geminiEntry,
+  groqEntry,
   MODEL_ID_PATTERN,
   openAIEntry,
   openRouterEntry,
@@ -11,7 +13,7 @@ import {
 } from "../ai/modelCatalog.js";
 import { FALLBACK_MODEL as GEMINI_FALLBACK_MODEL } from "../ai/geminiProvider.js";
 import { DEFAULT_OPENROUTER_BASE_URL } from "../ai/openRouterHttp.js";
-import { DEFAULT_OPENAI_BASE_URL, MAX_MODELS_PER_REQUEST } from "../ai/openRouterProvider.js";
+import { DEFAULT_GROQ_BASE_URL, DEFAULT_OPENAI_BASE_URL, MAX_MODELS_PER_REQUEST } from "../ai/openRouterProvider.js";
 import { AIConfigError } from "./aiConfigError.js";
 
 /**
@@ -49,6 +51,12 @@ export interface AIConfigInput {
   openAiModelContextTokens?: string;
   openAiTimeoutMs?: string;
   openAiMaxOutputTokens?: string;
+  groqBaseUrl?: string;
+  groqModel?: string;
+  groqModelCapabilities?: string;
+  groqModelContextTokens?: string;
+  groqTimeoutMs?: string;
+  groqMaxOutputTokens?: string;
   aiModelCatalogJson?: string;
   aiQuotaCooldownMs?: string;
 }
@@ -84,6 +92,13 @@ export interface ResolvedAIConfig {
     model?: string;
     maxOutputTokens?: number;
   };
+  /** Groq's OpenAI-compatible endpoint (the `groq` provider). Its model has a default, so it always has a catalog entry. */
+  groq: {
+    baseUrl: string;
+    timeoutMs: number;
+    model: string;
+    maxOutputTokens?: number;
+  };
   /** How long a provider that reported an exhausted quota is skipped (0 = never skip). */
   quotaCooldownMs: number;
   /** Non-fatal findings, logged once at startup. */
@@ -91,6 +106,11 @@ export interface ResolvedAIConfig {
 }
 
 export const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
+/**
+ * A Groq production model that calls tools. Groq retired llama-3.3-70b-versatile on its free and developer tiers
+ * (16 August 2026) and names this model as its replacement. GROQ_MODEL overrides it.
+ */
+export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
 const DEFAULT_OPENROUTER_TIMEOUT_MS = 60_000;
 const DEFAULT_QUOTA_COOLDOWN_MS = 5 * 60_000;
 const MODEL_ID = MODEL_ID_PATTERN;
@@ -105,21 +125,23 @@ function providerName(value: string): CatalogProvider | undefined {
   if (value === "gemini" || value === "google") return "google";
   if (value === "openrouter") return "openrouter";
   if (value === "openai") return "openai";
+  if (value === "groq") return "groq";
   return undefined;
 }
 
+/** Unset: the first provider of the default order (Groq). Without a Groq key the next provider in the chain answers first. */
 function parsePrimary(raw: string | undefined, problems: string[]): CatalogProvider {
-  if (blank(raw)) return "google";
+  if (blank(raw)) return CATALOG_PROVIDERS[0];
   const provider = providerName(raw!.trim().toLowerCase());
   if (provider) return provider;
-  problems.push('AI_PRIMARY_PROVIDER must be "gemini", "openrouter" or "openai"');
-  return "google";
+  problems.push('AI_PRIMARY_PROVIDER must be "groq", "gemini", "openrouter" or "openai"');
+  return CATALOG_PROVIDERS[0];
 }
 
 /**
  * `AI_FALLBACK_PROVIDER`: one provider, or several in the order they are tried ("openrouter,openai"), or `none`.
- * Unset: every other provider, in the order gemini, openrouter, openai (a provider without credentials is
- * simply skipped, per request).
+ * Unset: every other provider, in the default order groq, openrouter, gemini, openai (a provider without
+ * credentials is simply skipped, per request).
  */
 function parseFallbacks(raw: string | undefined, primary: CatalogProvider, problems: string[]): CatalogProvider[] {
   if (blank(raw)) return CATALOG_PROVIDERS.filter((provider) => provider !== primary);
@@ -129,7 +151,7 @@ function parseFallbacks(raw: string | undefined, primary: CatalogProvider, probl
   for (const token of tokens) {
     const provider = providerName(token);
     if (!provider) {
-      problems.push('AI_FALLBACK_PROVIDER must list "gemini", "openrouter" and/or "openai" (comma-separated, in order), or be "none"');
+      problems.push('AI_FALLBACK_PROVIDER must list "groq", "gemini", "openrouter" and/or "openai" (comma-separated, in order), or be "none"');
       return [];
     }
     if (provider === primary) {
@@ -198,6 +220,7 @@ function parseModelList(name: string, raw: string | undefined, problems: string[
 const BASE_URLS = {
   OPENROUTER_BASE_URL: { fallback: DEFAULT_OPENROUTER_BASE_URL, host: "openrouter.ai", key: "OpenRouter" },
   OPENAI_BASE_URL: { fallback: DEFAULT_OPENAI_BASE_URL, host: "api.openai.com", key: "OPENAI" },
+  GROQ_BASE_URL: { fallback: DEFAULT_GROQ_BASE_URL, host: "api.groq.com", key: "Groq" },
 } as const;
 
 function parseBaseUrl(raw: string | undefined, problems: string[], warnings: string[], name: keyof typeof BASE_URLS = "OPENROUTER_BASE_URL"): string {
@@ -218,7 +241,7 @@ function parseBaseUrl(raw: string | undefined, problems: string[], warnings: str
   if (url.username || url.password) problems.push(`${name} must not contain credentials`);
   if (url.search || url.hash) problems.push(`${name} must not contain a query string or fragment`);
   // An OpenAI-compatible endpoint is often not OpenAI's own (that is what the variable is for): no warning for it.
-  if (name === "OPENROUTER_BASE_URL" && url.hostname !== host && !loopback) {
+  if (name !== "OPENAI_BASE_URL" && url.hostname !== host && !loopback) {
     warnings.push(`${name} points at a host other than ${host}: the ${key} API key is sent to that host`);
   }
   return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
@@ -300,6 +323,17 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
   // Unset means the default (tools); "none" means text and streaming only.
   const openAiCapabilities = blank(input.openAiModelCapabilities) ? undefined : parseCapabilityList(input.openAiModelCapabilities, problems, "OPENAI_MODEL_CAPABILITIES");
 
+  const groqBaseUrl = parseBaseUrl(input.groqBaseUrl, problems, warnings, "GROQ_BASE_URL");
+  const groqTimeoutMs = parseInteger("GROQ_TIMEOUT_MS", input.groqTimeoutMs, DEFAULT_OPENROUTER_TIMEOUT_MS, 1_000, 300_000, problems);
+  const groqContextTokens = parseInteger("GROQ_MODEL_CONTEXT_TOKENS", input.groqModelContextTokens, DEFAULT_GROQ_CONTEXT_TOKENS, 1_000, 10_000_000, problems);
+  const groqMaxOutputTokens = blank(input.groqMaxOutputTokens)
+    ? undefined
+    : parseInteger("GROQ_MAX_OUTPUT_TOKENS", input.groqMaxOutputTokens, 0, 1, 1_000_000, problems);
+  const groqModel = blank(input.groqModel) ? DEFAULT_GROQ_MODEL : input.groqModel!.trim();
+  if (!MODEL_ID.test(groqModel)) problems.push("GROQ_MODEL is not a valid model id");
+  // Unset means the default (tools); "none" means text and streaming only.
+  const groqCapabilities = blank(input.groqModelCapabilities) ? undefined : parseCapabilityList(input.groqModelCapabilities, problems, "GROQ_MODEL_CAPABILITIES");
+
   let fromJson: ModelEntry[] = [];
   if (!blank(input.aiModelCatalogJson)) {
     try {
@@ -313,6 +347,7 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
   if (problems.length > 0) throw new AIConfigError(problems);
 
   const defaults: ModelEntry[] = [
+    groqEntry({ model: groqModel, capabilities: groqCapabilities, contextTokens: groqContextTokens }),
     geminiEntry(input.geminiModel),
     openRouterEntry({ model: openRouterModel, extraCapabilities, contextTokens }),
     ...(openAiModel ? [openAIEntry({ model: openAiModel, capabilities: openAiCapabilities, contextTokens: openAiContextTokens })] : []),
@@ -347,6 +382,12 @@ export function resolveAIConfig(input: AIConfigInput): ResolvedAIConfig {
       timeoutMs: openAiTimeoutMs,
       ...(openAiModel ? { model: openAiModel } : {}),
       ...(openAiMaxOutputTokens !== undefined ? { maxOutputTokens: openAiMaxOutputTokens } : {}),
+    },
+    groq: {
+      baseUrl: groqBaseUrl,
+      timeoutMs: groqTimeoutMs,
+      model: groqModel,
+      ...(groqMaxOutputTokens !== undefined ? { maxOutputTokens: groqMaxOutputTokens } : {}),
     },
     quotaCooldownMs,
     warnings,
