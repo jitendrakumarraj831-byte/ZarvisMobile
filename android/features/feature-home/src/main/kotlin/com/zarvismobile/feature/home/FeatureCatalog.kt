@@ -1,23 +1,32 @@
 package com.zarvismobile.feature.home
 
-enum class FeatureAvailability { NOW, ANDROID, PERMISSION, UNSUPPORTED }
+import com.zarvismobile.domain.capability.CatalogCapability
+import com.zarvismobile.domain.capability.CatalogPage
+import com.zarvismobile.domain.capability.FeatureState
+import com.zarvismobile.domain.capability.SharedFeatureCatalog
+import com.zarvismobile.domain.entity.CapabilityStatus
+
+/** A capability on a detail page with its state in this app, e.g. "Voice input: Partial — The phone's speech recognizer". */
+data class FeatureStatusLine(val name: String, val state: FeatureState) {
+    val text: String get() = "$name: ${statusLabel(state.status)}" + (state.note?.let { " — $it" } ?: "")
+}
 
 data class PhoneAction(
     val title: String,
     val description: String,
     val example: String,
     val permission: String,
-    val availability: String,
-    val kind: FeatureAvailability,
-)
+    val state: FeatureState,
+) {
+    val availability: String get() = statusLabel(state.status) + (state.note?.let { " — $it" } ?: "")
+}
 
 data class FeaturePage(
     val id: String,
     val category: String,
     val title: String,
     val summary: String,
-    val availability: String,
-    val kind: FeatureAvailability,
+    val statuses: List<FeatureStatusLine>,
     val what: String,
     val why: String,
     val how: List<String>,
@@ -30,212 +39,51 @@ data class FeaturePage(
     val prompt: String,
     val action: String,
     val phoneActions: List<PhoneAction> = emptyList(),
-)
+) {
+    /** Every capability the page explains, with its state in this app: one line each. */
+    val availability: String get() = statuses.joinToString("\n") { it.text }
+}
 
 /**
- * The product pages this app has. The website's Capabilities hub (web/feature-pages.js) lists more areas than this (Projects, Files library,
- * Memory, Pull requests and others), so this is NOT the same set; the Work page says which of those are website-only. Copy stays limited to
- * skills in SKILLS.md.
+ * The product pages this app has, read from shared/feature-catalog.json: the same catalogue the website's Capabilities hub
+ * embeds (web/feature-pages.js), so a capability has one status per platform everywhere. The statuses shown here are the
+ * Android ones; none is Working until a real-device run is recorded (SharedFeatureCatalogTest).
  */
 object FeatureCatalog {
-    val pages: List<FeaturePage> = listOf(
-        FeaturePage(
-            id = "workspace",
-            category = "AI & Conversation",
-            title = "AI Workspace",
-            summary = "A conversation that can use the skills ZARVIS already ships.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "Chat in natural language. Follow-up questions stay in the same conversation, and a request can use a skill such as search, documents, or writing.",
-            why = "One workspace covers questions, writing, files, and tasks.",
-            how = listOf("Type or speak a request.", "ZARVIS replies in the same chat.", "When a skill fits, the result stays in the thread."),
-            canDo = listOf("English, Hindi, and Hinglish", "Follow-up questions", "Voice from the orb or microphone"),
-            start = "Tap Start Chat, edit the request if you want, then send it.",
-            permissions = "No permission is required to type. The microphone is requested only after you tap Speak.",
-            limits = listOf("Replies depend on the configured AI provider."),
-            examples = listOf("Explain this document", "Research this topic", "Help me write this message"),
-            cta = "Start Chat",
-            prompt = "",
-            action = "chat",
-        ),
-        FeaturePage(
-            id = "voice",
-            category = "Voice",
-            title = "Voice Assistant",
-            summary = "Speak a request. ZARVIS transcribes it and can read the reply aloud.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "Voice starts the same conversation. Speech-to-text fills the request. Spoken replies stay off until you enable them.",
-            why = "You can start a task without typing, in Hindi or English.",
-            how = listOf("Speak", "Understand", "AI decides", "Action or answer", "Voice response"),
-            canDo = listOf("Tap the orb to start or stop", "Cancel with the composer", "State labels: Listening, Understanding, Speaking, Error"),
-            start = "Tap Try Voice. Listening starts from that tap, not from a wake word.",
-            permissions = "Microphone permission is requested when you start listening.",
-            limits = listOf("No wake word.", "No continuous listening."),
-            examples = listOf("What's on my task list?", "Summarize this in Hindi"),
-            cta = "Try Voice",
-            prompt = "",
-            action = "voice",
-        ),
-        FeaturePage(
-            id = "phone",
-            category = "Phone",
-            title = "Phone Agent",
-            summary = "Control supported phone actions using natural language.",
-            availability = "Android app",
-            kind = FeatureAvailability.ANDROID,
-            what = "Phone Agent uses on-device skills: open apps, find contacts, place a call after you confirm the exact number, set reminders, hand an alarm to the Clock app, open a pre-filled calendar event, pick a document or photo, take a photo, show your approximate location, open Bluetooth, Wi-Fi or location settings, summarize or speak notifications under your privacy rules, show today's screen time, navigate by voice (Back, Home, notifications, lock screen) and read or tap the app you're using through its accessibility service. It does not change settings for you.",
-            why = "Supported phone actions stay in the same conversation as the rest of ZARVIS.",
-            how = listOf(
-                "Say or type a supported command.",
-                "ZARVIS explains any access it needs first (Allow / Not now / Learn more), then Android asks.",
-                "Calls show the exact name and number and wait for your confirmation.",
-                "Hand-offs (Clock, calendar, settings) finish in that app — ZARVIS tells you when you need to act there.",
-            ),
-            canDo = emptyList(),
-            start = "Try a command below. Nothing runs until you send it.",
-            permissions = "Calls need Phone; a contact name also needs Contacts. Reminders need notifications. Location needs approximate location. Reading or speaking notifications needs Notification access; screen time needs Usage access; voice navigation and screen reading need ZARVIS's accessibility service — you turn each of these on yourself in Android Settings. Pickers, camera, calendar and settings use system screens and need no permission. See Settings › Permissions & Device Access.",
-            limits = listOf(
-                "Only the actions listed here are implemented, and none is verified on a real device yet.",
-                "ZARVIS never changes Wi-Fi, Bluetooth or other settings itself — it opens the screen for you.",
-                "Accessibility is used only for the single action you ask for and confirm — never general automation, never inside banking, password, Android Settings or permission screens.",
-                "There is no wake word: the assistant gesture opens ZARVIS only when you choose ZARVIS as the default assistant.",
-            ),
-            examples = listOf("Open WhatsApp", "Find Mom's number", "Call 9876543210", "Remind me to drink water in 30 minutes", "Open bluetooth settings"),
-            cta = "Try Phone Agent",
-            prompt = "Open WhatsApp",
-            action = "phone",
-            phoneActions = listOf(
-                PhoneAction("Open apps", "Launch an installed app by name.", "Open WhatsApp", "No runtime permission. The app must be installed.", "Available now", FeatureAvailability.NOW),
-                PhoneAction("Find contacts", "Look up a contact's number by name.", "Find Mom's number", "Requires Contacts permission.", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("Make calls", "Call a number or a saved contact after you confirm.", "Call 9876543210", "Requires Phone permission. A name also needs Contacts.", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("Reminders", "Set a reminder at a time you say.", "Remind me to call mom tomorrow at 8 am", "Requires notifications.", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("Alarms & calendar", "Hand an alarm to the Clock app, or open a pre-filled calendar event you save.", "Set an alarm for 6 am", "No runtime permission.", "You finish in that app", FeatureAvailability.NOW),
-                PhoneAction("Files, photos, camera", "Pick one document or photo, or take a photo; nothing is uploaded. Say \"describe a photo\" and the one photo you pick is sent to ZARVIS's server to be described, and is not stored.", "Describe a photo", "No runtime permission — system picker/camera.", "Available now", FeatureAvailability.NOW),
-                PhoneAction("Location", "Show your approximate location when you ask.", "Where am I", "Requires approximate location.", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("System settings", "Opens Bluetooth, Wi-Fi or location settings; you make the change.", "Open wifi settings", "No runtime permission.", "You finish in Settings", FeatureAvailability.NOW),
-                PhoneAction("Notifications", "Summarize your current notifications, or speak new ones, following your privacy mode. Security and banking alerts stay hidden by default.", "Read my notifications", "Requires Notification access (Android Settings).", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("Screen time", "Show today's screen time and most-used apps.", "What's my screen time today", "Requires Usage access (Android Settings).", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("Voice navigation", "Back, Home, Recent apps, notification shade, quick settings, lock screen — each confirmed first.", "Go home", "Requires ZARVIS's accessibility service.", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("Read or tap the screen", "Read the app you're using, or tap one button you name. Open ZARVIS over the app with the assistant gesture.", "Read my screen", "Requires ZARVIS's accessibility service.", "Requires permission", FeatureAvailability.PERMISSION),
-                PhoneAction("Default assistant", "Open ZARVIS over any app with the assistant gesture.", "Make ZARVIS my default assistant", "You choose it in Android Settings › Default apps.", "Requires your choice", FeatureAvailability.PERMISSION),
-            ),
-        ),
-        FeaturePage(
-            id = "research",
-            category = "Web & Research",
-            title = "Web & Research",
-            summary = "Search, compare, and outline a topic from chat.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "Web search uses the backend. Research compare, report, and outline use general knowledge and say when the answer is not live-sourced.",
-            why = "A short answer or a structured overview stays in one conversation.",
-            how = listOf("Ask in Chat.", "Search is used for live web information.", "Compare, report, and outline are not live fetches."),
-            canDo = listOf("Web search", "Compare information", "Structured report", "Research outline"),
-            start = "Edit the prompt with your topic, then send it.",
-            permissions = "No device permission.",
-            limits = listOf("Research replies are not live web fetches.", "Search depends on the server provider."),
-            examples = listOf("Search the web for the latest information about: "),
-            cta = "Start Research",
-            prompt = "Research this topic and give me a structured overview, key points, and questions worth investigating: ",
-            action = "chat",
-        ),
-        FeaturePage(
-            id = "documents",
-            category = "Documents",
-            title = "Documents & Files",
-            summary = "Ask ZARVIS to summarize or explain text you provide.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "The document skill summarizes text you share. On the web you attach PDF, DOCX, TXT, MD, CSV, JSON, or a common image. This Android chat accepts the request in text.",
-            why = "A long document can be reduced to the points you need.",
-            how = listOf("Share the text or attach the file on the web.", "Ask for a summary or a question about it."),
-            canDo = listOf("Summarize", "Explain important points"),
-            start = "Send a prompt, then include the text you want summarized.",
-            permissions = "Files are read only when you choose them. The Android app does not scan storage for this skill.",
-            limits = listOf("Summary quality follows the configured AI provider."),
-            examples = listOf("Summarize this document in simple language"),
-            cta = "Analyze a File",
-            prompt = "I will share a document. Summarize it clearly and explain the important points in simple language.",
-            action = "chat",
-        ),
-        FeaturePage(
-            id = "creative",
-            category = "Creative",
-            title = "Creative Studio",
-            summary = "Draft messages, poems, and idea lists.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "Creative skills write a message, a poem, or a brainstorm from your prompt.",
-            why = "A first draft is faster to edit than a blank page.",
-            how = listOf("Describe tone and length.", "Review the draft in Chat.", "Ask for a revision."),
-            canDo = listOf("Write a message", "Write a poem", "Brainstorm ideas"),
-            start = "Edit the prompt, then send it.",
-            permissions = "No device permission.",
-            limits = listOf("Drafts are not published or sent for you."),
-            examples = listOf("Write a warm birthday message for a friend"),
-            cta = "Create Something",
-            prompt = "Help me create something polished. Start by asking what I want to make, then draft it for me.",
-            action = "chat",
-        ),
-        FeaturePage(
-            id = "business",
-            category = "Business",
-            title = "Business",
-            summary = "Draft a social post, a customer reply, or an invoice.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "Implemented business skills: social post, customer reply, and an invoice draft from line items you type.",
-            why = "Everyday business writing starts from a draft you can copy.",
-            how = listOf("Say which draft you need.", "Include the facts.", "Review it before you use it."),
-            canDo = listOf("Social post draft", "Customer reply draft", "Invoice draft"),
-            start = "Replace the placeholder with your details and send.",
-            permissions = "No device permission. Drafts are not posted or emailed.",
-            limits = listOf("ZARVIS does not publish, email, or collect payment.", "A draft is not legal or tax advice."),
-            examples = listOf("Write a social post about our new workshop"),
-            cta = "Open Business Tools",
-            prompt = "Help me with a business task. I want a polished customer reply, social post, or invoice draft.",
-            action = "chat",
-        ),
-        FeaturePage(
-            id = "developer",
-            category = "Developer",
-            title = "Developer Agent",
-            summary = "Read a repository. Code changes stay behind confirmation.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "The Android Developer screen analyzes a repository URL. It does not change code. Implementation on the server requires an explicit confirmation and is not a button on this screen.",
-            why = "You can inspect a project without a silent write.",
-            how = listOf("Open Developer Agent.", "Paste a repository URL.", "Run Analyze.", "Read the summary."),
-            canDo = listOf("Read-only repository analysis"),
-            start = "Open Developer Agent. Analyze does not modify the repository.",
-            permissions = "No phone permission. Analysis is read-only in this app.",
-            limits = listOf("Pull requests are not offered on this screen.", "Nothing is merged automatically."),
-            examples = listOf("https://github.org/example/repository"),
-            cta = "Open Developer Agent",
-            prompt = "",
-            action = "developer",
-        ),
-        FeaturePage(
-            id = "tasks",
-            category = "Automation",
-            title = "Tasks & Automation",
-            summary = "Create a trackable task, then pause, resume, cancel, or retry it.",
-            availability = "Available now",
-            kind = FeatureAvailability.NOW,
-            what = "You can create a workflow task and control it from Activity. Creating a task stores the steps. It does not execute them. Reminders that notify you are a separate Android skill.",
-            why = "A multi-step goal stays visible after you leave the chat.",
-            how = listOf("Describe the goal.", "Open Activity to pause, resume, cancel, or retry.", "A created workflow is tracking, not completed work."),
-            canDo = listOf("Create a tracked workflow", "Pause, resume, cancel, retry"),
-            start = "Create a task from Chat, then review it in Activity.",
-            permissions = "Uses your ZARVIS account. Scheduled reminders use Android notifications when you create one.",
-            limits = listOf("Workflow steps are not executed.", "personal.reminder is the skill that can fire a notification."),
-            examples = listOf("Create a workflow for this goal and break it into clear steps: "),
-            cta = "Create a Task",
-            prompt = "Create a workflow for this goal and break it into clear steps: ",
-            action = "chat",
-        ),
-    )
+    val pages: List<FeaturePage> by lazy {
+        val shared = SharedFeatureCatalog.default
+        shared.pages.map { page -> page.toFeaturePage(shared.capabilitiesOf(page)) }
+    }
 
     fun find(id: String): FeaturePage? = pages.find { it.id == id }
+}
+
+internal fun statusLabel(status: CapabilityStatus): String = when (status) {
+    CapabilityStatus.WORKING -> "Working"
+    CapabilityStatus.PARTIAL -> "Partial"
+    CapabilityStatus.PLANNED -> "Planned"
+    CapabilityStatus.UNSUPPORTED -> "Unsupported"
+}
+
+private fun CatalogPage.toFeaturePage(capabilities: List<CatalogCapability>): FeaturePage {
+    val copy = android
+    return FeaturePage(
+        id = id,
+        category = category,
+        title = title,
+        summary = copy.summary,
+        statuses = capabilities.map { FeatureStatusLine(it.name, it.android) },
+        what = copy.what,
+        why = copy.why,
+        how = copy.how,
+        canDo = copy.canDo,
+        start = copy.start,
+        permissions = copy.permissions,
+        limits = copy.limits,
+        examples = copy.examples,
+        cta = copy.cta,
+        prompt = copy.prompt,
+        action = copy.action,
+        phoneActions = phoneActions.map { PhoneAction(it.title, it.description, it.example, it.requires, it.android) },
+    )
 }

@@ -20,6 +20,20 @@
 - Verify UI state against real backend/tool state.
 - Test lifecycle and failure paths, not only happy paths.
 
+### The capability catalogue (one file for both apps)
+
+The capabilities both apps list (the website's Capabilities hub and detail pages, the Android Capabilities and feature pages) come
+from one file, `shared/feature-catalog.json`: each capability has a status and a short reason per platform (`web`, `android`), and
+each detail page has website and Android copy. It is a product catalogue; the permission-level registry is still
+`shared/capability-registry.json`, which the Phone Agent's actions point at.
+
+- Edit only `shared/feature-catalog.json`, then run `node scripts/sync-feature-catalog.mjs` to refresh the copy embedded in
+  `web/feature-pages.js` (the website has no build step). CI runs `node scripts/sync-feature-catalog.mjs --check`.
+- Android packages the file as a resource of `:domain` and reads it with `SharedFeatureCatalog`.
+- `web/tests/featureCatalog.test.js` and `SharedFeatureCatalogTest` check the same rules: the copies match, every PARTIAL or
+  UNSUPPORTED state says why, a PLANNED capability offers no button, links point at things that exist, and nothing on Android is
+  WORKING until a real-device run is recorded.
+
 ### Android screen text, states and replies
 
 - Text a screen shows goes through `UiString` (`android/domain/.../presentation/UiString.kt`): English and Hindi side by side, so an entry cannot exist

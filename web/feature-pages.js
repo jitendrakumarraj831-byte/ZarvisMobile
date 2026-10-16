@@ -1,213 +1,1179 @@
 /* Capability detail pages. Copy is limited to skills that exist in this repository
    (see SKILLS.md). Rendered into #feature-root / #capability-hub by app.js. */
 (function () {
-  const CATALOG = [
-    {
-      id: "voice",
-      category: "Voice",
-      title: "Voice Assistant",
-      summary: "Speak a request. ZARVIS transcribes it, responds, and can read the reply aloud.",
-      availability: "Available now",
-      kind: "now",
-      what: "Voice is a way to start the same chat. Speech-to-text fills the request. A voice turn turns spoken replies on. You can turn them off in {{Settings → Voice|settings:voice}}.",
-      why: "You can start a task without typing, including in Hindi or English.",
-      how: ["Speak", "Understand", "AI decides", "Action or answer", "Voice response"],
-      canDo: ["Tap the orb or microphone to start", "Tap again to stop listening", "Cancel a reply in progress with Stop", "See the state: Ready, Listening, Understanding, Speaking, or Error"],
-      start: "Open Chat and tap the orb or the microphone. Listening starts only from that tap.",
-      permissions: "The browser asks for microphone access the first time you tap Speak. ZARVIS does not listen in the background.",
-      limits: ["There is no wake word and no continuous listening.", "Spoken replies must be turned on in {{Settings → Voice|settings:voice}}.", "Recognition quality depends on the device and browser."],
-      examples: ["What's on my task list?", "Summarize this in Hindi", "Draft a short reply to a customer"],
-      cta: "Try Voice",
-      action: "voice",
-      prompt: "",
-    },
-    {
-      id: "phone",
-      category: "Phone",
-      title: "Phone Agent",
-      summary: "Control supported phone actions using natural language.",
-      availability: "Android app",
-      kind: "android",
-      what: "Phone Agent runs on-device Android skills. It can open an installed app, look up a contact, and place a call after you confirm. It does not control every Android setting.",
-      why: "Common phone actions stay in the same conversation as the rest of ZARVIS, on a device that can actually perform them.",
-      how: ["You say or type a supported command on the Android app.", "ZARVIS matches an on-device skill.", "If the action needs a permission or confirmation, it asks first.", "The phone performs only that action."],
-      canDo: [],
-      start: "On the Android app, open Phone Agent and try a command below. The website cannot place calls or open your apps.",
-      permissions: "Calls need the Phone permission. Looking up a contact by name also needs Contacts. Opening an app needs package visibility, not a runtime permission.",
-      limits: ["These actions are Android-only.", "The website can show the commands. It cannot run them.", "Unsupported system controls are not presented as working buttons."],
-      examples: ["Open WhatsApp", "Find Mom's number", "Call 9876543210"],
-      cta: "View device access",
-      action: "phone",
-      prompt: "Open WhatsApp",
-      phoneActions: [
-        { title: "Open apps", description: "Launch an installed app by name.", example: "Open WhatsApp", permission: "No runtime permission. The app must be installed.", availability: "Available now", kind: "now" },
-        { title: "Find contacts", description: "Look up a contact's number by name.", example: "Find Mom's number", permission: "Requires Contacts permission.", availability: "Requires permission", kind: "permission" },
-        { title: "Make calls", description: "Call a number or a saved contact. ZARVIS asks you to confirm before the call is placed.", example: "Call 9876543210", permission: "Requires Phone permission. A contact name also needs Contacts.", availability: "Requires permission", kind: "permission" },
-        { title: "System settings", description: "Changing Wi-Fi, Bluetooth, or other system settings is not implemented.", example: "—", permission: "Not applicable.", availability: "Not supported", kind: "unsupported" },
-      ],
-    },
-    {
-      id: "research",
-      category: "Web & Research",
-      title: "Web & Research",
-      summary: "Search, compare, and outline a topic from the chat workspace.",
-      availability: "Available now",
-      kind: "now",
-      what: "Web search looks up live results through the backend. Research skills write a comparison, report, or outline from general knowledge and say when that answer is not live-sourced.",
-      why: "You can ask for a short answer or a structured overview without leaving the conversation.",
-      how: ["Ask a question in Chat.", "Search is used when the request needs live web information.", "Compare, report, and outline skills reason over general knowledge.", "Those replies are labeled when they are not from a live source."],
-      canDo: ["Web search", "Compare information", "Structured report", "Research outline of questions worth investigating"],
-      start: "Tap a prompt, add your topic, and send it from Chat.",
-      permissions: "No device permission. Search uses the configured backend provider.",
-      limits: ["Research compare, report, and outline are not live web fetches.", "Search results depend on the provider configured on the server."],
-      examples: ["Search the web for the latest information about: ", "Research this topic and give me a structured overview: ", "Compare these options: "],
-      cta: "Start Research",
-      action: "chat",
-      prompt: "Research this topic and give me a structured overview, key points, and questions worth investigating: ",
-    },
-    {
-      id: "documents",
-      category: "Documents",
-      title: "Documents & Files",
-      summary: "Attach a file and ask ZARVIS to summarize or explain it.",
-      availability: "Available now",
-      kind: "now",
-      what: "You choose a file. ZARVIS reads the text and can summarize it or answer questions about that text in the same chat.",
-      why: "A long document can be reduced to the points you need, in the language you ask for.",
-      how: ["Tap the attach control in Chat.", "Choose a supported file.", "The file name appears above the composer.", "Send your question. The attachment is included with that message."],
-      canDo: ["Summarize", "Explain important points", "Ask follow-up questions about the attached text"],
-      start: "Open Chat, attach a file, and send a question such as “Summarize this.”",
-      permissions: "The file picker opens only when you tap Attach. Nothing is read from your device before that.",
-      limits: ["Supported types include PDF, DOCX, TXT, MD, CSV, JSON, and common images (PNG, JPEG, WEBP).", "The attachment is sent with the next message, then cleared.", "Summary quality follows the configured AI provider."],
-      examples: ["Summarize this document in simple language", "What are the action items in this file?", "Explain the important numbers"],
-      cta: "Analyze a File",
-      action: "attach",
-      prompt: "I will attach a document. Summarize it clearly and explain the important points in simple language.",
-    },
-    {
-      id: "creative",
-      category: "Creative",
-      title: "Creative Studio",
-      summary: "Draft messages, poems, and idea lists in the tone you ask for.",
-      availability: "Available now",
-      kind: "now",
-      what: "Creative skills write a message, a poem, or a brainstorm from your prompt. They use the same chat as everything else.",
-      why: "A first draft is faster to edit than to start from a blank page.",
-      how: ["Describe what you want, including tone and length.", "ZARVIS drafts it in Chat.", "Ask for a revision in the next message."],
-      canDo: ["Write a message", "Write a poem", "Brainstorm ideas"],
-      start: "Start from a prompt below and edit the details before sending.",
-      permissions: "No device permission.",
-      limits: ["Drafts are generated text, not a published post or a sent message.", "Output follows the configured AI provider, or an honestly labeled fallback when no provider key is set."],
-      examples: ["Write a warm birthday message for a friend", "Brainstorm names for a weekend project", "Write a short poem about rain"],
-      cta: "Create Something",
-      action: "chat",
-      prompt: "Help me create something polished. Start by asking what I want to make, then draft it for me.",
-    },
-    {
-      id: "business",
-      category: "Business",
-      title: "Business",
-      summary: "Draft a social post, a customer reply, or an invoice from details you provide.",
-      availability: "Available now",
-      kind: "now",
-      what: "Business skills that exist today: a social post, a customer reply, and an invoice draft parsed from line items you type.",
-      why: "Everyday business writing starts from a structured draft you can copy and edit.",
-      how: ["Say which draft you need.", "Include the facts: product, customer, or line items.", "Review the draft in Chat before you use it."],
-      canDo: ["Social post draft", "Customer reply draft", "Invoice draft from line items you provide"],
-      start: "Open Chat with a business prompt and replace the placeholder with your details.",
-      permissions: "No device permission. Drafts are not sent to customers or posted anywhere.",
-      limits: ["ZARVIS does not publish, email, or collect payment.", "The invoice draft is a document, not a filed invoice.", "Do not treat a draft as legal or tax advice."],
-      examples: ["Write a social post about our new workshop", "Reply politely to a customer who asked for a refund update", "Draft an invoice for these items: "],
-      cta: "Open Business Tools",
-      action: "chat",
-      prompt: "Help me with a business task. I want a polished customer reply, social post, or invoice draft.",
-    },
-    {
-      id: "developer",
-      category: "Developer",
-      title: "Developer Agent",
-      summary: "Read a repository, then change it only after you confirm.",
-      availability: "Available now",
-      kind: "now",
-      what: "Repository analysis is read-only. Implementation can create a branch and a pull request on GitHub, and it requires an explicit confirmation. It does not merge.",
-      why: "You can inspect a project from chat, and keep code changes behind a confirmation step.",
-      how: ["Share a repository URL and ask for analysis.", "ZARVIS reports what it can see.", "A code change is a separate, confirmed action.", "Review the pull request before anything is merged."],
-      canDo: ["Read-only repository analysis", "Confirmation required before implementation", "Pull request creation when that action is confirmed"],
-      start: "Open Developer Agent, paste a repository URL and run Analyze. Implement shows the exact pull request for your approval before anything is written.",
-      permissions: "Implementation uses the protected developer workflow and your confirmation. Analysis does not change the repository.",
-      limits: ["Implement needs a {{PRO plan|plans}} and your own {{connected GitHub account|developer}}.", "Nothing is merged automatically.", "The Android Developer screen is read-only analysis."],
-      examples: ["Analyze this repository and tell me what needs fixing: ", "What is the build system of this repo?"],
-      cta: "Open Developer Agent",
-      action: "developer",
-      prompt: "I want help with my GitHub project. I will provide the repository URL. Analyze it first and tell me what needs fixing.",
-    },
-  ];
-
-  const ICONS = {
-    voice: "i-mic", phone: "i-phone", research: "i-globe", documents: "i-file",
-    creative: "i-pen", business: "i-briefcase", developer: "i-code",
+  /* BEGIN shared/feature-catalog.json: generated by scripts/sync-feature-catalog.mjs, edit the shared file instead. */
+  const SHARED_CATALOG = {
+    "version": 1,
+    "_comment": "The one capability catalogue for the website and the Android app. Edit this file; web/feature-pages.js embeds it (node scripts/sync-feature-catalog.mjs) and Android packages it from shared/. Statuses: WORKING (implemented, connected, verified), PARTIAL (some real functionality; the note says what it depends on), PLANNED (designed, not active), UNSUPPORTED (no route on that platform). Nothing on Android is WORKING until a real-device run is recorded.",
+    "groups": [
+      {
+        "id": "ai",
+        "title": "AI",
+        "capabilities": [
+          "conversation",
+          "web_search",
+          "research_writing"
+        ]
+      },
+      {
+        "id": "work",
+        "title": "Work",
+        "capabilities": [
+          "projects",
+          "files_library",
+          "memory"
+        ]
+      },
+      {
+        "id": "voice",
+        "title": "Voice",
+        "capabilities": [
+          "voice_input",
+          "spoken_replies"
+        ]
+      },
+      {
+        "id": "vision",
+        "title": "Vision",
+        "capabilities": [
+          "image_understanding",
+          "image_generation"
+        ]
+      },
+      {
+        "id": "files",
+        "title": "Files",
+        "capabilities": [
+          "document_summaries"
+        ]
+      },
+      {
+        "id": "automation",
+        "title": "Automation",
+        "capabilities": [
+          "tasks",
+          "background_automation",
+          "phone_agent"
+        ]
+      },
+      {
+        "id": "developer",
+        "title": "Developer",
+        "capabilities": [
+          "repository_analysis",
+          "pull_requests",
+          "running_tests"
+        ]
+      },
+      {
+        "id": "productivity",
+        "title": "Productivity",
+        "capabilities": [
+          "writing",
+          "business_drafts"
+        ]
+      }
+    ],
+    "capabilities": [
+      {
+        "id": "conversation",
+        "icon": "i-chat",
+        "name": "Conversation",
+        "short": "Ask anything, get answers",
+        "desc": "Ask anything in English, Hindi or Hinglish; follow-ups keep context.",
+        "detail": "workspace",
+        "web": {
+          "status": "WORKING",
+          "action": {
+            "type": "chat",
+            "label": "Open"
+          }
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Not yet verified on a real phone"
+        }
+      },
+      {
+        "id": "web_search",
+        "icon": "i-globe",
+        "name": "Web search",
+        "short": "Live, sourced results",
+        "desc": "Live, sourced results. Needs the search provider configured on the server; sources are the links it returns.",
+        "detail": "research",
+        "web": {
+          "status": "WORKING",
+          "note": "Needs the search provider",
+          "action": {
+            "type": "chat",
+            "label": "Try"
+          },
+          "prompt": "Search the web and cite the sources you use: "
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Needs the search provider; not yet verified on a real phone"
+        }
+      },
+      {
+        "id": "research_writing",
+        "icon": "i-search",
+        "name": "Research writing",
+        "short": "Compare, report, outline",
+        "desc": "Compare, report and outline are written from general knowledge, not from a live search, and say so.",
+        "detail": "research",
+        "web": {
+          "status": "PARTIAL",
+          "note": "Not live-sourced",
+          "action": {
+            "type": "chat",
+            "label": "Try"
+          },
+          "prompt": "Compare these options and say which claims come from live search: "
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Not live-sourced"
+        }
+      },
+      {
+        "id": "projects",
+        "icon": "i-folder",
+        "name": "Projects",
+        "short": "Keep chats, files and decisions together",
+        "desc": "A project keeps its chats, files, tasks, decisions and memory, and Continue work resumes what is stored.",
+        "web": {
+          "status": "WORKING",
+          "action": {
+            "type": "page",
+            "label": "Open"
+          },
+          "page": "work"
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "On the website for now"
+        }
+      },
+      {
+        "id": "files_library",
+        "icon": "i-file",
+        "name": "Files library",
+        "short": "Keep what ZARVIS read",
+        "desc": "Upload a file and ZARVIS keeps the text it read (not the original) so you can summarize, ask, extract or compare.",
+        "web": {
+          "status": "WORKING",
+          "note": "Text only is kept",
+          "action": {
+            "type": "page",
+            "label": "Open"
+          },
+          "page": "work"
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "On the website for now"
+        }
+      },
+      {
+        "id": "memory",
+        "icon": "i-memory",
+        "name": "Memory",
+        "short": "Only what you save",
+        "desc": "Personal and project memory that you add, pause and delete. Nothing is remembered automatically.",
+        "web": {
+          "status": "WORKING",
+          "action": {
+            "type": "settings",
+            "label": "Open"
+          },
+          "settings": "memory"
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "View, pause and delete here; add on the website"
+        }
+      },
+      {
+        "id": "voice_input",
+        "icon": "i-mic",
+        "name": "Voice input",
+        "short": "Talk naturally",
+        "desc": "Tap the orb or microphone to speak. No wake word. Depends on your browser's speech recognition.",
+        "detail": "voice",
+        "web": {
+          "status": "PARTIAL",
+          "note": "Browser dependent",
+          "action": {
+            "type": "voice",
+            "label": "Talk"
+          }
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "The phone's speech recognizer; not yet verified on a real phone"
+        }
+      },
+      {
+        "id": "spoken_replies",
+        "icon": "i-wave",
+        "name": "Spoken replies",
+        "short": "Hear replies aloud",
+        "desc": "ZARVIS reads replies aloud with a neural voice, chosen from the text (Hindi, Hinglish or English). It needs no AI key, but it is an unofficial voice service with no guarantee.",
+        "detail": "voice",
+        "web": {
+          "status": "PARTIAL",
+          "note": "Unofficial voice service",
+          "action": {
+            "type": "settings",
+            "label": "Settings"
+          },
+          "settings": "voice"
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Unofficial voice service"
+        }
+      },
+      {
+        "id": "image_understanding",
+        "icon": "i-image",
+        "name": "Image understanding",
+        "short": "Ask about photos",
+        "desc": "Attach a photo or screenshot, or take one with the camera, and ask about it. Needs the server's vision model.",
+        "detail": "documents",
+        "web": {
+          "status": "PARTIAL",
+          "note": "Needs the vision model",
+          "action": {
+            "type": "attach",
+            "label": "Upload"
+          }
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Describe a photo you pick; needs the vision model"
+        }
+      },
+      {
+        "id": "image_generation",
+        "icon": "i-sparkle",
+        "name": "Image generation",
+        "short": "Not part of this version",
+        "desc": "Creating images is designed but not active in this version.",
+        "web": {
+          "status": "PLANNED"
+        },
+        "android": {
+          "status": "PLANNED"
+        }
+      },
+      {
+        "id": "document_summaries",
+        "icon": "i-file",
+        "name": "Document summaries",
+        "short": "PDF, Docs, text files",
+        "desc": "PDF, DOCX and text files: summarize or ask questions.",
+        "detail": "documents",
+        "web": {
+          "status": "WORKING",
+          "action": {
+            "type": "attach",
+            "label": "Upload"
+          }
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Paste the text here; attach files on the website"
+        }
+      },
+      {
+        "id": "tasks",
+        "icon": "i-task",
+        "name": "Tasks",
+        "short": "Goals in steps you start",
+        "desc": "A task has a real status. A step runs, as a ZARVIS turn, when you press Run; nothing runs in the background.",
+        "detail": "tasks",
+        "web": {
+          "status": "PARTIAL",
+          "note": "You start each step",
+          "action": {
+            "type": "page",
+            "label": "Open"
+          },
+          "page": "tasks"
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Pause and cancel here; run steps on the website"
+        }
+      },
+      {
+        "id": "background_automation",
+        "icon": "i-activity",
+        "name": "Background automation",
+        "short": "Tasks that run by themselves",
+        "desc": "Running steps on a schedule or without you is designed but not active.",
+        "web": {
+          "status": "PLANNED"
+        },
+        "android": {
+          "status": "PLANNED"
+        }
+      },
+      {
+        "id": "phone_agent",
+        "icon": "i-phone",
+        "name": "Phone Agent",
+        "short": "Android app actions",
+        "desc": "Open apps, find contacts and place confirmed calls. Android-only: the website can't do them.",
+        "detail": "phone",
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Android app only",
+          "action": {
+            "type": "feature",
+            "label": "Details"
+          }
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Not yet verified on a real phone"
+        }
+      },
+      {
+        "id": "repository_analysis",
+        "icon": "i-code",
+        "name": "Repository analysis",
+        "short": "Read-only repo report",
+        "desc": "A read-only report on a GitHub repository, read from its file tree. Checked against a GitHub test double, not yet against live GitHub in CI.",
+        "detail": "developer",
+        "web": {
+          "status": "PARTIAL",
+          "note": "Not yet checked live",
+          "action": {
+            "type": "developer",
+            "label": "Open"
+          }
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Read-only; not yet checked live"
+        }
+      },
+      {
+        "id": "pull_requests",
+        "icon": "i-github",
+        "name": "Pull requests",
+        "short": "Implement after approval",
+        "desc": "Implement a change after you approve the exact action. Needs the Pro plan and your own GitHub account; live writes are not yet checked in CI.",
+        "detail": "developer",
+        "web": {
+          "status": "PARTIAL",
+          "note": "Pro, your approval",
+          "action": {
+            "type": "developer",
+            "label": "Open"
+          }
+        },
+        "android": {
+          "status": "PLANNED",
+          "note": "On the website for now"
+        }
+      },
+      {
+        "id": "running_tests",
+        "icon": "i-check",
+        "name": "Running tests",
+        "short": "ZARVIS runs none",
+        "desc": "ZARVIS does not run your tests. A pull request shows what your repository's own checks report on GitHub.",
+        "detail": "developer",
+        "web": {
+          "status": "UNSUPPORTED",
+          "note": "Reads GitHub checks only",
+          "action": {
+            "type": "developer",
+            "label": "Open"
+          }
+        },
+        "android": {
+          "status": "UNSUPPORTED",
+          "note": "Reads GitHub checks only"
+        }
+      },
+      {
+        "id": "writing",
+        "icon": "i-pen",
+        "name": "Writing",
+        "short": "Messages, poems, ideas",
+        "desc": "Messages, poems and brainstorms in the tone you ask for.",
+        "detail": "creative",
+        "web": {
+          "status": "WORKING",
+          "action": {
+            "type": "chat",
+            "label": "Write"
+          },
+          "prompt": "Write a warm, concise message about: "
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Not yet verified on a real phone"
+        }
+      },
+      {
+        "id": "business_drafts",
+        "icon": "i-briefcase",
+        "name": "Business drafts",
+        "short": "Replies, posts, invoices",
+        "desc": "Customer replies, social posts and invoice drafts. Drafts only: nothing is sent, posted or invoiced.",
+        "detail": "business",
+        "web": {
+          "status": "WORKING",
+          "note": "Draft only",
+          "action": {
+            "type": "chat",
+            "label": "Draft"
+          },
+          "prompt": "Draft a polite customer reply to: "
+        },
+        "android": {
+          "status": "PARTIAL",
+          "note": "Draft only; not yet verified on a real phone"
+        }
+      }
+    ],
+    "pages": [
+      {
+        "id": "workspace",
+        "category": "AI & Conversation",
+        "title": "AI Workspace",
+        "icon": "i-chat",
+        "capabilities": [
+          "conversation"
+        ],
+        "android": {
+          "summary": "A conversation that can use the skills ZARVIS already ships.",
+          "what": "Chat in natural language. Follow-up questions stay in the same conversation, and a request can use a skill such as search, documents, or writing.",
+          "why": "One workspace covers questions, writing, files, and tasks.",
+          "how": [
+            "Type or speak a request.",
+            "ZARVIS replies in the same chat.",
+            "When a skill fits, the result stays in the thread."
+          ],
+          "canDo": [
+            "English, Hindi, and Hinglish",
+            "Follow-up questions",
+            "Voice from the orb or microphone"
+          ],
+          "start": "Tap Start Chat, edit the request if you want, then send it.",
+          "permissions": "No permission is required to type. The microphone is requested only after you tap Speak.",
+          "limits": [
+            "Replies depend on the configured AI provider."
+          ],
+          "examples": [
+            "Explain this document",
+            "Research this topic",
+            "Help me write this message"
+          ],
+          "cta": "Start Chat",
+          "action": "chat",
+          "prompt": ""
+        }
+      },
+      {
+        "id": "voice",
+        "category": "Voice",
+        "title": "Voice Assistant",
+        "icon": "i-mic",
+        "capabilities": [
+          "voice_input",
+          "spoken_replies"
+        ],
+        "web": {
+          "summary": "Speak a request. ZARVIS transcribes it, responds, and can read the reply aloud.",
+          "what": "Voice is a way to start the same chat. Speech-to-text fills the request. A voice turn turns spoken replies on. You can turn them off in {{Settings → Voice|settings:voice}}.",
+          "why": "You can start a task without typing, including in Hindi or English.",
+          "how": [
+            "Speak",
+            "Understand",
+            "AI decides",
+            "Action or answer",
+            "Voice response"
+          ],
+          "canDo": [
+            "Tap the orb or microphone to start",
+            "Tap again to stop listening",
+            "Cancel a reply in progress with Stop",
+            "See the state: Ready, Listening, Understanding, Speaking, or Error"
+          ],
+          "start": "Open Chat and tap the orb or the microphone. Listening starts only from that tap.",
+          "permissions": "The browser asks for microphone access the first time you tap Speak. ZARVIS does not listen in the background.",
+          "limits": [
+            "There is no wake word and no continuous listening.",
+            "Spoken replies must be turned on in {{Settings → Voice|settings:voice}}.",
+            "Recognition quality depends on the device and browser."
+          ],
+          "examples": [
+            "What's on my task list?",
+            "Summarize this in Hindi",
+            "Draft a short reply to a customer"
+          ],
+          "cta": "Try Voice",
+          "action": "voice",
+          "prompt": ""
+        },
+        "android": {
+          "summary": "Speak a request. ZARVIS transcribes it and can read the reply aloud.",
+          "what": "Voice starts the same conversation. Speech-to-text fills the request. Spoken replies stay off until you enable them.",
+          "why": "You can start a task without typing, in Hindi or English.",
+          "how": [
+            "Speak",
+            "Understand",
+            "AI decides",
+            "Action or answer",
+            "Voice response"
+          ],
+          "canDo": [
+            "Tap the orb to start or stop",
+            "Cancel with the composer",
+            "State labels: Listening, Understanding, Speaking, Error"
+          ],
+          "start": "Tap Try Voice. Listening starts from that tap, not from a wake word.",
+          "permissions": "Microphone permission is requested when you start listening.",
+          "limits": [
+            "No wake word.",
+            "No continuous listening."
+          ],
+          "examples": [
+            "What's on my task list?",
+            "Summarize this in Hindi"
+          ],
+          "cta": "Try Voice",
+          "action": "voice",
+          "prompt": ""
+        }
+      },
+      {
+        "id": "phone",
+        "category": "Phone",
+        "title": "Phone Agent",
+        "icon": "i-phone",
+        "capabilities": [
+          "phone_agent"
+        ],
+        "web": {
+          "summary": "Control supported phone actions using natural language.",
+          "what": "Phone Agent runs on-device skills in the ZARVIS Android app: the actions listed below. Each one asks for the Android access it needs first, and a call waits for you to confirm the exact number. It opens settings screens but does not change settings for you.",
+          "why": "Common phone actions stay in the same conversation as the rest of ZARVIS, on a device that can actually perform them.",
+          "how": [
+            "You say or type a supported command on the Android app.",
+            "ZARVIS matches an on-device skill.",
+            "If the action needs a permission or confirmation, it asks first.",
+            "The phone performs only that action."
+          ],
+          "canDo": [],
+          "start": "On the Android app, open Phone Agent and try a command below. The website cannot place calls or open your apps.",
+          "permissions": "Each phone action on this page says what it needs. Android asks for runtime permissions such as Phone, Contacts and Location; Notification access, Usage access and the accessibility service are turned on by you in Android Settings.",
+          "limits": [
+            "These actions run only in the Android app.",
+            "The website can show the commands. It cannot run them.",
+            "None of them is marked Working until it has been checked on a real phone."
+          ],
+          "examples": [
+            "Open WhatsApp",
+            "Find Mom's number",
+            "Call 9876543210"
+          ],
+          "cta": "View device access",
+          "action": "phone",
+          "prompt": "Open WhatsApp"
+        },
+        "android": {
+          "summary": "Control supported phone actions using natural language.",
+          "what": "Phone Agent uses on-device skills: open apps, find contacts, place a call after you confirm the exact number, set reminders, hand an alarm to the Clock app, open a pre-filled calendar event, pick a document or photo, take a photo, show your approximate location, open Bluetooth, Wi-Fi or location settings, summarize or speak notifications under your privacy rules, show today's screen time, navigate by voice (Back, Home, notifications, lock screen) and read or tap the app you're using through its accessibility service. It does not change settings for you.",
+          "why": "Supported phone actions stay in the same conversation as the rest of ZARVIS.",
+          "how": [
+            "Say or type a supported command.",
+            "ZARVIS explains any access it needs first (Allow / Not now / Learn more), then Android asks.",
+            "Calls show the exact name and number and wait for your confirmation.",
+            "Hand-offs (Clock, calendar, settings) finish in that app — ZARVIS tells you when you need to act there."
+          ],
+          "canDo": [],
+          "start": "Try a command below. Nothing runs until you send it.",
+          "permissions": "Calls need Phone; a contact name also needs Contacts. Reminders need notifications. Location needs approximate location. Reading or speaking notifications needs Notification access; screen time needs Usage access; voice navigation and screen reading need ZARVIS's accessibility service — you turn each of these on yourself in Android Settings. Pickers, camera, calendar and settings use system screens and need no permission. See Settings › Permissions & Device Access.",
+          "limits": [
+            "Only the actions listed here are implemented, and none is verified on a real device yet.",
+            "ZARVIS never changes Wi-Fi, Bluetooth or other settings itself — it opens the screen for you.",
+            "Accessibility is used only for the single action you ask for and confirm — never general automation, never inside banking, password, Android Settings or permission screens.",
+            "There is no wake word: the assistant gesture opens ZARVIS only when you choose ZARVIS as the default assistant."
+          ],
+          "examples": [
+            "Open WhatsApp",
+            "Find Mom's number",
+            "Call 9876543210",
+            "Remind me to drink water in 30 minutes",
+            "Open bluetooth settings"
+          ],
+          "cta": "Try Phone Agent",
+          "action": "phone",
+          "prompt": "Open WhatsApp"
+        },
+        "phoneActions": [
+          {
+            "title": "Open apps",
+            "description": "Launch an installed app by name.",
+            "example": "Open WhatsApp",
+            "requires": "No runtime permission. The app must be installed.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Not yet verified on a real phone"
+            }
+          },
+          {
+            "title": "Find contacts",
+            "description": "Look up a contact's number by name.",
+            "example": "Find Mom's number",
+            "requires": "Requires Contacts permission.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "contacts"
+          },
+          {
+            "title": "Make calls",
+            "description": "Call a number or a saved contact after you confirm.",
+            "example": "Call 9876543210",
+            "requires": "Requires Phone permission. A name also needs Contacts.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "phone_call"
+          },
+          {
+            "title": "Reminders",
+            "description": "Set a reminder at a time you say.",
+            "example": "Remind me to call mom tomorrow at 8 am",
+            "requires": "Requires notifications.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "alarms"
+          },
+          {
+            "title": "Alarms & calendar",
+            "description": "Hand an alarm to the Clock app, or open a pre-filled calendar event you save.",
+            "example": "Set an alarm for 6 am",
+            "requires": "No runtime permission.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "You finish in that app"
+            },
+            "capability": "calendar"
+          },
+          {
+            "title": "Files, photos, camera",
+            "description": "Pick one document or photo, or take a photo; nothing is uploaded. Say \"describe a photo\" and the one photo you pick is sent to ZARVIS's server to be described, and is not stored.",
+            "example": "Describe a photo",
+            "requires": "No runtime permission — system picker/camera.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Not yet verified on a real phone"
+            },
+            "capability": "photos"
+          },
+          {
+            "title": "Location",
+            "description": "Show your approximate location when you ask.",
+            "example": "Where am I",
+            "requires": "Requires approximate location.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "location"
+          },
+          {
+            "title": "System settings",
+            "description": "Opens Bluetooth, Wi-Fi or location settings; you make the change.",
+            "example": "Open wifi settings",
+            "requires": "No runtime permission.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "You finish in Settings"
+            },
+            "capability": "bluetooth"
+          },
+          {
+            "title": "Notifications",
+            "description": "Summarize your current notifications, or speak new ones, following your privacy mode. Security and banking alerts stay hidden by default.",
+            "example": "Read my notifications",
+            "requires": "Requires Notification access (Android Settings).",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "notification_read"
+          },
+          {
+            "title": "Screen time",
+            "description": "Show today's screen time and most-used apps.",
+            "example": "What's my screen time today",
+            "requires": "Requires Usage access (Android Settings).",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "usage_stats"
+          },
+          {
+            "title": "Voice navigation",
+            "description": "Back, Home, Recent apps, notification shade, quick settings, lock screen — each confirmed first.",
+            "example": "Go home",
+            "requires": "Requires ZARVIS's accessibility service.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "accessibility"
+          },
+          {
+            "title": "Read or tap the screen",
+            "description": "Read the app you're using, or tap one button you name. Open ZARVIS over the app with the assistant gesture.",
+            "example": "Read my screen",
+            "requires": "Requires ZARVIS's accessibility service.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires permission"
+            },
+            "capability": "screen_interaction"
+          },
+          {
+            "title": "Default assistant",
+            "description": "Open ZARVIS over any app with the assistant gesture.",
+            "example": "Make ZARVIS my default assistant",
+            "requires": "You choose it in Android Settings › Default apps.",
+            "android": {
+              "status": "PARTIAL",
+              "note": "Requires your choice"
+            },
+            "capability": "default_assistant"
+          }
+        ]
+      },
+      {
+        "id": "research",
+        "category": "Web & Research",
+        "title": "Web & Research",
+        "icon": "i-globe",
+        "capabilities": [
+          "web_search",
+          "research_writing"
+        ],
+        "web": {
+          "summary": "Search, compare, and outline a topic from the chat workspace.",
+          "what": "Web search looks up live results through the backend. Research skills write a comparison, report, or outline from general knowledge and say when that answer is not live-sourced.",
+          "why": "You can ask for a short answer or a structured overview without leaving the conversation.",
+          "how": [
+            "Ask a question in Chat.",
+            "Search is used when the request needs live web information.",
+            "Compare, report, and outline skills reason over general knowledge.",
+            "Those replies are labeled when they are not from a live source."
+          ],
+          "canDo": [
+            "Web search",
+            "Compare information",
+            "Structured report",
+            "Research outline of questions worth investigating"
+          ],
+          "start": "Tap a prompt, add your topic, and send it from Chat.",
+          "permissions": "No device permission. Search uses the configured backend provider.",
+          "limits": [
+            "Research compare, report, and outline are not live web fetches.",
+            "Search results depend on the provider configured on the server."
+          ],
+          "examples": [
+            "Search the web for the latest information about: ",
+            "Research this topic and give me a structured overview: ",
+            "Compare these options: "
+          ],
+          "cta": "Start Research",
+          "action": "chat",
+          "prompt": "Research this topic and give me a structured overview, key points, and questions worth investigating: "
+        },
+        "android": {
+          "summary": "Search, compare, and outline a topic from chat.",
+          "what": "Web search uses the backend. Research compare, report, and outline use general knowledge and say when the answer is not live-sourced.",
+          "why": "A short answer or a structured overview stays in one conversation.",
+          "how": [
+            "Ask in Chat.",
+            "Search is used for live web information.",
+            "Compare, report, and outline are not live fetches."
+          ],
+          "canDo": [
+            "Web search",
+            "Compare information",
+            "Structured report",
+            "Research outline"
+          ],
+          "start": "Edit the prompt with your topic, then send it.",
+          "permissions": "No device permission.",
+          "limits": [
+            "Research replies are not live web fetches.",
+            "Search depends on the server provider."
+          ],
+          "examples": [
+            "Search the web for the latest information about: "
+          ],
+          "cta": "Start Research",
+          "action": "chat",
+          "prompt": "Research this topic and give me a structured overview, key points, and questions worth investigating: "
+        }
+      },
+      {
+        "id": "documents",
+        "category": "Documents",
+        "title": "Documents & Files",
+        "icon": "i-file",
+        "capabilities": [
+          "document_summaries",
+          "image_understanding"
+        ],
+        "web": {
+          "summary": "Attach a file and ask ZARVIS to summarize or explain it.",
+          "what": "You choose a file. ZARVIS reads the text and can summarize it or answer questions about that text in the same chat.",
+          "why": "A long document can be reduced to the points you need, in the language you ask for.",
+          "how": [
+            "Tap the attach control in Chat.",
+            "Choose a supported file.",
+            "The file name appears above the composer.",
+            "Send your question. The attachment is included with that message."
+          ],
+          "canDo": [
+            "Summarize",
+            "Explain important points",
+            "Ask follow-up questions about the attached text"
+          ],
+          "start": "Open Chat, attach a file, and send a question such as “Summarize this.”",
+          "permissions": "The file picker opens only when you tap Attach. Nothing is read from your device before that.",
+          "limits": [
+            "Supported types include PDF, DOCX, TXT, MD, CSV, JSON, and common images (PNG, JPEG, WEBP).",
+            "The attachment is sent with the next message, then cleared.",
+            "Summary quality follows the configured AI provider."
+          ],
+          "examples": [
+            "Summarize this document in simple language",
+            "What are the action items in this file?",
+            "Explain the important numbers"
+          ],
+          "cta": "Analyze a File",
+          "action": "attach",
+          "prompt": "I will attach a document. Summarize it clearly and explain the important points in simple language."
+        },
+        "android": {
+          "summary": "Ask ZARVIS to summarize or explain text you provide.",
+          "what": "The document skill summarizes text you share. On the web you attach PDF, DOCX, TXT, MD, CSV, JSON, or a common image. This Android chat accepts the request in text.",
+          "why": "A long document can be reduced to the points you need.",
+          "how": [
+            "Share the text or attach the file on the web.",
+            "Ask for a summary or a question about it."
+          ],
+          "canDo": [
+            "Summarize",
+            "Explain important points"
+          ],
+          "start": "Send a prompt, then include the text you want summarized.",
+          "permissions": "Files are read only when you choose them. The Android app does not scan storage for this skill.",
+          "limits": [
+            "Summary quality follows the configured AI provider."
+          ],
+          "examples": [
+            "Summarize this document in simple language"
+          ],
+          "cta": "Analyze a File",
+          "action": "chat",
+          "prompt": "I will share a document. Summarize it clearly and explain the important points in simple language."
+        }
+      },
+      {
+        "id": "creative",
+        "category": "Creative",
+        "title": "Creative Studio",
+        "icon": "i-pen",
+        "capabilities": [
+          "writing",
+          "image_generation"
+        ],
+        "web": {
+          "summary": "Draft messages, poems, and idea lists in the tone you ask for.",
+          "what": "Creative skills write a message, a poem, or a brainstorm from your prompt. They use the same chat as everything else.",
+          "why": "A first draft is faster to edit than to start from a blank page.",
+          "how": [
+            "Describe what you want, including tone and length.",
+            "ZARVIS drafts it in Chat.",
+            "Ask for a revision in the next message."
+          ],
+          "canDo": [
+            "Write a message",
+            "Write a poem",
+            "Brainstorm ideas"
+          ],
+          "start": "Start from a prompt below and edit the details before sending.",
+          "permissions": "No device permission.",
+          "limits": [
+            "Drafts are generated text, not a published post or a sent message.",
+            "Output follows the configured AI provider, or an honestly labeled fallback when no provider key is set."
+          ],
+          "examples": [
+            "Write a warm birthday message for a friend",
+            "Brainstorm names for a weekend project",
+            "Write a short poem about rain"
+          ],
+          "cta": "Create Something",
+          "action": "chat",
+          "prompt": "Help me create something polished. Start by asking what I want to make, then draft it for me."
+        },
+        "android": {
+          "summary": "Draft messages, poems, and idea lists.",
+          "what": "Creative skills write a message, a poem, or a brainstorm from your prompt.",
+          "why": "A first draft is faster to edit than a blank page.",
+          "how": [
+            "Describe tone and length.",
+            "Review the draft in Chat.",
+            "Ask for a revision."
+          ],
+          "canDo": [
+            "Write a message",
+            "Write a poem",
+            "Brainstorm ideas"
+          ],
+          "start": "Edit the prompt, then send it.",
+          "permissions": "No device permission.",
+          "limits": [
+            "Drafts are not published or sent for you."
+          ],
+          "examples": [
+            "Write a warm birthday message for a friend"
+          ],
+          "cta": "Create Something",
+          "action": "chat",
+          "prompt": "Help me create something polished. Start by asking what I want to make, then draft it for me."
+        }
+      },
+      {
+        "id": "business",
+        "category": "Business",
+        "title": "Business",
+        "icon": "i-briefcase",
+        "capabilities": [
+          "business_drafts"
+        ],
+        "web": {
+          "summary": "Draft a social post, a customer reply, or an invoice from details you provide.",
+          "what": "Business skills that exist today: a social post, a customer reply, and an invoice draft parsed from line items you type.",
+          "why": "Everyday business writing starts from a structured draft you can copy and edit.",
+          "how": [
+            "Say which draft you need.",
+            "Include the facts: product, customer, or line items.",
+            "Review the draft in Chat before you use it."
+          ],
+          "canDo": [
+            "Social post draft",
+            "Customer reply draft",
+            "Invoice draft from line items you provide"
+          ],
+          "start": "Open Chat with a business prompt and replace the placeholder with your details.",
+          "permissions": "No device permission. Drafts are not sent to customers or posted anywhere.",
+          "limits": [
+            "ZARVIS does not publish, email, or collect payment.",
+            "The invoice draft is a document, not a filed invoice.",
+            "Do not treat a draft as legal or tax advice."
+          ],
+          "examples": [
+            "Write a social post about our new workshop",
+            "Reply politely to a customer who asked for a refund update",
+            "Draft an invoice for these items: "
+          ],
+          "cta": "Open Business Tools",
+          "action": "chat",
+          "prompt": "Help me with a business task. I want a polished customer reply, social post, or invoice draft."
+        },
+        "android": {
+          "summary": "Draft a social post, a customer reply, or an invoice.",
+          "what": "Implemented business skills: social post, customer reply, and an invoice draft from line items you type.",
+          "why": "Everyday business writing starts from a draft you can copy.",
+          "how": [
+            "Say which draft you need.",
+            "Include the facts.",
+            "Review it before you use it."
+          ],
+          "canDo": [
+            "Social post draft",
+            "Customer reply draft",
+            "Invoice draft"
+          ],
+          "start": "Replace the placeholder with your details and send.",
+          "permissions": "No device permission. Drafts are not posted or emailed.",
+          "limits": [
+            "ZARVIS does not publish, email, or collect payment.",
+            "A draft is not legal or tax advice."
+          ],
+          "examples": [
+            "Write a social post about our new workshop"
+          ],
+          "cta": "Open Business Tools",
+          "action": "chat",
+          "prompt": "Help me with a business task. I want a polished customer reply, social post, or invoice draft."
+        }
+      },
+      {
+        "id": "developer",
+        "category": "Developer",
+        "title": "Developer Agent",
+        "icon": "i-code",
+        "capabilities": [
+          "repository_analysis",
+          "pull_requests",
+          "running_tests"
+        ],
+        "web": {
+          "summary": "Read a repository, then change it only after you confirm.",
+          "what": "Repository analysis is read-only. Implementation can create a branch and a pull request on GitHub, and it requires an explicit confirmation. It does not merge.",
+          "why": "You can inspect a project from chat, and keep code changes behind a confirmation step.",
+          "how": [
+            "Share a repository URL and ask for analysis.",
+            "ZARVIS reports what it can see.",
+            "A code change is a separate, confirmed action.",
+            "Review the pull request before anything is merged."
+          ],
+          "canDo": [
+            "Read-only repository analysis",
+            "Confirmation required before implementation",
+            "Pull request creation when that action is confirmed"
+          ],
+          "start": "Open Developer Agent, paste a repository URL and run Analyze. Implement shows the exact pull request for your approval before anything is written.",
+          "permissions": "Implementation uses the protected developer workflow and your confirmation. Analysis does not change the repository.",
+          "limits": [
+            "Implement needs a {{PRO plan|plans}} and your own {{connected GitHub account|developer}}.",
+            "Nothing is merged automatically.",
+            "The Android Developer screen is read-only analysis."
+          ],
+          "examples": [
+            "Analyze this repository and tell me what needs fixing: ",
+            "What is the build system of this repo?"
+          ],
+          "cta": "Open Developer Agent",
+          "action": "developer",
+          "prompt": "I want help with my GitHub project. I will provide the repository URL. Analyze it first and tell me what needs fixing."
+        },
+        "android": {
+          "summary": "Read a repository. Code changes stay behind confirmation.",
+          "what": "The Android Developer screen analyzes a repository URL. It does not change code. Implementation on the server requires an explicit confirmation and is not a button on this screen.",
+          "why": "You can inspect a project without a silent write.",
+          "how": [
+            "Open Developer Agent.",
+            "Paste a repository URL.",
+            "Run Analyze.",
+            "Read the summary."
+          ],
+          "canDo": [
+            "Read-only repository analysis"
+          ],
+          "start": "Open Developer Agent. Analyze does not modify the repository.",
+          "permissions": "No phone permission. Analysis is read-only in this app.",
+          "limits": [
+            "Pull requests are not offered on this screen.",
+            "Nothing is merged automatically."
+          ],
+          "examples": [
+            "https://github.org/example/repository"
+          ],
+          "cta": "Open Developer Agent",
+          "action": "developer",
+          "prompt": ""
+        }
+      },
+      {
+        "id": "tasks",
+        "category": "Automation",
+        "title": "Tasks & Automation",
+        "icon": "i-task",
+        "capabilities": [
+          "tasks",
+          "background_automation"
+        ],
+        "android": {
+          "summary": "Create a trackable task, then follow, pause or cancel it.",
+          "what": "You can create a task from Chat and follow it in Work › Tasks. Creating a task stores its steps. On the phone you can pause or cancel it; running a step is on the website for now.",
+          "why": "A multi-step goal stays visible after you leave the chat.",
+          "how": [
+            "Describe the goal in Chat.",
+            "Open Work › Tasks to see its status, pause it or cancel it.",
+            "A created task is tracking, not completed work."
+          ],
+          "canDo": [
+            "Create a tracked task",
+            "Pause or cancel it"
+          ],
+          "start": "Create a task from Chat, then review it in Work › Tasks.",
+          "permissions": "Uses your ZARVIS account. Scheduled reminders use Android notifications when you create one.",
+          "limits": [
+            "Steps don't run from the phone yet; run them on the website.",
+            "A reminder that notifies you is a Phone Agent action, not a task."
+          ],
+          "examples": [
+            "Create a workflow for this goal and break it into clear steps: "
+          ],
+          "cta": "Create a Task",
+          "action": "chat",
+          "prompt": "Create a workflow for this goal and break it into clear steps: "
+        }
+      }
+    ]
   };
+  /* END shared/feature-catalog.json */
 
-  /* Capabilities hub: grouped, one line per capability, each with an honest status and the
-     real action that uses it. Actions are handled by app.js through data attributes:
+  /* shared/feature-catalog.json is the one capability catalogue for the website and the Android app; the block above is
+     its copy (node scripts/sync-feature-catalog.mjs), and web/tests/featureCatalog.test.js fails when the two differ.
+     Every capability carries one of four honest states per platform (the same words as the Permission Center):
+       WORKING      implemented, connected and covered by this repository's automated tests
+       PARTIAL      part of it is real: it depends on a service, a plan, a browser or a step you take
+       PLANNED      designed, not active
+       UNSUPPORTED  no route on that platform (Android-only actions, things this version does not do)
+     `note` says in a few words what the state depends on. A capability is never listed as active unless it is WORKING or PARTIAL.
+
+     Hub actions are handled by app.js through data attributes:
        data-cap-action = chat | voice | attach | developer | settings | feature | page
        data-cap-page = view id (page action)
        data-cap-prompt = text placed in the composer (chat)
        data-feature-page = detail page id */
-  /* Every capability carries one of four honest states (the same words as the Permission Center):
-       WORKING      implemented, connected and covered by this repository's automated tests
-       PARTIAL      part of it is real: it depends on a service, a plan, a browser or a step you take
-       PLANNED      designed, not active
-       UNSUPPORTED  no route on the web (Android-only actions, things this version does not do)
-     `note` says in a few words what the state depends on. A capability is never listed as active unless it is WORKING or PARTIAL. */
-  const GROUPS = [
-    { title: "AI", items: [
-      { icon: "i-chat", name: "Conversation", short: "Ask anything, get answers", desc: "Ask anything in English, Hindi or Hinglish; follow-ups keep context.", status: ["WORKING"], action: ["chat", "Open"] },
-      { icon: "i-globe", name: "Web search", short: "Live, sourced results", desc: "Live, sourced results. Needs the search provider configured on the server; sources are the links it returns.", status: ["WORKING", "Needs the search provider"], action: ["chat", "Try"], prompt: "Search the web and cite the sources you use: ", feature: "research" },
-      { icon: "i-search", name: "Research writing", short: "Compare, report, outline", desc: "Compare, report and outline are written from general knowledge, not from a live search, and say so.", status: ["PARTIAL", "Not live-sourced"], action: ["chat", "Try"], prompt: "Compare these options and say which claims come from live search: ", feature: "research" },
-    ] },
-    { title: "Work", items: [
-      { icon: "i-folder", name: "Projects", short: "Keep chats, files and decisions together", desc: "A project keeps its chats, files, tasks, decisions and memory, and Continue work resumes what is stored.", status: ["WORKING"], action: ["page", "Open"], page: "work" },
-      { icon: "i-file", name: "Files library", short: "Keep what ZARVIS read", desc: "Upload a file and ZARVIS keeps the text it read (not the original) so you can summarize, ask, extract or compare.", status: ["WORKING", "Text only is kept"], action: ["page", "Open"], page: "work" },
-      { icon: "i-memory", name: "Memory", short: "Only what you save", desc: "Personal and project memory that you add, pause and delete. Nothing is remembered automatically.", status: ["WORKING"], action: ["settings", "Open"], settings: "memory" },
-    ] },
-    { title: "Voice", items: [
-      { icon: "i-mic", name: "Voice input", short: "Talk naturally", desc: "Tap the orb or microphone to speak. No wake word. Depends on your browser's speech recognition.", status: ["PARTIAL", "Browser dependent"], action: ["voice", "Talk"], feature: "voice" },
-      { icon: "i-wave", name: "Spoken replies", short: "Hear replies aloud", desc: "ZARVIS reads replies aloud with a neural voice, chosen from the text (Hindi, Hinglish or English). It needs no AI key, but it is an unofficial voice service with no guarantee.", status: ["PARTIAL", "Unofficial voice service"], action: ["settings", "Settings"], settings: "voice", feature: "voice" },
-    ] },
-    { title: "Vision", items: [
-      { icon: "i-image", name: "Image understanding", short: "Ask about photos", desc: "Attach a photo or screenshot, or take one with the camera, and ask about it. Needs the server's vision model.", status: ["PARTIAL", "Needs the vision model"], action: ["attach", "Upload"], feature: "documents" },
-      { icon: "i-sparkle", name: "Image generation", short: "Not part of this version", desc: "Creating images is designed but not active in this version.", status: ["PLANNED"] },
-    ] },
-    { title: "Files", items: [
-      { icon: "i-file", name: "Document summaries", short: "PDF, Docs, text files", desc: "PDF, DOCX and text files: summarize or ask questions.", status: ["WORKING"], action: ["attach", "Upload"], feature: "documents" },
-    ] },
-    { title: "Automation", items: [
-      { icon: "i-task", name: "Tasks", short: "Goals in steps you start", desc: "A task has a real status. A step runs, as a ZARVIS turn, when you press Run; nothing runs in the background.", status: ["PARTIAL", "You start each step"], action: ["page", "Open"], page: "tasks" },
-      { icon: "i-activity", name: "Background automation", short: "Tasks that run by themselves", desc: "Running steps on a schedule or without you is designed but not active.", status: ["PLANNED"] },
-      { icon: "i-phone", name: "Phone Agent", short: "Android app actions", desc: "Open apps, find contacts and place confirmed calls. Android-only: the website can't do them.", status: ["UNSUPPORTED", "Android app only"], action: ["feature", "Details"], feature: "phone" },
-    ] },
-    { title: "Developer", items: [
-      { icon: "i-code", name: "Repository analysis", short: "Read-only repo report", desc: "A read-only report on a GitHub repository, read from its file tree. Checked against a GitHub test double, not yet against live GitHub in CI.", status: ["PARTIAL", "Not yet checked live"], action: ["developer", "Open"], feature: "developer" },
-      { icon: "i-github", name: "Pull requests", short: "Implement after approval", desc: "Implement a change after you approve the exact action. Needs the Pro plan and your own GitHub account; live writes are not yet checked in CI.", status: ["PARTIAL", "Pro, your approval"], action: ["developer", "Open"], feature: "developer" },
-      { icon: "i-check", name: "Running tests", short: "ZARVIS runs none", desc: "ZARVIS does not run your tests. A pull request shows what your repository's own checks report on GitHub.", status: ["UNSUPPORTED", "Reads GitHub checks only"], action: ["developer", "Open"], feature: "developer" },
-    ] },
-    { title: "Productivity", items: [
-      { icon: "i-pen", name: "Writing", short: "Messages, poems, ideas", desc: "Messages, poems and brainstorms in the tone you ask for.", status: ["WORKING"], action: ["chat", "Write"], prompt: "Write a warm, concise message about: ", feature: "creative" },
-      { icon: "i-briefcase", name: "Business drafts", short: "Replies, posts, invoices", desc: "Customer replies, social posts and invoice drafts. Drafts only: nothing is sent, posted or invoiced.", status: ["WORKING", "Draft only"], action: ["chat", "Draft"], prompt: "Draft a polite customer reply to: ", feature: "business" },
-    ] },
-  ];
+  const CAPABILITIES = {};
+  for (const capability of SHARED_CATALOG.capabilities) CAPABILITIES[capability.id] = capability;
+
+  /* Detail pages that have website copy; the others (AI Workspace, Tasks & Automation) exist only in the Android app. */
+  const CATALOG = SHARED_CATALOG.pages.filter((page) => page.web).map((page) => Object.assign({
+    id: page.id, category: page.category, title: page.title, icon: page.icon, capabilities: page.capabilities, phoneActions: page.phoneActions,
+  }, page.web));
+
+  /** A capability as the website's hub shows it: its web status and note, and the real action that uses it. */
+  function hubItem(capability) {
+    const web = capability.web;
+    const item = { id: capability.id, icon: capability.icon, name: capability.name, short: capability.short, desc: capability.desc, status: web.note ? [web.status, web.note] : [web.status] };
+    if (web.action) item.action = [web.action.type, web.action.label];
+    if (web.prompt) item.prompt = web.prompt;
+    if (web.page) item.page = web.page;
+    if (web.settings) item.settings = web.settings;
+    if (capability.detail && CATALOG.some((page) => page.id === capability.detail)) item.feature = capability.detail;
+    return item;
+  }
+
+  const GROUPS = SHARED_CATALOG.groups.map((group) => ({ id: group.id, title: group.title, items: group.capabilities.map((id) => hubItem(CAPABILITIES[id])) }));
 
   /* The card badge colour for each state. */
   const STATUS_TONE = { WORKING: "ok", PARTIAL: "warn", PLANNED: "info", UNSUPPORTED: "off" };
-
-  function badgeClass(kind) {
-    if (kind === "permission") return "feature-badge feature-badge-permission";
-    if (kind === "android") return "feature-badge feature-badge-android";
-    if (kind === "unsupported") return "feature-badge feature-badge-unsupported";
-    if (kind === "soon") return "feature-badge feature-badge-soon";
-    return "feature-badge feature-badge-now";
-  }
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -355,13 +1321,12 @@
 
     const head = el("header", "feature-hero");
     const ico = el("span", "row-ico " + (CATEGORY_TONES[feature.category] || "tone-blue"));
-    ico.appendChild(icon(ICONS[feature.id] || "i-sparkle"));
+    ico.appendChild(icon(feature.icon || "i-sparkle"));
     const titles = el("div", "feature-hero-copy");
     titles.appendChild(el("p", "feature-kicker", feature.category));
     titles.appendChild(el("h1", "feature-title", feature.title));
     titles.appendChild(el("p", "feature-summary", feature.summary));
-    const badge = el("span", badgeClass(feature.kind), feature.availability);
-    titles.appendChild(badge);
+    titles.appendChild(statusList(feature.capabilities.map((id) => CAPABILITIES[id])));
     head.append(ico, titles);
     page.appendChild(head);
 
@@ -431,18 +1396,39 @@
     return block;
   }
 
+  /** The page's capabilities with their state on the website, each with what it depends on spelled out. */
+  function statusList(capabilities) {
+    const list = el("ul", "feature-status-list");
+    list.setAttribute("aria-label", "Status on the website");
+    for (const capability of capabilities) {
+      const row = el("li", "feature-status");
+      row.append(el("span", "feature-status-name", capability.name), statusBadge(capability.web.status));
+      if (capability.web.note) row.append(el("span", "feature-status-note", capability.web.note));
+      list.appendChild(row);
+    }
+    return list;
+  }
+
+  function statusBadge(status, prefix) {
+    const label = window.ZarvisLogic.capabilityStatusLabel(status);
+    return el("span", "z-badge z-badge-" + STATUS_TONE[status], prefix ? prefix + " · " + label : label);
+  }
+
+  /** The Android app's phone actions, with the state the shared catalogue records for the app (never Working before a real-device run). */
   function phoneList(actions) {
     const block = el("section", "feature-block");
-    block.appendChild(el("h2", "feature-block-title", "Supported phone actions"));
+    block.appendChild(el("h2", "feature-block-title", "On the Android app"));
     const grid = el("div", "cap-grid");
     for (const action of actions) {
-      const row = el("article", "cap-item" + (action.kind === "unsupported" ? " is-off" : ""));
+      const status = action.android.status;
+      const row = el("article", "cap-item" + (status === "UNSUPPORTED" || status === "PLANNED" ? " is-off" : ""));
+      row.dataset.status = status;
       const copy = el("div", "cap-copy");
       const name = el("div", "cap-name");
-      name.appendChild(el("span", null, action.title));
-      name.appendChild(el("span", badgeClass(action.kind), action.availability));
-      copy.append(name, el("p", "cap-desc", action.description + (action.example !== "—" ? " Example: “" + action.example + "”." : "")));
-      copy.appendChild(el("p", "cap-desc", action.permission));
+      name.append(el("span", null, action.title), statusBadge(status, "Android app"));
+      copy.append(name, el("p", "cap-desc", action.description + " Example: “" + action.example + "”."));
+      copy.appendChild(el("p", "cap-desc", action.requires));
+      if (action.android.note) copy.appendChild(el("span", "cap-note", action.android.note));
       row.appendChild(copy);
       grid.appendChild(row);
     }
@@ -465,6 +1451,7 @@
   }
 
   window.ZarvisFeatures = {
+    shared: SHARED_CATALOG,
     catalog: CATALOG,
     groups: GROUPS,
     STATUS_TONE: STATUS_TONE,

@@ -11,44 +11,50 @@ import androidx.compose.ui.graphics.Color
  *
  * The values are the website's design tokens (web/styles.css, documented in DESIGN_SYSTEM.md), so the app and the site read as one
  * product: the same page and card colours, the same indigo primary in light and the same periwinkle in dark, the same status
- * colours. When a token changes there, change it here (and the other way round).
+ * colours, and the same two gradients (see [zarvisActionBrush] and [zarvisAuroraBrush]). When a token changes there, change it here (and the other way round).
  *
  * The constants below are the raw palette. Screens should not hard-code them for text: a colour that reads well on the dark page
- * is unreadable on the light one (the cyan below is 1.7:1 on a white card). Text accents and glass surfaces come from
+ * is unreadable on the light one (the cyan below is 2.4:1 on a white card). Text accents and glass surfaces come from
  * [ZarvisExtras] through [LocalZarvisExtras] / [GlassColors] / [ZarvisAccents], which follow the theme.
  */
 
 // ---- Dark ("Dim") -------------------------------------------------------------------------------
-val ZarvisSpaceBlack = Color(0xFF070A1D) // web --bg (dim)
-val ZarvisSurfaceDark = Color(0xFF0F1436) // web --surface (dim)
-val ZarvisSurfaceDarkElevated = Color(0xFF151B45) // web --surface-2 (dim)
-val ZarvisSurfaceDarkHighest = Color(0xFF1E2656) // web --surface-3 (dim)
-val ZarvisTextPrimaryDark = Color(0xFFF2F4FF) // web --text (dim)
-val ZarvisTextSecondaryDark = Color(0xFFC3C9EA) // web --text-2 (dim)
-val ZarvisBorderDark = Color(0xFF2B3262) // web --line-2 (dim) over the page
-val ZarvisPrimaryDark = Color(0xFF8DA2FF) // web --primary (dim)
-val ZarvisErrorDark = Color(0xFFFF7B90) // web --err (dim)
-val ZarvisWarningDark = Color(0xFFF0B44C) // web --warn (dim)
-val ZarvisSuccessDark = Color(0xFF3CCF95) // web --ok (dim)
+val ZarvisSpaceBlack = Color(0xFF070B1F) // web --bg (dim)
+val ZarvisSurfaceDark = Color(0xFF0E1433) // web --surface (dim)
+val ZarvisSurfaceDarkElevated = Color(0xFF141B42) // web --surface-2 (dim)
+val ZarvisSurfaceDarkHighest = Color(0xFF1B2351) // web --surface-3 (dim)
+val ZarvisTextPrimaryDark = Color(0xFFEEF1FF) // web --text (dim)
+val ZarvisTextSecondaryDark = Color(0xFFBCC3EE) // web --text-2 (dim)
+val ZarvisBorderDark = Color(0xFF2F355E) // web --line-2 (dim) over the page
+val ZarvisPrimaryDark = Color(0xFFA9B6FF) // web --primary (dim)
+val ZarvisErrorDark = Color(0xFFFCA5A5) // web --err (dim)
+val ZarvisWarningDark = Color(0xFFFCD34D) // web --warn (dim)
+val ZarvisSuccessDark = Color(0xFF6EE7B7) // web --ok (dim)
 
 // ---- Light ("Aurora Light", the default) --------------------------------------------------------
-val ZarvisSurfaceLight = Color(0xFFF4F3FF) // web --bg
+val ZarvisSurfaceLight = Color(0xFFF6F7FF) // web --bg
 val ZarvisSurfaceLightElevated = Color(0xFFFFFFFF) // web --surface
-val ZarvisSurfaceLightVariant = Color(0xFFF1F0FD) // web --surface-2
-val ZarvisSurfaceLightHighest = Color(0xFFE6E4F8) // web --surface-3
-val ZarvisTextPrimaryLight = Color(0xFF0C1222) // web --text
-val ZarvisTextSecondaryLight = Color(0xFF424A6B) // web --text-2
-val ZarvisBorderLight = Color(0xFFD9DBF0) // web --line-2 over the page
-val ZarvisAccentIndigoLight = Color(0xFF4A4DE0) // web --primary
-val ZarvisErrorLight = Color(0xFFC42B47) // web --err
-val ZarvisWarningLight = Color(0xFF8F5A06) // web --warn
-val ZarvisSuccessLight = Color(0xFF09774F) // web --ok
+val ZarvisSurfaceLightVariant = Color(0xFFF2F3FF) // web --surface-2
+val ZarvisSurfaceLightHighest = Color(0xFFE9EBFC) // web --surface-3
+val ZarvisTextPrimaryLight = Color(0xFF0F1430) // web --text
+val ZarvisTextSecondaryLight = Color(0xFF464C70) // web --text-2
+val ZarvisBorderLight = Color(0xFFCFD1EE) // web --line-2 over the page
+val ZarvisAccentIndigoLight = Color(0xFF3346D6) // web --primary
+val ZarvisErrorLight = Color(0xFFB42318) // web --err
+val ZarvisWarningLight = Color(0xFF9A4A06) // web --warn
+val ZarvisSuccessLight = Color(0xFF047857) // web --ok
 
 // ---- Brand accents (bright: glows, orbs, gradients, icons on a dark page; not text on a light page) ----
 val ZarvisAccentIndigo = Color(0xFF6366F1)
-val ZarvisAccentCyan = Color(0xFF22D3EE)
+val ZarvisAccentCyan = Color(0xFF06B6D4) // web --grad-aurora stops
+val ZarvisAccentBlue = Color(0xFF3B82F6)
 val ZarvisAccentViolet = Color(0xFF8B5CF6)
-val ZarvisAccentPink = Color(0xFFF472B6)
+val ZarvisAccentPink = Color(0xFFEC4899)
+
+// ---- The gradient under white text and icons (web --grad): every stop is at least 4.5:1 with white ----
+val ZarvisActionBlue = Color(0xFF2563EB)
+val ZarvisActionViolet = Color(0xFF6D28D9)
+val ZarvisActionPink = Color(0xFFBE185D)
 
 /** Risk colours for a dark page (see [ZarvisExtras] for the theme-aware ones that [com.zarvismobile.core.ui.components.RiskBadge] uses). */
 object RiskColors {
@@ -89,14 +95,14 @@ class ZarvisExtras(
 
 val LightExtras = ZarvisExtras(
     isDark = false,
-    glass = Color.White.copy(alpha = 0.72f), // web --glass
+    glass = Color.White.copy(alpha = 0.74f), // web --glass
     glassElevated = Color.White.copy(alpha = 0.92f),
-    glassBorder = Color(0x1A28306E), // web --card-border
-    glassBorderStrong = Color(0x333C3C8C), // web --line-2
-    glassHighlight = Color.White.copy(alpha = 0.85f),
-    accentCyan = Color(0xFF0E7490), // 5.2:1 on a glass card
-    accentViolet = Color(0xFF6D4ADF), // 5.5:1
-    accentPink = Color(0xFFBE3A86), // 4.9:1
+    glassBorder = Color(0x1F464CB4), // web --card-border
+    glassBorderStrong = Color(0x38464CB4), // web --line-2
+    glassHighlight = Color.White.copy(alpha = 0.9f),
+    accentCyan = Color(0xFF0E7490), // web --cyan (ink): 5.0:1 or more on the page and on a glass card
+    accentViolet = Color(0xFF6D28D9), // web --violet (ink)
+    accentPink = Color(0xFFBE185D), // web --pink (ink)
     success = ZarvisSuccessLight,
     warning = ZarvisWarningLight,
     danger = ZarvisErrorLight,
@@ -104,14 +110,14 @@ val LightExtras = ZarvisExtras(
 
 val DarkExtras = ZarvisExtras(
     isDark = true,
-    glass = Color(0xFFA0AFFF).copy(alpha = 0.075f), // web --card-bg (dim)
-    glassElevated = Color(0xFFA0AFFF).copy(alpha = 0.13f),
-    glassBorder = Color(0xFFAAB6FF).copy(alpha = 0.15f), // web --card-border (dim)
-    glassBorderStrong = Color(0xFFAAB6FF).copy(alpha = 0.26f),
-    glassHighlight = Color.White.copy(alpha = 0.07f),
-    accentCyan = ZarvisAccentCyan, // 9.9:1 on a dark glass card
-    accentViolet = Color(0xFFB49BFF), // web --primary-2 (dim)
-    accentPink = Color(0xFFF58FC4),
+    glass = Color(0xFF1E285C).copy(alpha = 0.72f), // web --card-bg (dim)
+    glassElevated = Color(0xFF1A224E).copy(alpha = 0.86f),
+    glassBorder = Color(0xFF94A0FF).copy(alpha = 0.16f), // web --card-border (dim)
+    glassBorderStrong = Color(0xFF94A0FF).copy(alpha = 0.28f), // web --line-2 (dim)
+    glassHighlight = Color.White.copy(alpha = 0.06f),
+    accentCyan = Color(0xFF67E8F9), // web --cyan (dim)
+    accentViolet = Color(0xFFC9B8FF), // web --violet (dim)
+    accentPink = Color(0xFFF9A8D4), // web --pink (dim)
     success = ZarvisSuccessDark,
     warning = ZarvisWarningDark,
     danger = ZarvisErrorDark,
@@ -141,7 +147,7 @@ object ZarvisAccents {
 /**
  * The text-safe version of one of the bright brand accents ([ZarvisAccentCyan], [ZarvisAccentViolet], [ZarvisAccentPink]) for the current
  * theme; any other colour is returned as given. Lets a screen that already passes an accent around keep doing so while its words stay
- * readable on the light page (the bright cyan is 1.7:1 there).
+ * readable on the light page (the bright cyan is 2.4:1 there).
  */
 @Composable
 @ReadOnlyComposable
