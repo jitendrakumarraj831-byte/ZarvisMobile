@@ -17,6 +17,7 @@ import { logger } from "../security/redact.js";
 import { withModelCallLog, type ModelCallRecord } from "../ai/callTrace.js";
 import { correlationFields, runWithCorrelation } from "../observability/requestContext.js";
 import type { PipelineStage } from "../tooling/toolPipeline.js";
+import { detectReplyLanguage } from "../language/textLanguage.js";
 import { findAgent } from "./agentProfiles.js";
 import { contextPrompt, loadTurnContext, type TurnContextText } from "./turnContext.js";
 
@@ -576,23 +577,6 @@ function getZarvisProfileResponse(utterance: string, locale?: string): string | 
   return identityResponse(kind, detectReplyLanguage(utterance.trim().toLocaleLowerCase(), locale));
 }
 
-function detectReplyLanguage(utterance: string, locale?: string): "hi" | "en" {
-  if (/[\u0900-\u097f]/.test(utterance)) return "hi";
-
-  const normalized = utterance.toLocaleLowerCase();
-  const romanHindiMarkers =
-    /\b(?:aap|ap|aapko|aapke|aapki|aapka|tum|tumhe|tumhein|mujhe|mera|meri|mere|kya|kaise|kaisa|kaisi|kyu|kyon|kyunki|hai|hain|ho|tha|thi|the|raha|rahi|rahe|batao|bataye|banaya|banai|kisne|kaun|kon|kahan|kab|kal|aaj|abhi|bahut|accha|achha|acha|haal|chal|karna|karo|kar|chahiye|hoga|hogi|denge|do|lo|wala|wali|wale)\b/;
-  const englishMarkers =
-    /\b(?:what|why|when|where|who|how|which|can|could|would|should|is|are|was|were|do|does|did|tell|show|find|search|explain|help|please|thanks|thank|weather|today|tomorrow|latest|create|build|design|develop)\b/;
-
-  const romanHindiScore = (normalized.match(romanHindiMarkers) || []).length;
-  const englishScore = (normalized.match(englishMarkers) || []).length;
-
-  if (romanHindiScore > 0 && romanHindiScore >= englishScore) return "hi";
-  if (englishScore > 0) return "en";
-
-  return locale?.toLowerCase().startsWith("hi") ? "hi" : "en";
-}
 function getSimpleGreetingResponse(utterance: string, locale?: string): string | undefined {
   const normalized = utterance
     .trim()

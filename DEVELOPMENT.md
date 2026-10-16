@@ -36,7 +36,7 @@
   and a line over 20,000 characters, a reply over 100,000 characters or one with more than 2,000 lines/list items is shown as plain text (nothing is cut).
   A new piece of syntax needs a bounded scan or regex and a case in `MarkdownRobustnessTest` (it floods every token at 30,000 characters).
 - The app language (Settings > Language) sets the labels, voice input and read-aloud. It is not the language of the conversation: replies follow the
-  language the user writes or speaks, and the app language only breaks a tie (`detectReplyLanguage` in `backend/src/agents/orchestrator.ts`). The Language
+  language the user writes or speaks, and the app language only breaks a tie (`detectReplyLanguage` in `backend/src/language/textLanguage.ts`, the same detector that picks the voice). The Language
   page says so and lists what is still English; `UiStringTest` keeps that text honest.
 - Chat: which server conversation is active is owned by ONE object, `ActiveConversation` (domain). The orchestrator, the Chat tab, a chat opened from Home,
   Settings (sign-in, sign-out, delete account) and app start-up all go through it; nothing else writes the saved id. Its `state` carries a
@@ -57,8 +57,8 @@
   else a mobile, number); `ContactMatching.bestMatches` keeps only the best-ranked ones (the exact name, then names that start with it, then a word that starts with it, then names that merely
   contain it). `phone.call` refuses a name that still fits several people (`ambiguous_contact`, naming them) instead of ringing one at random, and `phone.find_contact` lists them. The lookup
   escapes `%`, `_` and `\` in the name (`ContactMatching.likePattern`). `OnDeviceInputBuilder` leaves only the name in "what is mom's number", "mom ka number batao" or "call Rahul on speaker";
-  `DeviceCommandGate` keeps "call me later" and "call off the meeting" out of the call skill; a bare 3-6 digit number ("112") is dialed as a number, after the usual confirmation.
-  Tests: `ContactMatchingTest`, `PhoneCallSkillFactoryTest`, `PhoneFindContactSkillFactoryTest`, `OnDeviceInputBuilderTest`, `DeviceCommandGateTest`, `DeviceCommandRoutingTest`.
+  `DeviceCommandGate` keeps "call me later" and "call off the meeting" out of the call skill, and so a sentence that says not to call, to call later or asks how to call ("call mat karo", "baad mein call karna", "call kaise karte hain"), whose Hindi words come after the verb; a bare 3-6 digit number ("112") is dialed as a number, after the usual confirmation.
+  Tests: `ContactMatchingTest`, `PhoneCallSkillFactoryTest`, `PhoneFindContactSkillFactoryTest`, `OnDeviceInputBuilderTest`, `DeviceCommandGateTest`, `DeviceCommandRoutingTest`, `HinglishDeviceCommandSafetyTest`.
 - A failed call is reported (and retryable), never shown as an empty list or a zero.
 
 ## Current engineering gate

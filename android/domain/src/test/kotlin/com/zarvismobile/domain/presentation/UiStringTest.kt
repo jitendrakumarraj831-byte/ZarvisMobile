@@ -69,7 +69,7 @@ class UiStringTest {
     fun `the Language page keeps the app language apart from the language of the conversation`() {
         val en = UiString.LANGUAGE_SCOPE_BODY.en
         val hi = UiString.LANGUAGE_SCOPE_BODY.hi
-        // Replies follow the language of the message; the app language is only a tie-breaker (backend/src/agents/orchestrator.ts detectReplyLanguage).
+        // Replies follow the language of the message; the app language is only a tie-breaker (backend/src/language/textLanguage.ts detectReplyLanguage).
         assertTrue("does not decide the language of your conversation" in en, en)
         assertTrue("you write or speak in" in en, en)
         assertTrue("बातचीत की भाषा तय नहीं करता" in hi, hi)
