@@ -1,14 +1,20 @@
+import { KeyRotator, parseKeyList } from "../security/keyRotator.js";
 import { logger, registerSecret } from "../security/redact.js";
 import { EdgeTtsProvider } from "../tts/edgeTtsProvider.js";
 import { FallbackTtsProvider } from "../tts/fallbackTtsProvider.js";
 import { DEFAULT_ELEVENLABS_MODEL, DEFAULT_ELEVENLABS_VOICE_ID, ElevenLabsTtsProvider } from "../tts/elevenLabsTtsProvider.js";
 import { DEFAULT_GEMINI_TTS_MODEL, DEFAULT_GEMINI_TTS_VOICE, GeminiTtsProvider } from "../tts/geminiTtsProvider.js";
+import { Semaphore } from "../tts/guard.js";
+import { KeyRotatingTtsProvider } from "../tts/keyRotatingTtsProvider.js";
 import type { TtsProvider } from "../tts/provider.js";
 import { DEFAULT_ENGLISH_VOICE, DEFAULT_HINDI_VOICE, isVoiceName, type VoiceSettings } from "../tts/voices.js";
 
 /** The raw settings (a subset of `env`, so tests can pass their own). */
 export interface TtsConfigInput {
-  /** The main voice: `gemini` (default), `elevenlabs`, `edge`, or `none` (no spoken replies). */
+  /**
+   * The main voice: `elevenlabs`, `gemini`, `edge`, or `none` (no spoken replies). Unset: ElevenLabs when it has
+   * a key (ELEVENLABS_KEYS / ELEVENLABS_API_KEY), otherwise Gemini.
+   */
   ttsProvider?: string;
   /**
    * The voices asked, in order, when the one before fails before any sound: a comma-separated chain such as
@@ -22,7 +28,11 @@ export interface TtsConfigInput {
   geminiApiKey?: string;
   geminiTtsModel?: string;
   geminiTtsVoice?: string;
-  /** ElevenLabs' voice: the key, the voice id and the model. */
+  /**
+   * ElevenLabs' voice: its keys (the list, then the single key, each once; with several, the next key speaks when
+   * one is rate limited, out of characters or refused), the voice id and the model.
+   */
+  elevenLabsKeys?: readonly string[];
   elevenLabsApiKey?: string;
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
@@ -82,9 +92,10 @@ function patternSetting(name: string, value: string | undefined, pattern: RegExp
  */
 export function resolveTtsConfig(input: TtsConfigInput): ResolvedTtsConfig {
   const wanted = input.ttsProvider?.trim().toLowerCase();
-  let provider: ResolvedTtsConfig["provider"] = "gemini";
+  // ElevenLabs speaks first once it has a key; a deployment without one keeps Gemini's voice first.
+  let provider: ResolvedTtsConfig["provider"] = elevenLabsKeysOf(input).length > 0 ? "elevenlabs" : "gemini";
   if (wanted === "none" || (ENGINES as readonly string[]).includes(wanted ?? "")) provider = wanted as ResolvedTtsConfig["provider"];
-  else if (wanted) logger.warn('TTS_PROVIDER must be "gemini", "elevenlabs", "edge" or "none"; using "gemini"');
+  else if (wanted) logger.warn(`TTS_PROVIDER must be "gemini", "elevenlabs", "edge" or "none"; using "${provider}"`);
 
   // The chain behind the main voice: each engine at most once, never the main one. `none` keeps the main voice alone.
   let fallbacks: TtsEngine[] = provider === "none" ? [] : defaultFallbacks(provider);
@@ -126,26 +137,40 @@ export function resolveTtsConfig(input: TtsConfigInput): ResolvedTtsConfig {
 }
 
 /** The variable each keyed engine needs. */
-const KEY_NAME: Partial<Record<TtsEngine, string>> = { gemini: "GEMINI_API_KEY", elevenlabs: "ELEVENLABS_API_KEY" };
+const KEY_NAME: Partial<Record<TtsEngine, string>> = { gemini: "GEMINI_KEYS or GEMINI_API_KEY", elevenlabs: "ELEVENLABS_KEYS or ELEVENLABS_API_KEY" };
+
+function elevenLabsKeysOf(input: Pick<TtsConfigInput, "elevenLabsKeys" | "elevenLabsApiKey">): string[] {
+  return parseKeyList(input.elevenLabsKeys, input.elevenLabsApiKey);
+}
 
 /**
  * The voice for this configuration; `null` when spoken replies are switched off (the route then says so with a 503).
  * The main voice speaks; when it fails before any sound the next voice in the chain says the same text, and so on
  * (each a `FallbackTtsProvider` hop: never in the middle of a reply, never back). A voice without its key is skipped,
- * and when no voice is left, Edge's keyless voice speaks. By default: Gemini, then Edge.
+ * and when no voice is left, Edge's keyless voice speaks. By default: ElevenLabs (when it has a key), then Gemini,
+ * then Edge; without an ElevenLabs key, Gemini then Edge.
+ *
+ * With several ElevenLabs keys the ElevenLabs voice is a `KeyRotatingTtsProvider`: a key that is out of characters,
+ * rate limited or refused hands the sentence to the next key before the chain moves on to the next voice.
  */
 export function buildTtsProvider(input: TtsConfigInput): TtsProvider | null {
   const config = resolveTtsConfig(input);
   if (config.provider === "none") return null;
 
   const geminiKey = input.geminiApiKey?.trim();
-  const elevenLabsKey = input.elevenLabsApiKey?.trim();
+  const elevenLabsKeys = elevenLabsKeysOf(input);
   registerSecret(geminiKey);
-  registerSecret(elevenLabsKey);
+  for (const key of elevenLabsKeys) registerSecret(key);
+  // One in-flight limit for every ElevenLabs key: more keys must not mean more syntheses held open here.
+  const elevenLabsSlots = new Semaphore(8, 16);
+  const elevenLabs = (key: string) =>
+    new ElevenLabsTtsProvider({ apiKey: key, voiceId: config.elevenLabs.voiceId, model: config.elevenLabs.model, slots: elevenLabsSlots });
   const build = (engine: TtsEngine): TtsProvider | undefined => {
     if (engine === "edge") return new EdgeTtsProvider({ voices: config.voices });
     if (engine === "gemini") return geminiKey ? new GeminiTtsProvider({ apiKey: geminiKey, model: config.gemini.model, voice: config.gemini.voice }) : undefined;
-    return elevenLabsKey ? new ElevenLabsTtsProvider({ apiKey: elevenLabsKey, voiceId: config.elevenLabs.voiceId, model: config.elevenLabs.model }) : undefined;
+    if (elevenLabsKeys.length === 0) return undefined;
+    if (elevenLabsKeys.length === 1) return elevenLabs(elevenLabsKeys[0]!);
+    return new KeyRotatingTtsProvider({ id: "elevenlabs", rotator: new KeyRotator({ name: "ELEVENLABS", keys: () => elevenLabsKeys }), build: elevenLabs });
   };
 
   const chain: TtsProvider[] = [];

@@ -69,7 +69,7 @@ async function chatCheck(apiKey: string): Promise<ProbeRow> {
     const [{ createModelGateway }, { env }] = await Promise.all([import("../src/ai/providerFactory.js"), import("../src/config/env.js")]);
     // Gemini alone: the question is whether this key answers, not whether a fallback does.
     const gateway = createModelGateway(
-      { ...env, geminiApiKey: apiKey, openRouterApiKey: undefined, aiPrimaryProvider: "gemini", aiFallbackProvider: "none", openRouterDiscovery: "off" },
+      { ...env, geminiApiKey: apiKey, geminiKeys: undefined, openRouterApiKey: undefined, openRouterKeys: undefined, aiPrimaryProvider: "gemini", aiFallbackProvider: "none", openRouterDiscovery: "off" },
       { isProduction: true },
     );
     const answer = await gateway.generate({

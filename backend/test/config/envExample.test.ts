@@ -26,7 +26,7 @@ const assignments = lines
 
 describe("backend/.env.example", () => {
   it("assigns no value to a secret: every credential line is empty", () => {
-    const secretNames = /(_API_KEY|_SECRET|_TOKEN|PASSWORD|_ENCRYPTION_KEY|SERVICE_ACCOUNT_JSON|CA_CERT)$|^(POSTGRES_URL|DATABASE_URL)$/;
+    const secretNames = /(_API_KEY|_KEYS|_SECRET|_TOKEN|PASSWORD|_ENCRYPTION_KEY|SERVICE_ACCOUNT_JSON|CA_CERT)$|^(POSTGRES_URL|DATABASE_URL)$/;
     const offenders = assignments.filter((entry) => !entry.commented && secretNames.test(entry.name) && entry.value !== "").map((entry) => entry.name);
     expect(offenders).toEqual([]);
   });
@@ -52,6 +52,7 @@ describe("backend/.env.example", () => {
         "OPENROUTER_DATA_COLLECTION",
         "OPENROUTER_DISCOVERY",
         "OPENROUTER_FALLBACK_MODELS",
+        "OPENROUTER_KEYS",
         "OPENROUTER_MAX_OUTPUT_TOKENS",
         "OPENROUTER_MAX_PRICE_COMPLETION",
         "OPENROUTER_MAX_PRICE_PROMPT",
@@ -62,6 +63,33 @@ describe("backend/.env.example", () => {
       ].sort(),
     );
     for (const name of documented) expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
+  });
+
+  it("documents a key list for every provider, and the Groq settings; every one of them is read by config/env.ts", () => {
+    const names = new Set(assignments.map((entry) => entry.name));
+    for (const name of ["GROQ_KEYS", "OPENROUTER_KEYS", "GEMINI_KEYS", "OPENAI_KEYS", "ELEVENLABS_KEYS"]) {
+      expect(names.has(name), `${name} is not documented`).toBe(true);
+      expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
+    }
+    const groq = [...names].filter((name) => name.startsWith("GROQ_")).sort();
+    expect(groq).toEqual(["GROQ_BASE_URL", "GROQ_KEYS", "GROQ_MAX_OUTPUT_TOKENS", "GROQ_MODEL", "GROQ_MODEL_CAPABILITIES", "GROQ_MODEL_CONTEXT_TOKENS", "GROQ_TIMEOUT_MS"]);
+    for (const name of groq) expect(envSource, `${name} is documented but never read`).toContain(`process.env.${name}`);
+    // The documented order is the order the code uses.
+    expect(example).toContain("Groq -> OpenRouter -> Gemini -> OpenAI");
+  });
+
+  it("the commented Groq settings are the defaults the startup validation accepts", () => {
+    const uncomment = (name: string) => assignments.find((entry) => entry.name === name && entry.commented)?.value.replace(/\s+#.*$/, "");
+    const config = resolveAIConfig({
+      geminiModel: "gemini-3.6-flash",
+      groqModel: uncomment("GROQ_MODEL"),
+      groqModelCapabilities: uncomment("GROQ_MODEL_CAPABILITIES"),
+      groqModelContextTokens: uncomment("GROQ_MODEL_CONTEXT_TOKENS"),
+      groqTimeoutMs: uncomment("GROQ_TIMEOUT_MS"),
+      groqBaseUrl: uncomment("GROQ_BASE_URL"),
+    });
+    expect(config.warnings).toEqual([]);
+    expect(config.groq).toEqual(resolveAIConfig({ geminiModel: "gemini-3.6-flash" }).groq);
   });
 
   it("the commented OpenRouter cost and routing examples are accepted by the startup validation, with no warning and the defaults", () => {
@@ -84,6 +112,7 @@ describe("backend/.env.example", () => {
     const documented = [...new Set(assignments.map((entry) => entry.name).filter((name) => /^(TTS_|GEMINI_TTS_|ELEVENLABS_)/.test(name)))].sort();
     expect(documented).toEqual([
       "ELEVENLABS_API_KEY",
+      "ELEVENLABS_KEYS",
       "ELEVENLABS_MODEL",
       "ELEVENLABS_VOICE_ID",
       "GEMINI_TTS_MODEL",
@@ -110,18 +139,19 @@ describe("backend/.env.example", () => {
       elevenLabsModel: uncomment("ELEVENLABS_MODEL"),
     });
     expect(warn).not.toHaveBeenCalled();
+    // The commented example is the default chain once ElevenLabs has a key: ElevenLabs, then Gemini, then Edge.
     expect(config).toEqual({
-      provider: "gemini",
-      fallback: "edge",
-      fallbacks: ["edge"],
+      provider: "elevenlabs",
+      fallback: "gemini",
+      fallbacks: ["gemini", "edge"],
       voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" },
       gemini: { model: DEFAULT_GEMINI_TTS_MODEL, voice: DEFAULT_GEMINI_TTS_VOICE },
       elevenLabs: { model: "eleven_flash_v2_5", voiceId: "21m00Tcm4TlvDq8ikWAM" },
     });
   });
 
-  it("tells the operator that the fallback voice sends the sentence to Google, and how to switch it off", () => {
-    expect(example).toMatch(/sends the\s+# ?sentence to Google|sends the sentence to Google/);
+  it("tells the operator that the ElevenLabs and Gemini voices receive the sentence, and how to switch them off", () => {
+    expect(example).toMatch(/ElevenLabs and Gemini receive the\s+# ?sentence/);
     expect(example).toMatch(/TTS_FALLBACK_PROVIDER=none/);
   });
 
@@ -147,7 +177,7 @@ describe("backend/.env.example", () => {
       aiQuotaCooldownMs: uncomment("AI_QUOTA_COOLDOWN_MS"),
       aiModelCatalogJson: catalogJson,
     });
-    expect(config.preferredPrimary).toBe("google");
-    expect(config.preferredFallback).toBe("openrouter");
+    expect(config.preferredPrimary).toBe("groq");
+    expect(config.preferredFallbacks).toEqual(["openrouter", "google", "openai"]);
   });
 });

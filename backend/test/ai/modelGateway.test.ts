@@ -601,9 +601,9 @@ describe("ModelGateway: status", () => {
     const gateway = gatewayFor({ openRouterModelCapabilities: "tools,vision" });
     const status = gateway.getProviderStatus();
 
-    // The OpenAI-compatible provider has no key here, so the chain is Gemini then OpenRouter.
+    // Groq and the OpenAI-compatible provider have no key here, so the chain is Gemini then OpenRouter.
     expect(status.effective).toEqual({ mode: "live", primary: "google", fallback: "openrouter", fallbacks: ["openrouter"] });
-    expect(status.preferred).toEqual({ primary: "google", fallback: "openrouter", fallbacks: ["openrouter", "openai"] });
+    expect(status.preferred).toEqual({ primary: "google", fallback: "groq", fallbacks: ["groq", "openrouter", "openai"] });
     expect(status.providers.find((provider) => provider.id === "openrouter")?.models[0]).toMatchObject({
       model: "openrouter/free",
       free: true,

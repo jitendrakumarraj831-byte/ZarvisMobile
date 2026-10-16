@@ -20,6 +20,7 @@ import type {
   ToolDefinition,
 } from "./provider.js";
 import { isAbortError, isTransportError, transportFailure } from "./transportErrors.js";
+import type { KeyRotator, KeyRotatorStatus } from "../security/keyRotator.js";
 
 /**
  * ZARVIS AI Model Gateway: the one place that decides which AI provider and model answers a
@@ -72,6 +73,8 @@ export interface GatewayProvider {
   isConfigured(): boolean;
   /** A real network provider. False for the development mock and the fail-closed stub. */
   live: boolean;
+  /** The provider's keys, when it has a rotator (ai/keyRotatingProvider.ts): reported in status and `/health`. */
+  keys?: KeyRotator;
 }
 
 export interface ModelGatewayOptions {
@@ -175,6 +178,8 @@ export interface GatewayStatus {
     quotaCooldownUntil?: string;
     /** The provider answered 401/403: its credential is not accepted (cleared by the next success). */
     authRejected?: boolean;
+    /** Each key's state by slot (never a key): which one requests start with, which are resting and why. */
+    keys?: KeyRotatorStatus;
     /** Live model data, when the provider has it. */
     liveModels?: { loaded: boolean; fresh: boolean; models: number; freeModelsWithTools: number; source?: "account" | "public" };
   }>;
@@ -397,8 +402,13 @@ export class ModelGateway implements AIProvider {
     return this.pick(reg, needs).entry !== undefined;
   }
 
+  /** The provider's key was refused, or (with several keys) one of its keys is refused right now even if another answered. */
   private isAuthRejected(id: GatewayProviderId): boolean {
-    return this.authRejections.has(id) || (this.options.dynamic?.[id as CatalogProvider]?.authRejected() ?? false);
+    return (
+      this.authRejections.has(id) ||
+      (this.registrations.get(id)?.keys?.hasRejectedKey() ?? false) ||
+      (this.options.dynamic?.[id as CatalogProvider]?.authRejected() ?? false)
+    );
   }
 
   /** The default model for logging and the orchestrator's `modelConfig` (routing ignores it). */
@@ -424,6 +434,7 @@ export class ModelGateway implements AIProvider {
         models: this.options.catalog.filter((entry) => entry.provider === reg.id).map(describeEntry),
         ...(cooldown ? { quotaCooldownUntil: new Date(cooldown.until).toISOString() } : {}),
         ...(this.isAuthRejected(reg.id) ? { authRejected: true } : {}),
+        ...(reg.keys ? { keys: reg.keys.status() } : {}),
         ...(this.options.dynamic?.[reg.id as CatalogProvider] ? { liveModels: this.options.dynamic[reg.id as CatalogProvider]!.status() } : {}),
       };
     });
@@ -789,6 +800,8 @@ export class ModelGateway implements AIProvider {
         httpRequests: record.httpRequests,
         latencyMs: record.latencyMs,
         fallback: record.fallback,
+        // Which key, when the provider has several: a rotation shows as two attempts of one provider.
+        ...(record.keySlot !== undefined ? { keySlot: record.keySlot } : {}),
       })),
       ...(error
         ? {

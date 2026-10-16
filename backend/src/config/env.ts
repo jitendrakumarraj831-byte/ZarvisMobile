@@ -1,3 +1,5 @@
+import { parseKeyList } from "../security/keyRotator.js";
+
 const DEV_ONLY_JWT_SECRET = "dev-only-insecure-secret-do-not-use-in-production";
 
 /**
@@ -27,6 +29,19 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/**
+ * Every provider accepts several keys: `<PROVIDER>_KEYS` is a comma-separated list, tried in order (the next
+ * key takes over when one is rate limited, out of quota or refused; see security/keyRotator.ts). The
+ * single-key variable older deployments use (`<PROVIDER>_API_KEY`) still works: its key is added after the list.
+ */
+const keyLists = {
+  groq: parseKeyList(process.env.GROQ_KEYS, process.env.GROQ_API_KEY),
+  gemini: parseKeyList(process.env.GEMINI_KEYS, process.env.GEMINI_API_KEY),
+  openRouter: parseKeyList(process.env.OPENROUTER_KEYS, process.env.OPENROUTER_API_KEY),
+  openAi: parseKeyList(process.env.OPENAI_KEYS, process.env.OPENAI_API_KEY),
+  elevenLabs: parseKeyList(process.env.ELEVENLABS_KEYS, process.env.ELEVENLABS_API_KEY),
+};
+
 /** Central place environment variables are read — see ../../.env.example. */
 export const env = {
   port: Number(process.env.PORT ?? 3000),
@@ -34,8 +49,13 @@ export const env = {
   /** Postgres connection string. Leave unset to use the in-memory store (local dev/tests only —
    * see store/inMemoryStore.ts; it does not survive process restarts or serverless cold starts). */
   databaseUrl: process.env.POSTGRES_URL || process.env.DATABASE_URL,
-  /** Direct provider credentials. Never expose these to the mobile/web clients. */
-  geminiApiKey: process.env.GEMINI_API_KEY,
+  /**
+   * Direct provider credentials. Never expose these to the mobile/web clients. Each `...Keys` field is the whole
+   * list (GEMINI_KEYS, then GEMINI_API_KEY), which the AI Model Gateway rotates through; each `...ApiKey` field is
+   * its first key, for the callers that use one key (web search grounding, the Gemini voice).
+   */
+  geminiKeys: keyLists.gemini,
+  geminiApiKey: keyLists.gemini[0],
   /** Google has retired `gemini-2.5-flash` for new API users. The production logs showed
    * a 404 for that model, with Google's API explicitly directing new users to
    * `gemini-3.6-flash`. Keep `GEMINI_MODEL` configurable, but automatically replace the
@@ -77,7 +97,8 @@ export const env = {
    * ElevenLabs' voice (`TTS_PROVIDER=elevenlabs`, or listed in TTS_FALLBACK_PROVIDER). The key is a secret,
    * server-side only; without it the ElevenLabs voice is skipped. The voice id and model are ElevenLabs' own names.
    */
-  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY?.trim() || undefined,
+  elevenLabsKeys: keyLists.elevenLabs,
+  elevenLabsApiKey: keyLists.elevenLabs[0],
   elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID,
   elevenLabsModel: process.env.ELEVENLABS_MODEL,
   /**
@@ -85,7 +106,8 @@ export const env = {
    * only, like every provider key: never sent to a client, a log or an error response.
    * Absent = no OpenRouter; the gateway then answers through Gemini alone.
    */
-  openRouterApiKey: process.env.OPENROUTER_API_KEY?.trim() || undefined,
+  openRouterKeys: keyLists.openRouter,
+  openRouterApiKey: keyLists.openRouter[0],
   /**
    * The settings below are read raw. `config/aiConfig.ts` validates and resolves them once at
    * startup, so a typo stops the server with a clear message instead of misrouting requests.
@@ -116,7 +138,8 @@ export const env = {
    * The third provider: any OpenAI-compatible Chat Completions endpoint (OpenAI's own by default). Used
    * only when both the key and OPENAI_MODEL are set. Server-side only, like every provider key.
    */
-  openAiApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
+  openAiKeys: keyLists.openAi,
+  openAiApiKey: keyLists.openAi[0],
   openAiBaseUrl: process.env.OPENAI_BASE_URL,
   openAiModel: process.env.OPENAI_MODEL,
   /** What OPENAI_MODEL can do besides text and streaming. Default `tools`; `none` = text only. */
@@ -125,11 +148,26 @@ export const env = {
   openAiTimeoutMs: process.env.OPENAI_TIMEOUT_MS,
   /** Upper bound on tokens one reply from the OpenAI-compatible endpoint may generate (cost control). */
   openAiMaxOutputTokens: process.env.OPENAI_MAX_OUTPUT_TOKENS,
-  /** `gemini` (default), `openrouter` or `openai`. */
+  /**
+   * Groq, the first provider of the default chain (its OpenAI-compatible endpoint). GROQ_KEYS (and/or
+   * GROQ_API_KEY) turns it on; GROQ_MODEL defaults to a production model that calls tools (config/aiConfig.ts).
+   * The other settings are read raw and validated there, like the OPENAI_* ones.
+   */
+  groqKeys: keyLists.groq,
+  groqApiKey: keyLists.groq[0],
+  groqBaseUrl: process.env.GROQ_BASE_URL,
+  groqModel: process.env.GROQ_MODEL,
+  /** What GROQ_MODEL can do besides text and streaming. Default `tools`; `none` = text only. */
+  groqModelCapabilities: process.env.GROQ_MODEL_CAPABILITIES,
+  groqModelContextTokens: process.env.GROQ_MODEL_CONTEXT_TOKENS,
+  groqTimeoutMs: process.env.GROQ_TIMEOUT_MS,
+  /** Upper bound on tokens one Groq reply may generate. */
+  groqMaxOutputTokens: process.env.GROQ_MAX_OUTPUT_TOKENS,
+  /** `groq` (default), `gemini`, `openrouter` or `openai`. */
   aiPrimaryProvider: process.env.AI_PRIMARY_PROVIDER,
   /**
    * The fallback chain, in order: one provider or several (`openrouter,openai`), or `none`.
-   * Default: every provider that is not the primary, in the order gemini, openrouter, openai.
+   * Default: every provider that is not the primary, in the order groq, openrouter, gemini, openai.
    */
   aiFallbackProvider: process.env.AI_FALLBACK_PROVIDER,
   /** Optional JSON array describing every model and its capabilities; see ai/modelCatalog.ts. */

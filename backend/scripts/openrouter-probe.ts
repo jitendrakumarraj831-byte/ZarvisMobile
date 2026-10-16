@@ -236,7 +236,13 @@ async function discoveryChecks(options: { apiKey: string; baseUrl: string | unde
     const gateway = createModelGateway(
       {
         ...env,
+        // Only the key under test: none of the deployment's key lists.
         geminiApiKey: undefined,
+        geminiKeys: undefined,
+        groqKeys: undefined,
+        groqApiKey: undefined,
+        openRouterKeys: undefined,
+        openAiKeys: undefined,
         openRouterApiKey: options.apiKey,
         openRouterBaseUrl: options.baseUrl,
         // A model OpenRouter does not list, declared to take tools like the model a deployment pinned.
@@ -308,7 +314,13 @@ async function realTurn(options: { apiKey: string; baseUrl: string | undefined; 
     const gateway = createModelGateway(
       {
         ...env,
+        // Only the key under test: none of the deployment's key lists.
         geminiApiKey: undefined,
+        geminiKeys: undefined,
+        groqKeys: undefined,
+        groqApiKey: undefined,
+        openRouterKeys: undefined,
+        openAiKeys: undefined,
         openRouterApiKey: options.apiKey,
         openRouterBaseUrl: options.baseUrl,
         openRouterModel: options.model,

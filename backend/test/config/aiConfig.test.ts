@@ -18,10 +18,11 @@ const problemsOf = (input: Partial<AIConfigInput>): string[] => {
 };
 
 describe("resolveAIConfig defaults", () => {
-  it("prefers Gemini with OpenRouter as the fallback, and declares only text and streaming for the OpenRouter model", () => {
+  it("prefers Groq, then OpenRouter, then Gemini, then OpenAI, and declares only text and streaming for the OpenRouter model", () => {
     const config = resolveAIConfig(base);
-    expect(config.preferredPrimary).toBe("google");
+    expect(config.preferredPrimary).toBe("groq");
     expect(config.preferredFallback).toBe("openrouter");
+    expect(config.preferredFallbacks).toEqual(["openrouter", "google", "openai"]);
     // Discovery is on by default; nothing that costs money or limits a request is set until the operator asks.
     expect(config.openRouter).toEqual({ baseUrl: "https://openrouter.ai/api/v1", timeoutMs: 60_000, discovery: true, fallbackModels: [], allowPaid: false });
     expect(config.quotaCooldownMs).toBe(300_000);
@@ -31,6 +32,35 @@ describe("resolveAIConfig defaults", () => {
     expect(openRouter).toMatchObject({ model: "openrouter/free", free: true, enabled: true, contextTokens: 32_768, imageMimeTypes: [] });
     // Nothing is assumed: a free model may not call tools, read images or return enforced JSON.
     expect(openRouter.capabilities).toEqual({ text: true, streaming: true, tools: false, vision: false, structuredOutput: false, longContext: false, coding: false, reasoning: false });
+  });
+
+  it("declares tool calling for Groq's default production model, on Groq's endpoint", () => {
+    const config = resolveAIConfig(base);
+    expect(config.groq).toEqual({ baseUrl: "https://api.groq.com/openai/v1", timeoutMs: 60_000, model: "openai/gpt-oss-120b" });
+    const groq = config.catalog.find((entry) => entry.provider === "groq")!;
+    expect(groq).toMatchObject({ model: "openai/gpt-oss-120b", enabled: true, contextTokens: 131_072, imageMimeTypes: [] });
+    expect(groq.capabilities).toMatchObject({ text: true, streaming: true, tools: true, vision: false, longContext: true });
+  });
+
+  it("takes the Groq model, its capabilities and limits from GROQ_* settings", () => {
+    const config = resolveAIConfig({
+      ...base,
+      groqModel: " qwen/qwen3.6-27b ",
+      groqModelCapabilities: "tools,structuredOutput",
+      groqModelContextTokens: "65536",
+      groqTimeoutMs: "20000",
+      groqMaxOutputTokens: "2048",
+    });
+    expect(config.groq).toEqual({ baseUrl: "https://api.groq.com/openai/v1", timeoutMs: 20_000, model: "qwen/qwen3.6-27b", maxOutputTokens: 2048 });
+    const groq = config.catalog.find((entry) => entry.provider === "groq")!;
+    expect(groq).toMatchObject({ model: "qwen/qwen3.6-27b", contextTokens: 65_536, jsonSchema: true });
+    expect(groq.capabilities).toMatchObject({ tools: true, structuredOutput: true });
+    // "none": text and streaming only (no tool-using chat turn goes to it).
+    expect(resolveAIConfig({ ...base, groqModelCapabilities: "none" }).catalog.find((entry) => entry.provider === "groq")!.capabilities.tools).toBe(false);
+  });
+
+  it("warns when GROQ_BASE_URL points somewhere other than Groq (the key is sent there)", () => {
+    expect(resolveAIConfig({ ...base, groqBaseUrl: "https://proxy.example/openai/v1" }).warnings.join("\n")).toContain("GROQ_BASE_URL points at a host other than api.groq.com");
   });
 
   it("declares what this repository already relies on for Gemini", () => {
@@ -44,16 +74,18 @@ describe("resolveAIConfig defaults", () => {
     expect(resolveAIConfig({ ...base, aiPrimaryProvider: " OpenRouter ", aiFallbackProvider: "GEMINI" })).toMatchObject({ preferredPrimary: "openrouter", preferredFallback: "google" });
     expect(resolveAIConfig({ ...base, aiPrimaryProvider: "google", aiFallbackProvider: "none" }).preferredFallback).toBeNull();
     expect(resolveAIConfig({ ...base, aiFallbackProvider: "off" }).preferredFallback).toBeNull();
-    // With OpenRouter as the primary, the default fallback is the other provider (not itself).
-    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openrouter" })).toMatchObject({ preferredPrimary: "openrouter", preferredFallback: "google" });
+    // With OpenRouter as the primary, the default fallback is the next other provider in the default order (not itself).
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openrouter" })).toMatchObject({ preferredPrimary: "openrouter", preferredFallback: "groq" });
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "GROQ" }).preferredPrimary).toBe("groq");
     // Empty strings (an `.env` line like `AI_PRIMARY_PROVIDER=`) mean "unset".
-    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "", aiFallbackProvider: "  " })).toMatchObject({ preferredPrimary: "google", preferredFallback: "openrouter" });
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "", aiFallbackProvider: "  " })).toMatchObject({ preferredPrimary: "groq", preferredFallback: "openrouter" });
   });
 
-  it("the default fallback chain is every other provider, in the order gemini, openrouter, openai", () => {
-    expect(resolveAIConfig(base).preferredFallbacks).toEqual(["openrouter", "openai"]);
-    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openrouter" }).preferredFallbacks).toEqual(["google", "openai"]);
-    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openai" }).preferredFallbacks).toEqual(["google", "openrouter"]);
+  it("the default fallback chain is every other provider, in the default order groq, openrouter, gemini, openai", () => {
+    expect(resolveAIConfig(base).preferredFallbacks).toEqual(["openrouter", "google", "openai"]);
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "gemini" }).preferredFallbacks).toEqual(["groq", "openrouter", "openai"]);
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openrouter" }).preferredFallbacks).toEqual(["groq", "google", "openai"]);
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openai" }).preferredFallbacks).toEqual(["groq", "openrouter", "google"]);
     // An explicit chain is kept in its own order; `none` empties it.
     expect(resolveAIConfig({ ...base, aiFallbackProvider: " OpenAI, openrouter " })).toMatchObject({ preferredFallback: "openai", preferredFallbacks: ["openai", "openrouter"] });
     expect(resolveAIConfig({ ...base, aiFallbackProvider: "none" }).preferredFallbacks).toEqual([]);
@@ -93,7 +125,12 @@ describe("resolveAIConfig validation (a present-but-wrong value stops startup; n
     ["an unknown primary provider", { aiPrimaryProvider: "gpt" }, "AI_PRIMARY_PROVIDER"],
     ["an unknown fallback provider", { aiFallbackProvider: "claude" }, "AI_FALLBACK_PROVIDER"],
     ["a fallback equal to the primary", { aiPrimaryProvider: "gemini", aiFallbackProvider: "google" }, "must not list AI_PRIMARY_PROVIDER"],
-    ["a fallback chain that lists the primary", { aiFallbackProvider: "openrouter,gemini" }, "must not list AI_PRIMARY_PROVIDER"],
+    ["a fallback chain that lists the primary", { aiFallbackProvider: "openrouter,groq" }, "must not list AI_PRIMARY_PROVIDER"],
+    ["a Groq URL over plain http", { groqBaseUrl: "http://groq.example/openai/v1" }, "GROQ_BASE_URL must use https"],
+    ["an invalid Groq model id", { groqModel: "bad model!" }, "GROQ_MODEL is not a valid model id"],
+    ["an unknown Groq capability", { groqModelCapabilities: "tools,telepathy" }, "GROQ_MODEL_CAPABILITIES"],
+    ["a Groq timeout below the minimum", { groqTimeoutMs: "10" }, "GROQ_TIMEOUT_MS"],
+    ["a Groq output cap of zero", { groqMaxOutputTokens: "0" }, "GROQ_MAX_OUTPUT_TOKENS"],
     ["a fallback chain with an unknown provider", { aiFallbackProvider: "openrouter,claude" }, "AI_FALLBACK_PROVIDER"],
     ["an OpenAI URL over plain http", { openAiBaseUrl: "http://api.example.com/v1" }, "OPENAI_BASE_URL must use https"],
     ["an invalid OpenAI model id", { openAiModel: "bad model!" }, "OPENAI_MODEL is not a valid model id"],
@@ -220,7 +257,7 @@ describe("AI_MODEL_CATALOG_JSON", () => {
 
   it("a provider listed in the JSON replaces that provider's simple-variable defaults; others keep theirs", () => {
     const config = resolveAIConfig({ ...base, aiModelCatalogJson: JSON.stringify([entry({ model: "vendor/only:free" })]) });
-    expect(config.catalog.map((candidate) => `${candidate.provider}:${candidate.model}`).sort()).toEqual(["google:gemini-3.6-flash", "openrouter:vendor/only:free"]);
+    expect(config.catalog.map((candidate) => `${candidate.provider}:${candidate.model}`).sort()).toEqual(["google:gemini-3.6-flash", "groq:openai/gpt-oss-120b", "openrouter:vendor/only:free"]);
   });
 });
 

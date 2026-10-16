@@ -16,8 +16,14 @@ import { CAPABILITIES, capabilitySet, type Capability, type CapabilitySet, type 
  * `openai` is any OpenAI-compatible Chat Completions endpoint (OpenAI itself, or another service that
  * speaks the same API): the last provider in the default fallback chain. It has an entry only when
  * `OPENAI_MODEL` names the model, because no model id is assumed for an endpoint this code does not know.
+ *
+ * `groq` is Groq's OpenAI-compatible endpoint: the first provider in the default chain (fast inference).
+ * Its default model (`GROQ_MODEL`) declares tool calling, which Groq documents for it.
+ *
+ * The order of this list is the default priority order (AI_PRIMARY_PROVIDER / AI_FALLBACK_PROVIDER unset):
+ * Groq, then OpenRouter, then Gemini, then the OpenAI-compatible endpoint. A provider without a key is skipped.
  */
-export const CATALOG_PROVIDERS = ["google", "openrouter", "openai"] as const;
+export const CATALOG_PROVIDERS = ["groq", "openrouter", "google", "openai"] as const;
 export type CatalogProvider = (typeof CATALOG_PROVIDERS)[number];
 
 export interface ModelEntry {
@@ -46,6 +52,8 @@ export const GEMINI_IMAGE_MIME_TYPES: readonly string[] = UPLOADABLE_IMAGE_TYPES
 export const OPENROUTER_IMAGE_MIME_TYPES: readonly string[] = ["image/png", "image/jpeg", "image/webp"];
 
 const DEFAULT_CONTEXT_TOKENS = 32_768;
+/** The context window Groq documents for its default model (openai/gpt-oss-120b). */
+export const DEFAULT_GROQ_CONTEXT_TOKENS = 131_072;
 
 export function geminiEntry(model: string): ModelEntry {
   const contextTokens = 1_000_000;
@@ -75,6 +83,23 @@ export function openAIEntry(options: { model: string; capabilities?: Capability[
     enabled: true,
     free: false,
     priority: 3,
+    contextTokens,
+    capabilities: capabilitySet(["streaming", ...declared], contextTokens),
+    imageMimeTypes: declared.includes("vision") ? OPENROUTER_IMAGE_MIME_TYPES : [],
+    jsonSchema: declared.includes("structuredOutput"),
+  };
+}
+
+/** Groq's model. Tool calling is declared by default; `capabilities` replaces that list when the operator states one. */
+export function groqEntry(options: { model: string; capabilities?: Capability[]; contextTokens?: number }): ModelEntry {
+  const declared = options.capabilities ?? ["tools"];
+  const contextTokens = options.contextTokens ?? DEFAULT_GROQ_CONTEXT_TOKENS;
+  return {
+    provider: "groq",
+    model: options.model,
+    enabled: true,
+    free: false,
+    priority: 1,
     contextTokens,
     capabilities: capabilitySet(["streaming", ...declared], contextTokens),
     imageMimeTypes: declared.includes("vision") ? OPENROUTER_IMAGE_MIME_TYPES : [],
@@ -150,6 +175,7 @@ function normalizeCatalogProvider(value: unknown): CatalogProvider | undefined {
   if (v === "gemini" || v === "google") return "google";
   if (v === "openrouter") return "openrouter";
   if (v === "openai") return "openai";
+  if (v === "groq") return "groq";
   return undefined;
 }
 
@@ -189,7 +215,7 @@ export function parseCatalogJson(text: string): ModelEntry[] {
       else if (!ALLOWED_KEYS.has(key)) problems.push(`${at} has an unknown key "${key.slice(0, 40)}"`);
     }
     const provider = normalizeCatalogProvider(item.provider);
-    if (!provider) problems.push(`${at}.provider must be "gemini", "openrouter" or "openai"`);
+    if (!provider) problems.push(`${at}.provider must be "groq", "gemini", "openrouter" or "openai"`);
     const model = typeof item.model === "string" ? item.model.trim() : "";
     if (!MODEL_ID.test(model)) problems.push(`${at}.model is missing or not a valid model id`);
     for (const key of ["enabled", "free", ...FLAG_KEYS]) {

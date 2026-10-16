@@ -5,10 +5,12 @@ import { GeminiProvider } from "./geminiProvider.js";
 import { OpenRouterProvider } from "./openRouterProvider.js";
 import { OpenRouterCatalog, OpenRouterModelDirectory } from "./openRouterModels.js";
 import { ModelGateway, type GatewayProvider } from "./modelGateway.js";
-import { describeEntry } from "./modelCatalog.js";
-import { resolveAIConfig, DEFAULT_OPENROUTER_MODEL } from "../config/aiConfig.js";
+import { describeEntry, type CatalogProvider } from "./modelCatalog.js";
+import { KeyRotatingProvider } from "./keyRotatingProvider.js";
+import { resolveAIConfig, DEFAULT_GROQ_MODEL, DEFAULT_OPENROUTER_MODEL } from "../config/aiConfig.js";
 import { env } from "../config/env.js";
-import { logger, registerSecret } from "../security/redact.js";
+import { KeyRotator, parseKeyList } from "../security/keyRotator.js";
+import { logger } from "../security/redact.js";
 
 /**
  * Composition of the AI layer: which providers exist and how the ModelGateway is built from the
@@ -34,19 +36,22 @@ export class UnavailableAIProvider implements AIProvider {
 }
 
 function unavailable(): AIProviderError {
-  return new AIProviderError("No AI provider is configured (set GEMINI_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY with OPENAI_MODEL)", "AI_UNAVAILABLE", 503, false);
+  return new AIProviderError("No AI provider is configured (set GROQ_KEYS, OPENROUTER_KEYS, GEMINI_KEYS, or OPENAI_KEYS with OPENAI_MODEL)", "AI_UNAVAILABLE", 503, false);
 }
 
-/** Which provider answers by default. Exported for tests. */
+/** Which provider answers by default, in the default order (Groq, OpenRouter, Gemini). Exported for tests. */
 export function selectDefaultModel(options: {
   hasGeminiKey: boolean;
   isProduction: boolean;
   geminiModel: string;
   hasOpenRouterKey?: boolean;
   openRouterModel?: string;
+  hasGroqKey?: boolean;
+  groqModel?: string;
 }): ModelConfiguration {
-  if (options.hasGeminiKey) return { provider: "google", model: options.geminiModel };
+  if (options.hasGroqKey) return { provider: "groq", model: options.groqModel ?? DEFAULT_GROQ_MODEL };
   if (options.hasOpenRouterKey) return { provider: "openrouter", model: options.openRouterModel ?? DEFAULT_OPENROUTER_MODEL };
+  if (options.hasGeminiKey) return { provider: "google", model: options.geminiModel };
   return options.isProduction ? { provider: "none", model: "none" } : { provider: "mock", model: "mock-v1" };
 }
 
@@ -60,6 +65,8 @@ export const defaultModelConfig: ModelConfiguration = selectDefaultModel({
   geminiModel: env.geminiModel,
   hasOpenRouterKey: !!env.openRouterApiKey,
   openRouterModel: env.openRouterModel?.trim() || undefined,
+  hasGroqKey: !!env.groqApiKey,
+  groqModel: env.groqModel?.trim() || undefined,
 });
 
 /** The settings the gateway reads. `env` satisfies it; a test can pass its own. */
@@ -92,7 +99,24 @@ export type GatewayEnvironment = Pick<
   | "aiFallbackProvider"
   | "aiModelCatalogJson"
   | "aiQuotaCooldownMs"
->;
+> &
+  // Optional, so a caller written before them (a probe, a test) still compiles: absent = no such keys / defaults.
+  Partial<
+    Pick<
+      typeof env,
+      | "geminiKeys"
+      | "openRouterKeys"
+      | "openAiKeys"
+      | "groqKeys"
+      | "groqApiKey"
+      | "groqBaseUrl"
+      | "groqModel"
+      | "groqModelCapabilities"
+      | "groqModelContextTokens"
+      | "groqTimeoutMs"
+      | "groqMaxOutputTokens"
+    >
+  >;
 
 export interface CreateGatewayOptions {
   isProduction?: boolean;
@@ -103,6 +127,10 @@ export interface CreateGatewayOptions {
  * Builds a gateway. Validates every AI setting first and throws an `AIConfigError` (variable names
  * only, never a value) when one is present and wrong. Credentials are read per request through
  * the source object, and registered with the log redactor the first time they are used.
+ *
+ * Every provider can have several keys (`GROQ_KEYS=k1,k2`): each one is a `KeyRotatingProvider`, which tries
+ * the next key when one is rate limited, out of quota or refused, before the gateway moves on to the next
+ * provider. With one key it behaves exactly like the provider alone.
  */
 export function createModelGateway(source: GatewayEnvironment = env, options: CreateGatewayOptions = {}): ModelGateway {
   const isProduction = options.isProduction ?? env.isProduction;
@@ -129,29 +157,31 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
     openAiModelContextTokens: source.openAiModelContextTokens,
     openAiTimeoutMs: source.openAiTimeoutMs,
     openAiMaxOutputTokens: source.openAiMaxOutputTokens,
+    groqBaseUrl: source.groqBaseUrl,
+    groqModel: source.groqModel,
+    groqModelCapabilities: source.groqModelCapabilities,
+    groqModelContextTokens: source.groqModelContextTokens,
+    groqTimeoutMs: source.groqTimeoutMs,
+    groqMaxOutputTokens: source.groqMaxOutputTokens,
     aiModelCatalogJson: source.aiModelCatalogJson,
     aiQuotaCooldownMs: source.aiQuotaCooldownMs,
   });
 
-  const geminiKey = () => {
-    const key = source.geminiApiKey;
-    registerSecret(key);
-    return key;
-  };
-  const openRouterKey = () => {
-    const key = source.openRouterApiKey;
-    registerSecret(key);
-    return key;
-  };
-  const openAiKey = () => {
-    const key = source.openAiApiKey;
-    registerSecret(key);
-    return key;
+  // One rotator per provider. The list is read from `source` on every use (the list, then the single-key field),
+  // so a key set after the gateway was built is picked up; each key is registered with the log redactor.
+  const rotator = (name: string, list: () => readonly string[] | undefined, single: () => string | undefined) =>
+    new KeyRotator({ name, keys: () => parseKeyList(list(), single()), now: options.now });
+  const keys: Record<CatalogProvider, KeyRotator> = {
+    groq: rotator("GROQ", () => source.groqKeys, () => source.groqApiKey),
+    google: rotator("GEMINI", () => source.geminiKeys, () => source.geminiApiKey),
+    openrouter: rotator("OPENROUTER", () => source.openRouterKeys, () => source.openRouterApiKey),
+    openai: rotator("OPENAI", () => source.openAiKeys, () => source.openAiApiKey),
   };
 
   const openRouter = config.openRouter;
+  // The model list is read with whichever OpenRouter key requests currently start with.
   const directory = openRouter.discovery
-    ? new OpenRouterModelDirectory({ apiKey: () => source.openRouterApiKey, baseUrl: openRouter.baseUrl, now: options.now })
+    ? new OpenRouterModelDirectory({ apiKey: () => keys.openrouter.current(), baseUrl: openRouter.baseUrl, now: options.now })
     : undefined;
   const dynamic = directory
     ? new OpenRouterCatalog(
@@ -168,50 +198,91 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
 
   const providers: GatewayProvider[] = [
     {
+      id: "groq",
+      label: "GROQ",
+      provider: new KeyRotatingProvider({
+        id: "groq",
+        rotator: keys.groq,
+        supportsJsonSchema: true,
+        build: (key, hasAlternative) =>
+          new OpenRouterProvider({
+            flavor: "groq",
+            apiKey: key,
+            baseUrl: config.groq.baseUrl,
+            timeoutMs: config.groq.timeoutMs,
+            policy: config.groq.maxOutputTokens !== undefined ? { maxOutputTokens: config.groq.maxOutputTokens } : {},
+            skipRateLimitWait: hasAlternative,
+          }),
+      }),
+      isConfigured: () => keys.groq.hasKeys(),
+      keys: keys.groq,
+      live: true,
+    },
+    {
       id: "google",
       label: "GEMINI",
-      provider: new GeminiProvider(geminiKey, undefined, config.geminiFallbackModels, options.now),
-      isConfigured: () => !!source.geminiApiKey,
+      provider: new KeyRotatingProvider({
+        id: "google",
+        rotator: keys.google,
+        build: (key, hasAlternative) => new GeminiProvider(key, undefined, config.geminiFallbackModels, options.now, { skipRateLimitWait: hasAlternative }),
+      }),
+      isConfigured: () => keys.google.hasKeys(),
+      keys: keys.google,
       live: true,
     },
     {
       id: "openrouter",
       label: "OPENROUTER",
-      provider: new OpenRouterProvider({
-        apiKey: openRouterKey,
-        baseUrl: openRouter.baseUrl,
-        timeoutMs: openRouter.timeoutMs,
-        policy: {
-          dataCollection: openRouter.dataCollection,
-          maxPricePromptPerM: openRouter.maxPricePromptPerM,
-          maxPriceCompletionPerM: openRouter.maxPriceCompletionPerM,
-          maxOutputTokens: openRouter.maxOutputTokens,
-        },
+      provider: new KeyRotatingProvider({
+        id: "openrouter",
+        rotator: keys.openrouter,
+        supportsJsonSchema: true,
+        build: (key, hasAlternative) =>
+          new OpenRouterProvider({
+            apiKey: key,
+            baseUrl: openRouter.baseUrl,
+            timeoutMs: openRouter.timeoutMs,
+            policy: {
+              dataCollection: openRouter.dataCollection,
+              maxPricePromptPerM: openRouter.maxPricePromptPerM,
+              maxPriceCompletionPerM: openRouter.maxPriceCompletionPerM,
+              maxOutputTokens: openRouter.maxOutputTokens,
+            },
+            skipRateLimitWait: hasAlternative,
+          }),
       }),
-      isConfigured: () => !!source.openRouterApiKey,
+      isConfigured: () => keys.openrouter.hasKeys(),
+      keys: keys.openrouter,
       live: true,
     },
     {
       id: "openai",
       label: "OPENAI",
-      provider: new OpenRouterProvider({
-        flavor: "openai",
-        apiKey: openAiKey,
-        baseUrl: config.openAI.baseUrl,
-        timeoutMs: config.openAI.timeoutMs,
-        policy: config.openAI.maxOutputTokens !== undefined ? { maxOutputTokens: config.openAI.maxOutputTokens } : {},
+      provider: new KeyRotatingProvider({
+        id: "openai",
+        rotator: keys.openai,
+        supportsJsonSchema: true,
+        build: (key, hasAlternative) =>
+          new OpenRouterProvider({
+            flavor: "openai",
+            apiKey: key,
+            baseUrl: config.openAI.baseUrl,
+            timeoutMs: config.openAI.timeoutMs,
+            policy: config.openAI.maxOutputTokens !== undefined ? { maxOutputTokens: config.openAI.maxOutputTokens } : {},
+            skipRateLimitWait: hasAlternative,
+          }),
       }),
       // A key without OPENAI_MODEL is not enough: no model id is assumed for an endpoint this code does not know.
-      isConfigured: () => !!source.openAiApiKey && config.openAI.model !== undefined,
+      isConfigured: () => keys.openai.hasKeys() && config.openAI.model !== undefined,
+      keys: keys.openai,
       live: true,
     },
     // The deterministic mock exists only outside production; production fails closed.
     ...(isProduction ? [] : [{ id: "mock" as const, label: "MOCK", provider: new MockAIProvider(), isConfigured: () => true, live: false }]),
     { id: "none", label: "NONE", provider: new UnavailableAIProvider(), isConfigured: () => true, live: false },
   ];
-  registerSecret(source.geminiApiKey);
-  registerSecret(source.openRouterApiKey);
-  registerSecret(source.openAiApiKey);
+  // Reading each list once registers every configured key with the log redactor before the first request.
+  for (const pool of Object.values(keys)) pool.hasKeys();
 
   const gateway = new ModelGateway({
     providers,
@@ -224,8 +295,8 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
     now: options.now,
   });
   const warnings = [...config.warnings];
-  if (source.openAiApiKey && config.openAI.model === undefined) {
-    warnings.push("OPENAI_API_KEY is set without OPENAI_MODEL: the OpenAI-compatible fallback stays off until OPENAI_MODEL names the model");
+  if (keys.openai.hasKeys() && config.openAI.model === undefined) {
+    warnings.push("OPENAI_KEYS / OPENAI_API_KEY is set without OPENAI_MODEL: the OpenAI-compatible fallback stays off until OPENAI_MODEL names the model");
   }
   startupWarnings.set(gateway, warnings);
   return gateway;
@@ -264,7 +335,13 @@ function logStartup(gateway: ModelGateway): void {
     preferred: status.preferred,
     providers: status.providers
       .filter((provider) => provider.live)
-      .map((provider) => ({ id: provider.id, configured: provider.configured, models: provider.models.map((model) => ({ ...model })) })),
+      .map((provider) => ({
+        id: provider.id,
+        configured: provider.configured,
+        // How many keys each provider has (never a key): "keys: 3" says rotation is on.
+        ...(provider.keys ? { keys: provider.keys.total } : {}),
+        models: provider.models.map((model) => ({ ...model })),
+      })),
     ...(notes.length > 0 ? { notes } : {}),
   });
 }
