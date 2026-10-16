@@ -56,7 +56,8 @@ export const env = {
    * Voice output (see ../tts/edgeTtsProvider.ts): Microsoft Edge's neural voices. It needs no key,
    * so there is no secret here. Read raw; `config/ttsConfig.ts` validates and resolves them, and a
    * bad value is reported and replaced by the default rather than stopping the server.
-   * `TTS_PROVIDER` is `gemini` (default: Gemini's voice first, needs GEMINI_API_KEY), `edge` or `none` (no spoken replies).
+   * `TTS_PROVIDER` is `gemini` (default: Gemini's voice first, needs GEMINI_API_KEY), `elevenlabs` (needs
+   * ELEVENLABS_API_KEY), `edge` or `none` (no spoken replies).
    */
   ttsProvider: process.env.TTS_PROVIDER,
   ttsHindiVoice: process.env.TTS_HI_VOICE,
@@ -64,13 +65,21 @@ export const env = {
   /** The voice for Hindi written in Latin letters (Hinglish). Defaults to the Hindi voice. */
   ttsHinglishVoice: process.env.TTS_HINGLISH_VOICE,
   /**
-   * The second voice, asked only when the main one fails before any sound: by default Edge behind
-   * Gemini (`edge`), or Gemini behind Edge with TTS_PROVIDER=edge (`gemini`); `none` turns it off.
+   * The voices behind the main one, asked in order when the one before fails before any sound: a chain
+   * such as `gemini,edge`. Default: Edge behind Gemini, Gemini behind Edge, `gemini,edge` behind ElevenLabs;
+   * `none` turns it off.
    * The model and voice are Gemini's own names. Read raw; `config/ttsConfig.ts` resolves them.
    */
   ttsFallbackProvider: process.env.TTS_FALLBACK_PROVIDER,
   geminiTtsModel: process.env.GEMINI_TTS_MODEL,
   geminiTtsVoice: process.env.GEMINI_TTS_VOICE,
+  /**
+   * ElevenLabs' voice (`TTS_PROVIDER=elevenlabs`, or listed in TTS_FALLBACK_PROVIDER). The key is a secret,
+   * server-side only; without it the ElevenLabs voice is skipped. The voice id and model are ElevenLabs' own names.
+   */
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY?.trim() || undefined,
+  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID,
+  elevenLabsModel: process.env.ELEVENLABS_MODEL,
   /**
    * OpenRouter, the AI Model Gateway's second provider (see ../../AI_MODEL_GATEWAY.md). Server-side
    * only, like every provider key: never sent to a client, a log or an error response.

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildTtsProvider, resolveTtsConfig } from "../../src/config/ttsConfig.js";
 import { EdgeTtsProvider } from "../../src/tts/edgeTtsProvider.js";
+import { ElevenLabsTtsProvider } from "../../src/tts/elevenLabsTtsProvider.js";
 import { FallbackTtsProvider } from "../../src/tts/fallbackTtsProvider.js";
 import { DEFAULT_GEMINI_TTS_MODEL, GeminiTtsProvider } from "../../src/tts/geminiTtsProvider.js";
 import { logger } from "../../src/security/redact.js";
@@ -14,8 +15,10 @@ describe("resolveTtsConfig", () => {
     expect(resolveTtsConfig({})).toEqual({
       provider: "gemini",
       fallback: "edge",
+      fallbacks: ["edge"],
       voices: { hindi: "hi-IN-SwaraNeural", english: "en-US-JennyNeural", hinglish: "hi-IN-SwaraNeural" },
       gemini: { model: DEFAULT_GEMINI_TTS_MODEL, voice: "Kore" },
+      elevenLabs: { model: "eleven_flash_v2_5", voiceId: "21m00Tcm4TlvDq8ikWAM" },
     });
   });
 
@@ -66,7 +69,7 @@ describe("resolveTtsConfig", () => {
     expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: "gemini" }).fallback).toBe("edge");
     expect(resolveTtsConfig({ ttsProvider: "edge", ttsFallbackProvider: "edge" }).fallback).toBe("gemini");
     expect(warn).toHaveBeenCalledTimes(2);
-    expect(String(warn.mock.calls[0]![0])).toContain('TTS_FALLBACK_PROVIDER must be "edge" or "none" with TTS_PROVIDER="gemini"');
+    expect(String(warn.mock.calls[0]![0])).toContain('TTS_FALLBACK_PROVIDER must list voices other than TTS_PROVIDER="gemini"');
   });
 
   it("reads Gemini's voice model and voice, replaces the model Google retired, and reports a voice name that is not one", () => {
@@ -91,6 +94,32 @@ describe("resolveTtsConfig", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     resolveTtsConfig({ ttsHindiVoice: "oops-typed-value" });
     expect(JSON.stringify(warn.mock.calls)).not.toContain("oops-typed-value");
+  });
+});
+
+describe("resolveTtsConfig: ElevenLabs and the fallback chain", () => {
+  it("accepts ElevenLabs as the main voice, with Gemini then Edge behind it by default", () => {
+    expect(resolveTtsConfig({ ttsProvider: " ElevenLabs " })).toMatchObject({ provider: "elevenlabs", fallback: "gemini", fallbacks: ["gemini", "edge"] });
+  });
+
+  it("reads a chain in order, drops repeats, and reports one that names the main voice or an unknown engine", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    expect(resolveTtsConfig({ ttsProvider: "elevenlabs", ttsFallbackProvider: "edge, gemini,edge" }).fallbacks).toEqual(["edge", "gemini"]);
+    expect(resolveTtsConfig({ ttsProvider: "gemini", ttsFallbackProvider: "elevenlabs,edge" }).fallbacks).toEqual(["elevenlabs", "edge"]);
+    expect(resolveTtsConfig({ ttsProvider: "elevenlabs", ttsFallbackProvider: "none" })).toMatchObject({ fallback: "none", fallbacks: [] });
+    expect(warn).not.toHaveBeenCalled();
+    expect(resolveTtsConfig({ ttsProvider: "elevenlabs", ttsFallbackProvider: "gemini,elevenlabs" }).fallbacks).toEqual(["gemini", "edge"]);
+    expect(resolveTtsConfig({ ttsFallbackProvider: "edge,azure" }).fallbacks).toEqual(["edge"]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("azure");
+  });
+
+  it("reads the ElevenLabs voice id and model, and reports values that cannot be ones", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    expect(resolveTtsConfig({ elevenLabsVoiceId: "pNInz6obpgDQGcFmaJgB", elevenLabsModel: "eleven_multilingual_v2" }).elevenLabs).toEqual({ voiceId: "pNInz6obpgDQGcFmaJgB", model: "eleven_multilingual_v2" });
+    expect(warn).not.toHaveBeenCalled();
+    expect(resolveTtsConfig({ elevenLabsVoiceId: "not a voice id!", elevenLabsModel: "Bad Model" }).elevenLabs).toEqual({ voiceId: "21m00Tcm4TlvDq8ikWAM", model: "eleven_flash_v2_5" });
+    expect(warn.mock.calls.map(([message]) => String(message).split(" ")[0])).toEqual(["ELEVENLABS_MODEL", "ELEVENLABS_VOICE_ID"]);
   });
 });
 
@@ -155,6 +184,30 @@ describe("buildTtsProvider", () => {
 
     expect(buildTtsProvider({ ttsProvider: "gemini" })).toBeInstanceOf(EdgeTtsProvider);
     expect(String(warn.mock.calls[0]![0])).toContain("GEMINI_API_KEY");
+  });
+});
+
+describe("buildTtsProvider: ElevenLabs and the chain", () => {
+  const keys = { geminiApiKey: "test-key-1234567890", elevenLabsApiKey: "sk_test_elevenlabs_0000" };
+
+  it("ElevenLabs speaks first with Gemini then Edge behind it, and reports itself as ElevenLabs", () => {
+    const provider = buildTtsProvider({ ttsProvider: "elevenlabs", ...keys });
+    expect(provider).toBeInstanceOf(FallbackTtsProvider);
+    expect(provider!.id).toBe("elevenlabs");
+    expect(provider!.getDefaultVoice()).toBe("elevenlabs:21m00Tcm4TlvDq8ikWAM");
+  });
+
+  it("without its key ElevenLabs is skipped (and an explicit choice says so); the next voice answers", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const provider = buildTtsProvider({ ttsProvider: "elevenlabs", geminiApiKey: keys.geminiApiKey });
+    expect(provider!.id).toBe("gemini");
+    expect(String(warn.mock.calls[0]![0])).toContain("ELEVENLABS_API_KEY");
+    // With no key for anything, Edge's keyless voice still speaks.
+    expect(buildTtsProvider({ ttsProvider: "elevenlabs" })).toBeInstanceOf(EdgeTtsProvider);
+  });
+
+  it("ElevenLabs alone when the chain is switched off", () => {
+    expect(buildTtsProvider({ ttsProvider: "elevenlabs", ttsFallbackProvider: "none", ...keys })).toBeInstanceOf(ElevenLabsTtsProvider);
   });
 });
 

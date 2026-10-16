@@ -31,7 +31,7 @@
  *   BYPASS                  Vercel Deployment Protection bypass secret; sent only to that origin
  *   EXPECT_HI_VOICE, EXPECT_EN_VOICE, EXPECT_HINGLISH_VOICE
  *                           the Edge voices the deployment is configured with (defaults: the built-in ones)
- *   EXPECT_TTS_PRIMARY      gemini (default) or edge: the engine that should speak first (TTS_PROVIDER)
+ *   EXPECT_TTS_PRIMARY      gemini (default), elevenlabs or edge: the engine that should speak first (TTS_PROVIDER)
  *   AUDIT_FAILURES          intercept (default): the browser makes the TTS endpoints fail
  *                           natural: nothing is intercepted, the server's own voice is failing, and only
  *                           the failure scenario runs (a failing server cannot pass the others)
@@ -163,8 +163,9 @@ const INIT = `
 const results = [];
 
 /** The engine that should speak first; the other one speaking is the fallback. */
-const PRIMARY = (process.env.EXPECT_TTS_PRIMARY || "gemini").trim().toLowerCase() === "edge" ? "edge" : "gemini";
-const PRIMARY_LABEL = PRIMARY === "gemini" ? "Gemini" : "Edge";
+const ENGINES = ["gemini", "elevenlabs", "edge"];
+const PRIMARY = ENGINES.find((engine) => engine === (process.env.EXPECT_TTS_PRIMARY || "gemini").trim().toLowerCase()) || "gemini";
+const PRIMARY_LABEL = { gemini: "Gemini", elevenlabs: "ElevenLabs", edge: "Edge" }[PRIMARY];
 /** Voices heard from the fallback engine during the current step: a step that heard one is a WARN. */
 const fallbackVoices = new Set();
 /** The fallback voice is metered. After it has spoken on this deployment, a 503 from the voice means its quota is spent. */
@@ -184,8 +185,9 @@ const isFallbackSpeech = (entry) => engineOf(entry) !== "" && engineOf(entry) !=
  */
 function expectVoice(entry, suffix, voice) {
   const engine = engineOf(entry);
-  assert.ok(entry.engine === `${engine}${suffix}` && (engine === "gemini" || engine === "edge"), `the voice engine was ${entry.engine}, not gemini${suffix} or edge${suffix}`);
-  if (engine === "gemini") assert.match(entry.voice || "", /^gemini:[A-Za-z]+$/, `Gemini spoke but reported the voice ${entry.voice}`);
+  assert.ok(entry.engine === `${engine}${suffix}` && ENGINES.includes(engine), `the voice engine was ${entry.engine}, not one of ${ENGINES.map((name) => `${name}${suffix}`).join(", ")}`);
+  // Gemini and ElevenLabs label their voices with their engine (gemini:Kore, elevenlabs:<voice id>); Edge's is the configured name.
+  if (engine !== "edge") assert.match(entry.voice || "", new RegExp(`^${engine}:[A-Za-z0-9]+$`), `${engine} spoke but reported the voice ${entry.voice}`);
   else assert.equal(entry.voice, voice, `the voice that spoke was ${entry.voice}, not ${voice}`);
   if (engine !== PRIMARY) fallbackVoices.add(entry.voice);
 }

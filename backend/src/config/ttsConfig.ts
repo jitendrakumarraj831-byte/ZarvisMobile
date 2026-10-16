@@ -1,17 +1,18 @@
 import { logger, registerSecret } from "../security/redact.js";
 import { EdgeTtsProvider } from "../tts/edgeTtsProvider.js";
 import { FallbackTtsProvider } from "../tts/fallbackTtsProvider.js";
+import { DEFAULT_ELEVENLABS_MODEL, DEFAULT_ELEVENLABS_VOICE_ID, ElevenLabsTtsProvider } from "../tts/elevenLabsTtsProvider.js";
 import { DEFAULT_GEMINI_TTS_MODEL, DEFAULT_GEMINI_TTS_VOICE, GeminiTtsProvider } from "../tts/geminiTtsProvider.js";
 import type { TtsProvider } from "../tts/provider.js";
 import { DEFAULT_ENGLISH_VOICE, DEFAULT_HINDI_VOICE, isVoiceName, type VoiceSettings } from "../tts/voices.js";
 
 /** The raw settings (a subset of `env`, so tests can pass their own). */
 export interface TtsConfigInput {
-  /** `gemini` (default: Gemini's voice first, Edge behind it), `edge` (Edge first, Gemini behind it) or `none`. */
+  /** The main voice: `gemini` (default), `elevenlabs`, `edge`, or `none` (no spoken replies). */
   ttsProvider?: string;
   /**
-   * What speaks when the main voice fails before any sound. With `TTS_PROVIDER=gemini` (default): `edge` (default) or
-   * `none` (Gemini alone). With `TTS_PROVIDER=edge`: `gemini` (default, needs GEMINI_API_KEY) or `none`.
+   * The voices asked, in order, when the one before fails before any sound: a comma-separated chain such as
+   * `gemini,edge`, or `none`. Default: `edge` behind Gemini, `gemini` behind Edge, `gemini,edge` behind ElevenLabs.
    */
   ttsFallbackProvider?: string;
   ttsHindiVoice?: string;
@@ -21,28 +22,56 @@ export interface TtsConfigInput {
   geminiApiKey?: string;
   geminiTtsModel?: string;
   geminiTtsVoice?: string;
+  /** ElevenLabs' voice: the key, the voice id and the model. */
+  elevenLabsApiKey?: string;
+  elevenLabsVoiceId?: string;
+  elevenLabsModel?: string;
 }
 
+export type TtsEngine = "gemini" | "elevenlabs" | "edge";
+const ENGINES: readonly TtsEngine[] = ["gemini", "elevenlabs", "edge"];
+
 export interface ResolvedTtsConfig {
-  provider: "edge" | "gemini" | "none";
+  provider: TtsEngine | "none";
+  /** The first voice behind the main one, or `none`. Kept for readers that know only one fallback. */
+  fallback: TtsEngine | "none";
   /**
-   * The second voice: `edge` behind Gemini, `gemini` behind Edge, or `none`. Never the same engine as `provider`.
-   * Whether it is available also depends on GEMINI_API_KEY (see `buildTtsProvider`).
+   * Every voice behind the main one, in the order they are asked. Never the main engine. Whether each is
+   * available also depends on its key (see `buildTtsProvider`): a voice without one is skipped.
    */
-  fallback: "gemini" | "edge" | "none";
+  fallbacks: TtsEngine[];
   voices: VoiceSettings;
   gemini: { model: string; voice: string };
+  elevenLabs: { model: string; voiceId: string };
 }
 
 /** The model Google retired for new API users; an old deployment variable that still names it is replaced. */
 const RETIRED_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 const GEMINI_VOICE_NAME = /^[A-Za-z][A-Za-z0-9_-]{1,31}$/;
+/** ElevenLabs voice ids are short alphanumeric strings; model ids are lower-case words with underscores. */
+const ELEVENLABS_VOICE_ID = /^[A-Za-z0-9]{8,64}$/;
+const ELEVENLABS_MODEL_ID = /^[a-z0-9][a-z0-9_.-]{1,63}$/;
+
+/** The default chain behind each main voice. */
+function defaultFallbacks(provider: TtsEngine): TtsEngine[] {
+  if (provider === "gemini") return ["edge"];
+  if (provider === "edge") return ["gemini"];
+  return ["gemini", "edge"];
+}
 
 function voiceSetting(name: string, value: string | undefined, fallback: string): string {
   const trimmed = value?.trim();
   if (!trimmed) return fallback;
   if (isVoiceName(trimmed)) return trimmed;
   logger.warn(`${name} must look like hi-IN-SwaraNeural; using ${fallback}`);
+  return fallback;
+}
+
+function patternSetting(name: string, value: string | undefined, pattern: RegExp, fallback: string, example: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return fallback;
+  if (pattern.test(trimmed)) return trimmed;
+  logger.warn(`${name} must look like ${example}; using ${fallback}`);
   return fallback;
 }
 
@@ -54,16 +83,23 @@ function voiceSetting(name: string, value: string | undefined, fallback: string)
 export function resolveTtsConfig(input: TtsConfigInput): ResolvedTtsConfig {
   const wanted = input.ttsProvider?.trim().toLowerCase();
   let provider: ResolvedTtsConfig["provider"] = "gemini";
-  if (wanted === "none" || wanted === "edge") provider = wanted;
-  else if (wanted && wanted !== "gemini") logger.warn('TTS_PROVIDER must be "gemini", "edge" or "none"; using "gemini"');
+  if (wanted === "none" || (ENGINES as readonly string[]).includes(wanted ?? "")) provider = wanted as ResolvedTtsConfig["provider"];
+  else if (wanted) logger.warn('TTS_PROVIDER must be "gemini", "elevenlabs", "edge" or "none"; using "gemini"');
 
-  // The second voice is always the other engine: Edge behind Gemini (the default), or Gemini behind Edge.
-  // `TTS_FALLBACK_PROVIDER=none` keeps the main voice alone.
-  const fallbackWanted = input.ttsFallbackProvider?.trim().toLowerCase();
-  const other = provider === "gemini" ? "edge" : "gemini";
-  let fallback: ResolvedTtsConfig["fallback"] = other;
-  if (fallbackWanted === "none" || fallbackWanted === other) fallback = fallbackWanted;
-  else if (fallbackWanted) logger.warn(`TTS_FALLBACK_PROVIDER must be "${other}" or "none" with TTS_PROVIDER="${provider}"; using "${fallback}"`);
+  // The chain behind the main voice: each engine at most once, never the main one. `none` keeps the main voice alone.
+  let fallbacks: TtsEngine[] = provider === "none" ? [] : defaultFallbacks(provider);
+  const chainWanted = input.ttsFallbackProvider?.trim().toLowerCase();
+  if (chainWanted && provider !== "none") {
+    const tokens = chainWanted.split(/[\s,]+/).filter(Boolean);
+    const others = ENGINES.filter((engine) => engine !== provider);
+    if (tokens.length === 1 && tokens[0] === "none") fallbacks = [];
+    else if (tokens.every((token) => (others as readonly string[]).includes(token))) fallbacks = [...new Set(tokens)] as TtsEngine[];
+    else {
+      logger.warn(
+        `TTS_FALLBACK_PROVIDER must list voices other than TTS_PROVIDER="${provider}" (${others.map((engine) => `"${engine}"`).join(", ")}), in order, or be "none"; using "${fallbacks.join(",") || "none"}"`,
+      );
+    }
+  }
 
   const hindi = voiceSetting("TTS_HI_VOICE", input.ttsHindiVoice, DEFAULT_HINDI_VOICE);
   const english = voiceSetting("TTS_EN_VOICE", input.ttsEnglishVoice, DEFAULT_ENGLISH_VOICE);
@@ -78,31 +114,47 @@ export function resolveTtsConfig(input: TtsConfigInput): ResolvedTtsConfig {
   }
   return {
     provider,
-    fallback,
+    fallback: fallbacks[0] ?? "none",
+    fallbacks,
     voices: { hindi, english, hinglish },
     gemini: { model: !model || model === RETIRED_GEMINI_TTS_MODEL ? DEFAULT_GEMINI_TTS_MODEL : model, voice },
+    elevenLabs: {
+      model: patternSetting("ELEVENLABS_MODEL", input.elevenLabsModel, ELEVENLABS_MODEL_ID, DEFAULT_ELEVENLABS_MODEL, DEFAULT_ELEVENLABS_MODEL),
+      voiceId: patternSetting("ELEVENLABS_VOICE_ID", input.elevenLabsVoiceId, ELEVENLABS_VOICE_ID, DEFAULT_ELEVENLABS_VOICE_ID, DEFAULT_ELEVENLABS_VOICE_ID),
+    },
   };
 }
 
+/** The variable each keyed engine needs. */
+const KEY_NAME: Partial<Record<TtsEngine, string>> = { gemini: "GEMINI_API_KEY", elevenlabs: "ELEVENLABS_API_KEY" };
+
 /**
  * The voice for this configuration; `null` when spoken replies are switched off (the route then says so with a 503).
- * By default Gemini's voice speaks (when GEMINI_API_KEY is set) and Edge answers if it fails before any sound; without
- * the key Edge speaks alone. With TTS_PROVIDER=edge Edge speaks and Gemini's voice answers if Edge fails before any sound.
+ * The main voice speaks; when it fails before any sound the next voice in the chain says the same text, and so on
+ * (each a `FallbackTtsProvider` hop: never in the middle of a reply, never back). A voice without its key is skipped,
+ * and when no voice is left, Edge's keyless voice speaks. By default: Gemini, then Edge.
  */
 export function buildTtsProvider(input: TtsConfigInput): TtsProvider | null {
   const config = resolveTtsConfig(input);
   if (config.provider === "none") return null;
 
-  const key = input.geminiApiKey?.trim();
-  registerSecret(key);
-  const gemini = key ? new GeminiTtsProvider({ apiKey: key, model: config.gemini.model, voice: config.gemini.voice }) : undefined;
-  const edge = new EdgeTtsProvider({ voices: config.voices });
+  const geminiKey = input.geminiApiKey?.trim();
+  const elevenLabsKey = input.elevenLabsApiKey?.trim();
+  registerSecret(geminiKey);
+  registerSecret(elevenLabsKey);
+  const build = (engine: TtsEngine): TtsProvider | undefined => {
+    if (engine === "edge") return new EdgeTtsProvider({ voices: config.voices });
+    if (engine === "gemini") return geminiKey ? new GeminiTtsProvider({ apiKey: geminiKey, model: config.gemini.model, voice: config.gemini.voice }) : undefined;
+    return elevenLabsKey ? new ElevenLabsTtsProvider({ apiKey: elevenLabsKey, voiceId: config.elevenLabs.voiceId, model: config.elevenLabs.model }) : undefined;
+  };
 
-  if (config.provider === "gemini") {
-    if (gemini) return config.fallback === "edge" ? new FallbackTtsProvider(gemini, edge) : gemini;
-    // Only an explicit choice is worth a warning; the default quietly uses Edge's keyless voice.
-    if (input.ttsProvider?.trim()) logger.warn('TTS_PROVIDER="gemini" needs GEMINI_API_KEY; using "edge"');
-    return edge;
+  const chain: TtsProvider[] = [];
+  for (const engine of [config.provider, ...config.fallbacks]) {
+    const voice = build(engine);
+    if (voice) chain.push(voice);
+    // Only an explicit choice is worth a warning; the default quietly moves on to the next voice.
+    else if (engine === config.provider && input.ttsProvider?.trim()) logger.warn(`TTS_PROVIDER="${engine}" needs ${KEY_NAME[engine]}; using the next voice`);
   }
-  return gemini && config.fallback === "gemini" ? new FallbackTtsProvider(edge, gemini) : edge;
+  if (chain.length === 0) chain.push(build("edge")!);
+  return chain.reduceRight((rest, voice) => new FallbackTtsProvider(voice, rest));
 }

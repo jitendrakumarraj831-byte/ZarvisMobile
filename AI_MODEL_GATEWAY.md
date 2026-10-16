@@ -417,6 +417,15 @@ fallback voice spoke) and the voice that spoke in `X-Zarvis-TTS-Voice` (for exam
 `hi-IN-SwaraNeural`, or `gemini:Kore` for the fallback: a voice name, nothing of the text), so a
 deployment can be checked, from outside, for the voice it really used.
 
+**The voice chain.** `config/ttsConfig.ts` builds the voice from `TTS_PROVIDER` and the chain in
+`TTS_FALLBACK_PROVIDER`: one `FallbackTtsProvider` hop per voice, so with `TTS_PROVIDER=elevenlabs`
+ElevenLabs speaks, Gemini answers if it fails before any sound (a rate limit, a spent character quota,
+an outage, a timeout, a rejected key), and Edge answers if Gemini fails too. Callers never learn which
+engine spoke except through the two headers above (`elevenlabs`/`elevenlabs-stream`,
+`elevenlabs:<voice id>`). `tts/elevenLabsTtsProvider.ts` asks ElevenLabs' streaming endpoint for
+`pcm_24000`, the same 24 kHz 16-bit mono PCM every voice here produces, and does not retry: the next
+voice is the retry. **Not verified against the live ElevenLabs API from here** (the tests fake the network).
+
 **The voice** is Microsoft Edge's neural voices (the service behind Edge's Read Aloud), reached by
 `tts/edgeTtsProvider.ts` behind the `TtsProvider` interface (`tts/provider.ts`): the routes ask for
 audio and know nothing about the engine, so it can change, or its transport can move to a separate
@@ -634,8 +643,11 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 | `AI_FALLBACK_PROVIDER` | every other provider: `openrouter,openai` | the fallback chain in order (comma-separated), or `none`; must not list the primary. Web search never goes to OpenRouter when the chain leaves it out |
 | `AI_QUOTA_COOLDOWN_MS` | `300000` | how long an exhausted provider is skipped; `0` = never |
 | `AI_MODEL_CATALOG_JSON` | none | describes several models (below) |
-| `TTS_PROVIDER` | `gemini` | spoken replies: `gemini` (Gemini's voice is the main one; without `GEMINI_API_KEY` Edge speaks alone), `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
-| `TTS_FALLBACK_PROVIDER` | `edge` with `gemini`; `gemini` with `edge` | the second voice, asked only when the first fails before any sound: `gemini` behind Edge, `edge` behind Gemini, or `none` |
+| `TTS_PROVIDER` | `gemini` | spoken replies: `gemini` (Gemini's voice is the main one; without `GEMINI_API_KEY` Edge speaks alone), `elevenlabs` (needs `ELEVENLABS_API_KEY`), `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
+| `TTS_FALLBACK_PROVIDER` | `edge` with `gemini`; `gemini` with `edge`; `gemini,edge` with `elevenlabs` | the voices behind the main one, in order (comma-separated), each asked only when the one before fails before any sound; a voice without its key is skipped, and with none left Edge speaks; `none` = the main voice alone |
+| `ELEVENLABS_API_KEY` | none | ElevenLabs' key. Secret. Absent = the ElevenLabs voice is skipped |
+| `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` ("Rachel") | the voice id from the account's voice library |
+| `ELEVENLABS_MODEL` | `eleven_flash_v2_5` | the ElevenLabs model (`eleven_multilingual_v2` is slower and richer) |
 | `TTS_HI_VOICE` | `hi-IN-SwaraNeural` | the voice for Hindi (Devanagari) text |
 | `TTS_EN_VOICE` | `en-US-JennyNeural` | the voice for English text |
 | `TTS_HINGLISH_VOICE` | the Hindi voice | the voice for Hindi written in Latin letters |
