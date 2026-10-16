@@ -24,6 +24,9 @@ import { findAgent } from "../../agents/agentProfiles.js";
  *
  * Neither route accepts a client "confirmed" flag: higher-risk actions come back as
  * `confirmation_required` with a server-issued confirmation id — see routes/confirmations.ts.
+ *
+ * A reply a live model wrote carries `ai: { provider, fallback }` (the JSON body and the stream's `done` event),
+ * so the client can say which provider answered. It names no model, key or reason.
  */
 export function orchestratorRouter(orchestrator: Orchestrator): Router {
   const router = Router();
@@ -66,6 +69,8 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
           conversationId: result.conversationId,
           turnId: result.turnId,
           ...(result.replayed ? { replayed: true } : {}),
+          // Which provider wrote the reply (and whether as a fallback), for the client's label. See TurnResult.ai.
+          ...(result.ai ? { ai: result.ai } : {}),
         });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {

@@ -143,8 +143,10 @@ test("?api= can only point at this origin: tokens are never sent to a host from 
 });
 
 test("the AI provider status shown in Settings and Metrics is truthful for every provider the server can report", () => {
+  assert.deepEqual(L.aiProviderStatus("groq"), { configured: true, label: "Groq", sentence: "Groq is answering your requests." });
   assert.deepEqual(L.aiProviderStatus("google"), { configured: true, label: "Gemini", sentence: "Google Gemini is answering your requests." });
   assert.deepEqual(L.aiProviderStatus("openrouter"), { configured: true, label: "OpenRouter", sentence: "OpenRouter is answering your requests." });
+  assert.deepEqual(L.aiProviderStatus("openai"), { configured: true, label: "OpenAI", sentence: "An OpenAI-compatible model is answering your requests." });
   // The development mock and the production fail-closed provider are both "nothing real configured".
   for (const provider of ["mock", "none", undefined, null, "", "something-else"]) {
     const status = L.aiProviderStatus(provider);
@@ -152,6 +154,30 @@ test("the AI provider status shown in Settings and Metrics is truthful for every
     assert.equal(status.label, "Not configured");
     assert.match(status.sentence, /No AI provider is configured/);
   }
+});
+
+test("a reply's 'answered by' label names the provider the server reported, its mode, and a backup honestly", () => {
+  assert.deepEqual(L.replyProviderBadge({ provider: "groq", fallback: false }), { label: "Groq · Fast", title: "Answered by Groq.", fallback: false });
+  assert.deepEqual(L.replyProviderBadge({ provider: "google", fallback: false }), { label: "Gemini", title: "Answered by Gemini.", fallback: false });
+  assert.equal(L.replyProviderBadge({ provider: "openrouter", fallback: false }).label, "OpenRouter");
+  assert.equal(L.replyProviderBadge({ provider: "openai", fallback: false }).label, "OpenAI");
+  // A backup answered: the mode is not claimed, and the title says why.
+  const backup = L.replyProviderBadge({ provider: "groq", fallback: true });
+  assert.equal(backup.label, "Groq · Backup");
+  assert.match(backup.title, /busy or out of quota/);
+  assert.equal(L.replyProviderBadge({ provider: "google", fallback: true }).label, "Gemini · Backup");
+  // Nothing reported, or something unknown: no label rather than a guess.
+  for (const ai of [undefined, null, {}, { provider: "mock", fallback: false }, { provider: "none" }, { provider: "toString" }, { provider: 7 }]) {
+    assert.equal(L.replyProviderBadge(ai), null);
+  }
+});
+
+test("the voice label comes from the server's X-Zarvis-TTS engine, streaming or not", () => {
+  assert.equal(L.voiceEngineLabel("elevenlabs-stream"), "ElevenLabs");
+  assert.equal(L.voiceEngineLabel("elevenlabs"), "ElevenLabs");
+  assert.equal(L.voiceEngineLabel("gemini-stream"), "Gemini");
+  assert.equal(L.voiceEngineLabel(" Edge-stream "), "Edge");
+  for (const header of [null, undefined, "", "fake-stream", "stream"]) assert.equal(L.voiceEngineLabel(header), null);
 });
 
 // ---- Chat page: chat list, day labels, slash commands, refine prompts, export, navigation ----

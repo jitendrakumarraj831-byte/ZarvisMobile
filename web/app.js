@@ -4246,6 +4246,8 @@
       let completed = false;
       let firstTextAt = 0;
       let ttsPrimed = false;
+      // Which provider wrote the reply (the `done` event's `ai`), for the label in the reply's header.
+      let replyAi = null;
 
       const drainTts = () => {
         while (
@@ -4254,7 +4256,7 @@
           !controller.signal.aborted
         ) {
           const next = ttsQueue.shift();
-          const task = speakGeminiStream(next.text, controller.signal, next.ticket);
+          const task = speakGeminiStream(next.text, controller.signal, next.ticket, (engine) => setVoiceBadge(assistantNode?.closest(".bubble"), engine));
           ttsTasks.add(task);
           task.catch((err) => {
             if (err?.name !== "AbortError") console.warn("TTS segment failed:", err);
@@ -4364,6 +4366,8 @@
           }
           if (sentenceBuffer.trim()) enqueueTts(sentenceBuffer, true);
           if (typeof data?.message === "string") fullMessage = data.message;
+          replyAi = data?.ai;
+          setReplyBadge(assistantNode?.closest(".bubble"), replyAi);
           state.history.push({ role: "user", content: utterance });
           if (fullMessage.trim()) state.history.push({ role: "assistant", content: fullMessage.trim() });
           state.history = state.history.slice(-12);
@@ -4407,6 +4411,7 @@
       if (!assistantNode && fullMessage.trim()) {
         thinkingNode.remove();
         assistantNode = addBubble("assistant", fullMessage, utterance);
+        setReplyBadge(assistantNode.closest(".bubble"), replyAi);
       }
     } catch (err) {
       if (err?.name === "AbortError") return;
@@ -5301,7 +5306,47 @@
    * may download at once, but each waits for its [ticket] before scheduling any audio, and
    * schedules strictly after the previous segment's audio — so segments never overlap.
    */
-  async function speakGeminiStream(text, signal, ticket = ttsSegments.next()) {
+  /**
+   * The chips in a reply's header: which AI provider wrote it ("Groq · Fast", "Gemini · Backup") and which voice
+   * spoke it ("Voice · ElevenLabs"), both as the server reported them. Nothing is shown when the server did not say
+   * (a greeting, a reply restored from history): no label rather than a guessed one. The provider chip stays before
+   * the voice chip whichever arrives first.
+   */
+  function headerChip(bubble, kind) {
+    const role = bubble?.querySelector(".bubble-role");
+    if (!role) return null;
+    let chip = role.querySelector(`.bubble-engine[data-kind="${kind}"]`);
+    if (!chip) {
+      chip = document.createElement("span");
+      chip.className = "bubble-engine";
+      chip.dataset.kind = kind;
+      const voice = role.querySelector('.bubble-engine[data-kind="voice"]');
+      if (kind === "provider" && voice) role.insertBefore(chip, voice);
+      else role.appendChild(chip);
+    }
+    return chip;
+  }
+
+  function setReplyBadge(bubble, ai) {
+    const badge = Logic.replyProviderBadge(ai);
+    if (!badge) return;
+    const chip = headerChip(bubble, "provider");
+    if (!chip) return;
+    chip.textContent = badge.label;
+    chip.title = badge.title;
+  }
+
+  function setVoiceBadge(bubble, engineHeader) {
+    const label = Logic.voiceEngineLabel(engineHeader);
+    if (!label) return;
+    const chip = headerChip(bubble, "voice");
+    if (!chip) return;
+    chip.textContent = "Voice · " + label;
+    chip.title = "Spoken by the " + label + " voice";
+  }
+
+  /** `onEngine` is told the `X-Zarvis-TTS` engine that answered (for the reply's voice label). */
+  async function speakGeminiStream(text, signal, ticket = ttsSegments.next(), onEngine) {
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -5325,6 +5370,7 @@
         error.retryAfterMs = body?.retryAfterMs;
         throw error;
       }
+      onEngine?.(res.headers.get("X-Zarvis-TTS"));
 
       const audioContext = activeAudioContext || new AudioContext({ sampleRate: TTS_SAMPLE_RATE });
       activeAudioContext = audioContext;
