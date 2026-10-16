@@ -50,6 +50,36 @@ describe("resolveAIConfig defaults", () => {
     expect(resolveAIConfig({ ...base, aiPrimaryProvider: "", aiFallbackProvider: "  " })).toMatchObject({ preferredPrimary: "google", preferredFallback: "openrouter" });
   });
 
+  it("the default fallback chain is every other provider, in the order gemini, openrouter, openai", () => {
+    expect(resolveAIConfig(base).preferredFallbacks).toEqual(["openrouter", "openai"]);
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openrouter" }).preferredFallbacks).toEqual(["google", "openai"]);
+    expect(resolveAIConfig({ ...base, aiPrimaryProvider: "openai" }).preferredFallbacks).toEqual(["google", "openrouter"]);
+    // An explicit chain is kept in its own order; `none` empties it.
+    expect(resolveAIConfig({ ...base, aiFallbackProvider: " OpenAI, openrouter " })).toMatchObject({ preferredFallback: "openai", preferredFallbacks: ["openai", "openrouter"] });
+    expect(resolveAIConfig({ ...base, aiFallbackProvider: "none" }).preferredFallbacks).toEqual([]);
+  });
+
+  it("the OpenAI-compatible endpoint has a model entry only when OPENAI_MODEL names it, declaring tools unless told otherwise", () => {
+    expect(resolveAIConfig(base).catalog.some((entry) => entry.provider === "openai")).toBe(false);
+    expect(resolveAIConfig(base).openAI).toEqual({ baseUrl: "https://api.openai.com/v1", timeoutMs: 60_000 });
+
+    const config = resolveAIConfig({ ...base, openAiModel: "vendor-model-1", openAiBaseUrl: "https://api.example.com/openai/v1/", openAiMaxOutputTokens: "800" });
+    expect(config.openAI).toEqual({ baseUrl: "https://api.example.com/openai/v1", timeoutMs: 60_000, model: "vendor-model-1", maxOutputTokens: 800 });
+    const entry = config.catalog.find((candidate) => candidate.provider === "openai")!;
+    expect(entry).toMatchObject({ model: "vendor-model-1", free: false, priority: 3, imageMimeTypes: [] });
+    expect(entry.capabilities).toMatchObject({ text: true, streaming: true, tools: true, vision: false });
+
+    const textOnly = resolveAIConfig({ ...base, openAiModel: "m", openAiModelCapabilities: "none" }).catalog.find((candidate) => candidate.provider === "openai")!;
+    expect(textOnly.capabilities.tools).toBe(false);
+    const vision = resolveAIConfig({ ...base, openAiModel: "m", openAiModelCapabilities: "tools,vision" }).catalog.find((candidate) => candidate.provider === "openai")!;
+    expect(vision).toMatchObject({ imageMimeTypes: ["image/png", "image/jpeg", "image/webp"] });
+  });
+
+  it("Gemini's in-request fallback models default to gemini-3.8-flash and can be listed", () => {
+    expect(resolveAIConfig(base).geminiFallbackModels).toEqual(["gemini-3.8-flash"]);
+    expect(resolveAIConfig({ ...base, geminiFallbackModels: "gemini-3.8-flash, gemini-3.5-flash-lite" }).geminiFallbackModels).toEqual(["gemini-3.8-flash", "gemini-3.5-flash-lite"]);
+  });
+
   it("the OpenRouter model's declared capabilities come from OPENROUTER_MODEL_CAPABILITIES", () => {
     const config = resolveAIConfig({ ...base, openRouterModel: "meta/llama-3:free", openRouterModelCapabilities: "Tools, VISION structuredOutput,tools", openRouterModelContextTokens: "131072" });
     const entry = config.catalog.find((candidate) => candidate.provider === "openrouter")!;
@@ -62,7 +92,14 @@ describe("resolveAIConfig validation (a present-but-wrong value stops startup; n
   it.each<[string, Partial<AIConfigInput>, string]>([
     ["an unknown primary provider", { aiPrimaryProvider: "gpt" }, "AI_PRIMARY_PROVIDER"],
     ["an unknown fallback provider", { aiFallbackProvider: "claude" }, "AI_FALLBACK_PROVIDER"],
-    ["a fallback equal to the primary", { aiPrimaryProvider: "gemini", aiFallbackProvider: "google" }, "must differ"],
+    ["a fallback equal to the primary", { aiPrimaryProvider: "gemini", aiFallbackProvider: "google" }, "must not list AI_PRIMARY_PROVIDER"],
+    ["a fallback chain that lists the primary", { aiFallbackProvider: "openrouter,gemini" }, "must not list AI_PRIMARY_PROVIDER"],
+    ["a fallback chain with an unknown provider", { aiFallbackProvider: "openrouter,claude" }, "AI_FALLBACK_PROVIDER"],
+    ["an OpenAI URL over plain http", { openAiBaseUrl: "http://api.example.com/v1" }, "OPENAI_BASE_URL must use https"],
+    ["an invalid OpenAI model id", { openAiModel: "bad model!" }, "OPENAI_MODEL is not a valid model id"],
+    ["an unknown OpenAI capability", { openAiModelCapabilities: "tools,telepathy" }, "OPENAI_MODEL_CAPABILITIES"],
+    ["an OpenAI output cap of zero", { openAiMaxOutputTokens: "0" }, "OPENAI_MAX_OUTPUT_TOKENS"],
+    ["a Gemini fallback model that is not a model id", { geminiFallbackModels: "gemini-3.8-flash, bad model!" }, "GEMINI_FALLBACK_MODELS"],
     ["an OpenRouter URL that is not a URL", { openRouterBaseUrl: "not a url" }, "OPENROUTER_BASE_URL"],
     ["an OpenRouter URL over plain http", { openRouterBaseUrl: "http://openrouter.example/api/v1" }, "https"],
     ["an OpenRouter URL carrying credentials", { openRouterBaseUrl: "https://user:pw@openrouter.ai/api/v1" }, "credentials"],

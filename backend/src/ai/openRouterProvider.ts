@@ -42,9 +42,14 @@ import { isAbortError, isTransportError, readJsonBody, readWithIdleLimit, timeou
  *
  * The time limit covers the whole answer, not only the headers: a body that stalls after a 200 is
  * given up on (`timeoutMs` for a JSON answer; `streamIdleTimeoutMs` of silence for a stream).
+ *
+ * The same adapter speaks for the `openai` provider (`flavor: "openai"`): any OpenAI-compatible Chat
+ * Completions endpoint, OpenAI's own by default. It sends the plain OpenAI request: no `models` array, no
+ * `provider` routing preferences and no OpenRouter attribution headers, which such an endpoint would reject or
+ * ignore. Everything else (tool encoding, the time limits, the retry policy, the error classification) is shared.
  */
 export { DEFAULT_OPENROUTER_BASE_URL };
-const LABEL = "OpenRouter chat completions";
+export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 30_000;
 /** Requested when the caller sets no limit: an unbounded request can be refused for credit reasons. */
@@ -64,6 +69,8 @@ export interface OpenRouterRequestPolicy {
 }
 
 export interface OpenRouterProviderOptions {
+  /** `openrouter` (default) or `openai`: any other OpenAI-compatible endpoint (see the note above). */
+  flavor?: "openrouter" | "openai";
   /** A function, so the key is read per request and the gateway can ask `isConfigured()`. */
   apiKey: string | (() => string | undefined);
   baseUrl?: string;
@@ -119,25 +126,35 @@ interface Posted {
 }
 
 export class OpenRouterProvider implements AIProvider {
-  readonly id = "openrouter";
+  readonly id: "openrouter" | "openai";
   readonly supportsJsonSchema = true;
+  /** For messages and logs: "OpenRouter" or "OpenAI-compatible". */
+  private readonly name: string;
+  private readonly label: string;
+  /** OpenRouter's request extensions: the `models` array and `provider` preferences. */
+  private readonly extensions: boolean;
 
-  constructor(private readonly options: OpenRouterProviderOptions) {}
+  constructor(private readonly options: OpenRouterProviderOptions) {
+    this.id = options.flavor ?? "openrouter";
+    this.extensions = this.id === "openrouter";
+    this.name = this.extensions ? "OpenRouter" : "OpenAI-compatible";
+    this.label = `${this.name} chat completions`;
+  }
 
   private key(): string {
     const key = typeof this.options.apiKey === "function" ? this.options.apiKey() : this.options.apiKey;
     if (!key) {
-      throw new AIProviderError("OpenRouter API key is not configured", "AI_UNAVAILABLE", 503, false, undefined, undefined, {}, { provider: this.id });
+      throw new AIProviderError(`${this.name} API key is not configured`, "AI_UNAVAILABLE", 503, false, undefined, undefined, {}, { provider: this.id });
     }
-    if (!isUsableApiKey(key)) throw unusableKeyError(this.id);
+    if (!isUsableApiKey(key)) throw unusableKeyError(this.id, this.name);
     return key;
   }
 
   async generate(request: AIRequest): Promise<AIResponse> {
     const model = request.modelConfig.model;
-    const { names, body } = buildChatBody(request, false, this.options.policy);
+    const { names, body } = buildChatBody(request, false, this.options.policy, this.extensions);
     const posted = await this.post(body, { kind: request.purpose ?? "planner", model, request });
-    const json = await this.readJson<OpenRouterResponse>(posted, LABEL, model, request);
+    const json = await this.readJson<OpenRouterResponse>(posted, this.label, model, request);
     return this.fromResponse(json, model, names, posted.call, request.trace);
   }
 
@@ -151,13 +168,13 @@ export class OpenRouterProvider implements AIProvider {
       });
     }
     const model = request.modelConfig.model;
-    const { body } = buildChatBody(request, true, this.options.policy);
+    const { body } = buildChatBody(request, true, this.options.policy, this.extensions);
     // Retries happen only inside post(), before any byte of the stream was read, so text that
     // was already delivered is never repeated.
     const { res, call, stop } = await this.post(body, { kind: request.purpose ?? "planner", model, request, stream: true });
     // The header time limit is over; from here a stream is bounded by how long it may stay silent.
     stop();
-    if (!res.body) throw unreadableResponse(LABEL, this.id, model);
+    if (!res.body) throw unreadableResponse(this.label, this.id, model);
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const idleMs = this.options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
@@ -177,12 +194,12 @@ export class OpenRouterProvider implements AIProvider {
       try {
         chunk = JSON.parse(payload) as OpenRouterResponse;
       } catch {
-        throw unreadableResponse(LABEL, this.id, model);
+        throw unreadableResponse(this.label, this.id, model);
       }
       // A failure after the stream started arrives as data inside an HTTP 200.
-      if (chunk.error) throw openRouterBodyError(LABEL, chunk.error, model);
+      if (chunk.error) throw openRouterBodyError(this.label, chunk.error, model, this.id);
       const choice = chunk.choices?.[0];
-      if (choice?.error) throw openRouterBodyError(LABEL, choice.error, model);
+      if (choice?.error) throw openRouterBodyError(this.label, choice.error, model, this.id);
       if (chunk.id && request.trace && !request.trace.responseIds.includes(chunk.id)) request.trace.responseIds.push(chunk.id);
       if (chunk.model) call.servedModel = chunk.model;
       // The last chunk carries the usage (and cost) of the whole answer.
@@ -192,7 +209,7 @@ export class OpenRouterProvider implements AIProvider {
     };
     try {
       while (!finished) {
-        const { value, done } = await readWithIdleLimit(() => reader.read(), idleMs, () => timeoutError("OpenRouter stream", this.id, model));
+        const { value, done } = await readWithIdleLimit(() => reader.read(), idleMs, () => timeoutError(`${this.name} stream`, this.id, model));
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -209,7 +226,7 @@ export class OpenRouterProvider implements AIProvider {
       }
     } catch (error) {
       if (isAbortError(error) || error instanceof AIProviderError || !isTransportError(error)) throw error;
-      throw transportFailure(LABEL, this.id, error, model);
+      throw transportFailure(this.label, this.id, error, model);
     } finally {
       // Also runs when the consumer stops early: cancel the upstream response.
       await reader.cancel().catch(() => {});
@@ -230,17 +247,18 @@ export class OpenRouterProvider implements AIProvider {
         ],
       },
     ];
-    const body = modelFields(model, request.modelConfig.fallbackModels, { messages, max_tokens: capTokens(IMAGE_ANALYSIS_MAX_OUTPUT_TOKENS, this.options.policy), stream: false });
-    const price = providerPreferences(false, this.options.policy);
+    const rest = { messages, max_tokens: capTokens(IMAGE_ANALYSIS_MAX_OUTPUT_TOKENS, this.options.policy), stream: false };
+    const body = this.extensions ? modelFields(model, request.modelConfig.fallbackModels, rest) : { model, ...rest };
+    const price = this.extensions ? providerPreferences(false, this.options.policy) : undefined;
     if (price) body.provider = price;
     const posted = await this.post(body, { kind: "vision", model, request });
-    const json = await this.readJson<OpenRouterResponse>(posted, "OpenRouter image analysis", model, request);
+    const json = await this.readJson<OpenRouterResponse>(posted, `${this.name} image analysis`, model, request);
     this.checkBody(json, model);
     if (json.id) request.trace?.responseIds.push(json.id);
     this.noteServed(json, model, posted.call, request.trace);
     const text = json.choices?.[0]?.message?.content;
     // An empty analysis is not a provider outage and not a reason to switch providers.
-    if (typeof text !== "string" || !text.trim()) throw new Error("OpenRouter returned an empty image analysis");
+    if (typeof text !== "string" || !text.trim()) throw new Error(`${this.name} returned an empty image analysis`);
     return { text: text.trim() };
   }
 
@@ -255,7 +273,7 @@ export class OpenRouterProvider implements AIProvider {
     const { model, request } = context;
     const call = beginModelCall(context.kind, model, request.modelCallId, this.id);
     const key = this.key();
-    const url = openRouterUrl(this.options.baseUrl, "chat/completions");
+    const url = openRouterUrl(this.options.baseUrl ?? (this.extensions ? DEFAULT_OPENROUTER_BASE_URL : DEFAULT_OPENAI_BASE_URL), "chat/completions");
     const payload = JSON.stringify(body);
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     let lastError: Error | undefined;
@@ -276,7 +294,7 @@ export class OpenRouterProvider implements AIProvider {
       try {
         res = await fetch(url, {
           method: "POST",
-          headers: openRouterHeaders(key, { "content-type": "application/json", ...(context.stream ? { accept: "text/event-stream" } : {}) }),
+          headers: this.headers(key, context.stream),
           body: payload,
           signal: request.signal ? AbortSignal.any([controller.signal, request.signal]) : controller.signal,
           ...NO_REDIRECTS,
@@ -285,12 +303,12 @@ export class OpenRouterProvider implements AIProvider {
         stop();
         if (request.signal?.aborted) throw abortError();
         if (isAbortError(error)) {
-          const failed = timeoutError("OpenRouter request", this.id, model);
+          const failed = timeoutError(`${this.name} request`, this.id, model);
           call.failure = { code: failed.code, model };
           throw failed;
         }
         if (!isTransportError(error)) throw error;
-        lastError = transportFailure(LABEL, this.id, error, model);
+        lastError = transportFailure(this.label, this.id, error, model);
         call.failure = { code: "AI_UNAVAILABLE", model };
         const wait = retryDelayMs({ kind: "transient" }, attempt);
         if (wait === null) throw lastError;
@@ -310,12 +328,12 @@ export class OpenRouterProvider implements AIProvider {
       const text = await res.text().catch(() => "");
       stop();
       if (timedOut && !request.signal?.aborted) {
-        const failed = timeoutError("OpenRouter request", this.id, model);
+        const failed = timeoutError(`${this.name} request`, this.id, model);
         call.failure = { code: failed.code, model };
         throw failed;
       }
       const failure: ProviderFailure = classifyOpenRouterFailure(res.status, text, res.headers.get("retry-after"));
-      const providerError = toOpenRouterError(LABEL, res.status, res.statusText, failure, text, model);
+      const providerError = toOpenRouterError(this.label, res.status, res.statusText, failure, text, model, this.id);
       lastError = providerError;
       call.failure = { code: providerError.code, quotaType: providerError.quotaType, ...providerError.evidence };
       const wait = retryDelayMs(failure, attempt);
@@ -330,7 +348,7 @@ export class OpenRouterProvider implements AIProvider {
       return await readJsonBody<T>(posted.res, label, this.id, model);
     } catch (error) {
       if (isAbortError(error) && posted.timedOut() && !request.signal?.aborted) {
-        const failed = timeoutError("OpenRouter request", this.id, model);
+        const failed = timeoutError(`${this.name} request`, this.id, model);
         posted.call.failure = { code: failed.code, model };
         throw failed;
       }
@@ -342,10 +360,16 @@ export class OpenRouterProvider implements AIProvider {
 
   /** A 2xx whose body is an error or has no usable choice is a provider failure, not an answer. */
   private checkBody(json: OpenRouterResponse, model: string): void {
-    if (json.error) throw openRouterBodyError(LABEL, json.error, model);
+    if (json.error) throw openRouterBodyError(this.label, json.error, model, this.id);
     const choice = json.choices?.[0];
-    if (choice?.error) throw openRouterBodyError(LABEL, choice.error, model);
-    if (!choice) throw unreadableResponse(LABEL, this.id, model);
+    if (choice?.error) throw openRouterBodyError(this.label, choice.error, model, this.id);
+    if (!choice) throw unreadableResponse(this.label, this.id, model);
+  }
+
+  /** OpenRouter gets its attribution headers; another endpoint only the key and the content types. */
+  private headers(key: string, stream: boolean | undefined): Record<string, string> {
+    const extra = { "content-type": "application/json", ...(stream ? { accept: "text/event-stream" } : {}) };
+    return this.extensions ? openRouterHeaders(key, extra) : { authorization: `Bearer ${key}`, ...extra };
   }
 
   private noteServed(json: { model?: string; usage?: OpenRouterUsage }, model: string, call: ModelCallRecord, trace?: ProviderTrace): void {
@@ -424,6 +448,8 @@ export function buildChatBody(
   request: AIRequest,
   stream: boolean,
   policy?: OpenRouterRequestPolicy,
+  /** False for a plain OpenAI-compatible endpoint: no `models` array, no `provider` preferences. */
+  extensions = true,
 ): { body: Record<string, unknown>; names?: Map<string, string> } {
   const messages: OpenAiMessage[] = [];
   if (request.systemPrompt) messages.push({ role: "system", content: request.systemPrompt });
@@ -436,11 +462,8 @@ export function buildChatBody(
     else messages.push({ role: message.role, content: message.content });
   }
 
-  const body = modelFields(request.modelConfig.model, request.modelConfig.fallbackModels, {
-    messages,
-    stream,
-    max_tokens: capTokens(request.modelConfig.maxTokens ?? DEFAULT_MAX_TOKENS, policy),
-  });
+  const rest = { messages, stream, max_tokens: capTokens(request.modelConfig.maxTokens ?? DEFAULT_MAX_TOKENS, policy) };
+  const body: Record<string, unknown> = extensions ? modelFields(request.modelConfig.model, request.modelConfig.fallbackModels, rest) : { model: request.modelConfig.model, ...rest };
   if (request.modelConfig.temperature !== undefined) body.temperature = request.modelConfig.temperature;
 
   let names: Map<string, string> | undefined;
@@ -456,7 +479,7 @@ export function buildChatBody(
     body.response_format = { type: "json_schema", json_schema: { name, strict: strict !== false, schema } };
   }
   // Without require_parameters OpenRouter may pick an endpoint that ignores tools or response_format.
-  const preferences = providerPreferences(Boolean(names || request.responseFormat), policy);
+  const preferences = extensions ? providerPreferences(Boolean(names || request.responseFormat), policy) : undefined;
   if (preferences) body.provider = preferences;
   return { body, names };
 }

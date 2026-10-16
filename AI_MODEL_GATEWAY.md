@@ -48,7 +48,7 @@ turns (`AiServiceErrors.kt`, keyed on `AI_QUOTA_EXCEEDED`, `AI_RATE_LIMITED`, `A
 
 | Path | Where | Provider coupling |
 |---|---|---|
-| Web search | `skills/index.ts` `searchProvider()`: `GeminiSearchProvider`, then `OpenRouterSearchProvider` (`skills/webSearch.ts`) | Gemini first: Google Search **grounding** returns real sources. OpenRouter's `:online` web search is its own second provider (any Gemini error, or alone with no Gemini key), unless `AI_FALLBACK_PROVIDER=none` while Gemini is configured. Not behind the gateway |
+| Web search | `skills/index.ts` `searchProvider()`: `GeminiSearchProvider`, then `OpenRouterSearchProvider` (`skills/webSearch.ts`) | Gemini first: Google Search **grounding** returns real sources. OpenRouter's `:online` web search is its own second provider (any Gemini error, or alone with no Gemini key), unless `AI_FALLBACK_PROVIDER` leaves OpenRouter out (`none`, or a chain such as `openai`) while Gemini is configured. Not behind the gateway |
 | Image analysis | `api/routes/documents.ts` `analyzeImageWithGemini` (39) | A private Gemini loop inside the route; gated on `env.geminiApiKey` **per request** |
 | Text to speech | `api/routes/tts.ts` → `ai/geminiTts.ts` `GeminiTtsProvider` (since replaced by Edge's voices, see §2.14) | Gemini only, independent of the chat path |
 | Content generation skills | `skills/index.ts` `contentGenerator` (32) | pins `{provider: "google"}` and gates on `env.geminiApiKey` |
@@ -173,22 +173,25 @@ Its named API: `generateText`, `generateWithTools`, `streamText`, `analyzeImage`
    image (and the image's MIME type); `structuredOutput` for a JSON response format; `streaming`
    for a stream; anything the caller passes in `requires` (repository changes require
    `coding`); and a context window that fits the prompt (see §2.7).
-2. **Which providers are usable right now?** A provider is usable when its key is present
-   (checked per request, never captured at startup). The preferred primary
-   (`AI_PRIMARY_PROVIDER`, default Gemini) is used when it is usable; if it is not, the other
-   provider answers and there is no fallback. With neither, see §2.9.
+2. **Which providers are usable right now, in what order?** A provider is usable when its key is
+   present (checked per request, never captured at startup; the OpenAI-compatible provider also needs
+   `OPENAI_MODEL`). The order is the primary (`AI_PRIMARY_PROVIDER`, default Gemini), then the fallback
+   chain (`AI_FALLBACK_PROVIDER`, default every other provider: OpenRouter, then the OpenAI-compatible
+   endpoint). A provider that is not usable is left out, so with no Gemini key the next one answers
+   first. With none, see §2.9.
 3. **Which model?** For each provider, the most preferred (`priority`) enabled catalog model that
    declares everything the request needs. A request is never made to "work" on a model by
    dropping tools or an image.
-4. **Attempt the primary.** On success the answer is returned. On a *fallback-eligible* failure
-   (§2.4) and when the fallback provider has a model that can serve the same request, the gateway
-   makes **exactly one** more attempt there. Two providers are never called at once, and nothing
-   returns to the first provider.
+4. **Attempt the primary, then walk the chain.** On success the answer is returned. On a
+   *fallback-eligible* failure (§2.4) the next provider in the chain that has a model for the same
+   request is asked, and so on until one answers or the chain ends. **Each provider is asked at most
+   once** per logical call; two providers are never called at once, and nothing returns to an earlier
+   provider.
 5. If no model can serve the request: AI_PROVIDER_CAPABILITY_UNSUPPORTED, with nothing sent.
 
 ### 2.4 When it falls back, and when it must not
 
-| Failure of the primary | Fallback? | Why |
+| Failure of the primary | Starts the fallback chain? | Why |
 |---|---|---|
 | 429 rate limit (per minute, after its bounded retry) | **yes** | temporary, provider side |
 | 429 exhausted daily / project quota, 402 empty balance | **yes** (no retry first) | cannot recover inside a request |
@@ -196,16 +199,22 @@ Its named API: `generateText`, `generateWithTools`, `streamText`, `analyzeImage`
 | Timeout | **yes** (never retried on the same provider) | the provider may still be working |
 | 401 / 403 (the provider rejects the key) | **no** | an operator problem; answering elsewhere would hide it |
 | 400 / 413 / 422 (the provider rejects the request or content) | **no** | the request is wrong; another provider would fail or accept what this one refused |
-| 404 (the model does not exist for this account) | **no** | a configuration bug, exactly what broke production once (retired model name) |
+| 404 (the model does not exist for this account) | **yes**, after Gemini's own fallback models | another provider's model is not affected; logged as `<PROVIDER>_CAPABILITY_UNSUPPORTED`, so a retired model name still shows in every log line |
 | A capability the fallback model does not declare | **no** | the honest primary error is returned |
 | An application bug (any non-provider exception) | **no** | rethrown untouched; never disguised as an outage |
 | The client went away (abort) | **no** | nothing runs for nobody |
 | Permission denied, confirmation declined, entitlement denied | not applicable | decided before any model call, in the ToolPipeline |
 
-If the fallback itself fails, the user sees the **last provider's** error, unless that error is
-about our own configuration (a rejected OpenRouter key, an unsupported request): then the
-primary's real condition is reported instead (a spent Gemini quota is still "the AI is out of
-quota", not "temporarily unavailable"). Both failures are in the log (`failedAttempts`).
+**Once the chain has started**, a fallback's own rejected key (401/403) or missing model (404) moves
+on to the next provider too: that is the fallback's problem, not the request's. A refused request
+(400/413/422) or an application bug still ends the call at once.
+
+If every provider fails, the user sees the **last provider's** error, unless that error is about
+our own configuration (a rejected OpenRouter key, an unsupported request): then the primary's real
+condition is reported instead (a spent Gemini quota is still "the AI is out of quota", not
+"temporarily unavailable"). Every failure is in the log (`failedAttempts`). When every provider's
+quota is spent the client gets the existing `AI_QUOTA_EXCEEDED` answer ("today's AI usage limit"),
+never a crash; the request is not queued (§8).
 
 ### 2.5 Retries (one policy for both providers)
 
@@ -215,12 +224,13 @@ quota", not "temporarily unavailable"). Both failures are in the log (`failedAtt
 |---|---|
 | Daily quota (Gemini `...PerDay...`, OpenRouter `free-models-per-day`), 402 | no retry |
 | Per-minute 429 | one retry, only if the advised wait (`RetryInfo`, `Retry-After`, `X-RateLimit-Reset`) is at most 8 s |
-| 408 / 5xx / network failure | at most two retries (about 1 s, 2 s, plus jitter). Gemini then tries its own fallback model (`gemini-3.8-flash`) with the same limits; OpenRouter has one model per call |
+| 408 / 5xx / network failure | at most two retries (about 1 s, 2 s, plus jitter). Gemini then tries its own fallback models (`GEMINI_FALLBACK_MODELS`, default `gemini-3.8-flash`) with the same limits; OpenRouter has one model per call |
+| A Gemini quota counted per model (`...PerProjectPerModel...`, the free tier's daily and per-minute limits) | no retry on that model; the next Gemini fallback model is asked once, since it has its own allowance. A model whose daily quota is spent is asked last for an hour (per server instance) |
 | Timeout | no retry. Gemini 90 s (120 s for a stream to its first byte), OpenRouter `OPENROUTER_TIMEOUT_MS` (60 s) |
 | 400 / 401 / 403 / 404 / 413 / 422 | no retry |
 
 Worst case for one logical call: 6 Gemini requests (two models, three attempts each) plus 3
-OpenRouter requests, then an error (image analysis tries up to three Gemini models, so up to 9 plus
+OpenRouter requests plus 3 OpenAI-compatible requests, then an error (image analysis tries up to three Gemini models, so up to 9 plus
 3, with a 60 s timeout per Gemini request). There is no loop anywhere. **Time** is bounded by the sum of
 the timeouts above: the Vercel function's maximum duration must be longer (§5).
 
@@ -229,9 +239,11 @@ the timeouts above: the Vercel function's maximum duration must be longer (§5).
 When a provider reports an exhausted quota, the gateway remembers it for `AI_QUOTA_COOLDOWN_MS`
 (default 5 minutes). During that time a request goes **straight to a fallback that can serve it**
 (`fallbackReason: GEMINI_QUOTA_COOLDOWN`) instead of spending a request on a provider known to
-refuse it. After the cooldown the next request probes the provider again, and its success clears
-the state. It never applies when no fallback can serve the request, so a Gemini-only deployment
-behaves exactly as before. The state is per server instance (see §8).
+refuse it. This applies to every provider in the chain: with Gemini and OpenRouter both cooling
+down, a request goes straight to the OpenAI-compatible endpoint. After the cooldown the next request
+probes the provider again, and its success clears the state. It never applies when no other provider
+can serve the request, so a Gemini-only deployment behaves exactly as before. The state is per server
+instance (see §8).
 
 ### 2.7 Capabilities, declared and never assumed
 
@@ -598,6 +610,7 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 |---|---|---|
 | `GEMINI_API_KEY` | none | Gemini key (chat, search grounding, images). Secret |
 | `GEMINI_MODEL` | `gemini-3.6-flash` | the Gemini chat model |
+| `GEMINI_FALLBACK_MODELS` | `gemini-3.8-flash` | Gemini models tried after `GEMINI_MODEL` inside one request (up to 5): when it does not exist, is overloaded, or its own per-model quota is spent |
 | `OPENROUTER_API_KEY` | none | OpenRouter key. Secret. Absent = no OpenRouter |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | must be https (http only for localhost); no credentials or query string |
 | `OPENROUTER_MODEL` | `openrouter/free` | the model sent to OpenRouter |
@@ -610,8 +623,15 @@ Content-Security-Policy keeps `connect-src 'self'`: the browser never talks to a
 | `OPENROUTER_MAX_PRICE_PROMPT`, `OPENROUTER_MAX_PRICE_COMPLETION` | none | price ceilings, US dollars per million tokens; also sent to OpenRouter as `provider.max_price` |
 | `OPENROUTER_MAX_OUTPUT_TOKENS` | none | upper bound on tokens one reply may generate (1 to 1,000,000) |
 | `OPENROUTER_DATA_COLLECTION` | none | `allow` or `deny`: whether providers that may store or train on prompts can serve a request; unset = the OpenRouter account's setting |
-| `AI_PRIMARY_PROVIDER` | `gemini` | `gemini` (alias `google`) or `openrouter` |
-| `AI_FALLBACK_PROVIDER` | the other provider | `openrouter`, `gemini` or `none`; must differ from the primary |
+| `OPENAI_API_KEY` | none | key of the OpenAI-compatible endpoint (the third provider). Secret. Used only with `OPENAI_MODEL` |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | any OpenAI-compatible Chat Completions endpoint; https only (http for localhost) |
+| `OPENAI_MODEL` | none | the model id at that endpoint; unset = the provider stays off (no model id is assumed) |
+| `OPENAI_MODEL_CAPABILITIES` | `tools` | what the model can do besides text and streaming: `tools`, `vision`, `structuredOutput`, `coding`, `reasoning`, or `none` |
+| `OPENAI_MODEL_CONTEXT_TOKENS` | `32768` | declared context window |
+| `OPENAI_TIMEOUT_MS` | `60000` | time for one request, headers and body |
+| `OPENAI_MAX_OUTPUT_TOKENS` | none | upper bound on tokens one reply may generate (cost control: this provider is usually paid) |
+| `AI_PRIMARY_PROVIDER` | `gemini` | `gemini` (alias `google`), `openrouter` or `openai` |
+| `AI_FALLBACK_PROVIDER` | every other provider: `openrouter,openai` | the fallback chain in order (comma-separated), or `none`; must not list the primary. Web search never goes to OpenRouter when the chain leaves it out |
 | `AI_QUOTA_COOLDOWN_MS` | `300000` | how long an exhausted provider is skipped; `0` = never |
 | `AI_MODEL_CATALOG_JSON` | none | describes several models (below) |
 | `TTS_PROVIDER` | `gemini` | spoken replies: `gemini` (Gemini's voice is the main one; without `GEMINI_API_KEY` Edge speaks alone), `edge` or `none` (no spoken replies from this server). Not a secret; Edge needs no key |
@@ -626,7 +646,7 @@ names the variable and never its value; on Vercel `/health` then answers 500
 an error. Warnings (logged once): a base URL that is not `openrouter.ai` (the key is sent there);
 `OPENROUTER_MODEL` ignored because the catalog JSON lists OpenRouter models.
 
-`AI_MODEL_CATALOG_JSON` is a one-line JSON array. Keys: `provider` (`gemini` or `openrouter`),
+`AI_MODEL_CATALOG_JSON` is a one-line JSON array. Keys: `provider` (`gemini`, `openrouter` or `openai`),
 `model`, `enabled`, `free`, `priority` (lower is preferred), `streaming`, `tools`, `vision`,
 `structuredOutput`, `coding`, `reasoning`, `contextTokens`, `imageMimeTypes`. Anything not stated is
 the conservative value. Unknown keys are rejected (a typo such as `tool` would otherwise silently
@@ -914,6 +934,16 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 
 ## 8. Limitations and operating notes
 
+- **No provider chain can promise zero quota errors.** Every free tier has a daily allowance; the chain
+  (Gemini's own models, then OpenRouter, then the OpenAI-compatible endpoint) only adds allowances
+  together. When all of them are spent the user gets `AI_QUOTA_EXCEEDED` with its "today's usage limit"
+  message. A request is **not queued** for later: a serverless function cannot hold it, and an answer
+  hours later would surprise the user. The order is a priority, not load balancing: requests are not
+  spread across providers while the first one still answers, because spreading would spend the paid or
+  data-sharing providers first for no gain.
+- **The OpenAI-compatible provider is usually paid.** OpenAI's API has no free tier; set
+  `OPENAI_MAX_OUTPUT_TOKENS` and a spend limit in that account. Another compatible service with a free
+  tier works the same way through `OPENAI_BASE_URL`.
 - **What the live probe showed on 2026-10-15 (new key, GitHub Actions).** The key is accepted (the
   earlier HTTP 401 was a dead account). `GET /models` (public) listed 443 models, 17 free, 14 free
   with tool support; `GET /models/user` (the account's own list, sent with the key) **works** and listed

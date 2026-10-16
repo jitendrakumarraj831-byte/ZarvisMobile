@@ -34,7 +34,7 @@ export class UnavailableAIProvider implements AIProvider {
 }
 
 function unavailable(): AIProviderError {
-  return new AIProviderError("No AI provider is configured (set GEMINI_API_KEY or OPENROUTER_API_KEY)", "AI_UNAVAILABLE", 503, false);
+  return new AIProviderError("No AI provider is configured (set GEMINI_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY with OPENAI_MODEL)", "AI_UNAVAILABLE", 503, false);
 }
 
 /** Which provider answers by default. Exported for tests. */
@@ -67,6 +67,7 @@ export type GatewayEnvironment = Pick<
   typeof env,
   | "geminiApiKey"
   | "geminiModel"
+  | "geminiFallbackModels"
   | "openRouterApiKey"
   | "openRouterBaseUrl"
   | "openRouterModel"
@@ -80,6 +81,13 @@ export type GatewayEnvironment = Pick<
   | "openRouterMaxPriceCompletion"
   | "openRouterMaxOutputTokens"
   | "openRouterDataCollection"
+  | "openAiApiKey"
+  | "openAiBaseUrl"
+  | "openAiModel"
+  | "openAiModelCapabilities"
+  | "openAiModelContextTokens"
+  | "openAiTimeoutMs"
+  | "openAiMaxOutputTokens"
   | "aiPrimaryProvider"
   | "aiFallbackProvider"
   | "aiModelCatalogJson"
@@ -100,6 +108,7 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
   const isProduction = options.isProduction ?? env.isProduction;
   const config = resolveAIConfig({
     geminiModel: source.geminiModel,
+    geminiFallbackModels: source.geminiFallbackModels,
     aiPrimaryProvider: source.aiPrimaryProvider,
     aiFallbackProvider: source.aiFallbackProvider,
     openRouterBaseUrl: source.openRouterBaseUrl,
@@ -114,6 +123,12 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
     openRouterMaxPriceCompletion: source.openRouterMaxPriceCompletion,
     openRouterMaxOutputTokens: source.openRouterMaxOutputTokens,
     openRouterDataCollection: source.openRouterDataCollection,
+    openAiBaseUrl: source.openAiBaseUrl,
+    openAiModel: source.openAiModel,
+    openAiModelCapabilities: source.openAiModelCapabilities,
+    openAiModelContextTokens: source.openAiModelContextTokens,
+    openAiTimeoutMs: source.openAiTimeoutMs,
+    openAiMaxOutputTokens: source.openAiMaxOutputTokens,
     aiModelCatalogJson: source.aiModelCatalogJson,
     aiQuotaCooldownMs: source.aiQuotaCooldownMs,
   });
@@ -125,6 +140,11 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
   };
   const openRouterKey = () => {
     const key = source.openRouterApiKey;
+    registerSecret(key);
+    return key;
+  };
+  const openAiKey = () => {
+    const key = source.openAiApiKey;
     registerSecret(key);
     return key;
   };
@@ -147,7 +167,13 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
     : undefined;
 
   const providers: GatewayProvider[] = [
-    { id: "google", label: "GEMINI", provider: new GeminiProvider(geminiKey), isConfigured: () => !!source.geminiApiKey, live: true },
+    {
+      id: "google",
+      label: "GEMINI",
+      provider: new GeminiProvider(geminiKey, undefined, config.geminiFallbackModels, options.now),
+      isConfigured: () => !!source.geminiApiKey,
+      live: true,
+    },
     {
       id: "openrouter",
       label: "OPENROUTER",
@@ -165,23 +191,43 @@ export function createModelGateway(source: GatewayEnvironment = env, options: Cr
       isConfigured: () => !!source.openRouterApiKey,
       live: true,
     },
+    {
+      id: "openai",
+      label: "OPENAI",
+      provider: new OpenRouterProvider({
+        flavor: "openai",
+        apiKey: openAiKey,
+        baseUrl: config.openAI.baseUrl,
+        timeoutMs: config.openAI.timeoutMs,
+        policy: config.openAI.maxOutputTokens !== undefined ? { maxOutputTokens: config.openAI.maxOutputTokens } : {},
+      }),
+      // A key without OPENAI_MODEL is not enough: no model id is assumed for an endpoint this code does not know.
+      isConfigured: () => !!source.openAiApiKey && config.openAI.model !== undefined,
+      live: true,
+    },
     // The deterministic mock exists only outside production; production fails closed.
     ...(isProduction ? [] : [{ id: "mock" as const, label: "MOCK", provider: new MockAIProvider(), isConfigured: () => true, live: false }]),
     { id: "none", label: "NONE", provider: new UnavailableAIProvider(), isConfigured: () => true, live: false },
   ];
   registerSecret(source.geminiApiKey);
   registerSecret(source.openRouterApiKey);
+  registerSecret(source.openAiApiKey);
 
   const gateway = new ModelGateway({
     providers,
     preferredPrimary: config.preferredPrimary,
     preferredFallback: config.preferredFallback,
+    preferredFallbacks: config.preferredFallbacks,
     catalog: config.catalog,
     quotaCooldownMs: config.quotaCooldownMs,
     ...(dynamic ? { dynamic: { openrouter: dynamic } } : {}),
     now: options.now,
   });
-  startupWarnings.set(gateway, config.warnings);
+  const warnings = [...config.warnings];
+  if (source.openAiApiKey && config.openAI.model === undefined) {
+    warnings.push("OPENAI_API_KEY is set without OPENAI_MODEL: the OpenAI-compatible fallback stays off until OPENAI_MODEL names the model");
+  }
+  startupWarnings.set(gateway, warnings);
   return gateway;
 }
 
@@ -206,14 +252,15 @@ export function getModelGateway(): ModelGateway {
 function logStartup(gateway: ModelGateway): void {
   const status = gateway.getProviderStatus();
   const notes: string[] = [...(startupWarnings.get(gateway) ?? [])];
-  const fallback = status.providers.find((provider) => provider.id === status.effective.fallback);
-  if (fallback && !fallback.models.some((model) => model.enabled && model.capabilities.includes("tools"))) {
-    notes.push("The fallback model does not declare tool support: tool-using chat turns will not fall back (see OPENROUTER_MODEL_CAPABILITIES / AI_MODEL_CATALOG_JSON)");
+  const fallbacks = status.providers.filter((provider) => status.effective.fallbacks.includes(provider.id as never));
+  if (fallbacks.length > 0 && !fallbacks.some((provider) => provider.models.some((model) => model.enabled && model.capabilities.includes("tools")))) {
+    notes.push("No fallback model declares tool support: tool-using chat turns will not fall back (see OPENROUTER_MODEL_CAPABILITIES / OPENAI_MODEL_CAPABILITIES / AI_MODEL_CATALOG_JSON)");
   }
   logger.info("AI gateway ready", {
     mode: status.effective.mode,
     primary: status.effective.primary,
     fallback: status.effective.fallback,
+    fallbacks: status.effective.fallbacks,
     preferred: status.preferred,
     providers: status.providers
       .filter((provider) => provider.live)

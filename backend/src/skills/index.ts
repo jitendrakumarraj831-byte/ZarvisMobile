@@ -44,18 +44,27 @@ export interface SearchProviderSettings {
   /** Raw `OPENROUTER_BASE_URL` / `OPENROUTER_DATA_COLLECTION`: search follows the same address and data policy as chat. */
   openRouterBaseUrl?: string;
   openRouterDataCollection?: string;
-  /** Raw `AI_FALLBACK_PROVIDER`; `none` / `off` / `disabled` means a query must not go to a second provider. */
+  /** Raw `AI_FALLBACK_PROVIDER`: a chain that leaves OpenRouter out (or `none`) means a query must not go to OpenRouter. */
   aiFallbackProvider?: string;
+  /** Raw `AI_PRIMARY_PROVIDER`: OpenRouter as the primary is always allowed. */
+  aiPrimaryProvider?: string;
   isProduction: boolean;
 }
 
-const fallbackDisabled = (raw: string | undefined) => ["none", "off", "disabled"].includes(raw?.trim().toLowerCase() ?? "");
+/** Whether the gateway settings let a user's text go to OpenRouter while Gemini is configured. */
+function openRouterAllowed(settings: Pick<SearchProviderSettings, "aiFallbackProvider" | "aiPrimaryProvider">): boolean {
+  if (settings.aiPrimaryProvider?.trim().toLowerCase() === "openrouter") return true;
+  const chain = settings.aiFallbackProvider?.trim().toLowerCase();
+  if (!chain) return true; // the default chain includes OpenRouter
+  return chain.split(/[\s,]+/).includes("openrouter");
+}
 
 /**
  * Gemini grounding first; OpenRouter's web search as fallback, or alone when Gemini isn't configured.
  * Search is not routed through the gateway (only Gemini's grounding returns real sources), so it honours
- * the one gateway switch that is about where a user's text may go: with `AI_FALLBACK_PROVIDER=none` a
- * search query is never sent to OpenRouter while Gemini is configured.
+ * the one gateway switch that is about where a user's text may go: when `AI_FALLBACK_PROVIDER` leaves
+ * OpenRouter out (`none`, or a chain such as `openai`), a search query is never sent to OpenRouter while
+ * Gemini is configured.
  */
 export function searchProvider(settings: SearchProviderSettings = env): SearchProvider {
   const dataCollection = settings.openRouterDataCollection?.trim().toLowerCase();
@@ -67,7 +76,7 @@ export function searchProvider(settings: SearchProviderSettings = env): SearchPr
     : undefined;
   if (settings.geminiApiKey) {
     const gemini = new GeminiSearchProvider(settings.geminiApiKey, settings.geminiModel);
-    return openRouter && !fallbackDisabled(settings.aiFallbackProvider) ? new FallbackSearchProvider(gemini, openRouter) : gemini;
+    return openRouter && openRouterAllowed(settings) ? new FallbackSearchProvider(gemini, openRouter) : gemini;
   }
   if (openRouter) return openRouter;
   return settings.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();

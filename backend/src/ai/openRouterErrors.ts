@@ -3,7 +3,8 @@ import type { AIErrorKind } from "./errorTaxonomy.js";
 import { redactString } from "../security/redact.js";
 
 /**
- * Failure classification for OpenRouter's OpenAI-compatible API, feeding the SAME retry policy as
+ * Failure classification for OpenRouter's OpenAI-compatible API (and any other OpenAI-compatible
+ * endpoint, see `OpenRouterProvider`'s `openai` variant), feeding the SAME retry policy as
  * Gemini (`retryDelayMs` in ai/geminiErrors.ts): a daily quota or an empty credit balance is never
  * retried, a short rate limit is retried once, a transient 5xx at most twice.
  *
@@ -18,6 +19,8 @@ import { redactString } from "../security/redact.js";
 interface OpenRouterErrorBody {
   error?: {
     code?: number | string;
+    /** OpenAI's error class (`insufficient_quota`, `rate_limit_exceeded`); OpenRouter does not send it. */
+    type?: unknown;
     message?: unknown;
     metadata?: {
       headers?: Record<string, unknown>;
@@ -59,7 +62,9 @@ export function parseOpenRouterError(bodyText: string): OpenRouterErrorInfo {
   }
   const raw = typeof error?.metadata?.raw === "string" ? error.metadata.raw.slice(0, 500) : "";
   const moderation = Boolean(error?.metadata?.reasons ?? error?.metadata?.flagged_input) || /moderation|flagged/i.test(message);
-  return { message, headers, moderation, hintText: `${message} ${raw}`.toLowerCase() };
+  const code = typeof error?.code === "string" ? error.code : "";
+  const type = typeof error?.type === "string" ? error.type : "";
+  return { message, headers, moderation, hintText: `${message} ${raw} ${code} ${type}`.toLowerCase() };
 }
 
 function parseRetryAfter(header: string | null | undefined): number | undefined {
@@ -93,6 +98,9 @@ export function classifyOpenRouterFailure(
   if (TRANSIENT_STATUSES.has(status)) return { kind: "transient", retryAfterMs };
   if (status !== 429) return { kind: "fatal" };
 
+  // OpenAI-compatible endpoints: an account with no credit left answers 429 `insufficient_quota`. Like an
+  // empty OpenRouter balance, nothing in this request fixes it.
+  if (/insufficient_quota/.test(info.hintText)) return { kind: "quota", quotaType: "credits" };
   const quotaType: QuotaType = /per[- ]?day|daily/.test(info.hintText) ? "daily" : /per[- ]?min/.test(info.hintText) ? "per_minute" : "unknown";
   const window = /rate limit exceeded:\s*([\w-]+)/i.exec(info.message)?.[1];
   return {
@@ -124,12 +132,13 @@ export function toOpenRouterError(
   failure: ProviderFailure,
   bodyText: string,
   model?: string,
+  provider = "openrouter",
 ): AIProviderError {
   const info = parseOpenRouterError(bodyText);
   const detail = redactString(info.message).replace(/\s+/g, " ").slice(0, MAX_DETAIL_CHARS);
   const message = `${label} failed: ${status} ${statusText} ${detail}`.trim();
   const kind = kindForOpenRouterStatus(status, failure, info);
-  const options = { kind, provider: "openrouter" };
+  const options = { kind, provider };
 
   if (failure.kind === "quota") {
     const evidence = { model, quotaId: failure.quotaId };
@@ -154,11 +163,11 @@ export function toOpenRouterError(
  * choice ended in `finish_reason: "error"`). The numeric `code` is the status the failure would
  * have had.
  */
-export function openRouterBodyError(label: string, errorObject: unknown, model?: string): AIProviderError {
+export function openRouterBodyError(label: string, errorObject: unknown, model?: string, provider = "openrouter"): AIProviderError {
   const raw = errorObject && typeof errorObject === "object" ? (errorObject as { code?: unknown }) : {};
   const code = Number(raw.code);
   const status = Number.isInteger(code) && code >= 400 && code <= 599 ? code : 502;
   const body = JSON.stringify({ error: errorObject });
   const failure = classifyOpenRouterFailure(status, body);
-  return toOpenRouterError(label, status, "", failure, body, model);
+  return toOpenRouterError(label, status, "", failure, body, model, provider);
 }

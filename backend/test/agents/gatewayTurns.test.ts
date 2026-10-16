@@ -110,7 +110,7 @@ describe("a user turn through the gateway: request economy and billing", () => {
     const result = await orchestrator.runTurn({ accountId, utterance: "monsoon par poem likho" });
 
     expect(result.toolCalls[0]?.outcome).toMatchObject({ kind: "success", result: { summary: FALLBACK_POEM } });
-    expect(stub.gemini).toHaveLength(3); // plan, the refused poem request, final reply
+    expect(stub.gemini).toHaveLength(4); // plan, the poem refused by both Gemini models (the quota is per model), final reply
     expect(stub.openrouter).toHaveLength(1);
     expect(charge).toHaveBeenCalledTimes(1); // the fallback is inside ONE skill execution: one charge
     const log = read()!;
@@ -146,7 +146,7 @@ describe("a user turn through the gateway: request economy and billing", () => {
     expect(result.toolCalls[0]?.outcome).toMatchObject({ kind: "execution_failed", result: { reason: "ai_quota_exceeded" } });
     expect(result.message).toMatch(/usage limit/);
     expect(charge).not.toHaveBeenCalled(); // a failed generation is never charged
-    expect(stub.gemini).toHaveLength(2); // the planner, and the refused poem request; no re-plan after a spent quota
+    expect(stub.gemini).toHaveLength(3); // the planner, and the poem refused by both Gemini models; no re-plan after a spent quota
     expect(stub.openrouter).toHaveLength(1);
   });
 
@@ -166,7 +166,8 @@ describe("a user turn through the gateway: request economy and billing", () => {
 
   it("the planner falls back when OpenRouter declares tools, while web search stays on Gemini (it is never routed through OpenRouter)", async () => {
     const stub = stubProviders({
-      gemini: gemini({ planner: [geminiFail(429, quotaBody(DAILY))] }),
+      // Both Gemini models are out of their daily quota.
+      gemini: gemini({ planner: [geminiFail(429, quotaBody(DAILY)), geminiFail(429, quotaBody(DAILY))] }),
       openrouter: openRouter({ planner: [openRouterCall("web-search", { query: "Forbesganj weather" }), openRouterText("Kal dhoop rahegi.")] }),
     });
     const { orchestrator, accountId, charge } = await setup(new InMemoryStore(), { openRouterModelCapabilities: "tools" });
@@ -179,15 +180,15 @@ describe("a user turn through the gateway: request economy and billing", () => {
     const searches = stub.gemini.filter((call) => call.body?.tools?.[0]?.googleSearch);
     expect(searches).toHaveLength(1);
     expect(stub.openrouter.some((call) => JSON.stringify(call.body).includes("googleSearch"))).toBe(false);
-    // Plan: 1 Gemini planner request (refused), then the quota cooldown sends the next planner step straight to OpenRouter.
-    expect(stub.gemini.filter((call) => call.body?.tools?.[0]?.functionDeclarations)).toHaveLength(1);
+    // Plan: 1 Gemini planner request per Gemini model (both refused), then the quota cooldown sends the next planner step straight to OpenRouter.
+    expect(stub.gemini.filter((call) => call.body?.tools?.[0]?.functionDeclarations)).toHaveLength(2);
     expect(stub.openrouter).toHaveLength(2);
     expect(charge).toHaveBeenCalledTimes(1);
     expect(charge).toHaveBeenCalledWith(accountId, { value: 2, unit: "credits" }, "web.search");
   });
 
   it("without declared tool support the planner does NOT fall back: the user gets the honest quota error, and OpenRouter is never asked to 'use' a tool", async () => {
-    const stub = stubProviders({ gemini: gemini({ planner: [geminiFail(429, quotaBody(DAILY))] }), openrouter: openRouter() });
+    const stub = stubProviders({ gemini: gemini({ planner: [geminiFail(429, quotaBody(DAILY)), geminiFail(429, quotaBody(DAILY))] }), openrouter: openRouter() });
     const { orchestrator, accountId, charge } = await setup(new InMemoryStore());
 
     const failure = await orchestrator.runTurn({ accountId, utterance: "kal ka weather kaisa rahega?" }).catch((error) => error);

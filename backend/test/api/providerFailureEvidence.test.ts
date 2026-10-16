@@ -16,6 +16,7 @@ import { DAILY, PER_MINUTE, quotaBody } from "../ai/geminiFixtures.js";
  * The real GeminiProvider runs; only Gemini's HTTP answers are stubbed.
  */
 const MODEL = "gemini-3.6-flash";
+const FALLBACK_MODEL = "gemini-3.8-flash";
 
 function appWithGemini() {
   const container = buildContainer(new InMemoryStore());
@@ -53,7 +54,7 @@ describe("a provider failure is logged with proof of its cause", () => {
     vi.restoreAllMocks();
   });
 
-  it("daily quota: one Gemini request, no retry, and the log names status, quota id, metric and model", async () => {
+  it("daily quota: one request per Gemini model, no retry, and the log names status, quota id, metric and model", async () => {
     const fetchMock = stubGemini(429, quotaBody(DAILY));
     const logs = captureLogs();
     const { status, error } = await streamTurn(appWithGemini());
@@ -61,7 +62,8 @@ describe("a provider failure is logged with proof of its cause", () => {
     // SSE: the HTTP status is 200 because the stream had started; the failure is the error event.
     expect(status).toBe(200);
     expect(error).toMatchObject({ code: "AI_QUOTA_EXCEEDED", quotaType: "daily", retryable: false });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Google counts this quota per model: the configured model, then Gemini's fallback model, once each.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const stopped = logs.find((l) => l.message === "Streaming turn stopped by the AI provider");
     expect(stopped?.data).toMatchObject({
@@ -71,17 +73,19 @@ describe("a provider failure is logged with proof of its cause", () => {
       quotaType: "daily",
       quotaId: DAILY,
       quotaMetric: "generativelanguage.googleapis.com/generate_content_free_tier_requests",
-      model: MODEL,
+      // The model that refused last: the fallback model, after the configured one.
+      model: FALLBACK_MODEL,
     });
 
     const finished = logs.find((l) => l.message === "Turn finished");
-    expect(finished?.data).toMatchObject({ turnId: error.turnId, aiCalls: 1, aiHttpRequests: 1, toolCalls: [] });
+    expect(finished?.data).toMatchObject({ turnId: error.turnId, aiCalls: 1, aiHttpRequests: 2, toolCalls: [] });
     expect(finished?.data.aiCallLog[0]).toMatchObject({
       kind: "planner",
-      httpRequests: 1,
+      configuredModel: MODEL,
+      httpRequests: 2,
       outcome: "error",
       status: 429,
-      failure: { code: "AI_QUOTA_EXCEEDED", quotaType: "daily", quotaId: DAILY, model: MODEL },
+      failure: { code: "AI_QUOTA_EXCEEDED", quotaType: "daily", quotaId: DAILY, model: FALLBACK_MODEL },
     });
   });
 
@@ -92,7 +96,7 @@ describe("a provider failure is logged with proof of its cause", () => {
     expect(error).toMatchObject({ code: "AI_RATE_LIMITED", quotaType: "per_minute" });
     expect(error.error).not.toMatch(/today/);
     const stopped = logs.find((l) => l.message === "Streaming turn stopped by the AI provider");
-    expect(stopped?.data).toMatchObject({ status: 429, quotaType: "per_minute", quotaId: PER_MINUTE, model: MODEL });
+    expect(stopped?.data).toMatchObject({ status: 429, quotaType: "per_minute", quotaId: PER_MINUTE, model: FALLBACK_MODEL });
   });
 
   it("a 503 is AI_UNAVAILABLE with the model logged, never a quota", async () => {

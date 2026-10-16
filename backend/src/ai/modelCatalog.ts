@@ -12,8 +12,12 @@ import { CAPABILITIES, capabilitySet, type Capability, type CapabilitySet, type 
  * streaming unless the operator states more (`OPENROUTER_MODEL_CAPABILITIES` or
  * `AI_MODEL_CATALOG_JSON`), because free models differ widely: many cannot call tools or read
  * images, and a router such as `openrouter/free` may serve a different model on each request.
+ *
+ * `openai` is any OpenAI-compatible Chat Completions endpoint (OpenAI itself, or another service that
+ * speaks the same API): the last provider in the default fallback chain. It has an entry only when
+ * `OPENAI_MODEL` names the model, because no model id is assumed for an endpoint this code does not know.
  */
-export const CATALOG_PROVIDERS = ["google", "openrouter"] as const;
+export const CATALOG_PROVIDERS = ["google", "openrouter", "openai"] as const;
 export type CatalogProvider = (typeof CATALOG_PROVIDERS)[number];
 
 export interface ModelEntry {
@@ -54,6 +58,27 @@ export function geminiEntry(model: string): ModelEntry {
     contextTokens,
     capabilities: capabilitySet(["streaming", "tools", "vision", "structuredOutput", "coding", "reasoning"], contextTokens),
     imageMimeTypes: GEMINI_IMAGE_MIME_TYPES,
+  };
+}
+
+/**
+ * The OpenAI-compatible endpoint's model. Tool calling is declared by default (the reason a third provider
+ * exists is that a chat turn's planner needs tools); `capabilities` replaces that list when the operator
+ * states one, and an empty list means text and streaming only.
+ */
+export function openAIEntry(options: { model: string; capabilities?: Capability[]; contextTokens?: number }): ModelEntry {
+  const declared = options.capabilities ?? ["tools"];
+  const contextTokens = options.contextTokens ?? DEFAULT_CONTEXT_TOKENS;
+  return {
+    provider: "openai",
+    model: options.model,
+    enabled: true,
+    free: false,
+    priority: 3,
+    contextTokens,
+    capabilities: capabilitySet(["streaming", ...declared], contextTokens),
+    imageMimeTypes: declared.includes("vision") ? OPENROUTER_IMAGE_MIME_TYPES : [],
+    jsonSchema: declared.includes("structuredOutput"),
   };
 }
 
@@ -124,6 +149,7 @@ function normalizeCatalogProvider(value: unknown): CatalogProvider | undefined {
   const v = value.trim().toLowerCase();
   if (v === "gemini" || v === "google") return "google";
   if (v === "openrouter") return "openrouter";
+  if (v === "openai") return "openai";
   return undefined;
 }
 
@@ -163,7 +189,7 @@ export function parseCatalogJson(text: string): ModelEntry[] {
       else if (!ALLOWED_KEYS.has(key)) problems.push(`${at} has an unknown key "${key.slice(0, 40)}"`);
     }
     const provider = normalizeCatalogProvider(item.provider);
-    if (!provider) problems.push(`${at}.provider must be "gemini" or "openrouter"`);
+    if (!provider) problems.push(`${at}.provider must be "gemini", "openrouter" or "openai"`);
     const model = typeof item.model === "string" ? item.model.trim() : "";
     if (!MODEL_ID.test(model)) problems.push(`${at}.model is missing or not a valid model id`);
     for (const key of ["enabled", "free", ...FLAG_KEYS]) {
@@ -207,7 +233,7 @@ export function parseCatalogJson(text: string): ModelEntry[] {
       contextTokens: tokens,
       capabilities: capabilitySet(flags, tokens),
       imageMimeTypes: vision ? (imageMimeTypes ?? (provider === "google" ? GEMINI_IMAGE_MIME_TYPES : OPENROUTER_IMAGE_MIME_TYPES)) : [],
-      jsonSchema: provider === "openrouter" && flags.includes("structuredOutput"),
+      jsonSchema: provider !== "google" && flags.includes("structuredOutput"),
     });
   });
   if (problems.length > 0) throw new AIConfigError(problems);

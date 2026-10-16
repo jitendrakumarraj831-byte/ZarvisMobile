@@ -47,6 +47,12 @@ export const env = {
       ? "gemini-3.6-flash"
       : process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
   /**
+   * Gemini models tried after GEMINI_MODEL inside the same request (comma-separated, at most 5): when it
+   * does not exist, is overloaded, or its own free-tier quota (Google counts it per model) is spent.
+   * Default: gemini-3.8-flash. Read raw; `config/aiConfig.ts` validates it.
+   */
+  geminiFallbackModels: process.env.GEMINI_FALLBACK_MODELS,
+  /**
    * Voice output (see ../tts/edgeTtsProvider.ts): Microsoft Edge's neural voices. It needs no key,
    * so there is no secret here. Read raw; `config/ttsConfig.ts` validates and resolves them, and a
    * bad value is reported and replaced by the default rather than stopping the server.
@@ -97,9 +103,25 @@ export const env = {
   openRouterMaxOutputTokens: process.env.OPENROUTER_MAX_OUTPUT_TOKENS,
   /** `allow` or `deny`: whether providers that may store or train on prompts can serve a request (OpenRouter's `provider.data_collection`). Unset = OpenRouter's account setting. */
   openRouterDataCollection: process.env.OPENROUTER_DATA_COLLECTION,
-  /** `gemini` (default) or `openrouter`. */
+  /**
+   * The third provider: any OpenAI-compatible Chat Completions endpoint (OpenAI's own by default). Used
+   * only when both the key and OPENAI_MODEL are set. Server-side only, like every provider key.
+   */
+  openAiApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
+  openAiBaseUrl: process.env.OPENAI_BASE_URL,
+  openAiModel: process.env.OPENAI_MODEL,
+  /** What OPENAI_MODEL can do besides text and streaming. Default `tools`; `none` = text only. */
+  openAiModelCapabilities: process.env.OPENAI_MODEL_CAPABILITIES,
+  openAiModelContextTokens: process.env.OPENAI_MODEL_CONTEXT_TOKENS,
+  openAiTimeoutMs: process.env.OPENAI_TIMEOUT_MS,
+  /** Upper bound on tokens one reply from the OpenAI-compatible endpoint may generate (cost control). */
+  openAiMaxOutputTokens: process.env.OPENAI_MAX_OUTPUT_TOKENS,
+  /** `gemini` (default), `openrouter` or `openai`. */
   aiPrimaryProvider: process.env.AI_PRIMARY_PROVIDER,
-  /** `openrouter` / `gemini` (default: the provider that is not the primary) or `none`. */
+  /**
+   * The fallback chain, in order: one provider or several (`openrouter,openai`), or `none`.
+   * Default: every provider that is not the primary, in the order gemini, openrouter, openai.
+   */
   aiFallbackProvider: process.env.AI_FALLBACK_PROVIDER,
   /** Optional JSON array describing every model and its capabilities; see ai/modelCatalog.ts. */
   aiModelCatalogJson: process.env.AI_MODEL_CATALOG_JSON,

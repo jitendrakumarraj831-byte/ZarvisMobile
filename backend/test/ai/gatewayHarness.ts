@@ -11,11 +11,13 @@ import type { AIRequest } from "../../src/ai/provider.js";
 
 export const GEMINI_KEY = "gemini-test-key-AAAA1111";
 export const OPENROUTER_KEY = "sk-or-v1-testkeyBBBB2222cccc3333dddd";
+export const OPENAI_KEY = "sk-proj-testkeyCCCC3333dddd4444eeee";
 
 export function fakeEnv(overrides: Partial<GatewayEnvironment> = {}): GatewayEnvironment {
   return {
     geminiApiKey: GEMINI_KEY,
     geminiModel: "gemini-3.6-flash",
+    geminiFallbackModels: undefined,
     openRouterApiKey: OPENROUTER_KEY,
     openRouterBaseUrl: undefined,
     openRouterModel: undefined,
@@ -30,6 +32,14 @@ export function fakeEnv(overrides: Partial<GatewayEnvironment> = {}): GatewayEnv
     openRouterMaxPriceCompletion: undefined,
     openRouterMaxOutputTokens: undefined,
     openRouterDataCollection: undefined,
+    // The third provider is off unless a test turns it on (both the key and the model are needed).
+    openAiApiKey: undefined,
+    openAiBaseUrl: undefined,
+    openAiModel: undefined,
+    openAiModelCapabilities: undefined,
+    openAiModelContextTokens: undefined,
+    openAiTimeoutMs: undefined,
+    openAiMaxOutputTokens: undefined,
     aiPrimaryProvider: undefined,
     aiFallbackProvider: undefined,
     aiModelCatalogJson: undefined,
@@ -40,7 +50,7 @@ export function fakeEnv(overrides: Partial<GatewayEnvironment> = {}): GatewayEnv
 
 export interface RecordedCall {
   url: string;
-  host: "gemini" | "openrouter" | "other";
+  host: "gemini" | "openrouter" | "openai" | "other";
   method: string;
   headers: Record<string, string>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,6 +74,7 @@ export interface ProviderStub {
   calls: RecordedCall[];
   gemini: RecordedCall[];
   openrouter: RecordedCall[];
+  openai: RecordedCall[];
 }
 
 /** The request's host name, parsed (never matched as a substring, so a look-alike URL cannot pass for a provider). */
@@ -76,7 +87,7 @@ function hostnameOf(url: string): string {
 }
 
 /** Routes `fetch` by provider host. A host with no responder fails the test: nothing may reach it. */
-export function stubProviders(handlers: { gemini?: Responder; openrouter?: Responder }, extraOpenRouterHosts: string[] = []): ProviderStub {
+export function stubProviders(handlers: { gemini?: Responder; openrouter?: Responder; openai?: Responder }, extraOpenRouterHosts: string[] = []): ProviderStub {
   const calls: RecordedCall[] = [];
   vi.stubGlobal(
     "fetch",
@@ -88,12 +99,14 @@ export function stubProviders(handlers: { gemini?: Responder; openrouter?: Respo
           ? "gemini"
           : hostname === "openrouter.ai" || extraOpenRouterHosts.includes(hostname)
             ? "openrouter"
-            : "other";
+            : hostname === "api.openai.com"
+              ? "openai"
+              : "other";
       const headers: Record<string, string> = {};
       for (const [name, value] of Object.entries((init?.headers ?? {}) as Record<string, string>)) headers[name.toLowerCase()] = value;
       const call: RecordedCall = { url, host, method: init?.method ?? "GET", headers, body: init?.body ? JSON.parse(String(init.body)) : undefined, signal: init?.signal };
       calls.push(call);
-      const responder = host === "gemini" ? handlers.gemini : host === "openrouter" ? handlers.openrouter : undefined;
+      const responder = host === "gemini" ? handlers.gemini : host === "openrouter" ? handlers.openrouter : host === "openai" ? handlers.openai : undefined;
       if (!responder) throw new Error(`unexpected request to ${host}: ${url}`);
       return responder(call);
     }),
@@ -105,6 +118,9 @@ export function stubProviders(handlers: { gemini?: Responder; openrouter?: Respo
     },
     get openrouter() {
       return calls.filter((call) => call.host === "openrouter");
+    },
+    get openai() {
+      return calls.filter((call) => call.host === "openai");
     },
   };
 }

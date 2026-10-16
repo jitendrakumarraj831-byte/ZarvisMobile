@@ -27,6 +27,13 @@ describe("which web-search provider a deployment gets", () => {
     },
   );
 
+  it("a fallback chain that leaves OpenRouter out keeps search queries away from it too; one that lists it does not", () => {
+    expect(searchProvider({ ...base, geminiApiKey: "g", openRouterApiKey: "o", aiFallbackProvider: "openai" })).toBeInstanceOf(GeminiSearchProvider);
+    expect(searchProvider({ ...base, geminiApiKey: "g", openRouterApiKey: "o", aiFallbackProvider: "openai, OpenRouter" })).toBeInstanceOf(FallbackSearchProvider);
+    // OpenRouter as the primary is always allowed to answer.
+    expect(searchProvider({ ...base, geminiApiKey: "g", openRouterApiKey: "o", aiPrimaryProvider: "openrouter", aiFallbackProvider: "gemini" })).toBeInstanceOf(FallbackSearchProvider);
+  });
+
   it("OpenRouter alone when it is the only provider with a key", () => {
     expect(searchProvider({ ...base, openRouterApiKey: "o" })).toBeInstanceOf(OpenRouterSearchProvider);
     expect(searchProvider({ ...base, openRouterApiKey: "o", aiFallbackProvider: "none" })).toBeInstanceOf(OpenRouterSearchProvider);
