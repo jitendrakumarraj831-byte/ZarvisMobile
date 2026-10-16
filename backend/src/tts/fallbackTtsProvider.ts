@@ -17,7 +17,7 @@
  *   and a crowd here must not become a crowd of texts sent to the second service).
  * - The unary WAV endpoint is different in one way only: it returns nothing until it is complete, so
  *   it may fall back even after the primary had started, because no audio has left the server.
- * - Nothing the user said is logged: only the engines and the kind of failure.
+ * - Nothing the user said is logged: only the engines, the kind of failure and this server's own description of it.
  */
 import { logger } from "../security/redact.js";
 import { TtsProviderError, isAbortError, type TtsOptions, type TtsProvider } from "./provider.js";
@@ -75,6 +75,9 @@ export class FallbackTtsProvider implements TtsProvider {
       primary: this.primary.id,
       fallback: this.secondary.id,
       kind: error instanceof TtsProviderError ? error.kind : "UNEXPECTED",
+      // Why, in this server's own words (an HTTP status, a service code such as "quota_exceeded"): the kind alone
+      // cannot tell a rejected key from a missing voice. The service's own text stays in `cause`, never here.
+      ...(error instanceof TtsProviderError ? { detail: error.message.slice(0, 200) } : {}),
     });
   }
 }

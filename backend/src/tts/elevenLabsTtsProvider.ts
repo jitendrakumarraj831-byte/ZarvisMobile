@@ -186,7 +186,8 @@ export function elevenLabsError(status: number, bodyText: string, retryAfter: st
   let reason = "";
   try {
     const detail = (JSON.parse(bodyText) as { detail?: { status?: unknown } }).detail;
-    if (typeof detail?.status === "string") reason = detail.status.toLowerCase();
+    // A short code such as "quota_exceeded" or "voice_not_found"; anything else is not repeated.
+    if (typeof detail?.status === "string" && /^[a-z_]{1,40}$/i.test(detail.status)) reason = detail.status.toLowerCase();
   } catch {
     // not JSON: the status decides
   }
