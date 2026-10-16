@@ -12,12 +12,13 @@
  * No token, password or secret is ever printed. The sign-up account this creates is deleted at
  * the end. Gemini cost per run: 1 model answer, 1 web search turn (~3 requests), plus at most one extra attempt for an AI
  * step whose first failure the backend marked temporary (a per-minute limit or a retryable outage); a refusal or a daily quota is never retried.
- * The voice checks (about 25 requests, see voiceChecks) go to the Edge voice service, which needs no key and costs
- * nothing; they print a VOICE SUMMARY at the end. If Edge refuses the deployment and the server's fallback voice
- * (Gemini, X-Zarvis-TTS: gemini) answers instead, the audio is still checked but the result is a WARN, never a
- * PASS: spoken replies work, and Edge being down stays visible. Gemini's speech quota is small and metered, so
- * once Edge has been seen to be down only English, Hindi and Hinglish are asked of it (6 requests); the checks of the
- * Edge path itself (a long reply, the longest WAV, cancelling, choosing a voice) are reported as WARN "not run".
+ * The voice checks (about 25 requests, see voiceChecks) print a VOICE SUMMARY at the end. The main voice is
+ * Gemini's by default (TTS_PROVIDER=gemini, X-Zarvis-TTS: gemini), with Edge's behind it; `EXPECT_TTS_PRIMARY=edge`
+ * checks a deployment set to TTS_PROVIDER=edge. When the other engine answers, the audio is still checked but the
+ * result is a WARN, never a PASS: spoken replies work, and the main voice being down stays visible. Gemini's speech
+ * quota is small and metered, so once Gemini is seen speaking only English, Hindi and Hinglish are asked of it
+ * (6 requests); the longer checks (a long reply, the longest WAV, cancelling, choosing an Edge voice) are reported
+ * as WARN "not run".
  *
  * `ONLY=tts` runs just the health check, a guest session and the voice checks: against any
  * deployment, a preview or production, without spending any AI quota or creating any other account.
@@ -173,16 +174,17 @@ function classifyRedirect(status, location) {
 // endpoint cope with the longest text it accepts; does a client that walks away mid-stream leave the
 // service able to serve the next request; do bad requests get plain answers.
 //
-// Edge is the voice. If it fails before any sound the server asks Gemini's voice instead and says so in
-// X-Zarvis-TTS (`gemini`, `gemini-stream`) and X-Zarvis-TTS-Voice (`gemini:Kore`). That is audio the user
-// can hear, so it is checked as audio (format, length) but it is reported as WARN: the thing this script
-// exists to prove is that Edge accepts this deployment, and here it does not.
+// Which engine spoke is in X-Zarvis-TTS (`gemini`, `gemini-stream`, `edge`, `edge-stream`) and
+// X-Zarvis-TTS-Voice (`gemini:Kore`, or the Edge voice name). The main voice is EXPECT_TTS_PRIMARY (default
+// gemini, as TTS_PROVIDER defaults). Audio from the other engine is checked as audio (format, length) but
+// reported as WARN: the main voice did not answer this deployment.
 
 const VOICE_TEXT = {
   en: "Hello from ZARVIS. The weather is clear today, and the voice should sound natural and calm.",
   hi: "नमस्ते, मैं ज़ारविस हूँ। आज मौसम साफ़ है, और मेरी आवाज़ स्वाभाविक और शांत सुनाई देनी चाहिए।",
   hinglish: "Namaste, main ZARVIS hoon. Aaj mausam saaf hai, aur meri awaaz natural aur shaant sunaai deni chahiye.",
 };
+const PRIMARY_ENGINE = (process.env.EXPECT_TTS_PRIMARY || "gemini").trim().toLowerCase() === "edge" ? "edge" : "gemini";
 const EXPECT_VOICE = {
   en: process.env.EXPECT_EN_VOICE || "en-US-JennyNeural",
   hi: process.env.EXPECT_HI_VOICE || "hi-IN-SwaraNeural",
@@ -238,11 +240,17 @@ async function streamCall(token, body, { abortAfterBytes, timeoutMs = 90_000 } =
   }
 }
 
-/** Whether the engine header names the fallback voice, and says so with a voice name that cannot be mistaken for Edge's. */
-function fallbackVoice(engine, expectedEngine, voice) {
-  if (engine !== expectedEngine) return { ok: false };
-  if (!/^gemini:[A-Za-z]+$/.test(voice || "")) return { ok: false, why: `X-Zarvis-TTS was ${engine} but the voice was ${voice}, not gemini:<name>` };
-  return { ok: true };
+/**
+ * Which engine spoke (`gemini` or `edge`, from X-Zarvis-TTS with `suffix`), and whether its voice header fits it:
+ * Gemini's says `gemini:<name>`, Edge's the voice expected for the language.
+ */
+function spokenBy(engine, suffix, voice, expected) {
+  const base = engine === `gemini${suffix}` ? "gemini" : engine === `edge${suffix}` ? "edge" : undefined;
+  if (!base) return { ok: false, why: `X-Zarvis-TTS was ${engine}, not gemini${suffix} or edge${suffix}` };
+  if (base === "gemini" && !/^gemini:[A-Za-z]+$/.test(voice || "")) return { ok: false, why: `X-Zarvis-TTS was ${engine} but the voice was ${voice}, not gemini:<name>` };
+  if (base === "edge" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
+  const fallback = base !== PRIMARY_ENGINE;
+  return { ok: true, base, fallback, note: fallback ? ` (FALLBACK: ${PRIMARY_ENGINE} did not answer)` : "" };
 }
 
 /**
@@ -255,8 +263,8 @@ const outcome = (check) => (!check.ok ? (check.meteredOut ? "WARN" : "FAIL") : c
 const evidence = (check) => (check.ok ? check.detail : check.why);
 
 async function voiceChecks(token) {
-  let fallbackActive = false; // set once an English answer has come from the fallback voice (Edge is down)
-  const isMeteredOut = (res) => fallbackActive && res.status === 503 && res.json?.code === "tts_unavailable";
+  let meteredVoice = false; // set once an English answer has come from Gemini's voice (metered by its speech quota)
+  const isMeteredOut = (res) => meteredVoice && res.status === 503 && res.json?.code === "tts_unavailable";
   const groups = { reach: [], english: [], hindi: [], hinglish: [], streaming: [], unary: [], cancellation: [] };
   const verdict = (statuses) => (statuses.length === 0 ? "NOT RUN" : statuses.includes("FAIL") ? "FAIL" : statuses.includes("WARN") ? "WARN" : "PASS");
   const vreport = (names, status, name, detail) => {
@@ -269,30 +277,26 @@ async function voiceChecks(token) {
     const wav = wavFacts(res.bytes);
     const voice = res.headers.get("x-zarvis-tts-voice");
     if (res.status !== 200 || !/audio\/wav/.test(res.headers.get("content-type") || "") || !wav) {
-      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${wav ? "" : "(not a WAV file)"}${isMeteredOut(res) ? "; the fallback voice's speech quota is probably spent, so this was not exercised" : ""}` };
+      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${wav ? "" : "(not a WAV file)"}${isMeteredOut(res) ? "; Gemini's speech quota is probably spent, so this was not exercised" : ""}` };
     }
     if (wav.sampleRate !== PCM_RATE || wav.channels !== 1 || wav.bits !== 16) return { ok: false, why: `WAV is ${JSON.stringify(wav)}, not 24 kHz mono 16-bit` };
     if (!lengthPlausible(text, wav.seconds)) return { ok: false, why: `${text.length} characters came back as ${wav.seconds.toFixed(1)} s of audio` };
-    const engine = res.headers.get("x-zarvis-tts");
-    const fallback = fallbackVoice(engine, "gemini", voice);
-    if (engine !== "edge" && !fallback.ok) return { ok: false, why: fallback.why ?? `X-Zarvis-TTS was ${engine}, not edge` };
-    if (engine === "edge" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
-    return { ok: true, fallback: engine !== "edge", detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}${engine !== "edge" ? " (FALLBACK: Edge did not answer)" : ""}` };
+    const by = spokenBy(res.headers.get("x-zarvis-tts"), "", voice, expected);
+    if (!by.ok) return { ok: false, why: by.why };
+    return { ok: true, fallback: by.fallback, metered: by.base === "gemini", detail: `${wav.seconds.toFixed(1)} s, 24 kHz mono 16-bit, ${(res.bytes.length / 1024).toFixed(0)} KB, voice ${voice}${by.note}` };
   };
   const checkStream = (res, text, expected) => {
     const type = res.headers.get("content-type") || "";
     const voice = res.headers.get("x-zarvis-tts-voice");
     if (res.status !== 200 || !/audio\/l16/.test(type) || !/rate=24000/.test(type)) {
-      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${type}${isMeteredOut(res) ? "; the fallback voice's speech quota is probably spent, so this was not exercised" : ""}` };
+      return { ok: false, meteredOut: isMeteredOut(res), why: `${whyNot(res)} ${type}${isMeteredOut(res) ? "; Gemini's speech quota is probably spent, so this was not exercised" : ""}` };
     }
     if (res.bytes.length === 0 || res.bytes.length % 2 !== 0 || res.bytes.subarray(0, 4).toString("ascii") === "RIFF") return { ok: false, why: `${res.bytes.length} bytes is not headerless 16-bit PCM` };
     const seconds = res.bytes.length / 2 / PCM_RATE;
     if (!lengthPlausible(text, seconds)) return { ok: false, why: `${text.length} characters came back as ${seconds.toFixed(1)} s of audio` };
-    const engine = res.headers.get("x-zarvis-tts");
-    const fallback = fallbackVoice(engine, "gemini-stream", voice);
-    if (engine !== "edge-stream" && !fallback.ok) return { ok: false, why: fallback.why ?? `X-Zarvis-TTS was ${engine}, not edge-stream` };
-    if (engine === "edge-stream" && expected && voice !== expected) return { ok: false, why: `spoken by ${voice}, expected ${expected}` };
-    return { ok: true, fallback: engine !== "edge-stream", seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}${engine !== "edge-stream" ? " (FALLBACK: Edge did not answer)" : ""}` };
+    const by = spokenBy(res.headers.get("x-zarvis-tts"), "-stream", voice, expected);
+    if (!by.ok) return { ok: false, why: by.why };
+    return { ok: true, fallback: by.fallback, metered: by.base === "gemini", seconds, detail: `${seconds.toFixed(1)} s of 16-bit mono, first audio after ${res.firstByteMs} ms, complete after ${res.totalMs} ms, voice ${voice}${by.note}` };
   };
 
   // ---- Is the voice service reachable from here at all? English first; the rest is pointless if not.
@@ -303,7 +307,7 @@ async function voiceChecks(token) {
     return;
   }
   const firstWav = checkWav(first, VOICE_TEXT.en, EXPECT_VOICE.en);
-  if (firstWav.fallback) fallbackActive = true; // so that a quota refusal of the stream check below is read as one
+  if (firstWav.metered) meteredVoice = true; // so that a quota refusal of the stream check below is read as one
   vreport(["reach", "english", "unary"], outcome(firstWav), "voice: English, WAV endpoint", evidence(firstWav));
   const firstStream = await streamCall(token, { text: VOICE_TEXT.en });
   const firstStreamCheck = checkStream(firstStream, VOICE_TEXT.en, EXPECT_VOICE.en);
@@ -317,11 +321,11 @@ async function voiceChecks(token) {
     return;
   }
 
-  // The fallback voice is metered (Gemini's speech quota is small: about a dozen requests in two minutes were enough to
-  // be told to wait). The remaining checks are about the Edge path, so with Edge down they would only spend that quota.
-  fallbackActive = fallbackActive || Boolean(firstStreamCheck.fallback);
+  // Gemini's voice is metered (its speech quota is small: about a dozen requests in two minutes were enough to be
+  // told to wait). The remaining checks are long or about Edge's voices, so while Gemini speaks they would only spend that quota.
+  meteredVoice = meteredVoice || Boolean(firstStreamCheck.metered);
   const notRun = (names, name) =>
-    vreport(names, "WARN", name, "not run: Edge did not answer, so the fallback voice (metered by Gemini's speech quota) is speaking; this check of the Edge path would only spend that quota");
+    vreport(names, "WARN", name, "not run: Gemini's voice (metered by its speech quota) is speaking; this check would only spend that quota");
 
   // ---- Hindi and Hinglish, on both endpoints.
   for (const [group, key, label] of [["hindi", "hi", "Hindi"], ["hinglish", "hinglish", "Hinglish"]]) {
@@ -332,7 +336,7 @@ async function voiceChecks(token) {
   }
 
   // ---- A long reply: does the stream arrive progressively, or in one piece at the end?
-  const long = fallbackActive ? undefined : await streamCall(token, { text: LONG_STREAM_TEXT });
+  const long = meteredVoice ? undefined : await streamCall(token, { text: LONG_STREAM_TEXT });
   const longCheck = long ? checkStream(long, LONG_STREAM_TEXT, EXPECT_VOICE.en) : undefined;
   if (!long) notRun(["streaming"], "voice: long text, stream endpoint");
   else if (!longCheck.ok) vreport(["streaming"], "FAIL", "voice: long text, stream endpoint", longCheck.why);
@@ -345,7 +349,7 @@ async function voiceChecks(token) {
   // 4.5 MB as the most a function answers in one piece, and a function has a maximum duration, so this is where
   // a limit of the platform would show. (On the first preview it did not: 5.1 MB came back in one response.)
   // If it ever does, it is said plainly.
-  const longUnary = fallbackActive ? undefined : await unary({ text: LONG_UNARY_TEXT }, 120_000);
+  const longUnary = meteredVoice ? undefined : await unary({ text: LONG_UNARY_TEXT }, 120_000);
   const longWav = longUnary ? checkWav(longUnary, LONG_UNARY_TEXT, EXPECT_VOICE.en) : undefined;
   if (!longUnary) notRun(["unary"], "voice: longest text, WAV endpoint");
   else if (longWav.ok) vreport(["unary"], outcome(longWav), "voice: longest text, WAV endpoint", longWav.detail);
@@ -355,7 +359,7 @@ async function voiceChecks(token) {
 
   // ---- A client that walks away. Six streams abandoned after the first bytes, two WAV requests dropped
   // while the voice is working, and then the service must still serve the next request.
-  if (fallbackActive) notRun(["cancellation"], "voice: cancelling mid-stream");
+  if (meteredVoice) notRun(["cancellation"], "voice: cancelling mid-stream");
   else {
     let abandoned = 0;
     const otherAnswers = [];
@@ -381,7 +385,7 @@ async function voiceChecks(token) {
   vreport(["streaming"], empty.status === 400 ? "PASS" : "FAIL", "voice: empty text is 400 (stream endpoint)", `HTTP ${empty.status}`);
   const silent = await unary({ text: "... !!!" });
   vreport(["unary"], silent.status === 400 && silent.json?.code === "tts_invalid_request" ? "PASS" : "FAIL", "voice: text with nothing to say is 400 tts_invalid_request", `HTTP ${silent.status} ${silent.json?.code ?? ""}`);
-  if (fallbackActive) {
+  if (meteredVoice) {
     // Edge's voice names mean nothing to Gemini, which ignores them: there is nothing to learn from spending its quota.
     notRun(["english", "unary"], "voice: a caller can choose an allowed voice");
     notRun(["english", "unary"], "voice: an unknown voice is ignored, the usual one speaks");
@@ -411,7 +415,7 @@ function printVoiceSummary(groups, verdict, note = "") {
   for (const [label, key] of rows) console.log(`  ${label.padEnd(58)} ${verdict(groups[key])}`);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const table = rows.map(([label, key]) => `| ${label} | ${verdict(groups[key])} |`).join("\n");
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Voice (Edge neural voices, Gemini fallback) on ${BASE}\n\n| Check | Result |\n| --- | --- |\n${table}\n\n`);
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Voice (${PRIMARY_ENGINE} first) on ${BASE}\n\n| Check | Result |\n| --- | --- |\n${table}\n\n`);
   }
 }
 
