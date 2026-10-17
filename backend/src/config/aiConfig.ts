@@ -249,8 +249,17 @@ function parseBaseUrl(raw: string | undefined, problems: string[], warnings: str
 
 /** The validated OpenRouter base URL for callers outside the gateway (web search). Throws an `AIConfigError` like startup does. */
 export function resolveOpenRouterBaseUrl(raw: string | undefined): string {
+  return resolveBaseUrl(raw, "OPENROUTER_BASE_URL");
+}
+
+/** The validated Groq base URL for callers outside the gateway (web search), like {@link resolveOpenRouterBaseUrl}. */
+export function resolveGroqBaseUrl(raw: string | undefined): string {
+  return resolveBaseUrl(raw, "GROQ_BASE_URL");
+}
+
+function resolveBaseUrl(raw: string | undefined, name: keyof typeof BASE_URLS): string {
   const problems: string[] = [];
-  const url = parseBaseUrl(raw, problems, []);
+  const url = parseBaseUrl(raw, problems, [], name);
   if (problems.length > 0) throw new AIConfigError(problems);
   return url;
 }
