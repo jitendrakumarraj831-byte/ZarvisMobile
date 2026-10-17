@@ -180,6 +180,36 @@ test("the voice label comes from the server's X-Zarvis-TTS engine, streaming or 
   for (const header of [null, undefined, "", "fake-stream", "stream"]) assert.equal(L.voiceEngineLabel(header), null);
 });
 
+test("answer length: three settings, the default for anything else, and only a real choice is sent", () => {
+  assert.equal(L.normalizeReplyLength("short"), "short");
+  assert.equal(L.normalizeReplyLength("detailed"), "detailed");
+  for (const value of ["balanced", null, undefined, "", "verbose", 3]) assert.equal(L.normalizeReplyLength(value), "balanced");
+  assert.equal(L.replyLengthForRequest("short"), "short");
+  assert.equal(L.replyLengthForRequest("detailed"), "detailed");
+  assert.equal(L.replyLengthForRequest("balanced"), undefined);
+  assert.equal(L.replyLengthForRequest("nonsense"), undefined);
+});
+
+test("pinned chats: stored ids are cleaned, a pin goes to the top, and pinning past the limit lets the oldest go", () => {
+  assert.deepEqual(L.parsePinnedChats('["c1","c2","c1",7,"bad id!",""]'), ["c1", "c2"]);
+  for (const raw of ["", "{", "{}", "null"]) assert.deepEqual(L.parsePinnedChats(raw), []);
+  assert.deepEqual(L.togglePinnedChat(["a", "b"], "c"), ["c", "a", "b"]);
+  assert.deepEqual(L.togglePinnedChat(["c", "a", "b"], "a"), ["c", "b"]);
+  const full = Array.from({ length: L.MAX_PINNED_CHATS }, (_, i) => "p" + i);
+  const next = L.togglePinnedChat(full, "new");
+  assert.equal(next.length, L.MAX_PINNED_CHATS);
+  assert.equal(next[0], "new");
+  assert.ok(!next.includes("p" + (L.MAX_PINNED_CHATS - 1)), "the oldest pin is the one that goes");
+});
+
+test("pinned chats come first in pin order; the rest keep their order; a pin for a chat that is gone shows nothing", () => {
+  const list = [{ id: "a", title: "A" }, { id: "b", title: "B" }, { id: "c", title: "C" }, { id: "d", title: "D" }];
+  const { pinned, rest } = L.splitPinnedChats(list, ["c", "gone", "a"]);
+  assert.deepEqual(pinned.map((chat) => chat.id), ["c", "a"]);
+  assert.deepEqual(rest.map((chat) => chat.id), ["b", "d"]);
+  assert.deepEqual(L.splitPinnedChats(list, []).rest.map((chat) => chat.id), ["a", "b", "c", "d"]);
+});
+
 // ---- Chat page: chat list, day labels, slash commands, refine prompts, export, navigation ----
 
 test("a chat title is the first line of the first message, tidy and bounded", () => {

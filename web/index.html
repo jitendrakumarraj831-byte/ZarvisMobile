@@ -273,7 +273,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="activity-title">Activity</h1>
-              <p class="page-sub">What really happened in your account: tool runs, tasks, files, notes and chats.</p>
+              <p class="page-sub">Your chats, tool runs, tasks, files and notes.</p>
             </div>
             <button type="button" class="btn btn-ghost" id="activity-refresh-btn"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Refresh</span></button>
           </header>
@@ -300,13 +300,12 @@
           </button>
           <section class="activity-block" aria-labelledby="activity-feed-title">
             <h2 class="section-title" id="activity-feed-title">Account activity</h2>
-            <p class="hint" id="activity-feed-note">Read from the ZARVIS server, so it is the same on every device you sign in on.</p>
             <ol class="timeline" id="activity-feed" aria-live="polite" aria-busy="false"></ol>
-            <div class="empty-state" id="activity-feed-empty" hidden></div>
+            <div id="activity-feed-empty" hidden></div>
           </section>
-          <section class="activity-block" data-activity-block="timeline" id="activity-session-block">
+          <section class="activity-block" data-activity-block="timeline" id="activity-session-block" hidden>
             <h2 class="section-title">This session on this device</h2>
-            <p class="hint">Voice, attachments and other things that live only in this browser tab. They are not saved.</p>
+            <p class="hint">Voice and attachments from this tab. They aren't saved.</p>
             <ol class="timeline" id="activity-timeline" aria-live="polite"></ol>
           </section>
         </section>
@@ -350,7 +349,7 @@
               <div class="segmented" id="tasks-filters" role="group" aria-label="Filter tasks"></div>
             </div>
             <p class="sr-only" id="tasks-status" role="status"></p>
-            <p class="hint">A task is a record with its real status. Nothing runs in the background: a step runs when you press Run, as an ordinary ZARVIS turn, and the task shows what that turn actually did.</p>
+            <p class="hint">A step runs only when you press Run, and the task shows what it really did.</p>
             <div class="list" id="task-list" aria-live="polite"></div>
             <div class="empty-state" id="tasks-no-match" hidden><strong>No tasks match</strong><span>Try a different word.</span></div>
           </section>
@@ -475,7 +474,7 @@
           <header class="page-head">
             <div>
               <h1 class="page-title" id="plans-title">Plans &amp; Usage</h1>
-              <p class="page-sub">Your plan, your credits, and what you have used them on.</p>
+              <p class="page-sub">Your plan, credits and usage.</p>
             </div>
           </header>
           <div id="plans-current" class="stat-grid"></div>
@@ -495,7 +494,7 @@
             <h2 class="panel-title" id="usage-title">Credits used</h2>
             <span class="hint" id="usage-note"></span>
           </div>
-          <div class="stat-grid stat-grid-3" id="usage-stats"></div>
+          <div class="stat-grid stat-grid-2" id="usage-stats"></div>
           <div class="list" id="usage-by-skill"></div>
         </section>
         <div class="pay-box" id="pay-box" hidden>
@@ -545,7 +544,6 @@
             <header class="page-head">
               <div>
                 <h1 class="page-title" id="settings-title">Settings</h1>
-                <p class="page-sub">Customize your Zarvis experience.</p>
               </div>
             </header>
             <button type="button" class="profile-hero" id="settings-profile-hero" data-settings-page="account" data-settings-label="Profile" data-settings-desc="Your account, email link and sign-in">
@@ -678,7 +676,7 @@
               </div>
               <div class="panel">
                 <div class="control-row control-row-stack">
-                  <div class="row-copy"><strong>Performance</strong><small>Lightweight mode removes blur and decorative motion, so ZARVIS stays smooth on slow phones and slow networks. Automatic turns it on when your browser asks to save data, the connection is slow, or the device has little memory.</small></div>
+                  <div class="row-copy"><strong>Performance</strong><small>Lightweight removes blur and motion so ZARVIS stays smooth on slow phones. Automatic turns it on when your phone or connection needs it.</small></div>
                   <div class="segmented" id="perf-mode" role="group" aria-label="Performance">
                     <button type="button" class="seg active" data-perf-mode="auto" aria-pressed="true">Automatic</button>
                     <button type="button" class="seg" data-perf-mode="lite" aria-pressed="false">Lightweight</button>
@@ -692,8 +690,15 @@
             <section class="settings-panel" data-settings-panel="ai" hidden>
               <div class="panel">
                 <div class="control-row"><div class="row-copy"><strong>Provider</strong><small id="settings-ai-provider">Checking…</small></div></div>
-                <div class="control-row"><div class="row-copy"><strong>Tools</strong><small>ZARVIS picks a skill when one fits — search, documents, writing, tasks or developer work — and shows the result in the chat.</small></div></div>
-                <div class="control-row"><div class="row-copy"><strong>Confirmations</strong><small>Higher-risk actions return a one-time confirmation for that exact action. Nothing runs until you approve it.</small></div></div>
+                <div class="control-row control-row-stack">
+                  <div class="row-copy"><strong id="reply-length-label">Answer length</strong><small>How long ZARVIS's replies are, unless you ask for something else.</small></div>
+                  <div class="segmented" id="reply-length" role="group" aria-labelledby="reply-length-label">
+                    <button type="button" class="seg" data-reply-length="short" aria-pressed="false">Short</button>
+                    <button type="button" class="seg" data-reply-length="balanced" aria-pressed="false">Balanced</button>
+                    <button type="button" class="seg" data-reply-length="detailed" aria-pressed="false">Detailed</button>
+                  </div>
+                </div>
+                <div class="control-row"><div class="row-copy"><strong>Confirmations</strong><small>Anything risky waits for your approval of that exact action.</small></div></div>
                 <div class="control-row">
                   <div class="row-copy"><strong>What ZARVIS can do</strong><small>Every skill, with its real status.</small></div>
                   <button type="button" class="btn btn-secondary" data-go="capabilities">Open Capabilities</button>
@@ -892,7 +897,7 @@
         <input type="search" id="history-search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" />
       </label>
       <div class="history-list" id="history-list" aria-live="polite"></div>
-      <p class="history-note">Lists your chats, newest first, including ones started on another device. Messages stay on the ZARVIS server with your account until you delete a chat; deleting removes it from your account, on every device.</p>
+      <p class="history-note">Chats from all your devices. Deleting a chat removes it everywhere; pins stay on this device.</p>
     </aside>
   </div>
   <div class="modal-overlay" id="shortcuts-modal" hidden>
