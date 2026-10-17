@@ -116,9 +116,10 @@ come first in the history panel, the sidebar and the Chat page's recent chats, a
 - **Task writes are conditional.** A step that finishes at the same moment as a Cancel can no longer overwrite it (or
   be erased by it): the loser re-reads what actually happened. If a Cancel keeps losing, it says so instead of
   claiming success.
-- **Chats can be deleted, but not renamed, pinned or archived.** The trash icon in the chat history and "Delete this chat" in the
-  Chat menu call `DELETE /conversations/:id` and ask first; the chat is removed from the list only after the server confirms, a
-  failure keeps it and says so, and deleting the open chat starts a new one. The server has no endpoint to rename, pin or archive.
+- **Chats can be deleted and pinned, but not renamed or archived.** The trash icon in the chat history and "Delete this chat" in
+  the Chat menu call `DELETE /conversations/:id` and ask first; the chat is removed from the list only after the server confirms, a
+  failure keeps it and says so, and deleting the open chat starts a new one. Pins live in this browser only, so they do not follow
+  you to another device. The server has no endpoint to rename, pin or archive.
 - **Agent pages show each skill's risk, cost, plan availability and confirmation rule**, which the server returns. They do not
   show a per-skill WORKING / PARTIAL status (the registry has none per skill); that lives on the Capabilities page.
 - **Tasks per account are not capped** (as before this phase); every chat turn lists the account's tasks to find the
