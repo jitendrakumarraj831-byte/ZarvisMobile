@@ -27,6 +27,9 @@ import { findAgent } from "../../agents/agentProfiles.js";
  *
  * A reply a live model wrote carries `ai: { provider, fallback }` (the JSON body and the stream's `done` event),
  * so the client can say which provider answered. It names no model, key or reason.
+ *
+ * An optional `replyLength` (`short`, `balanced` or `detailed`) is the user's answer-length preference; the planner is
+ * told it. Any other value is ignored.
  */
 export function orchestratorRouter(orchestrator: Orchestrator): Router {
   const router = Router();
@@ -149,7 +152,7 @@ function abortOnClientGone(res: Response): { signal: AbortSignal; dispose(): voi
 const CLIENT_TURN_ID = /^[A-Za-z0-9_-]{8,100}$/;
 
 function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { error: string; code: string } } {
-  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId, projectId, agentId } = req.body ?? {};
+  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId, projectId, agentId, replyLength } = req.body ?? {};
   if (typeof utterance !== "string" || utterance.trim().length === 0) {
     return { error: { error: "utterance is required", code: "invalid_request" } };
   }
@@ -175,6 +178,8 @@ function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { e
     isFirstTurn: isFirstTurn === true,
     history: sanitizeHistory(history),
     conversationId: typeof conversationId === "string" && conversationId.trim() ? conversationId.trim().slice(0, 100) : undefined,
+    // A preference: "balanced" (the default) and anything unknown mean the normal length, never an error.
+    replyLength: replyLength === "short" || replyLength === "detailed" ? replyLength : undefined,
   };
 }
 

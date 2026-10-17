@@ -22,6 +22,7 @@
     userName: "zarvis.userName",
     conversationId: "zarvis.conversationId",
     devAccess: "zarvis.devAccess",
+    replyLength: "zarvis.replyLength",
   };
 
   const API_BASE = resolveApiBase();
@@ -330,6 +331,8 @@
     // from an explicit tap (the orb, the composer mic button, or this Settings toggle), never
     // automatically on load.
     speak: localStorage.getItem(STORAGE_KEYS.speak) === "on",
+    // Settings → AI → Answer length: "short", "balanced" or "detailed", sent with each turn.
+    replyLength: Logic.normalizeReplyLength(localStorage.getItem(STORAGE_KEYS.replyLength)),
     // Which of the 4 bottom-nav views is currently showing — see setActiveView().
     activeView: "home",
     // The live skill catalogue, fetched once and reused by both the Workspace category
@@ -2964,6 +2967,15 @@
   // screen's own sections (feature-settings/SettingsScreen.kt) and, for account deletion,
   // its exact backend call (DELETE /api/v1/account, already wired server-side).
 
+  /** Marks the chosen answer length in Settings → AI. */
+  function renderReplyLength() {
+    for (const btn of document.querySelectorAll("[data-reply-length]")) {
+      const on = btn.dataset.replyLength === state.replyLength;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-pressed", String(on));
+    }
+  }
+
   function setupSettings() {
     document.getElementById("voice-check-again")?.addEventListener("click", () => void renderVoiceCheck({ announce: true }));
     for (const btn of document.querySelectorAll("[data-settings-page]")) {
@@ -2998,6 +3010,18 @@
       toggleSpeak();
       showToast(state.speak ? "Spoken replies on" : "Spoken replies off");
     });
+    for (const btn of document.querySelectorAll("[data-reply-length]")) {
+      btn.addEventListener("click", () => {
+        haptic();
+        state.replyLength = Logic.normalizeReplyLength(btn.dataset.replyLength);
+        try {
+          localStorage.setItem(STORAGE_KEYS.replyLength, state.replyLength);
+        } catch {}
+        renderReplyLength();
+        showToast("Answer length: " + btn.textContent.trim());
+      });
+    }
+    renderReplyLength();
     el.settingsClearSessionBtn.addEventListener("click", () => {
       haptic();
       const isGuest = localStorage.getItem(SESSION_KEYS.isGuest) !== "false";
@@ -3493,12 +3517,15 @@
       currentPlanName = snapshot.plan;
       const paid = snapshot.plan === "PRO" && snapshot.planExpiresAt;
       const trial = snapshot.trialExpiresAt && snapshot.plan === "TRIAL";
-      el.plansCurrent.append(
+      const tiles = [
         renderStatTile({ label: "Current plan", value: formatPlanName(snapshot.plan), icon: "i-plan", tone: "tone-violet" }),
         renderStatTile({ label: "Credits", value: Number(snapshot.creditBalance).toLocaleString("en-IN"), icon: "i-bolt", tone: "tone-pink" }),
         renderStatTile({ label: paid ? "Active until" : "Trial", value: paid ? formatDate(snapshot.planExpiresAt) : trial ? "Ends " + new Date(snapshot.trialExpiresAt).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" }) : "None", icon: "i-task", tone: "tone-cyan" }),
-        renderStatTile({ label: "Payments", value: planCatalogue?.paymentsEnabled ? "UPI & cards" : "Not enabled", icon: "i-card", tone: "tone-blue" }),
-      );
+      ];
+      // "Payments: not enabled" only repeated the notice below; the tile is there when it names how to pay.
+      if (planCatalogue?.paymentsEnabled) tiles.push(renderStatTile({ label: "Payments", value: "UPI & cards", icon: "i-card", tone: "tone-blue" }));
+      el.plansCurrent.append(...tiles);
+      el.plansCurrent.dataset.count = String(tiles.length);
       updateSettingsValues();
     }
     renderPlansNotice();
@@ -3513,13 +3540,14 @@
     if (!notice || !text) return;
     let message = "";
     if (!planCatalogue) message = "Couldn't load plans and prices. Check your connection and open this page again.";
-    else if (!planCatalogue.paymentsEnabled) message = "Online payments aren't enabled on this server yet, so plans can't be bought here. Prices below are what Pro will cost.";
+    else if (!planCatalogue.paymentsEnabled) message = "Online payments aren't switched on yet, so Pro can't be bought here. The prices below are what it will cost.";
     else if (planCatalogue.testMode) message = "Test mode: payments use Razorpay's test environment and no real money moves.";
     notice.hidden = !message;
     text.textContent = message;
     const guestNote = document.getElementById("plans-guest-note");
     if (guestNote) guestNote.hidden = localStorage.getItem(SESSION_KEYS.isGuest) === "false";
-    if (box) box.hidden = !planCatalogue;
+    // How to pay, only where paying is possible.
+    if (box) box.hidden = !planCatalogue?.paymentsEnabled;
     const yearly = planCatalogue?.plans?.find((p) => p.period === "yearly");
     if (save) {
       save.hidden = !yearly || !yearly.savingsPercent;
@@ -4000,6 +4028,10 @@
     const root = el.activityTimeline;
     if (!root) return;
     root.replaceChildren();
+    // What lives only in this tab is shown with "All", and only once there is something in it: an empty second list next to
+    // the account's own empty state only repeated it.
+    const block = document.getElementById("activity-session-block");
+    if (block) block.hidden = activityFilter.type !== "all" || activityLog.length === 0;
     const type = activityFilter.type;
     const entries = activityLog.filter((entry) => {
       const typeOk = type === "all" || entry.type === type || (type === "conversation" && entry.type === "ai") || (type === "file" && entry.type === "image");
@@ -4008,9 +4040,7 @@
     if (!entries.length) {
       const empty = document.createElement("li");
       empty.className = "timeline-empty timeline-empty-rich";
-      empty.appendChild(activityLog.length
-        ? emptyState("No activity matches", "Try a different filter or clear the search.", { icon: "i-search" })
-        : emptyState("Nothing yet this session", "Ask ZARVIS something and it shows up here.", { icon: "i-chat", action: { label: "Start a chat", onClick: () => setActiveView("chat") } }));
+      empty.appendChild(emptyState("No activity matches", "Try a different filter or clear the search.", { icon: "i-search" }));
       root.appendChild(empty);
       return;
     }
@@ -4078,9 +4108,6 @@
   function applyActivityFilter() {
     workspace()?.setActivityFilter(activityFilter.type, activityFilter.query);
     if (el.activityTasks) el.activityTasks.hidden = !(activityFilter.type === "all" && openTaskCount > 0);
-    // What lives only in this tab (voice, attachments) is shown with "All" only.
-    const local = document.getElementById("activity-session-block");
-    if (local) local.hidden = activityFilter.type !== "all";
     renderActivityTimeline();
   }
 
@@ -4223,6 +4250,8 @@
           // A new chat starts in the open project and with the chosen agent; the server ignores them for an existing chat.
           projectId: state.projectId || undefined,
           agentId: state.agentId || undefined,
+          // Settings → AI → Answer length; nothing is sent for the default.
+          replyLength: Logic.replyLengthForRequest(state.replyLength),
         }),
         signal: controller.signal,
       });

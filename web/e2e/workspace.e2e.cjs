@@ -930,7 +930,7 @@ async function send(page, text) {
     assert.equal(await page.locator("#work-sub").isHidden(), true);
     await go(page, "#/work/projects");
     await page.waitForSelector("#projects-search");
-    assert.match(await page.locator("#work-sub").innerText(), /Everything here is stored on the ZARVIS server/);
+    assert.match(await page.locator("#work-sub").innerText(), /saved to your account/);
 
     // On a narrow phone the five tabs do not fit: the hidden side fades, and the fade follows the scroll.
     await page.setViewportSize({ width: 320, height: 800 });

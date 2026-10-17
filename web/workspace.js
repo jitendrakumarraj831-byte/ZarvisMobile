@@ -551,7 +551,7 @@
     tasks: "Tracked tasks with their real status.",
     outputs: "What ZARVIS wrote for you, saved as files.",
   };
-  const WORK_SUBTITLE_DEFAULT = "Projects, files, research and tasks. Everything here is stored on the ZARVIS server with your account.";
+  const WORK_SUBTITLE_DEFAULT = "Projects, files, research and tasks, saved to your account.";
 
   function applyTabs() {
     const sub = $("work-sub");
@@ -710,7 +710,7 @@
     cache.projects = work.showArchived ? cache.projects : r.body.projects;
     const projects = r.body.projects;
     if (!projects.length) {
-      panel.appendChild(emptyBox(work.showArchived ? "No projects yet" : "No active projects", "Create a project to keep chats, files, tasks and decisions together. Nothing is created for you.", { label: "New project", icon: "i-plus", onClick: () => void newProjectDialog() }));
+      panel.appendChild(emptyBox(work.showArchived ? "No projects yet" : "No active projects", "Keep a goal's chats, files, tasks and decisions in one place.", { label: "New project", icon: "i-plus", onClick: () => void newProjectDialog() }));
       return;
     }
     const grid = h("div", "ws-grid");
@@ -2258,7 +2258,7 @@
     const r = await call("/agents");
     if (r.ended || !isCurrent("agents", token)) return;
     root.replaceChildren();
-    root.appendChild(h("header", "page-head", h("div", null, h("h1", "page-title", "Agents"), h("p", "page-sub", "Specialists built on ZARVIS's real skills. An agent only uses its own skills, and anything that acts outside ZARVIS still asks you first."))));
+    root.appendChild(h("header", "page-head", h("div", null, h("h1", "page-title", "Agents"), h("p", "page-sub", "Specialists for research, writing, documents, business and code. Anything that acts outside ZARVIS asks you first."))));
     if (!r.ok) {
       root.appendChild(errorBox("Couldn't load the agents", r, () => void renderAgents()));
       return;
@@ -2269,14 +2269,17 @@
       const ico = h("span", "row-ico " + (AGENT_TONES[a.id] || "tone-blue"), icon(AGENT_ICONS[a.id] || "i-bot"));
       const open = button("", "ws-card-open", () => openAgent(a.id));
       open.setAttribute("aria-label", "Open the " + a.name + " agent");
-      card.append(h("div", "ws-card-head", ico, h("strong", "ws-card-title", a.name + " agent")), h("p", "ws-card-goal", a.tagline), h("p", "ws-card-counts", a.available + " of " + a.skillCount + " skill" + (a.skillCount === 1 ? "" : "s") + " available on your plan"), open);
+      card.append(h("div", "ws-card-head", ico, h("strong", "ws-card-title", a.name + " agent")), h("p", "ws-card-goal", a.tagline));
+      // Only worth a line when the plan leaves some of the agent's skills out; "4 of 4" on every card said nothing.
+      if (a.available < a.skillCount) card.appendChild(h("p", "ws-card-counts", a.available + " of " + a.skillCount + " skills on your plan"));
+      card.appendChild(open);
       grid.appendChild(card);
     }
     root.appendChild(grid);
     const extra = h("div", "ws-grid ws-grid-links");
     for (const [title, text, target, ico] of [
-      ["Capability status", "Every capability, and whether it is WORKING, PARTIAL, PLANNED or UNSUPPORTED on the web.", "capabilities", "i-grid"],
-      ["Phone actions", "Calls, contacts and notifications are Android-only. The web can't do them and says so.", "settings:permissions", "i-phone"],
+      ["What ZARVIS can do", "Every feature, and whether it works on the web today.", "capabilities", "i-grid"],
+      ["Phone actions", "Calls, contacts and notifications work in the Android app.", "settings:permissions", "i-phone"],
     ]) {
       const card = h("article", "ws-card");
       card.append(h("div", "ws-card-head", h("span", "row-ico tone-blue", icon(ico)), h("strong", "ws-card-title", title)), h("p", "ws-card-goal", text));
@@ -2606,8 +2609,9 @@
       return;
     }
     const u = r.body;
-    if (note) note.textContent = "From your account's credit ledger";
-    for (const [label, value] of [["Credits left", u.balance], ["Spent in 30 days", u.spentLast30Days], ["Skill runs charged", u.runs]]) {
+    if (note) note.textContent = "";
+    // The balance is already the "Credits" tile at the top of the page.
+    for (const [label, value] of [["Spent in 30 days", u.spentLast30Days], ["Skill runs charged", u.runs]]) {
       stats.appendChild(h("div", "stat-tile", h("span", "stat-tile-label", label), h("strong", "stat-tile-value", Number(value).toLocaleString("en-IN"))));
     }
     if (!u.bySkill.length) {

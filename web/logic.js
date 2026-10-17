@@ -467,6 +467,19 @@
     return { configured: false, label: "Not configured", sentence: "No AI provider is configured on this server, so answers are limited." };
   }
 
+  /**
+   * The "Answer length" setting: "short", "balanced" (the default) or "detailed". Anything else, an old or hand-edited value
+   * included, is the default. The server is sent only a value that changes something (see replyLengthForRequest).
+   */
+  var REPLY_LENGTHS = ["short", "balanced", "detailed"];
+  function normalizeReplyLength(value) {
+    return REPLY_LENGTHS.indexOf(value) >= 0 ? value : "balanced";
+  }
+  function replyLengthForRequest(value) {
+    var length = normalizeReplyLength(value);
+    return length === "balanced" ? undefined : length;
+  }
+
   /** Display names of the providers a reply can come from, and the mode one is known for. */
   var REPLY_PROVIDERS = {
     groq: { name: "Groq", mode: "Fast" },
@@ -768,6 +781,38 @@
     return [...hidden.filter((other) => other !== id), id].slice(-200);
   }
 
+  /** At most this many chats stay pinned; pinning one more lets the oldest pin go. */
+  const MAX_PINNED_CHATS = 10;
+
+  /** Pinned chat ids saved in this browser, newest pin first. Anything that is not a chat id is dropped. */
+  function parsePinnedChats(raw) {
+    try {
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) return [];
+      const ids = data.filter((id) => typeof id === "string" && /^[\w-]{1,80}$/.test(id));
+      return ids.filter((id, index) => ids.indexOf(id) === index).slice(0, MAX_PINNED_CHATS);
+    } catch {
+      return [];
+    }
+  }
+
+  /** Pins `id` (to the top) or unpins it. */
+  function togglePinnedChat(pinned, id) {
+    if (pinned.includes(id)) return pinned.filter((other) => other !== id);
+    return [id, ...pinned].slice(0, MAX_PINNED_CHATS);
+  }
+
+  /**
+   * Splits a chat list into the pinned chats (in pin order: the newest pin first) and the rest (in the order given). A pinned id
+   * that is not in the list (deleted, or not loaded yet) is simply not shown.
+   */
+  function splitPinnedChats(list, pinned) {
+    const byId = new Map(list.map((chat) => [chat.id, chat]));
+    const top = pinned.map((id) => byId.get(id)).filter(Boolean);
+    const rest = list.filter((chat) => !pinned.includes(chat.id));
+    return { pinned: top, rest };
+  }
+
   /**
    * Folds the server's list of this account's conversations into the list this browser already has.
    * - a chat only the server knows about is added (this is how a second device or a cleared browser gets its history back),
@@ -1021,6 +1066,12 @@
     parseSseEvents,
     replyProviderBadge,
     voiceEngineLabel,
+    normalizeReplyLength,
+    replyLengthForRequest,
+    MAX_PINNED_CHATS,
+    parsePinnedChats,
+    togglePinnedChat,
+    splitPinnedChats,
     escapeHtml,
     formatReplyHtml,
     highlightCode,

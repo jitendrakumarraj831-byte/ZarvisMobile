@@ -952,7 +952,9 @@ async function send(page, text) {
     const tally = await pageP.$$eval(".cap-summary .cap-sum strong", (nodes) => nodes.reduce((sum, node) => sum + Number(node.textContent), 0));
     assert.equal(tally, await pageP.locator(".cap-grid .cap-item").count(), "the tally adds up to the cards shown");
     await nav(pageP, "activity");
-    await pageP.click(".timeline-empty-rich .empty-state .btn");
+    // One empty state for a new account (the session list stays out of the way until it has something), with a next step.
+    assert.equal(await pageP.locator("#activity-session-block").isHidden(), true, "no second, empty session list");
+    await pageP.click("#activity-feed-empty .empty-state .btn");
     await pageP.waitForSelector("#view-chat:not([hidden])");
     await ctxP.close();
   });

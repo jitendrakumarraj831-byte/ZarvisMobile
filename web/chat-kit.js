@@ -14,7 +14,7 @@
   "use strict";
 
   const L = window.ZarvisLogic;
-  const KEYS = { chats: "zarvis.chats", hidden: "zarvis.chatsHidden", draft: "zarvis.draft", textSize: "zarvis.chatText", rail: "zarvis.sidebarRail", perf: "zarvis.perf" };
+  const KEYS = { chats: "zarvis.chats", hidden: "zarvis.chatsHidden", pinned: "zarvis.chatsPinned", draft: "zarvis.draft", textSize: "zarvis.chatText", rail: "zarvis.sidebarRail", perf: "zarvis.perf" };
   const SVG_NS = "http://www.w3.org/2000/svg";
   const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
@@ -25,6 +25,7 @@
   let busy = false;
   let historyOpener = null;
   let hidden = []; // chats the user removed from the list here; the server list must not bring them back
+  let pinned = []; // chats pinned to the top of the lists in this browser (newest pin first)
   const deleting = new Set(); // chats whose delete request is in flight: shown busy, and not deletable twice
   let syncing = false;
   let lastSyncAt = 0;
@@ -79,6 +80,31 @@
   function loadChats() {
     chats = L.parseChatIndex(store("get", KEYS.chats) || "[]");
     hidden = L.parseHiddenChats(store("get", KEYS.hidden) || "[]");
+    pinned = L.parsePinnedChats(store("get", KEYS.pinned) || "[]");
+  }
+
+  function savePinned() {
+    store("set", KEYS.pinned, JSON.stringify(pinned));
+  }
+
+  /** Pins a chat to the top of the lists in this browser, or unpins it. */
+  function togglePin(chat) {
+    const fromButton = document.activeElement?.classList?.contains("chat-row-pin") === true;
+    pinned = L.togglePinnedChat(pinned, chat.id);
+    savePinned();
+    renderAll();
+    // The list was redrawn (the chat moved group): keep focus on the same chat's pin button, as Delete does for its own.
+    if (fromButton) {
+      const row = [...document.querySelectorAll("#history-list .chat-row")].find((candidate) => candidate.dataset.chatId === chat.id);
+      row?.querySelector(".chat-row-pin")?.focus({ preventScroll: true });
+    }
+    api.toast(pinned.includes(chat.id) ? "Chat pinned" : "Chat unpinned");
+  }
+
+  /** `list` with this browser's pinned chats first (newest pin first), then the others in their own order. */
+  function pinnedFirst(list) {
+    const split = L.splitPinnedChats(list, pinned);
+    return [...split.pinned, ...split.rest];
   }
 
   function saveChats() {
@@ -100,6 +126,10 @@
   /** Hides a chat in this browser only (used when the server says it is gone, so a stale list cannot bring it back). */
   function removeFromList(id) {
     chats = L.removeChat(chats, id);
+    if (pinned.includes(id)) {
+      pinned = pinned.filter((other) => other !== id);
+      savePinned();
+    }
     hidden = L.hideChat(hidden, id);
     store("set", KEYS.hidden, JSON.stringify(hidden));
     saveChats();
@@ -134,6 +164,8 @@
     chats = L.removeChat(chats, chat.id);
     hidden = hidden.filter((other) => other !== chat.id);
     store("set", KEYS.hidden, JSON.stringify(hidden));
+    pinned = pinned.filter((other) => other !== chat.id);
+    savePinned();
     saveChats();
     if (chat.id === api.conversationId()) api.chatDeleted(chat.id);
     renderAll();
@@ -189,9 +221,10 @@
   function forgetAll() {
     chats = [];
     hidden = [];
+    pinned = [];
     generation += 1;
     lastSyncAt = 0;
-    for (const key of [KEYS.chats, KEYS.hidden, KEYS.draft]) store("remove", key);
+    for (const key of [KEYS.chats, KEYS.hidden, KEYS.pinned, KEYS.draft]) store("remove", key);
     if (api?.input) api.input.value = "";
     renderAll();
   }
@@ -200,13 +233,15 @@
 
   /** One tappable chat row (title + when), used by the empty Chat page, Activity and the history panel. */
   function chatRow(chat, { onOpen, removable } = {}) {
+    const isPinned = pinned.includes(chat.id);
     const row = node("div", "chat-row");
     row.dataset.chatId = chat.id;
+    if (isPinned) row.dataset.pinned = "";
     const open = node("button", "chat-row-open");
     open.type = "button";
     if (chat.id === api.conversationId()) open.setAttribute("aria-current", "true");
     const ico = node("span", "chat-row-ico");
-    ico.appendChild(icon("i-chat"));
+    ico.appendChild(icon(isPinned ? "i-pin" : "i-chat"));
     const copy = node("span", "chat-row-copy");
     const title = node("strong", null, chat.title);
     title.dataset.userText = "";
@@ -220,6 +255,15 @@
       open.disabled = true;
     }
     if (removable) {
+      const pin = node("button", "icon-btn icon-btn-sm chat-row-pin");
+      pin.type = "button";
+      pin.setAttribute("aria-pressed", String(isPinned));
+      pin.setAttribute("aria-label", (isPinned ? "Unpin chat: " : "Pin chat: ") + chat.title);
+      pin.title = isPinned ? "Unpin chat" : "Pin chat";
+      pin.appendChild(icon("i-pin"));
+      pin.disabled = deleting.has(chat.id);
+      pin.addEventListener("click", () => togglePin(chat));
+      row.appendChild(pin);
       const del = node("button", "icon-btn icon-btn-sm chat-row-del");
       del.type = "button";
       del.setAttribute("aria-label", "Delete chat: " + chat.title);
@@ -269,7 +313,7 @@
     const label = $("nav-recent-label");
     if (!box || !label) return;
     box.replaceChildren();
-    const top = chats.slice(0, 4);
+    const top = pinnedFirst(chats).slice(0, 4);
     box.hidden = label.hidden = top.length === 0;
     for (const chat of top) {
       const button = node("button", "nav-item nav-chat");
@@ -282,7 +326,7 @@
       }
       const text = node("span", null, chat.title);
       text.dataset.userText = "";
-      button.append(icon("i-chat"), text);
+      button.append(icon(pinned.includes(chat.id) ? "i-pin" : "i-chat"), text);
       button.addEventListener("click", () => openChat(chat.id));
       box.appendChild(button);
     }
@@ -304,7 +348,7 @@
     const list = $("chat-recent-list");
     if (!box || !list) return;
     list.replaceChildren();
-    const others = chats.filter((chat) => chat.id !== api.conversationId()).slice(0, 3);
+    const others = pinnedFirst(chats.filter((chat) => chat.id !== api.conversationId())).slice(0, 3);
     box.hidden = others.length === 0;
     for (const chat of others) list.appendChild(chatRow(chat));
   }
@@ -368,7 +412,12 @@
       list.appendChild(empty);
       return;
     }
-    for (const group of L.groupChatsByDay(found)) {
+    const split = L.splitPinnedChats(found, pinned);
+    if (split.pinned.length) {
+      list.appendChild(node("p", "history-group", "Pinned"));
+      for (const chat of split.pinned) list.appendChild(chatRow(chat, { removable: true }));
+    }
+    for (const group of L.groupChatsByDay(split.rest)) {
       list.appendChild(node("p", "history-group", group.label));
       for (const chat of group.items) list.appendChild(chatRow(chat, { removable: true }));
     }

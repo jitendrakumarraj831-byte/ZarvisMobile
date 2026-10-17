@@ -1594,6 +1594,12 @@ body.palette-open { overflow: hidden; }
 .pay-note { display: flex; align-items: flex-start; gap: var(--s2); font-size: 13px; color: var(--text-3); }
 .pay-note .ico { width: 16px; height: 16px; margin-top: 2px; flex: none; color: var(--ok); }
 #plans-current { margin-bottom: var(--s3); }
+/* Three tiles (no payments tile while payments are off): the last one takes the whole row on a phone, and a wide screen uses three columns. */
+#plans-current[data-count="3"] > .stat-tile:last-child { grid-column: 1 / -1; }
+@media (min-width: 1010px) and (max-width: 1099px), (min-width: 1200px) {
+  #plans-current[data-count="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #plans-current[data-count="3"] > .stat-tile:last-child { grid-column: auto; }
+}
 .plan-grid { grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 760px) { .plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .plan-cta { white-space: normal; padding: 12px var(--s4); line-height: 1.25; }
@@ -2085,6 +2091,8 @@ kbd {
   background: var(--surface-2); color: var(--text-2); font: 600 12px/1.45 var(--font-body);
 }
 .kbd-value kbd { min-width: 26px; }
+/* A phone or tablet without a keyboard has no use for keyboard shortcuts. */
+@media (hover: none) and (pointer: coarse) { .settings-row[data-open-shortcuts] { display: none; } }
 
 /* Skip link: the first Tab stop on every page */
 .skip-link {
@@ -2236,6 +2244,10 @@ body.chat-loading .chat-empty { display: none; }
 .chat-row-copy small { font-size: 12px; color: var(--text-3); }
 .chat-row-del { margin-right: var(--s2); color: var(--text-3); }
 .chat-row-del:hover { color: var(--err); background: var(--err-soft); }
+/* Pin keeps a chat at the top of the lists. 12px from Delete, so the two 44px hit areas do not overlap. */
+.chat-row-pin { margin-right: 12px; color: var(--text-3); }
+.chat-row-pin:hover { color: var(--primary); background: var(--primary-soft); }
+.chat-row-pin[aria-pressed="true"] { color: var(--primary); }
 
 /* ---------- Composer: commands, hint, drop ---------- */
 .composer-inner { position: relative; }
@@ -2334,6 +2346,8 @@ body.chat-loading .chat-empty { display: none; }
 .dash-note { margin: 0; padding: var(--s2); font-size: 13px; color: var(--text-2); }
 .dash-intro { max-width: 640px; margin-inline: auto; }
 .dash-intro-steps { display: flex; flex-direction: column; }
+/* The three ways to start are read, not scanned: their line wraps instead of ending in "…" on a phone. */
+.dash-intro .dash-row-copy small { white-space: normal; }
 .dash-intro > .btn { align-self: flex-start; margin: var(--s1) 0 var(--s2) var(--s2); }
 .dash-failed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s4); padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--warn-soft); color: var(--text-2); font-size: 13px; }
 .dash-failed .ico { width: 16px; height: 16px; color: var(--warn); flex: none; }
