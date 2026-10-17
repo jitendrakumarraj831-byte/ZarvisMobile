@@ -51,7 +51,22 @@ export interface TurnRequest {
   clientTurnId?: string;
   /** Aborted when the client goes away: no further model or tool call starts after that. */
   signal?: AbortSignal;
+  /** How long the user wants replies to be (the client's "Answer length" setting). Absent: the model's normal length. */
+  replyLength?: ReplyLength;
 }
+
+/** "Balanced" is the default and needs no instruction, so it is not a value here. */
+export type ReplyLength = "short" | "detailed";
+
+/** What the planner is told for each answer length. A preference, not a hard limit: a request that needs more still gets it. */
+export const REPLY_LENGTH_GUIDANCE: Readonly<Record<ReplyLength, string>> = {
+  short:
+    "The user prefers short answers: two or three sentences, or a short list, unless they ask for more. " +
+    "Skip introductions, recaps and offers of further help.",
+  detailed:
+    "The user prefers detailed answers: explain fully, with steps, examples or headings where they help, " +
+    "and stay on the topic they asked about.",
+};
 
 export interface TurnToolCall {
   /** Unique per execution, so a client can tell two real executions from one rendered twice. */
@@ -655,6 +670,7 @@ export function buildSystemPrompt(
   }
 
   if (extra.agentFocus) prompt += " " + extra.agentFocus;
+  if (request.replyLength) prompt += " " + REPLY_LENGTH_GUIDANCE[request.replyLength];
   const saved = extra.context ? contextPrompt(extra.context) : "";
   if (saved) prompt += "\n\n" + saved + "\n\n";
 
