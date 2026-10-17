@@ -257,6 +257,14 @@ export function resolveGroqBaseUrl(raw: string | undefined): string {
   return resolveBaseUrl(raw, "GROQ_BASE_URL");
 }
 
+/** `GEMINI_FALLBACK_MODELS` for callers outside the gateway (web search): validated, and defaulted, as for chat. */
+export function resolveGeminiFallbackModels(raw: string | undefined): string[] {
+  const problems: string[] = [];
+  const models = blank(raw) ? [GEMINI_FALLBACK_MODEL] : parseModelList("GEMINI_FALLBACK_MODELS", raw, problems, 5);
+  if (problems.length > 0) throw new AIConfigError(problems);
+  return models;
+}
+
 function resolveBaseUrl(raw: string | undefined, name: keyof typeof BASE_URLS): string {
   const problems: string[] = [];
   const url = parseBaseUrl(raw, problems, [], name);

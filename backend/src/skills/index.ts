@@ -1,7 +1,7 @@
 import { getModelGateway } from "../ai/providerFactory.js";
 import type { ModelGateway } from "../ai/modelGateway.js";
 import type { Capability } from "../ai/capabilities.js";
-import { resolveGroqBaseUrl, resolveOpenRouterBaseUrl } from "../config/aiConfig.js";
+import { resolveGeminiFallbackModels, resolveGroqBaseUrl, resolveOpenRouterBaseUrl } from "../config/aiConfig.js";
 import { env } from "../config/env.js";
 import { KeyRotator, parseKeyList } from "../security/keyRotator.js";
 import type { Store } from "../store/store.js";
@@ -52,6 +52,8 @@ export interface SearchProviderSettings {
   /** `GEMINI_KEYS`, `OPENROUTER_KEYS`, `GROQ_KEYS`: search takes turns over every key, like chat. */
   geminiKeys?: readonly string[];
   geminiModel: string;
+  /** Raw `GEMINI_FALLBACK_MODELS`: search asks them after `geminiModel`, as chat does. */
+  geminiFallbackModels?: string;
   openRouterApiKey?: string;
   openRouterKeys?: readonly string[];
   openRouterModel?: string;
@@ -86,7 +88,8 @@ function withKeys(id: string, name: string, keys: string[], build: (key: string)
 }
 
 /**
- * Gemini's Google Search grounding first (the best sources), then Groq's browser search, then OpenRouter's web
+ * Gemini's Google Search grounding first (the best sources, with `GEMINI_FALLBACK_MODELS` after the configured
+ * model, as for chat), then Groq's browser search, then OpenRouter's web
  * search (last, because OpenRouter bills it per search). Each takes turns over all of its keys, and a provider
  * that fails or finds no sources hands the search to the next one.
  *
@@ -100,8 +103,9 @@ export function searchProvider(settings: SearchProviderSettings = env): SearchPr
   const openRouterBaseUrl = settings.openRouterBaseUrl?.trim() ? resolveOpenRouterBaseUrl(settings.openRouterBaseUrl) : undefined;
   const groqBaseUrl = settings.groqBaseUrl?.trim() ? resolveGroqBaseUrl(settings.groqBaseUrl) : undefined;
   const groqModel = settings.groqModel?.trim().startsWith("openai/gpt-oss") ? settings.groqModel.trim() : undefined;
+  const geminiFallbackModels = resolveGeminiFallbackModels(settings.geminiFallbackModels);
 
-  const gemini = withKeys("google", "GEMINI", parseKeyList(settings.geminiKeys, settings.geminiApiKey), (key) => new GeminiSearchProvider(key, settings.geminiModel));
+  const gemini = withKeys("google", "GEMINI", parseKeyList(settings.geminiKeys, settings.geminiApiKey), (key) => new GeminiSearchProvider(key, settings.geminiModel, undefined, geminiFallbackModels));
   const groq = withKeys("groq", "GROQ", parseKeyList(settings.groqKeys, settings.groqApiKey), (key) => new GroqSearchProvider(key, groqModel, { baseUrl: groqBaseUrl }));
   const openRouter = withKeys(
     "openrouter",

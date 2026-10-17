@@ -112,6 +112,31 @@ describe("Groq browser search", () => {
   });
 });
 
+describe("Gemini search and its fallback models", () => {
+  const modelOf = (call: Call) => /models\/([^:]+):generateContent/.exec(call.url)?.[1];
+
+  it("asks the next model at once when the configured model's quota is spent, as chat does", async () => {
+    const calls = recordFetch((call) => (modelOf(call) === "gemini-3.6-flash" ? new Response(quotaBody(DAILY), { status: 429 }) : geminiAnswer("https://g.test/2")));
+    const response = await new GeminiSearchProvider("gemini-key", "gemini-3.6-flash", undefined, ["gemini-3.8-flash"]).search("q");
+    expect(response.results).toEqual([{ title: "G", url: "https://g.test/2", snippet: "" }]);
+    expect(calls.map(modelOf)).toEqual(["gemini-3.6-flash", "gemini-3.8-flash"]);
+  });
+
+  it("reports the quota when every model is out of it, even when a fallback model does not exist", async () => {
+    recordFetch((call) => (modelOf(call) === "gemini-3.6-flash" ? new Response(quotaBody(DAILY), { status: 429 }) : json({ error: { code: 404, message: "not found" } }, 404)));
+    const error = await new GeminiSearchProvider("gemini-key", "gemini-3.6-flash", undefined, ["gemini-gone"]).search("q").catch((e: unknown) => e);
+    expect(error).toMatchObject({ reason: "ai_quota_exceeded" });
+  });
+
+  it("gets GEMINI_FALLBACK_MODELS (default gemini-3.8-flash) from the deployment's settings", async () => {
+    const calls = recordFetch((call) => (modelOf(call) === "gemini-3.6-flash" ? new Response(quotaBody(DAILY), { status: 429 }) : geminiAnswer("https://g.test/3")));
+    await searchProvider({ geminiModel: "gemini-3.6-flash", geminiApiKey: "gemini-key", isProduction: true }).search("q");
+    await searchProvider({ geminiModel: "gemini-3.6-flash", geminiApiKey: "gemini-key", geminiFallbackModels: "gemini-3.5-flash-lite", isProduction: true }).search("q");
+    expect(calls.map(modelOf)).toEqual(["gemini-3.6-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]);
+    expect(() => searchProvider({ geminiModel: "gemini-3.6-flash", geminiApiKey: "k", geminiFallbackModels: "bad model!", isProduction: true })).toThrow(/GEMINI_FALLBACK_MODELS/);
+  });
+});
+
 describe("several keys for one search service", () => {
   it("searches with the next Gemini key when the first one's daily quota is spent, and starts with it next time", async () => {
     const calls = recordFetch((call) => {
@@ -124,7 +149,8 @@ describe("several keys for one search service", () => {
     await expect(provider.search("q")).resolves.toMatchObject({ results: [{ url: "https://g.test/1" }] });
     await provider.search("q again");
     const keysUsed = calls.map((call) => (call.init.headers as Record<string, string>)["x-goog-api-key"]);
-    expect(keysUsed).toEqual(["gemini-key-1", "gemini-key-2", "gemini-key-2"]);
+    // Key 1 is asked with the configured model and the fallback model (each has its own quota), then key 2 answers.
+    expect(keysUsed).toEqual(["gemini-key-1", "gemini-key-1", "gemini-key-2", "gemini-key-2"]);
   });
 
   it("does not try another key for a failure that is not about the key", async () => {
@@ -166,7 +192,8 @@ describe("the search chain", () => {
     );
     const provider = searchProvider({ geminiModel: "gemini-3.6-flash", geminiApiKey: "gemini-key", groqApiKey: GROQ_KEY, isProduction: true });
     await expect(provider.search("q")).resolves.toMatchObject({ answer: "Groq answer", results: [{ url: "https://t.test" }] });
-    expect(calls.map((call) => new URL(call.url).hostname)).toEqual(["generativelanguage.googleapis.com", "api.groq.com"]);
+    // Both Gemini models (the configured one and gemini-3.8-flash) before Groq.
+    expect(calls.map((call) => new URL(call.url).hostname)).toEqual(["generativelanguage.googleapis.com", "generativelanguage.googleapis.com", "api.groq.com"]);
   });
 });
 

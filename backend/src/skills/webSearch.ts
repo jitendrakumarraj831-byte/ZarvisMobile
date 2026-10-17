@@ -46,6 +46,10 @@ function explainable(error: AIProviderError): SkillUserError {
 /**
  * Real Google Search grounding through Gemini. Gemini performs the search and returns
  * grounding metadata containing source URLs/titles; no separate search API key is needed.
+ *
+ * Like chat, it asks `fallbackModels` (`GEMINI_FALLBACK_MODELS`) after the configured model: Google counts the
+ * free-tier allowance per model, so when one model is rate limited or out of quota, or does not exist, the next
+ * one may still search. With another model left, a limited model is not waited for.
  */
 export class GeminiSearchProvider implements SearchProvider {
   readonly id = "google";
@@ -54,6 +58,7 @@ export class GeminiSearchProvider implements SearchProvider {
     private readonly apiKey: string,
     private readonly model = "gemini-3.6-flash",
     private readonly baseUrl = "https://generativelanguage.googleapis.com/v1beta",
+    private readonly fallbackModels: readonly string[] = [],
   ) {}
 
   async search(query: string): Promise<SearchResponse> {
@@ -62,32 +67,43 @@ export class GeminiSearchProvider implements SearchProvider {
       tools: [{ googleSearch: {} }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
     });
-    let response: Response;
+    const models = [this.model, ...this.fallbackModels].filter((model, index, all) => all.indexOf(model) === index);
     const call = beginModelCall("search", this.model, undefined, "google");
-    for (let attempt = 0; ; attempt += 1) {
-      call.httpRequests += 1;
-      response = await fetchWithTimeout(
-        `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`,
-        { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
-        60_000,
-      );
-      if (response.ok) {
-        call.servedModel = this.model;
-        call.outcome = "ok";
-        break;
-      }
-      call.status = response.status;
-      const detail = await response.text().catch(() => "");
-      const failure = classifyGeminiFailure(response.status, detail, response.headers.get("retry-after"));
-      const wait = retryDelayMs(failure, attempt);
-      if (wait !== null) {
+    let response: Response | undefined;
+    let last: { error: AIProviderError; quota: boolean } | undefined;
+    for (const [index, model] of models.entries()) {
+      const hasNext = index < models.length - 1;
+      for (let attempt = 0; ; attempt += 1) {
+        call.httpRequests += 1;
+        const answer = await fetchWithTimeout(
+          `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
+          { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
+          60_000,
+        );
+        if (answer.ok) {
+          response = answer;
+          call.servedModel = model;
+          call.outcome = "ok";
+          break;
+        }
+        call.status = answer.status;
+        const detail = await answer.text().catch(() => "");
+        const failure = classifyGeminiFailure(answer.status, detail, answer.headers.get("retry-after"));
+        const error = toProviderError("Gemini Google Search", answer.status, answer.statusText, failure, detail, model);
+        // A model that does not exist says nothing about why the one before it failed, so it does not replace that reason.
+        if (failure.kind !== "not_found" || !last) {
+          last = { error, quota: failure.kind === "quota" };
+          call.failure = { code: error.code, quotaType: error.quotaType, ...error.evidence };
+        }
+        if (failure.kind === "fatal") throw error;
+        const wait = failure.kind === "quota" && hasNext ? null : retryDelayMs(failure, attempt);
+        if (wait === null) break;
         await sleep(wait);
-        continue;
       }
-      const error = toProviderError("Gemini Google Search", response.status, response.statusText, failure, detail, this.model);
-      call.failure = { code: error.code, quotaType: error.quotaType, ...error.evidence };
-      throw failure.kind === "quota" ? explainable(error) : error;
+      if (response) break;
     }
+    if (!response) throw last!.quota ? explainable(last!.error) : last!.error;
+    if (call.servedModel !== this.model) logger.warn("Gemini search answered with a fallback model", { configuredModel: this.model, servedModel: call.servedModel });
 
     const json = (await response.json()) as GeminiSearchResponse;
     const candidate = json.candidates?.[0];
@@ -352,6 +368,12 @@ export class KeyRotatingSearchProvider implements SearchProvider {
   }
 }
 
+/** For logs: the provider's own (redacted) error behind an explainable one, which only says "too many requests". */
+function reasonOf(error: unknown): string {
+  const cause = error instanceof SkillUserError && error.cause instanceof Error ? error.cause : error;
+  return cause instanceof Error ? cause.message.slice(0, 200) : "unknown";
+}
+
 /**
  * Asks the providers in order and returns the first answer that has sources. A provider that fails (its limit, an
  * outage, a refused key) or finds no sources hands the search to the next one, so one provider never ends search.
@@ -378,16 +400,14 @@ export class FallbackSearchProvider implements SearchProvider {
         if (next) logger.warn("Web search found no sources; trying the next provider", { provider: provider.id, next: next.id });
       } catch (error) {
         errors.push(error);
-        if (next) {
-          logger.warn("Web search failed; trying the next provider", {
-            provider: provider.id,
-            next: next.id,
-            reason: error instanceof Error ? error.message.slice(0, 200) : "unknown",
-          });
-        }
+        if (next) logger.warn("Web search failed; trying the next provider", { provider: provider.id, next: next.id, reason: reasonOf(error) });
       }
     }
     if (unsourced) return unsourced;
+    // Every provider failed: one line with each one's reason, so the log says why search did not run.
+    logger.warn("Web search failed on every provider", {
+      failures: this.providers.map((provider, index) => ({ provider: provider.id, reason: reasonOf(errors[index]) })),
+    });
     throw errors.find((error) => error instanceof SkillUserError) ?? errors[0];
   }
 }

@@ -402,7 +402,9 @@ they are never copied into a skill output (skill outputs are sent to clients).
   (`GEMINI_KEYS`, `GROQ_KEYS`, `OPENROUTER_KEYS`: a key that is rate limited, out of quota or refused rests,
   and the same search goes out with the next key). A provider that fails, or answers without sources,
   hands the search to the next one:
-  1. Gemini with Google Search grounding.
+  1. Gemini with Google Search grounding, with `GEMINI_FALLBACK_MODELS` (default `gemini-3.8-flash`) after the
+     configured model, as for chat: Google counts the free-tier allowance per model, so when one model is rate
+     limited, out of quota or missing, the next model is asked at once (not waited for).
   2. Groq's browser search: a GPT-OSS model (`GROQ_MODEL` when it is an `openai/gpt-oss-*` model, else
      `openai/gpt-oss-120b`) with Groq's built-in `browser_search` tool and `tool_choice: "required"`. The
      sources are the results the tool returned (`executed_tools[].search_results` / `browser_results`), never
