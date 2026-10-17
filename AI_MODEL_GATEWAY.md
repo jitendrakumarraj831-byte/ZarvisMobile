@@ -48,7 +48,7 @@ turns (`AiServiceErrors.kt`, keyed on `AI_QUOTA_EXCEEDED`, `AI_RATE_LIMITED`, `A
 
 | Path | Where | Provider coupling |
 |---|---|---|
-| Web search | `skills/index.ts` `searchProvider()`: `GeminiSearchProvider`, then `OpenRouterSearchProvider` (`skills/webSearch.ts`) | Gemini first: Google Search **grounding** returns real sources. OpenRouter's `:online` web search is its own second provider (any Gemini error, or alone with no Gemini key), unless `AI_FALLBACK_PROVIDER` leaves OpenRouter out (`none`, or a chain such as `openai`) while Gemini is configured. Not behind the gateway |
+| Web search | `skills/index.ts` `searchProvider()`: `GeminiSearchProvider`, then `GroqSearchProvider`, then `OpenRouterSearchProvider` (`skills/webSearch.ts`) | Gemini first: Google Search **grounding** returns real sources. Groq's browser search (a GPT-OSS model with the built-in `browser_search` tool) is next, OpenRouter's `:online` web search last (it is billed per search). Each takes turns over all of its keys; a provider that fails or finds no sources hands the search on. A provider that `AI_PRIMARY_PROVIDER` / `AI_FALLBACK_PROVIDER` leave out gets no query while another search provider is configured. Not behind the gateway |
 | Image analysis | `api/routes/documents.ts` `analyzeImageWithGemini` (39) | A private Gemini loop inside the route; gated on `env.geminiApiKey` **per request** |
 | Text to speech | `api/routes/tts.ts` → `ai/geminiTts.ts` `GeminiTtsProvider` (since replaced by Edge's voices, see §2.14) | Gemini only, independent of the chat path |
 | Content generation skills | `skills/index.ts` `contentGenerator` (32) | pins `{provider: "google"}` and gates on `env.geminiApiKey` |
@@ -146,8 +146,8 @@ shipped client, and neither calls an AI provider.
      │             │               │                 │
  Groq models   free / paid models   Gemini models    any OpenAI-compatible endpoint
 
-   Not behind the gateway, by design:   web search (Gemini + Google Search grounding, with its own
-                                        OpenRouter web-search fallback, see 2.13)
+   Not behind the gateway, by design:   web search (Gemini + Google Search grounding, then Groq's and
+                                        OpenRouter's own web search, see 2.13)
                                         text to speech (Edge neural voices, tts/, see 2.14)
 ```
 
@@ -280,7 +280,7 @@ What each kind of request needs, and where it can go:
 | Image analysis, heic / heif | vision + MIME type | yes | no | **never** (not accepted by OpenRouter vision models) |
 | Streamed text | streaming | yes | yes | yes |
 | A prompt larger than the model's context | context fits | yes (1M) | no, unless a larger `OPENROUTER_MODEL_CONTEXT_TOKENS` is declared | same |
-| Web search | Google Search grounding | yes, **outside the gateway** | only as search's own fallback (any Gemini error), or alone with no Gemini key; never when `AI_FALLBACK_PROVIDER=none` and Gemini is configured | same |
+| Web search | Google Search grounding | yes, **outside the gateway** | only as search's own last fallback (after Gemini and Groq failed or found no sources), or alone; never when the chain leaves OpenRouter out and another search provider is configured | same |
 | Text to speech | Edge's neural voices (§2.14), then Gemini's speech model if Edge fails before any sound | **outside the gateway**: its own boundary, its own one-hop fallback; no chat quota or cooldown is shared | never | never |
 | Greeting, creator-identity answer | nothing | no model call at all | | |
 
@@ -320,7 +320,7 @@ reached its AI usage limit for today ..." (a daily quota) or "... the current AI
 - OpenRouter not configured: ZARVIS runs on Gemini exactly as before.
 - Gemini not configured: OpenRouter answers, but only for requests its model declares it can serve
   (so, with no declared `tools`, a tool-using chat turn fails with a capability error and nothing is
-  sent; plain generation works). Web search then runs on OpenRouter's own web search, and the Gemini
+  sent; plain generation works). Web search then runs on Groq's and OpenRouter's own web search, and the Gemini
   fallback voice is unavailable (Edge's voice does not need Gemini).
 - Neither configured: in production every model call fails honestly with `AI_UNAVAILABLE` (503) and
   `/health` says `provider: none`. The labelled deterministic mock exists only outside production and
@@ -397,14 +397,29 @@ they are never copied into a skill output (skill outputs are sent to clients).
   type. The route's MIME validation, 4 MB limit and error mapping are unchanged. An image is never
   sent to a text-only model; if nothing can read it the route says so (503
   `image_analysis_unavailable`) or returns the real provider error.
-- **Web search** is Gemini with Google Search grounding first, because only that returns real sources.
-  It has its own fallback outside the gateway: OpenRouter's web search (the model's `:online`
-  variant, or the explicit `web` plugin for a model that already carries a variant suffix such as
-  `:free`; both return sources), tried after any Gemini error, or used alone when there is no
-  Gemini key. It uses the same address (`OPENROUTER_BASE_URL`), key check, redirect refusal, error
-  classification and data policy (`OPENROUTER_DATA_COLLECTION`) as chat. OpenRouter bills web search
-  per result, so it needs credit even where a `:free` chat model does not. `AI_FALLBACK_PROVIDER=none` removes it while Gemini is configured. It is never answered
-  by a model that did not search, and never claimed if it did not run.
+- **Web search** is Gemini with Google Search grounding first, because it returns the best sources.
+  It has its own order outside the gateway, and each provider takes turns over all of its keys
+  (`GEMINI_KEYS`, `GROQ_KEYS`, `OPENROUTER_KEYS`: a key that is rate limited, out of quota or refused rests,
+  and the same search goes out with the next key). A provider that fails, or answers without sources,
+  hands the search to the next one:
+  1. Gemini with Google Search grounding, with `GEMINI_FALLBACK_MODELS` (default `gemini-3.8-flash`) after the
+     configured model, as for chat: Google counts the free-tier allowance per model, so when one model is rate
+     limited, out of quota or missing, the next model is asked at once (not waited for).
+  2. Groq's browser search: a GPT-OSS model (`GROQ_MODEL` when it is an `openai/gpt-oss-*` model, else
+     `openai/gpt-oss-120b`) with Groq's built-in `browser_search` tool and `tool_choice: "required"`. The
+     sources are the results the tool returned (`executed_tools[].search_results` / `browser_results`), never
+     links the model wrote. Same address (`GROQ_BASE_URL`), key check, redirect refusal and error
+     classification as Groq chat.
+  3. OpenRouter's web search (the model's `:online` variant, or the explicit `web` plugin for a model that
+     already carries a variant suffix such as `:free`; both return sources). Same address
+     (`OPENROUTER_BASE_URL`), key check, redirect refusal, error classification and data policy
+     (`OPENROUTER_DATA_COLLECTION`) as chat. OpenRouter bills web search per result, so it needs credit even
+     where a `:free` chat model does not; that is why it is last.
+
+  Groq and OpenRouter get a query only when the gateway's chain includes them (the primary, unset meaning
+  Groq, or a listed fallback), unless one is the only search provider configured. When every provider fails,
+  the error the agent can explain (a rate limit or a spent quota) is reported. Search is never answered by a
+  model that did not search, and never claimed if it did not run.
 - **Text to speech** is not an AI provider call: it is Edge's neural voices on its own routes, behind
   its own boundary (§2.14). OpenRouter is never involved. Gemini's speech model is only the second
   voice, asked after Edge has failed, and is independent of the gateway (its quota, cooldown and
@@ -654,8 +669,8 @@ The gateway sees one provider; inside it a `KeyRotatingProvider` holds one adapt
   gateway's `attempts`); `getProviderStatus()` has each provider's `keys` (`total`, `available`, `activeSlot`,
   `rotations`, and per slot `ready` / `cooling` / `rejected` with the reason and until when). With one key nothing
   is tagged and nothing extra is logged.
-- Web search grounding and Gemini's voice use the first Gemini key; the OpenRouter model list is read with the key
-  requests currently start with.
+- Web search takes turns over every key of each search provider, with its own rotation state (§2.13); Gemini's voice
+  uses the first Gemini key; the OpenRouter model list is read with the key requests currently start with.
 
 **Groq** is the first provider of the default order: `OpenRouterProvider` with `flavor: "groq"`, the plain
 OpenAI Chat Completions request to `https://api.groq.com/openai/v1` (no `models` array, no `provider`
@@ -1151,11 +1166,12 @@ accepts a GitHub runner's network; the smoke test above proves it for Vercel's. 
 - **Billing records** do not store the provider or model (a database change); the logs do.
 - **Gemini's own model fallback** (`gemini-3.8-flash`) still runs before the gateway moves to
   another provider, so a Gemini outage costs up to about 7 s of backoff before OpenRouter is asked.
-- **Web search** has its own provider order (Gemini, then OpenRouter's web search; §2.13), not the
-  gateway's. It does not appear in the turn's `aiProviders` / `aiFallbackCalls` summary, takes no
-  abort signal, and when Gemini rejects the request (a 4xx, including a rejected key) it still tries
-  OpenRouter: set `AI_FALLBACK_PROVIDER=none` to prevent that. With neither key, in production, it
-  fails honestly, once, and is not retried.
+- **Web search** has its own provider order (Gemini, then Groq's browser search, then OpenRouter's web
+  search; §2.13), not the gateway's. It does not appear in the turn's `aiProviders` / `aiFallbackCalls`
+  summary, takes no abort signal, and when one provider rejects the request (a 4xx, including a rejected
+  key) it still tries the next: leave a provider out of `AI_FALLBACK_PROVIDER` to prevent that. Its key
+  rotation state is its own: a key that chat found out of quota is asked once more by search before it
+  rests there too. With no key at all, in production, it fails honestly, once, and is not retried.
 - **No abort signal below the planner.** Calls made inside skills (`ContentGenerator`), image
   analysis in the upload route, and web search take no `AbortSignal`. If the client leaves during
   one of them, its retries, a fallback and the credit charge still happen. Only planner calls stop.

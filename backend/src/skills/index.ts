@@ -1,8 +1,9 @@
 import { getModelGateway } from "../ai/providerFactory.js";
 import type { ModelGateway } from "../ai/modelGateway.js";
 import type { Capability } from "../ai/capabilities.js";
-import { resolveOpenRouterBaseUrl } from "../config/aiConfig.js";
+import { resolveGeminiFallbackModels, resolveGroqBaseUrl, resolveOpenRouterBaseUrl } from "../config/aiConfig.js";
 import { env } from "../config/env.js";
+import { KeyRotator, parseKeyList } from "../security/keyRotator.js";
 import type { Store } from "../store/store.js";
 import { TaskService } from "../tasks/taskService.js";
 import { SkillRegistry } from "../tooling/skillRegistry.js";
@@ -23,7 +24,17 @@ import { AIContentSummarizer, createDocsSummarizeSkill, DOCS_SUMMARIZE_SYSTEM_PR
 import { RESEARCH_COMPARE_SYSTEM_PROMPT, createResearchCompareSkill } from "./researchCompare.js";
 import { RESEARCH_OUTLINE_SYSTEM_PROMPT, createResearchOutlineSkill } from "./researchOutline.js";
 import { RESEARCH_REPORT_SYSTEM_PROMPT, createResearchReportSkill } from "./researchReport.js";
-import { createWebSearchSkill, FallbackSearchProvider, GeminiSearchProvider, MockSearchProvider, OpenRouterSearchProvider, UnavailableSearchProvider, type SearchProvider } from "./webSearch.js";
+import {
+  createWebSearchSkill,
+  FallbackSearchProvider,
+  GeminiSearchProvider,
+  GroqSearchProvider,
+  KeyRotatingSearchProvider,
+  MockSearchProvider,
+  OpenRouterSearchProvider,
+  UnavailableSearchProvider,
+  type SearchProvider,
+} from "./webSearch.js";
 
 /**
  * Real generation through the AI Model Gateway when a provider is configured, an honestly-labeled
@@ -38,48 +49,81 @@ function contentGenerator(gateway: ModelGateway, label: string, systemPrompt: st
 
 export interface SearchProviderSettings {
   geminiApiKey?: string;
+  /** `GEMINI_KEYS`, `OPENROUTER_KEYS`, `GROQ_KEYS`: search takes turns over every key, like chat. */
+  geminiKeys?: readonly string[];
   geminiModel: string;
+  /** Raw `GEMINI_FALLBACK_MODELS`: search asks them after `geminiModel`, as chat does. */
+  geminiFallbackModels?: string;
   openRouterApiKey?: string;
+  openRouterKeys?: readonly string[];
   openRouterModel?: string;
   /** Raw `OPENROUTER_BASE_URL` / `OPENROUTER_DATA_COLLECTION`: search follows the same address and data policy as chat. */
   openRouterBaseUrl?: string;
   openRouterDataCollection?: string;
-  /** Raw `AI_FALLBACK_PROVIDER`: a chain that leaves OpenRouter out (or `none`) means a query must not go to OpenRouter. */
+  groqApiKey?: string;
+  groqKeys?: readonly string[];
+  /** Raw `GROQ_BASE_URL` and `GROQ_MODEL`: search uses Groq's address, and its model when that is a GPT-OSS model. */
+  groqBaseUrl?: string;
+  groqModel?: string;
+  /** Raw `AI_FALLBACK_PROVIDER`: a chain that leaves Groq or OpenRouter out (or `none`) means a query must not go to it. */
   aiFallbackProvider?: string;
-  /** Raw `AI_PRIMARY_PROVIDER`: OpenRouter as the primary is always allowed. */
+  /** Raw `AI_PRIMARY_PROVIDER` (unset: Groq): the primary is always allowed. */
   aiPrimaryProvider?: string;
   isProduction: boolean;
 }
 
-/** Whether the gateway settings let a user's text go to OpenRouter while Gemini is configured. */
-function openRouterAllowed(settings: Pick<SearchProviderSettings, "aiFallbackProvider" | "aiPrimaryProvider">): boolean {
-  if (settings.aiPrimaryProvider?.trim().toLowerCase() === "openrouter") return true;
+/** Whether the gateway settings let a user's text go to this provider: it is the primary, or in the fallback chain. */
+function inChain(settings: Pick<SearchProviderSettings, "aiFallbackProvider" | "aiPrimaryProvider">, id: "groq" | "openrouter"): boolean {
+  if ((settings.aiPrimaryProvider?.trim().toLowerCase() || "groq") === id) return true;
   const chain = settings.aiFallbackProvider?.trim().toLowerCase();
-  if (!chain) return true; // the default chain includes OpenRouter
-  return chain.split(/[\s,]+/).includes("openrouter");
+  if (!chain) return true; // the default chain includes every provider
+  return chain.split(/[\s,]+/).includes(id);
+}
+
+/** One provider per key list: the provider alone for one key, the keys in turn for several. */
+function withKeys(id: string, name: string, keys: string[], build: (key: string) => SearchProvider): SearchProvider | undefined {
+  if (keys.length === 0) return undefined;
+  if (keys.length === 1) return build(keys[0]!);
+  return new KeyRotatingSearchProvider(id, new KeyRotator({ name: `${name} search`, keys: () => keys }), build);
 }
 
 /**
- * Gemini grounding first; OpenRouter's web search as fallback, or alone when Gemini isn't configured.
- * Search is not routed through the gateway (only Gemini's grounding returns real sources), so it honours
- * the one gateway switch that is about where a user's text may go: when `AI_FALLBACK_PROVIDER` leaves
- * OpenRouter out (`none`, or a chain such as `openai`), a search query is never sent to OpenRouter while
- * Gemini is configured.
+ * Gemini's Google Search grounding first (the best sources, with `GEMINI_FALLBACK_MODELS` after the configured
+ * model, as for chat), then Groq's browser search, then OpenRouter's web
+ * search (last, because OpenRouter bills it per search). Each takes turns over all of its keys, and a provider
+ * that fails or finds no sources hands the search to the next one.
+ *
+ * Search is not routed through the gateway (it needs each service's own search tool), so it honours the one
+ * gateway switch that is about where a user's text may go: a provider that `AI_PRIMARY_PROVIDER` and
+ * `AI_FALLBACK_PROVIDER` leave out (`none`, or a chain such as `openai`) gets no search query while another
+ * search provider is configured. Gemini, whose grounding returns real sources, is always asked when it has a key.
  */
 export function searchProvider(settings: SearchProviderSettings = env): SearchProvider {
   const dataCollection = settings.openRouterDataCollection?.trim().toLowerCase();
-  const openRouter = settings.openRouterApiKey
-    ? new OpenRouterSearchProvider(settings.openRouterApiKey, settings.openRouterModel?.trim() || undefined, {
-        baseUrl: settings.openRouterBaseUrl?.trim() ? resolveOpenRouterBaseUrl(settings.openRouterBaseUrl) : undefined,
+  const openRouterBaseUrl = settings.openRouterBaseUrl?.trim() ? resolveOpenRouterBaseUrl(settings.openRouterBaseUrl) : undefined;
+  const groqBaseUrl = settings.groqBaseUrl?.trim() ? resolveGroqBaseUrl(settings.groqBaseUrl) : undefined;
+  const groqModel = settings.groqModel?.trim().startsWith("openai/gpt-oss") ? settings.groqModel.trim() : undefined;
+  const geminiFallbackModels = resolveGeminiFallbackModels(settings.geminiFallbackModels);
+
+  const gemini = withKeys("google", "GEMINI", parseKeyList(settings.geminiKeys, settings.geminiApiKey), (key) => new GeminiSearchProvider(key, settings.geminiModel, undefined, geminiFallbackModels));
+  const groq = withKeys("groq", "GROQ", parseKeyList(settings.groqKeys, settings.groqApiKey), (key) => new GroqSearchProvider(key, groqModel, { baseUrl: groqBaseUrl }));
+  const openRouter = withKeys(
+    "openrouter",
+    "OPENROUTER",
+    parseKeyList(settings.openRouterKeys, settings.openRouterApiKey),
+    (key) =>
+      new OpenRouterSearchProvider(key, settings.openRouterModel?.trim() || undefined, {
+        baseUrl: openRouterBaseUrl,
         ...(dataCollection === "allow" || dataCollection === "deny" ? { dataCollection } : {}),
-      })
-    : undefined;
-  if (settings.geminiApiKey) {
-    const gemini = new GeminiSearchProvider(settings.geminiApiKey, settings.geminiModel);
-    return openRouter && openRouterAllowed(settings) ? new FallbackSearchProvider(gemini, openRouter) : gemini;
-  }
-  if (openRouter) return openRouter;
-  return settings.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();
+      }),
+  );
+
+  const configured = [gemini, groq, openRouter].filter((provider) => provider !== undefined);
+  const allowed = configured.filter((provider) => provider.id === "google" || inChain(settings, provider.id as "groq" | "openrouter"));
+  // A provider left out of the chain still searches when it is the only one there is.
+  const [first, ...rest] = allowed.length > 0 ? allowed : configured.slice(0, 1);
+  if (!first) return settings.isProduction ? new UnavailableSearchProvider() : new MockSearchProvider();
+  return rest.length > 0 ? new FallbackSearchProvider(first, ...rest) : first;
 }
 
 /**

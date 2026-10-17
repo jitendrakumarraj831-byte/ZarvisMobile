@@ -43,7 +43,7 @@ section).
 | A PDF or DOCX | The server reads it in memory (never written to disk); the extracted text then goes where message text goes. | Only the extracted text, as above. |
 | Metadata inside a photo (EXIF, including location when the camera recorded it) | A photo taken with the web camera sheet is re-encoded in the browser and carries none. A photo **picked from the gallery or a file** on the web is sent as it is, metadata included, to the server and on to the vision model. The Android app re-encodes the photo in memory before sending (from the code; not run on a device in this review). | Not stored with the picture, because the picture is not stored. |
 | A reply read aloud ("Spoken replies") | When an ElevenLabs key is set (`ELEVENLABS_KEYS` or `ELEVENLABS_API_KEY`), the text to be spoken goes to ElevenLabs first. If that fails before any sound (and `TTS_FALLBACK_PROVIDER` is not `none`), the same text goes to Google's Gemini speech model when a Gemini key is set, and then to Microsoft's speech service. Without either key, it goes to Microsoft's service only. `TTS_PROVIDER` and `TTS_FALLBACK_PROVIDER` change the order. | No. The server keeps no audio and logs no spoken text. |
-| A web search | Google (Gemini with Google Search grounding); OpenRouter as the search's own fallback (see below). | The query is part of the conversation. |
+| A web search | Google (Gemini with Google Search grounding); then Groq (its browser search tool, which searches the web on Groq's side) and OpenRouter as the search's own fallbacks (see below). | The query is part of the conversation. |
 | Your voice, when you dictate | The browser's or the phone's own speech recogniser handles the audio, and depending on the browser or device that may be a cloud service of its vendor. The ZARVIS server has no endpoint that accepts audio and receives only the recognised text. | No audio reaches ZARVIS. |
 | Logs | Structured and redacted: keys, tokens and credential-shaped strings are removed. Message, document, photo and spoken text are not logged. A provider's error reply is cut to 300 or 600 characters inside an internal error message that can reach the server log; a provider that echoes part of a request into an error could therefore put a fragment of it there. Voice errors log only a code and a status. | Per the host's log retention. |
 
@@ -81,12 +81,14 @@ account's data-policy settings decide which providers may receive a request.
   which provider wrote each reply (for example "Groq · Fast", or "Gemini · Backup" when the provider before
   it was unavailable). The model name is not shown.
 - Text to speech is never sent to OpenRouter.
-- **Web search is not routed through the gateway** and has its own fallback. A search query goes to
-  Gemini (with Google Search grounding) first. If `OPENROUTER_API_KEY` is set and
-  `AI_FALLBACK_PROVIDER` does not leave OpenRouter out, the query is sent to OpenRouter's web-search
-  model when Gemini fails for any reason, and it goes there directly when no Gemini key is set.
-  `AI_FALLBACK_PROVIDER=none` (or a chain without `openrouter`, such as `openai`) keeps a search query
-  on Gemini. A search query is never sent to the OpenAI-compatible endpoint.
+- **Web search is not routed through the gateway** and has its own fallbacks. A search query goes to
+  Gemini (with Google Search grounding) first. When Gemini fails or finds no sources, it goes to Groq's
+  browser search (if a Groq key is set), and after that to OpenRouter's web-search model (if an
+  OpenRouter key is set); with no Gemini key it starts with the first of these. Groq and OpenRouter
+  receive a search query only when the gateway's chain includes them (`AI_PRIMARY_PROVIDER`, unset
+  meaning Groq, or `AI_FALLBACK_PROVIDER`), unless one is the only search provider configured: for
+  example `AI_PRIMARY_PROVIDER=gemini` with `AI_FALLBACK_PROVIDER=none` keeps a search query on Gemini.
+  A search query is never sent to the OpenAI-compatible endpoint.
 - Spoken replies: the text a person asks to hear is sent to Microsoft's speech service (the one behind
   Edge's Read Aloud, reached without an account or a key), not to OpenRouter. Nothing else goes with
   it, but Microsoft sees the server's address. It is an unofficial service, used here without a

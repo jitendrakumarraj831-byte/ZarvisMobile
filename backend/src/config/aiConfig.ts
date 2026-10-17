@@ -249,8 +249,25 @@ function parseBaseUrl(raw: string | undefined, problems: string[], warnings: str
 
 /** The validated OpenRouter base URL for callers outside the gateway (web search). Throws an `AIConfigError` like startup does. */
 export function resolveOpenRouterBaseUrl(raw: string | undefined): string {
+  return resolveBaseUrl(raw, "OPENROUTER_BASE_URL");
+}
+
+/** The validated Groq base URL for callers outside the gateway (web search), like {@link resolveOpenRouterBaseUrl}. */
+export function resolveGroqBaseUrl(raw: string | undefined): string {
+  return resolveBaseUrl(raw, "GROQ_BASE_URL");
+}
+
+/** `GEMINI_FALLBACK_MODELS` for callers outside the gateway (web search): validated, and defaulted, as for chat. */
+export function resolveGeminiFallbackModels(raw: string | undefined): string[] {
   const problems: string[] = [];
-  const url = parseBaseUrl(raw, problems, []);
+  const models = blank(raw) ? [GEMINI_FALLBACK_MODEL] : parseModelList("GEMINI_FALLBACK_MODELS", raw, problems, 5);
+  if (problems.length > 0) throw new AIConfigError(problems);
+  return models;
+}
+
+function resolveBaseUrl(raw: string | undefined, name: keyof typeof BASE_URLS): string {
+  const problems: string[] = [];
+  const url = parseBaseUrl(raw, problems, [], name);
   if (problems.length > 0) throw new AIConfigError(problems);
   return url;
 }
