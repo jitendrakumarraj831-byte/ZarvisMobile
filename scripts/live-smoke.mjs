@@ -502,8 +502,8 @@ async function main() {
   }
 
   // ---- Error handling ----------------------------------------------------------------------
-  const noAuth = await call("POST", "/api/v1/orchestrator/turn", { body: { utterance: "Hi" } });
-  report(noAuth.status === 401 ? "PASS" : "FAIL", "a turn without a token is refused", `HTTP ${noAuth.status}`);
+  const anonymousTurn = await call("POST", "/api/v1/orchestrator/turn", { body: { utterance: "Hi" } });
+  report(anonymousTurn.status === 401 ? "PASS" : "FAIL", "a turn without a token is refused", `HTTP ${anonymousTurn.status}`);
   const malformed = await call("POST", "/api/v1/orchestrator/turn", { token: guestToken, raw: "{not json", headers: { "content-type": "application/json" } });
   report(malformed.status === 400 && malformed.json?.code === "invalid_json" ? "PASS" : "FAIL", "malformed JSON is 400 invalid_json", `HTTP ${malformed.status} ${malformed.json?.code ?? ""}`);
   const badKey = await call("POST", "/api/v1/orchestrator/turn", { token: guestToken, body: { utterance: "Hi", clientTurnId: "x y" } });

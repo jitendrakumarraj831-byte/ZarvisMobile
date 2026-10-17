@@ -4094,7 +4094,6 @@
           { label: "Remove from list", icon: "i-x", hint: "Only removes it from this session's list", run: () => {
             const at = activityLog.indexOf(entry);
             if (at >= 0) activityLog.splice(at, 1);
-            if (entry.thumb) URL.revokeObjectURL(entry.thumb);
             renderActivityTimeline();
           } },
         ]);
@@ -4914,29 +4913,54 @@
     return COPY[state.lang].unreadableFile;
   }
 
-  let attachmentPreviewUrl = null;
-  let lastPreviewFile = null;
+  const THUMB_PX = 160; // sharp at the Activity list's 52 CSS px on a 3x screen
+  let previewThumb = null; // the attached image's thumbnail (a Promise of a data: URL, "" when it can't be drawn), or null
+  let previewEpoch = 0;
 
-  /** Shows a local thumbnail for an image attachment (a blob: URL; nothing is uploaded for
-   * the preview), or the file icon for documents. */
+  /** A small square PNG of an image file, cropped the way `object-fit: cover` shows it. It is drawn
+   * from the decoded pixels, so no URL ever points at the picked file's own bytes (a blob: URL of it
+   * would be same-origin). "" when this browser can't decode the file. */
+  async function imageThumbnail(file) {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      const side = Math.min(bitmap.width, bitmap.height);
+      const size = Math.min(THUMB_PX, side);
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      canvas.getContext("2d").drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+      bitmap.close();
+      return canvas.toDataURL("image/png");
+    } catch {
+      return "";
+    }
+  }
+
+  /** Shows a local thumbnail for an image attachment (drawn in the page; nothing is uploaded for
+   * the preview), or the file icon for documents and for an image the browser can't decode. */
   function setAttachmentPreview(file) {
     const holder = el.attachmentChip?.querySelector(".attachment-ico");
     if (!holder) return;
-    if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
-    attachmentPreviewUrl = null;
-    lastPreviewFile = file && classifyLocalFile(file) === "image" ? file : null;
+    const epoch = ++previewEpoch;
+    previewThumb = file && classifyLocalFile(file) === "image" ? imageThumbnail(file) : null;
     holder.replaceChildren();
-    if (file && classifyLocalFile(file) === "image") {
-      attachmentPreviewUrl = URL.createObjectURL(file);
+    holder.classList.toggle("has-preview", Boolean(previewThumb));
+    if (!previewThumb) {
+      holder.appendChild(svgIcon("i-file"));
+      return;
+    }
+    previewThumb.then((url) => {
+      if (epoch !== previewEpoch) return; // another file (or none) is shown by now
+      if (!url) {
+        holder.classList.remove("has-preview");
+        holder.appendChild(svgIcon("i-file"));
+        return;
+      }
       const img = document.createElement("img");
       img.alt = "";
-      img.src = attachmentPreviewUrl;
+      img.src = url;
       holder.appendChild(img);
-      holder.classList.add("has-preview");
-    } else {
-      holder.appendChild(svgIcon("i-file"));
-      holder.classList.remove("has-preview");
-    }
+    });
   }
 
   function setExtractingState(isExtracting, file) {
@@ -4968,9 +4992,10 @@
     el.attachmentName.textContent = filename;
     el.attachmentStatus.textContent = COPY[state.lang].attachmentReady;
     el.attachmentChip.hidden = false;
-    // An image attachment keeps its own small preview in Activity (a local blob: URL, never uploaded).
-    const thumb = lastPreviewFile ? URL.createObjectURL(lastPreviewFile) : "";
-    recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
+    // An image attachment keeps its own small preview in Activity (the chip's thumbnail, never uploaded).
+    const record = (thumb = "") => recordActivity(thumb ? "image" : "file", filename, "Ready to ask about", "ok", thumb);
+    if (previewThumb) previewThumb.then(record);
+    else record();
     el.input.focus();
   }
 
