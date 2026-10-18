@@ -128,10 +128,15 @@ fun ConversationScreen(
         ) {
             // The header is always there: "New chat" used to exist only on a chat opened from Home, so the Chat tab could never start fresh.
             // Back is shown only when there is somewhere to go back to (the Chat tab is a tab, and the system Back button leaves it).
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                tonalElevation = 2.dp,
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                 if (onBack != null) TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
                 Text(
                     tr(UiString.CHAT_TITLE),
@@ -147,6 +152,7 @@ fun ConversationScreen(
                     TextButton(onClick = { confirmDelete = true }, enabled = idle && !uiState.deleting) {
                         Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
                     }
+                }
                 }
             }
             uiState.deleteOutcome?.let { outcome ->

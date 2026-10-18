@@ -83,10 +83,17 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
                         .padding(horizontal = 4.dp, vertical = 4.dp),
                 ) {
                     Box(
-                        modifier = Modifier.size(width = 52.dp, height = 28.dp).background(pill, RoundedCornerShape(14.dp)),
+                        modifier = Modifier
+                            .size(width = 52.dp, height = 28.dp)
+                            .background(if (isSelected && item.route == "chat") edge else pill, RoundedCornerShape(14.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(imageVector = item.icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = tint)
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp),
+                            tint = if (isSelected && item.route == "chat") MaterialTheme.colorScheme.onPrimary else tint,
+                        )
                     }
                     Text(
                         item.label,
