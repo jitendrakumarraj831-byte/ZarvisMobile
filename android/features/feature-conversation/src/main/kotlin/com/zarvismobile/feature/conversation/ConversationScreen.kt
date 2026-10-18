@@ -84,8 +84,8 @@ fun ConversationScreen(
         viewModel.onStartRequest(initialText, submitInitialText, listenOnStart)
     }
 
-    LaunchedEffect(uiState.turns.size) {
-        if (uiState.turns.isNotEmpty()) listState.animateScrollToItem(uiState.turns.size - 1)
+    LaunchedEffect(uiState.turns.size, uiState.turns.lastOrNull()?.assistantText) {
+        if (uiState.turns.isNotEmpty()) listState.animateScrollToItem(uiState.turns.lastIndex)
     }
 
     // Back while the microphone is open stops listening first, instead of leaving the chat with the mic still on.
