@@ -99,7 +99,7 @@ Android app (Compose, Hilt)
 | A7 | Tasks screen | `/tasks`, `/tasks/{id}/{pause,cancel}` | GET/POST | same as W15; no Start/Resume/Retry button | PARTIAL |
 | A8 | on-device skills | `/usage/charge` | POST | cost from the server registry, never from the client; all on-device skills cost 0 today | CONNECTED, effectively UNUSED |
 | A9 | Plans | `/entitlements/me`, `/skills` | GET | display only; no Play Billing client | PARTIAL |
-| A10 | Release build | `https://zarvismobile.com/` | — | asserted in CI; debug uses `http://<dev-host>:3000/` (cleartext scoped to that host) | CONNECTED (CI) |
+| A10 | Release build | `https://zarvismobile.onrender.com/` | — | asserted in CI; debug uses `http://<dev-host>:3000/` (cleartext scoped to that host), or an HTTPS backend given with `-Pzarvis.apiBaseUrl` | CONNECTED (CI) |
 
 `ContractTest`: `backend/test/api/clientContract.test.ts` checks mechanically that every Android
 Retrofit endpoint and every web `apiFetch` path is a served route with the same method.

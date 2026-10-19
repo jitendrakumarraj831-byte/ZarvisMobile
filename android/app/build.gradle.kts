@@ -1,5 +1,6 @@
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -101,30 +102,69 @@ require((devApiPort.toIntOrNull() ?: 0) in 1..65535) {
 }
 val devApiBaseUrl = "http://$devApiHost:$devApiPort/"
 
+// ---------------------------------------------------------------------------------------
+// Deployed (HTTPS) backend
+//
+// release always talks to the production backend below. A debug build talks to the dev
+// backend above unless it is pointed at a deployed HTTPS backend instead, which is how a
+// debug APK for a phone reaches production (no LAN server, no release signing key needed):
+//
+//   -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/   (or ZARVIS_API_BASE_URL)
+//
+// Only https:// is accepted: a dev server over plain HTTP stays -Pzarvis.devApiHost, whose
+// cleartext rules above still apply. Such a build carries no cleartext exemption at all,
+// not even the emulator/loopback aliases.
+// ---------------------------------------------------------------------------------------
+val productionApiBaseUrl = "https://zarvismobile.onrender.com/"
+
+val apiBaseUrlFromProperty = (project.findProperty("zarvis.apiBaseUrl") as String?)?.trim()?.ifEmpty { null }
+val apiBaseUrlFromEnv = System.getenv("ZARVIS_API_BASE_URL")?.trim()?.ifEmpty { null }
+val apiBaseUrlSource = if (apiBaseUrlFromProperty != null) "-Pzarvis.apiBaseUrl" else "ZARVIS_API_BASE_URL"
+
+/** The deployed backend a debug build was pointed at, ending in '/' as Retrofit requires; null for the dev backend. */
+val deployedApiBaseUrl: String? = (apiBaseUrlFromProperty ?: apiBaseUrlFromEnv)?.let { raw ->
+    val uri = runCatching { URI(raw) }.getOrNull()
+    require(uri != null && uri.scheme == "https" && !uri.host.isNullOrEmpty() && uri.userInfo == null && uri.query == null && uri.fragment == null) {
+        "ZARVIS: the API base URL (from $apiBaseUrlSource) must be an https:// URL such as $productionApiBaseUrl, with no user, query or " +
+            "fragment. A dev server over plain HTTP is set with -Pzarvis.devApiHost instead. Got '$raw'."
+    }
+    if (raw.endsWith("/")) raw else "$raw/"
+}
+val debugApiBaseUrl: String = deployedApiBaseUrl ?: devApiBaseUrl
+
 /**
  * Hosts the generated debug network security config permits cleartext to. The dev host is
  * included only when it is a private address; `10.0.2.2` (emulator) and loopback (`adb
  * reverse tcp:3000 tcp:3000`) are always included so one APK works on both emulator and
- * phone. Everything else keeps the platform's HTTPS-only default.
+ * phone. Everything else keeps the platform's HTTPS-only default. A build pointed at a
+ * deployed HTTPS backend permits cleartext to nothing.
  */
-val devCleartextHosts: List<String> = buildList {
-    if (isPrivateDevAddress(devApiHost)) add(devApiHost)
-    addAll(listOf("10.0.2.2", "127.0.0.1", "localhost"))
-}.distinct()
-
-logger.lifecycle("ZARVIS debug API base URL: $devApiBaseUrl  [host from $devApiHostSource]")
-if (devApiHost == "10.0.2.2" && devApiHostSource.startsWith("fallback")) {
-    logger.warn(
-        "ZARVIS: falling back to the emulator alias 10.0.2.2 — a PHYSICAL DEVICE cannot reach it. " +
-            "Build with -Pzarvis.devApiHost=<your-machine's-LAN-IP> (see DEVELOPMENT.md).",
-    )
+val devCleartextHosts: List<String> = if (deployedApiBaseUrl != null) {
+    emptyList()
+} else {
+    buildList {
+        if (isPrivateDevAddress(devApiHost)) add(devApiHost)
+        addAll(listOf("10.0.2.2", "127.0.0.1", "localhost"))
+    }.distinct()
 }
-if (!isPrivateDevAddress(devApiHost)) {
-    logger.warn(
-        "ZARVIS: dev API host '$devApiHost' is not a private/LAN address, so cleartext HTTP to it is " +
-            "NOT permitted by the generated network security config (it would downgrade a public host to " +
-            "plaintext). Use an https:// backend for non-local hosts, or a LAN address for local dev.",
-    )
+
+if (deployedApiBaseUrl != null) {
+    logger.lifecycle("ZARVIS debug API base URL: $deployedApiBaseUrl  [from $apiBaseUrlSource]")
+} else {
+    logger.lifecycle("ZARVIS debug API base URL: $devApiBaseUrl  [host from $devApiHostSource]")
+    if (devApiHost == "10.0.2.2" && devApiHostSource.startsWith("fallback")) {
+        logger.warn(
+            "ZARVIS: falling back to the emulator alias 10.0.2.2 — a PHYSICAL DEVICE cannot reach it. " +
+                "Build with -Pzarvis.devApiHost=<your-machine's-LAN-IP> (see DEVELOPMENT.md).",
+        )
+    }
+    if (!isPrivateDevAddress(devApiHost)) {
+        logger.warn(
+            "ZARVIS: dev API host '$devApiHost' is not a private/LAN address, so cleartext HTTP to it is " +
+                "NOT permitted by the generated network security config (it would downgrade a public host to " +
+                "plaintext). Use -Pzarvis.apiBaseUrl=https://… for a deployed backend, or a LAN address for local dev.",
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -192,24 +232,33 @@ abstract class GenerateNetworkSecurityConfig : DefaultTask() {
     fun generate() {
         val xmlDir = outputDir.get().asFile.resolve("xml")
         xmlDir.mkdirs()
+        val hosts = cleartextHosts.get()
         val lines = buildList {
             add("""<?xml version="1.0" encoding="utf-8"?>""")
             add("<!--")
             add("  GENERATED by :app:$name — do not edit, and do not check in.")
             add("")
-            add("  Debug builds talk to a local dev backend over plain HTTP (${baseUrl.get()}), which")
-            add("  Android 9+ (API 28) blocks by default. Only the hosts listed below are exempted;")
-            add("  every other destination keeps the platform's HTTPS-only default, including in debug.")
+            if (hosts.isEmpty()) {
+                add("  This debug build talks to a deployed backend over HTTPS (${baseUrl.get()}), so no host")
+                add("  is exempted: cleartext HTTP is blocked everywhere, exactly as in release.")
+            } else {
+                add("  Debug builds talk to a local dev backend over plain HTTP (${baseUrl.get()}), which")
+                add("  Android 9+ (API 28) blocks by default. Only the hosts listed below are exempted;")
+                add("  every other destination keeps the platform's HTTPS-only default, including in debug.")
+            }
             add("  This whole file exists in debug builds only — release keeps the platform default and")
             add("  never sees a cleartext exemption (SECURITY.md).")
             add("-->")
             add("<network-security-config>")
             add("""    <base-config cleartextTrafficPermitted="false" />""")
-            add("""    <domain-config cleartextTrafficPermitted="true">""")
-            cleartextHosts.get().forEach { host ->
-                add("""        <domain includeSubdomains="false">$host</domain>""")
+            // Android rejects a <domain-config> without any <domain>, so there is none when nothing is exempted.
+            if (hosts.isNotEmpty()) {
+                add("""    <domain-config cleartextTrafficPermitted="true">""")
+                hosts.forEach { host ->
+                    add("""        <domain includeSubdomains="false">$host</domain>""")
+                }
+                add("    </domain-config>")
             }
-            add("    </domain-config>")
             add("</network-security-config>")
         }
         xmlDir.resolve("network_security_config.xml").writeText(lines.joinToString("\n", postfix = "\n"))
@@ -253,10 +302,10 @@ android {
     buildTypes {
         // API_BASE_URL is the app's only network destination (`ApiClientFactory` builds the
         // single Retrofit/OkHttp client, and `TokenAuthenticator` reuses the same base URL).
-        // debug points at the local dev backend resolved above; release points at the
-        // production domain the web client already uses (MASTER_SPEC.md §12a).
+        // debug points at the dev backend resolved above, or at the deployed backend given
+        // with -Pzarvis.apiBaseUrl; release always points at the production backend.
         debug {
-            buildConfigField("String", "API_BASE_URL", "\"$devApiBaseUrl\"")
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiBaseUrl\"")
         }
         release {
             // Not yet enabled: this repository has no way to compile-verify a minified build
@@ -266,7 +315,7 @@ android {
             // the app still works minified.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "API_BASE_URL", "\"https://zarvismobile.com/\"")
+            buildConfigField("String", "API_BASE_URL", "\"$productionApiBaseUrl\"")
             if (hasReleaseSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -284,7 +333,7 @@ androidComponents {
         ) {
             description = "Generates the debug-only network security config scoped to the dev backend host."
             cleartextHosts.set(devCleartextHosts)
-            baseUrl.set(devApiBaseUrl)
+            baseUrl.set(debugApiBaseUrl)
         }
         variant.sources.res?.addGeneratedSourceDirectory(generateTask, GenerateNetworkSecurityConfig::outputDir)
     }

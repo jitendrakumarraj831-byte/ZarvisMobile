@@ -87,8 +87,9 @@ The app has exactly one network destination, `BuildConfig.API_BASE_URL`, fixed a
 
 | Build | Base URL | Cleartext HTTP |
 |---|---|---|
-| `debug` | `http://<dev host>:<dev port>/` | Only to private addresses (loopback, RFC1918, link-local, `.local`) and `10.0.2.2`. A debug build cannot talk to an `https://` host. |
-| `release` | `https://zarvismobile.com/` (the production domain) | None. There is no network security config in a release build. |
+| `debug` | `http://<dev host>:<dev port>/` | Only to private addresses (loopback, RFC1918, link-local, `.local`) and `10.0.2.2`. |
+| `debug` with `-Pzarvis.apiBaseUrl=https://…` | that URL (see "The deployed (HTTPS) backend") | None, not even `10.0.2.2`. |
+| `release` | `https://zarvismobile.onrender.com/` (the production backend) | None. There is no network security config in a release build. |
 
 **Dev host and port, in order of precedence.** Nothing machine-specific is committed; set these on your own machine.
 
@@ -147,11 +148,39 @@ cd android && ./gradlew :app:installDebug -Pzarvis.devApiHost=127.0.0.1
 
 ### The deployed (HTTPS) backend
 
-The only HTTPS destination a build can have is the production domain in the `release` build type, and a release build needs signing credentials that are never in the repository:
+A debug build talks to a deployed backend instead of a dev server when it is given its HTTPS address. This is the APK to install on a phone that should use production:
+
+```
+cd android && ./gradlew :app:assembleDebug -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/
+```
+
+`ZARVIS_API_BASE_URL` works the same way, and `-P` wins over it. Only `https://` is accepted (a missing trailing `/` is added); `http://`, a bare host name, a user, a query or a
+fragment stops the build with the reason. Such a build has no cleartext exemption at all. CI builds exactly this APK and uploads it as the `app-debug-apk-render` artifact of the
+"Android build" workflow (`app-debug-apk-emulator` is the `10.0.2.2` build, for emulators only).
+
+The `release` build type always talks to the production backend, and a release build needs signing credentials that are never in the repository:
 `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD` in the environment, or the same four keys (`storeFile`, `storePassword`, `keyAlias`,
-`keyPassword`) in the git-ignored `android/app/keystore.properties`. Without them `assembleRelease` still builds but the APK is unsigned and cannot be installed. A debug build
-cannot be pointed at a Vercel preview or any other HTTPS host without changing `build.gradle.kts`. A release and a debug build use different signatures, so uninstall one before installing the other.
+`keyPassword`) in the git-ignored `android/app/keystore.properties`. Without them `assembleRelease` still builds but the APK is unsigned and cannot be installed.
+A release and a debug build use different signatures, so uninstall one before installing the other.
 Testing against production creates real guest accounts there: use a throwaway one and delete it from Settings > Delete account afterwards.
+
+### Building on the phone itself (Termux)
+
+```
+pkg install openjdk-17 aapt2
+bash android/scripts/termux/assemble-debug.sh            # production backend; or pass another https:// URL
+```
+
+Two things differ from a computer, and the script passes both per run (they are not committed, because they would break every other machine):
+
+- Every module compiles with a JDK 17 toolchain (`jvmToolchain(17)`). Termux keeps JDKs in `$PREFIX/lib/jvm`, where Gradle does not look, so with only `openjdk-21` the build stops
+  with "Cannot find a Java installation on your machine … matching: {languageVersion=17 …}". The script tells Gradle where JDK 17 is
+  (`-Porg.gradle.java.installations.paths=$PREFIX/lib/jvm/java-17-openjdk`); Gradle itself may keep running on JDK 21.
+- The aapt2 that the Android Gradle Plugin downloads is an x86_64 Linux program and cannot run on an ARM64 phone. The script points the plugin at Termux's native one
+  (`-Pandroid.aapt2FromMavenOverride=$PREFIX/bin/aapt2`). CI proves the plugin honours this property and builds with a newer standalone aapt2; it cannot run the ARM64 binary itself.
+
+The Android SDK (platform 34) must already be installed: `sdk.dir` in `android/local.properties`, or `ANDROID_HOME`. Without a working phone setup, the
+`app-debug-apk-render` artifact from CI is the same APK.
 
 ### What has and has not been proven
 

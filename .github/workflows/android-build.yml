@@ -232,6 +232,61 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      # The same debug build pointed at the deployed production backend instead of a dev server: the APK
+      # to side-load on a phone. HTTPS only, so it must carry no cleartext exemption at all, not even the
+      # emulator/loopback aliases (app/build.gradle.kts, -Pzarvis.apiBaseUrl).
+      - name: Assemble debug APK for the production backend (Render)
+        run: ./gradlew :app:assembleDebug -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/ --stacktrace --console=plain
+
+      - name: Assert the production debug APK dials Render over HTTPS only
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          BUILD_CONFIG=$(find app/build/generated -path '*debug*' -name BuildConfig.java | head -n 1)
+          test -n "$BUILD_CONFIG" || { echo "::error::debug BuildConfig.java not found"; exit 1; }
+          grep -n 'API_BASE_URL' "$BUILD_CONFIG"
+          grep -q 'API_BASE_URL = "https://zarvismobile.onrender.com/"' "$BUILD_CONFIG" \
+            || { echo "::error::debug API_BASE_URL is not the Render backend"; exit 1; }
+          if grep -q '10\.0\.2\.2' "$BUILD_CONFIG"; then echo "::error::10.0.2.2 is in the production debug BuildConfig"; exit 1; fi
+          # What the APK itself carries, not only the generated source.
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          NSC=$("$AAPT2" dump xmltree --file res/xml/network_security_config.xml "$APK")
+          echo "$NSC"
+          grep -q 'E: base-config' <<<"$NSC" || { echo "::error::no base-config in the APK's network security config"; exit 1; }
+          if grep -q 'domain-config\|10\.0\.2\.2\|127\.0\.0\.1\|localhost' <<<"$NSC"; then
+            echo "::error::the production debug APK permits cleartext to some host"; exit 1
+          fi
+          grep -q "^package: name='com.zarvismobile.app' versionCode='1' versionName='0.1.0'" <<<"$("$AAPT2" dump badging "$APK")" \
+            || { echo "::error::unexpected package name/versionCode/versionName in the production debug APK"; exit 1; }
+          echo "OK: API_BASE_URL is https://zarvismobile.onrender.com/ and no host is exempted from HTTPS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          # Built with -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/: the debug APK to install on a phone.
+          # It talks to the production backend, so accounts made with it are real production accounts.
+          name: app-debug-apk-render
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # -Pzarvis.apiBaseUrl (or ZARVIS_API_BASE_URL) takes an https:// URL only; anything else stops the
+      # build with the reason, and a missing trailing slash (which Retrofit requires) is added.
+      - name: Assert the API base URL rules
+        run: |
+          set -euo pipefail
+          for bad in "http://zarvismobile.onrender.com/" "zarvismobile.onrender.com" \
+                     "https://user:pw@zarvismobile.onrender.com/" "https://zarvismobile.onrender.com/?a=1"; do
+            if out=$(./gradlew :app:generateDebugBuildConfig -q --console=plain "-Pzarvis.apiBaseUrl=$bad" 2>&1); then
+              echo "::error::the build accepted -Pzarvis.apiBaseUrl=$bad"; exit 1
+            fi
+            grep -q "ZARVIS: the API base URL" <<<"$out" || { echo "::error::no ZARVIS reason for $bad"; echo "$out" | tail -n 20; exit 1; }
+            echo "ok: rejected $bad"
+          done
+          ZARVIS_API_BASE_URL=https://zarvismobile.onrender.com ./gradlew :app:generateDebugBuildConfig -q --console=plain > /dev/null 2>&1
+          CONFIG=$(find app/build/generated -path '*debug*' -name BuildConfig.java | head -n 1)
+          grep -q 'API_BASE_URL = "https://zarvismobile.onrender.com/"' "$CONFIG" \
+            || { echo "::error::ZARVIS_API_BASE_URL was not used, or its trailing slash was not added"; grep API_BASE_URL "$CONFIG"; exit 1; }
+          echo "OK: API base URL rules hold"
+
       # No RELEASE_STORE_FILE/etc. secrets are configured for this workflow (see
       # app/build.gradle.kts and DEVELOPMENT.md "Release build & signing"), so this proves
       # the release variant actually compiles/assembles — a real compile-verification signal
@@ -259,8 +314,8 @@ jobs:
           BUILD_CONFIG=$(find app/build/generated -path '*release*' -name BuildConfig.java | head -n 1)
           test -n "$BUILD_CONFIG" || { echo "::error::release BuildConfig.java not found"; exit 1; }
           grep -n 'API_BASE_URL' "$BUILD_CONFIG"
-          grep -q 'API_BASE_URL = "https://zarvismobile.com/"' "$BUILD_CONFIG" \
-            || { echo "::error::release API_BASE_URL is not the production domain"; exit 1; }
+          grep -q 'API_BASE_URL = "https://zarvismobile.onrender.com/"' "$BUILD_CONFIG" \
+            || { echo "::error::release API_BASE_URL is not the production backend"; exit 1; }
 
       # Inspect every artifact rather than trusting Gradle's exit code: size, identity,
       # versions and SDK levels from the binary manifest, and the AAB's manifest via bundletool.
@@ -301,6 +356,27 @@ jobs:
             android/app/build/outputs/apk/release/app-release-unsigned.apk
             android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      # On a phone (android/scripts/termux/assemble-debug.sh) the x86_64 aapt2 that AGP downloads cannot run, so
+      # android.aapt2FromMavenOverride points AGP at Termux's native aapt2 instead. This runner cannot run an ARM64
+      # program, but it proves the rest: AGP honours the property, and the app builds with a standalone aapt2
+      # newer than AGP's own (the SDK's latest build-tools, the same generation as Termux's aapt2 package).
+      # Runs last, after every artifact above has been uploaded.
+      - name: Assemble with a standalone aapt2 (android.aapt2FromMavenOverride, as on Termux)
+        run: |
+          set -euo pipefail
+          REAL=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          echo "standalone aapt2: $REAL ($("$REAL" version 2>&1 | head -n 1))"
+          DIR="$RUNNER_TEMP/aapt2-override"
+          mkdir -p "$DIR"
+          # A logging stand-in named aapt2, so the log proves the build ran this one and not the downloaded one.
+          printf '#!/usr/bin/env bash\necho "$*" >> "%s"\nexec "%s" "$@"\n' "$DIR/calls.log" "$REAL" > "$DIR/aapt2"
+          chmod +x "$DIR/aapt2"
+          ./gradlew :app:clean :app:assembleDebug --no-build-cache -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/ \
+            "-Pandroid.aapt2FromMavenOverride=$DIR/aapt2" --stacktrace --console=plain
+          test -s "$DIR/calls.log" || { echo "::error::the build never ran the aapt2 given by android.aapt2FromMavenOverride"; exit 1; }
+          echo "aapt2 runs through the override: $(wc -l < "$DIR/calls.log")"; head -n 5 "$DIR/calls.log"
+          test -f app/build/outputs/apk/debug/app-debug.apk || { echo "::error::no debug APK from the override build"; exit 1; }
 
   # The Android side of "can the app reach the backend" is only half the story: the backend
   # has to answer on a non-loopback address, which is what a phone actually dials. This job
