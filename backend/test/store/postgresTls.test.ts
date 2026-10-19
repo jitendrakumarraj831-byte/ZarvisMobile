@@ -14,7 +14,7 @@ describe("Postgres TLS configuration", () => {
 
   it("decodes a base64-encoded PEM CA certificate", async () => {
     const { resolvePostgresCaCert } = await import("../../src/store/postgresStore.js");
-    const pem = "-----BEGIN CERTIFICATE-----\\nexample\\n-----END CERTIFICATE-----";
+    const pem = "-----BEGIN CERTIFICATE-----\nexample\n-----END CERTIFICATE-----";
     expect(resolvePostgresCaCert(undefined, Buffer.from(pem).toString("base64"))).toBe(pem);
     expect(poolConfigFor("postgres://u:p@db.example.com/app", undefined, resolvePostgresCaCert(undefined, Buffer.from(pem).toString("base64"))).ssl)
       .toEqual({ rejectUnauthorized: true, ca: pem });
