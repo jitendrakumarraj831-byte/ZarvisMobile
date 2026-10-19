@@ -5,7 +5,7 @@ name: Backend + Web checks
 # check, and the web client's syntax/unit checks.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
