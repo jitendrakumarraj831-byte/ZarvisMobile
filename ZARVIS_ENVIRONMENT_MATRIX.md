@@ -69,7 +69,7 @@ client.
 |---|---|---|---|---|
 | `zarvis.devApiHost` / `ZARVIS_DEV_API_HOST` | Gradle property / env | dev host (LAN IP; CI pins `10.0.2.2`) → `http://<host>:3000/` | not used | OK |
 | `zarvis.devApiPort` / `ZARVIS_DEV_API_PORT` | Gradle property / env | default 3000 | — | OK |
-| `API_BASE_URL` (BuildConfig) | generated | `http://<dev-host>:<port>/`, cleartext only for that host (CI-asserted) | `https://zarvismobile.com/` (CI-asserted) | OK |
+| `API_BASE_URL` (BuildConfig) | generated | `http://<dev-host>:<port>/`, cleartext only for that host (CI-asserted); or `-Pzarvis.apiBaseUrl=https://…`, no cleartext at all (CI-asserted) | `https://zarvismobile.onrender.com/` (CI-asserted) | OK |
 | Signing (`keystore.properties` or the four `RELEASE_*` env vars) | `build.gradle.kts` | debug key | **not configured anywhere in the repo**: no installable release build exists yet | MISSING (expected until release) |
 | API keys | — | none in the app; every provider key stays server-side (scanned: no `AIza…`, `ghp_…`, `sk-…`, `JWT_SECRET`, `POSTGRES_URL` in Android sources) | same | OK |
 

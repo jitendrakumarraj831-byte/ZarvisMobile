@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
  *
  * It is deliberately a required parameter with no default: the only correct value depends
  * on the build (`BuildConfig.API_BASE_URL`, passed by `app`'s `di/AppModule`) — the local
- * dev backend in debug, `https://zarvismobile.com/` in release. A default here used to be
+ * dev backend in debug, the production backend in release. A default here used to be
  * `http://10.0.2.2:3000/`, the *emulator's* alias for the host machine's loopback, which is
  * unroutable from a physical phone; making callers state the URL keeps that address from
  * silently reappearing on a real device. See `app/build.gradle.kts`.
