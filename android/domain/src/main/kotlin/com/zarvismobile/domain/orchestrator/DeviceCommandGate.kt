@@ -40,7 +40,7 @@ object DeviceCommandGate {
                 !containsAny(lower, "settings", "सेटिंग्स", "bluetooth", "wifi", "wi-fi", "notification", "recent")
             "phone.call" -> !utterance.contains("call it", ignoreCase = true) &&
                 words.none { it.trim(',', '.', '!', '?') in notACallRequest } &&
-                commandSubject(words, listOf("call", "dial"), notACallTarget) != null
+                commandSubject(words, listOf("call", "dial", "कॉल", "डायल"), notACallTarget) != null
             "phone.find_contact" -> words.take(4).any { it == "find" || it == "contact" || it == "number" } && words.size >= 2
             "personal.reminder" -> words.take(4).any { it == "remind" || it == "reminder" || it == "reminders" || it == "yaad" }
             "files.pick_document", "photos.pick_photo", "camera.capture_photo" -> !isQuestion
