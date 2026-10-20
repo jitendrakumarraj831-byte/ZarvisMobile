@@ -283,7 +283,7 @@ export class PostgresStore implements Store {
           status,
           hint:
             status === "tls_certificate_untrusted"
-              ? "The database's TLS certificate is not publicly trusted. Set POSTGRES_CA_CERT to the provider's CA certificate (preferred), or POSTGRES_SSL_MODE=no-verify, in every Vercel environment that uses this database (Production and Preview)."
+              ? "The database TLS certificate could not be verified. Configure POSTGRES_CA_CERT with the database provider's trusted CA PEM, or POSTGRES_CA_CERT_BASE64 with the base64-encoded PEM, in the Render service environment. Keep certificate verification enabled; do not use POSTGRES_SSL_MODE=no-verify."
               : status === "auth_failed"
                 ? "Check the user and password in POSTGRES_URL for this environment."
                 : status === "unreachable"
@@ -1523,10 +1523,20 @@ function isUniqueViolation(err: unknown): boolean {
  * of it overrides the explicit `ssl` object passed alongside (verified against a real
  * pg.Client), so our explicit decision below is the only one that takes effect.
  */
+export function resolvePostgresCaCert(pem = process.env.POSTGRES_CA_CERT, base64 = process.env.POSTGRES_CA_CERT_BASE64): string | undefined {
+  if (pem?.trim()) return pem.trim();
+  if (!base64?.trim()) return undefined;
+  const decoded = Buffer.from(base64.trim(), "base64").toString("utf8");
+  if (!decoded.includes("-----BEGIN CERTIFICATE-----") || !decoded.includes("-----END CERTIFICATE-----")) {
+    throw new Error("POSTGRES_CA_CERT_BASE64 must be the base64-encoded PEM contents of the database provider's CA certificate.");
+  }
+  return decoded;
+}
+
 export function poolConfigFor(
   connectionString: string,
   sslMode = process.env.POSTGRES_SSL_MODE,
-  caCert = process.env.POSTGRES_CA_CERT,
+  caCert = resolvePostgresCaCert(),
 ): {
   connectionString: string;
   ssl: false | { rejectUnauthorized: boolean; ca?: string };
