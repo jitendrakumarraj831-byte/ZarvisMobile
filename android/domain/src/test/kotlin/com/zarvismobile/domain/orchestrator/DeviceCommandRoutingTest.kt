@@ -111,6 +111,10 @@ class DeviceCommandRoutingTest {
         assertEquals("alarm.set", route("set an alarm for 6am"))
         assertEquals("phone.call", route("call 9876543210"))
         assertEquals("phone.open_app", route("open whatsapp"))
+        assertEquals("phone.open_app", route("WhatsApp kholo"))
+        assertEquals("phone.open_app", route("व्हाट्सएप खोलो"))
+        assertEquals("phone.call", route("मम्मी को कॉल करो"))
+        assertNull(route("मम्मी को कॉल मत करो"))
         assertEquals("bluetooth.open_settings", route("open bluetooth settings"))
     }
 
