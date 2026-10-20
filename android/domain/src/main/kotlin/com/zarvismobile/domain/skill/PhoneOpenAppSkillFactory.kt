@@ -25,7 +25,7 @@ object PhoneOpenAppSkillFactory {
         name = "Open App",
         description = "Open another app on the phone, e.g. \"open WhatsApp\" or \"khol do Chrome\".",
         category = SkillCategory.PHONE,
-        capabilities = listOf("open", "launch", "khol", "kholo", "chalu kar"),
+        capabilities = listOf("open", "launch", "khol", "kholo", "chalu kar", "खोलो", "खोल", "ओपन"),
         requiredPermissions = emptyList(),
         requiredEntitlement = EntitlementLevel.FREE,
         usageCost = UsageCost.FREE,

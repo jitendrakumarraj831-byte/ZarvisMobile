@@ -21,9 +21,8 @@ import java.lang.reflect.Proxy
  * (the same skills as skills/OnDeviceSkillRegistryFactory; ports are inert, routing never calls them).
  *
  * Pinned here: the commands that already work, that a sentence which says NOT to call (or asks how to) never opens the call flow,
- * and that whatever a sentence is routed to, an action the registry marks per-action still asks first. Commands that do not reach a
- * device skill yet ("WhatsApp kholo", "मम्मी को कॉल करो") go to the Brain, which cannot act on the phone; they are listed in
- * ZARVIS_ASSISTANT_UPGRADE_PLAN.md for the Phone Agent phase rather than pinned here.
+ * and that whatever a sentence is routed to, an action the registry marks per-action still asks first. Regression cases cover
+ * common Devanagari object-first commands as well as English and Hinglish forms.
  */
 class HinglishDeviceCommandSafetyTest {
     private inline fun <reified T : Any> stub(): T =
@@ -70,6 +69,9 @@ class HinglishDeviceCommandSafetyTest {
         val expected = listOf(
             Triple("mummy ko call karo", "phone.call", mapOf("target" to "mummy")),
             Triple("Rahul ko call karo", "phone.call", mapOf("target" to "rahul")),
+            Triple("मम्मी को कॉल करो", "phone.call", mapOf("target" to "मम्मी")),
+            Triple("WhatsApp kholo", "phone.open_app", mapOf("appName" to "whatsapp")),
+            Triple("व्हाट्सएप खोलो", "phone.open_app", mapOf("appName" to "व्हाट्सएप")),
             Triple("call karna hai Rahul ko", "phone.call", mapOf("target" to "rahul")),
             Triple("Rahul ka number batao", "phone.find_contact", mapOf("name" to "rahul")),
             Triple("home pe jao", "device.global_action", mapOf("action" to "HOME")),

@@ -31,7 +31,7 @@ object PhoneCallSkillFactory {
         name = "Call",
         description = "Call a contact or phone number, e.g. \"call mom\" or \"call 9876543210\".",
         category = SkillCategory.PHONE,
-        capabilities = listOf("call", "dial", "phone", "call kar", "call karo"),
+        capabilities = listOf("call", "dial", "phone", "call kar", "call karo", "कॉल", "डायल"),
         requiredPermissions = listOf(PermissionType.PHONE_CALL),
         requiredEntitlement = EntitlementLevel.FREE,
         usageCost = UsageCost.FREE,
