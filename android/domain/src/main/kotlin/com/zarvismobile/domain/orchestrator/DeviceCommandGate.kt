@@ -36,8 +36,8 @@ object DeviceCommandGate {
         if (words.isEmpty()) return false
         val isQuestion = words.first() in questionStarts
         return when (skillId) {
-            "phone.open_app" -> commandSubject(words, listOf("open", "launch", "kholo", "khol")) != null &&
-                !containsAny(lower, "settings", "bluetooth", "wifi", "wi-fi", "notification", "recent")
+            "phone.open_app" -> hasCommandSubject(words, listOf("open", "launch", "kholo", "khol", "खोलो", "खोल", "ओपन")) &&
+                !containsAny(lower, "settings", "सेटिंग्स", "bluetooth", "wifi", "wi-fi", "notification", "recent")
             "phone.call" -> !utterance.contains("call it", ignoreCase = true) &&
                 words.none { it.trim(',', '.', '!', '?') in notACallRequest } &&
                 commandSubject(words, listOf("call", "dial"), notACallTarget) != null
@@ -70,6 +70,16 @@ object DeviceCommandGate {
     }
 
     private fun containsAny(text: String, vararg needles: String) = needles.any { text.contains(it) }
+
+    /** Supports English verb-first and Hindi/Hinglish object-first commands ("open WhatsApp", "WhatsApp kholo"). */
+    private fun hasCommandSubject(words: List<String>, verbs: List<String>): Boolean {
+        val index = words.indexOfFirst { word -> verbs.any { verb -> word == verb } }
+        if (index < 0) return false
+        val after = words.getOrNull(index + 1)
+        if (index <= 2 && after != null && after !in blockedSubjects) return true
+        val before = words.getOrNull(index - 1)
+        return index in 1..3 && before != null && before !in blockedSubjects && before !in setOf("ko", "ka", "ki", "the", "a", "an")
+    }
 
     private fun commandSubject(words: List<String>, verbs: List<String>, alsoBlocked: Set<String> = emptySet()): String? {
         val index = words.indexOfFirst { word -> verbs.any { verb -> word == verb } }
