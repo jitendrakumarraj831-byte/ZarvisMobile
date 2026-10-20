@@ -112,5 +112,6 @@ object OnDeviceInputBuilder {
     private val FILLER_WORDS = listOf(
         "please", "the", "to", "a", "an", "for", "me", "my", "on", "up",
         "ka", "ki", "ko", "se", "kar", "karo", "do", "kro", "zara",
+        "ऐप", "एप", "को", "का", "की", "से", "करो", "कर", "खोलो", "खोल", "ओपन", "चालू",
     )
 }
