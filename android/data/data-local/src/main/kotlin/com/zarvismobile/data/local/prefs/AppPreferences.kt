@@ -14,6 +14,7 @@ private object Keys {
     val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
     val LOCALE = stringPreferencesKey("locale")
     val DARK_THEME = booleanPreferencesKey("dark_theme_override")
+    val LIGHTWEIGHT = booleanPreferencesKey("lightweight_mode")
     val TTS_VOICE = stringPreferencesKey("tts_voice")
     val AUTO_SPEAK = booleanPreferencesKey("auto_speak_replies")
     val CONVERSATION_ID = stringPreferencesKey("conversation_id")
@@ -27,8 +28,13 @@ class AppPreferences(private val context: Context) {
     val locale: Flow<String> =
         context.dataStore.data.map { it[Keys.LOCALE] ?: "en" }
 
+    /** Queen Dark unless the person chose Queen Light in Settings > Appearance. */
     val darkTheme: Flow<Boolean> =
-        context.dataStore.data.map { it[Keys.DARK_THEME] ?: false }
+        context.dataStore.data.map { it[Keys.DARK_THEME] ?: true }
+
+    /** Lightweight mode: the page's sky and the orb hold still, as with Android's "Remove animations". Off by default. */
+    val lightweight: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.LIGHTWEIGHT] ?: false }
 
     val ttsVoice: Flow<String> =
         context.dataStore.data.map { it[Keys.TTS_VOICE] ?: "Kore" }
@@ -61,6 +67,10 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setDarkTheme(enabled: Boolean) {
         context.dataStore.edit { it[Keys.DARK_THEME] = enabled }
+    }
+
+    suspend fun setLightweight(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.LIGHTWEIGHT] = enabled }
     }
 
     suspend fun setTtsVoice(voice: String) {

@@ -10,7 +10,8 @@ import org.junit.Test
 /**
  * The Android twin of web/tests/contrast.test.js: every text colour of the palette is at least 4.5:1 on every surface it is drawn on,
  * in light and dark, and white is at least 4.5:1 on every stop of the action gradient. Translucent glass is blended over the page
- * first, so the number is the one a reader sees.
+ * first, so the number is the one a reader sees. The Queen page's glows, rays and bokeh are stacked over the page the same way, at
+ * their strongest, because text sits directly on them.
  */
 class PaletteContrastTest {
     private fun ratio(a: Color, b: Color): Float {
@@ -26,7 +27,17 @@ class PaletteContrastTest {
         assertTrue(failures.joinToString("; "), failures.isEmpty())
     }
 
-    private val lightSurfaces = mapOf(
+    /** The page under each glow, with the rays and every bokeh colour on top: the brightest (or darkest) spots text can land on. */
+    private fun decoratedPage(page: Color, sky: QueenSkyColors): Map<String, Color> {
+        val spots = mapOf(
+            "top glow + rays" to sky.ray.compositeOver(sky.topGlow.compositeOver(page)),
+            "side glow" to sky.sideGlow.compositeOver(page),
+            "bottom glow" to sky.bottomGlow.compositeOver(page),
+        )
+        return spots + spots.flatMap { (name, spot) -> sky.bokeh.mapIndexed { i, light -> "$name + bokeh $i" to light.compositeOver(spot) } }
+    }
+
+    private val lightSurfaces = decoratedPage(ZarvisSurfaceLight, QueenSkyLight) + mapOf(
         "page" to ZarvisSurfaceLight,
         "surface" to ZarvisSurfaceLightElevated,
         "surface variant" to ZarvisSurfaceLightVariant,
@@ -34,7 +45,7 @@ class PaletteContrastTest {
         "glass card" to LightExtras.glass.compositeOver(ZarvisSurfaceLight),
     )
 
-    private val darkSurfaces = mapOf(
+    private val darkSurfaces = decoratedPage(ZarvisSpaceBlack, QueenSkyDark) + mapOf(
         "page" to ZarvisSpaceBlack,
         "surface" to ZarvisSurfaceDark,
         "surface variant" to ZarvisSurfaceDarkElevated,
@@ -55,6 +66,7 @@ class PaletteContrastTest {
             "cyan accent" to LightExtras.accentCyan,
             "violet accent" to LightExtras.accentViolet,
             "pink accent" to LightExtras.accentPink,
+            "gold accent" to LightExtras.accentGold,
         ).forEach { (label, colour) -> assertReadable(label, colour, lightSurfaces) }
     }
 
@@ -70,6 +82,7 @@ class PaletteContrastTest {
             "cyan accent" to DarkExtras.accentCyan,
             "violet accent" to DarkExtras.accentViolet,
             "pink accent" to DarkExtras.accentPink,
+            "gold accent" to DarkExtras.accentGold,
         ).forEach { (label, colour) -> assertReadable(label, colour, darkSurfaces) }
     }
 
@@ -81,17 +94,26 @@ class PaletteContrastTest {
     }
 
     @Test
+    fun `dark ink is readable on every gold`() {
+        // The dark theme's buttons (gold primary) and the middle tab's orb.
+        listOf(ZarvisGoldPale, ZarvisGold, ZarvisAmber, ZarvisPrimaryDark).forEachIndexed { index, gold ->
+            assertReadable("ink on gold", ZarvisInkOnGold, mapOf("gold $index" to gold))
+        }
+    }
+
+    @Test
     fun `the bright brand fills are not text colours on the light page`() {
         // They exist for gradients and glows; readableAccent() swaps them for the ink shades when a screen uses one for words.
         listOf(ZarvisAccentCyan, ZarvisAccentPink).forEach { assertTrue(ratio(it, ZarvisSurfaceLightElevated) < 4.5f) }
     }
 
     @Test
-    fun `the palette is the website's`() {
-        // web/styles.css :root and [data-appearance="dim"]; DESIGN_SYSTEM.md lists the pairs.
-        assertEquals(Color(0xFFF6F7FF), ZarvisSurfaceLight)
-        assertEquals(Color(0xFF070B1F), ZarvisSpaceBlack)
-        assertEquals(Color(0xFF3346D6), ZarvisAccentIndigoLight)
-        assertEquals(Color(0xFFA9B6FF), ZarvisPrimaryDark)
+    fun `the palette is the Queen theme's`() {
+        // ANDROID_QUEEN_DESIGN.md lists the values; the website keeps Aurora Glass until it moves in its own change.
+        assertEquals(Color(0xFFFBF4FF), ZarvisSurfaceLight)
+        assertEquals(Color(0xFF14041F), ZarvisSpaceBlack)
+        assertEquals(Color(0xFF7E22CE), ZarvisAccentIndigoLight)
+        assertEquals(Color(0xFFFDE68A), ZarvisPrimaryDark)
+        assertEquals(listOf(Color(0xFF7E22CE), Color(0xFFBE185D), Color(0xFFB45309)), listOf(ZarvisActionBlue, ZarvisActionViolet, ZarvisActionPink))
     }
 }

@@ -127,10 +127,11 @@ class UiStringTest {
 
     @Test
     fun `the Settings pages that moved to UiString keep the English they always had`() {
-        // The emulator and the website use these words; only the Hindi is new.
+        // The emulator and the website use these words; only the Hindi is new. The appearance lines name the Queen theme.
         assertEquals("Dark theme", UiString.APPEARANCE_DARK_TITLE.en)
-        assertEquals("Dark mode is active", UiString.APPEARANCE_DARK_ON.en)
-        assertEquals("Bright aurora mode is active", UiString.APPEARANCE_DARK_OFF.en)
+        assertEquals("Queen Dark is active", UiString.APPEARANCE_DARK_ON.en)
+        assertEquals("Queen Light is active", UiString.APPEARANCE_DARK_OFF.en)
+        assertEquals("Queen Dark is the default appearance.", UiString.APPEARANCE_DEFAULT_NOTE.en)
         assertEquals("Speak replies aloud", UiString.VOICE_SPEAK_TITLE.en)
         assertEquals("Voice style", UiString.VOICE_STYLE.en)
         assertEquals("Sign out", UiString.SIGN_OUT.en)

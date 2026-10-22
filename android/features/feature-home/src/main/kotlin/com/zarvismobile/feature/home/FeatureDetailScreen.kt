@@ -19,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
+import com.zarvismobile.core.ui.components.SectionKicker
+import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
 @Composable
@@ -29,65 +31,67 @@ fun FeatureDetailScreen(
     onOpenDeveloper: () -> Unit,
 ) {
     val feature = FeatureCatalog.find(featureId)
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(ZarvisSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("Back") }
-        }
-        if (feature == null) {
-            Text("That capability is not available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@Column
-        }
-        Text(feature.category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        Text(feature.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text(feature.summary, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(feature.availability, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-
-        Block("What it does", feature.what)
-        Block("Why it is useful", feature.why)
-        Text("How it works", style = MaterialTheme.typography.titleMedium)
-        feature.how.forEachIndexed { index, step ->
-            Text("${index + 1}. $step", style = MaterialTheme.typography.bodyMedium)
-        }
-        if (feature.canDo.isNotEmpty()) {
-            Text("What it can do", style = MaterialTheme.typography.titleMedium)
-            feature.canDo.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
-        }
-        feature.phoneActions.forEach { action ->
-            ZarvisCard(modifier = Modifier.fillMaxWidth()) {
-                Text(action.title, style = MaterialTheme.typography.titleMedium)
-                Text(action.availability, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                Text(action.description, style = MaterialTheme.typography.bodyMedium)
-                Text("Example: ${action.example}", style = MaterialTheme.typography.bodySmall)
-                Text(action.permission, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    ZarvisBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(ZarvisSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text("Back") }
             }
-        }
-        Block("How to start", feature.start)
-        Block("Permissions", feature.permissions)
-        Text("Limitations", style = MaterialTheme.typography.titleMedium)
-        feature.limits.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
-        Text("Example prompts", style = MaterialTheme.typography.titleMedium)
-        feature.examples.forEach { example ->
-            TextButton(onClick = { onStartChat(example, false) }) { Text(example) }
-        }
-        ZarvisPrimaryButton(
-            text = feature.cta,
-            onClick = {
-                when (feature.action) {
-                    "developer" -> onOpenDeveloper()
-                    "voice" -> onStartChat("", true)
-                    else -> onStartChat(feature.prompt, false)
+            if (feature == null) {
+                Text("That capability is not available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                return@Column
+            }
+            SectionKicker(feature.category, isHeading = false)
+            Text(feature.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(feature.summary, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(feature.availability, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+
+            Block("What it does", feature.what)
+            Block("Why it is useful", feature.why)
+            Text("How it works", style = MaterialTheme.typography.titleMedium)
+            feature.how.forEachIndexed { index, step ->
+                Text("${index + 1}. $step", style = MaterialTheme.typography.bodyMedium)
+            }
+            if (feature.canDo.isNotEmpty()) {
+                Text("What it can do", style = MaterialTheme.typography.titleMedium)
+                feature.canDo.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+            }
+            feature.phoneActions.forEach { action ->
+                ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(action.title, style = MaterialTheme.typography.titleMedium)
+                    Text(action.availability, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(action.description, style = MaterialTheme.typography.bodyMedium)
+                    Text("Example: ${action.example}", style = MaterialTheme.typography.bodySmall)
+                    Text(action.permission, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
+            }
+            Block("How to start", feature.start)
+            Block("Permissions", feature.permissions)
+            Text("Limitations", style = MaterialTheme.typography.titleMedium)
+            feature.limits.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+            Text("Example prompts", style = MaterialTheme.typography.titleMedium)
+            feature.examples.forEach { example ->
+                TextButton(onClick = { onStartChat(example, false) }) { Text(example) }
+            }
+            ZarvisPrimaryButton(
+                text = feature.cta,
+                onClick = {
+                    when (feature.action) {
+                        "developer" -> onOpenDeveloper()
+                        "voice" -> onStartChat("", true)
+                        else -> onStartChat(feature.prompt, false)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

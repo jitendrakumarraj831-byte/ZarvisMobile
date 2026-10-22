@@ -117,37 +117,40 @@ Landmarks and one `h1` per page; skip link; visible focus on every control; acce
 shown"); scrollable regions are focusable and named; touch targets are at least 44px under 1100px. The Playwright quality
 suite runs axe (serious/critical) on every page in light, dark and Hindi, on the data-rich pages, and on the phone menu.
 
-## Android uses the same tokens
+## Android: same roles, Queen values
 
-The native app (`android/core/core-ui/.../theme/Color.kt`, `Theme.kt`) mirrors this file's tokens, so the two clients read as one product.
-When a token changes here, change it there (and the other way round). The values below are the Aurora Glass ones.
+The native app (`android/core/core-ui/.../theme/Color.kt`, `Theme.kt`) has its own theme, **Queen** (plum night by default, lavender
+for daylight; see [ANDROID_QUEEN_DESIGN.md](ANDROID_QUEEN_DESIGN.md)), while the website keeps Aurora Glass until it moves in its own
+change. The roles still map one to one, so a token or component added here has an obvious Android twin; add both when you add one.
 
-| Web token (light / dim) | Android |
+| Web token (light / dim) | Android (Queen Light / Queen Dark) |
 | --- | --- |
-| `--bg` `#f6f7ff` / `#070b1f` | `ZarvisSurfaceLight` / `ZarvisSpaceBlack` (colour scheme `background`) |
-| `--surface` `#ffffff` / `#0e1433` | `ZarvisSurfaceLightElevated` / `ZarvisSurfaceDark` (`surface`) |
+| `--bg` | `ZarvisSurfaceLight` `#fbf4ff` / `ZarvisSpaceBlack` `#14041f` (colour scheme `background`) |
+| `--surface` | `ZarvisSurfaceLightElevated` `#ffffff` / `ZarvisSurfaceDark` `#200a30` (`surface`) |
 | `--surface-2` / `--surface-3` | `surfaceVariant`, `surfaceContainerHigh`, `surfaceContainerHighest` |
 | `--text`, `--text-2` | `onSurface`, `onSurfaceVariant` |
-| `--primary` `#3346d6` / `#a9b6ff` | `primary` (the user bubble, focus ring, selected tab, links) |
+| `--primary` | `primary`: royal purple `#7e22ce` / gold `#fde68a` with ink `#2a0a36` (selected tab, focus ring, links) |
 | `--ok --warn --err` | `ZarvisAccents.success / warning / danger`, `error` |
 | `--glass`, `--card-bg`, `--card-border` | `GlassColors.surfaceTint / surfaceTintElevated / border` (`ZarvisExtras`) |
-| `--aurora-1..3` | the three washes in `ZarvisBackground` |
+| `--aurora-1..3` | the three glows in `ZarvisBackground` (magenta, amethyst, gold) and its moving sky layer |
 | `--r-lg` 20px | `GlassSurface` / `ZarvisCard` corner 20dp |
 | 44px touch target | chips 44dp, tabs 56dp, switch and choice rows 56dp, primary buttons 48dp |
-| `--grad` | `zarvisActionBrush()`: `ZarvisPrimaryButton` (white text) |
-| `--grad-aurora` | `zarvisAuroraBrush()` and the tab bar's aurora edge (decoration only) |
+| `--grad` | `zarvisActionBrush()` (royal purple → rose → amber): `ZarvisPrimaryButton` (white text) |
+| `--grad-aurora` | `zarvisAuroraBrush()` (gold → orchid → amethyst → rose) and the tab bar's jewel edge (decoration only) |
 | the icon sprite (`#i-…`) | `ZarvisIcons` (`core-ui/.../icons/ZarvisIcons.kt`), generated from `web/index.html` by `node scripts/generate-android-icons.mjs`; CI runs it with `--check` |
 
-Rules that carry over: text on glass is at least 4.5:1 in both themes (the bright brand cyan, pink, amber and green are for glows and icons,
-never for words on the light page; Android reads text accents from `ZarvisAccents` / `readableAccent`); glass is a tint plus a hairline,
-never a blur, on Android; looping animation holds still when the system has animations off and while the thing it decorates is idle;
-a page title is a heading (`semantics { heading() }`); a switch or a choice is one row-sized control with the right role.
+Rules that carry over: text is at least 4.5:1 in both themes, on glass and on the page's glows (the bright jewels, cyan and pink are
+for glows and icons, never for words on the light page; Android reads text accents from `ZarvisAccents` / `readableAccent`); glass is
+a tint plus a hairline, never a blur, on Android; looping animation holds still when the system has animations off, the orb holds
+still while idle, and the page's sky moves on its own layer, read while drawing; a page title is a heading
+(`semantics { heading() }`); a switch or a choice is one row-sized control with the right role.
 
 ## How the system is kept honest
 
 * `node --test web/tests/css.test.js`: theme defined once, no undefined or unused token, no dead class, braces balanced.
 * `node --test web/tests/contrast.test.js`: every text and icon colour pair, in both themes (see *Aurora Glass colour rules*).
-* `PaletteContrastTest` (Android `core-ui` unit test): the same rules for the app's palette, light and dark.
+* `PaletteContrastTest` (Android `core-ui` unit test, run in CI): the same rules for the app's Queen palette, light and dark,
+  including the page's glows, rays and bokeh at their strongest.
 * Android emulator phase G (`ShellScreenshotTest`) photographs every tab in light + English and dark + Hindi on the real app and
   backend; the pictures are in the `emulator-evidence-api*` CI artifacts under `screenshots/`.
 * A token or CSS refactor is proven, not eyeballed: dump the computed value of every custom property in a real browser

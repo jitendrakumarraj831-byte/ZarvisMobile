@@ -56,13 +56,13 @@ object Routes {
     const val FEATURE_ARG = "featureId"
 }
 
-/** The five tabs (blueprint §4), named in the app's language. */
+/** The five tabs (blueprint §4), named in the app's language. Chat sits in the middle as the gold orb (ANDROID_QUEEN_DESIGN.md). */
 @Composable
 private fun bottomNavItems(): List<ZarvisNavItem> = listOf(
     // The website's icons (core-ui ZarvisIcons, generated from web/index.html), so the two apps share one icon language.
     ZarvisNavItem(Routes.HOME, tr(UiString.NAV_HOME), ZarvisIcons.Home),
-    ZarvisNavItem(Routes.CHAT, tr(UiString.NAV_CHAT), ZarvisIcons.Chat),
     ZarvisNavItem(Routes.CAPABILITIES, tr(UiString.NAV_CAPABILITIES), ZarvisIcons.Grid),
+    ZarvisNavItem(Routes.CHAT, tr(UiString.NAV_CHAT), ZarvisIcons.Chat, prominent = true),
     ZarvisNavItem(Routes.ACTIVITY, tr(UiString.NAV_TASKS), ZarvisIcons.Task),
     ZarvisNavItem(Routes.MORE, tr(UiString.NAV_WORK), ZarvisIcons.Folder),
 )
@@ -144,6 +144,8 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                     onNavigateToCapabilities = { navController.navigate(Routes.CAPABILITIES) },
                     onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
+                    // The crowned orb and the composer's mic: Chat, listening at once (after ZARVIS's explanation and Android's permission).
+                    onTalk = { navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=true") },
                 )
             }
             composable(Routes.CHAT) { ConversationScreen(initialText = null) }

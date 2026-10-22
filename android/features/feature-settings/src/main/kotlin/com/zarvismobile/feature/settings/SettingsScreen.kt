@@ -1,7 +1,6 @@
 package com.zarvismobile.feature.settings
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -58,6 +56,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.components.Jewel
+import com.zarvismobile.core.ui.components.JewelIcon
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.theme.GlassColors
@@ -151,6 +151,14 @@ fun SettingsScreen(
                     viewModel::setDarkTheme,
                 )
                 Text(tr(UiString.APPEARANCE_DEFAULT_NOTE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            GlassSurface(Modifier.fillMaxWidth()) {
+                SettingSwitchRow(
+                    tr(UiString.APPEARANCE_LITE_TITLE),
+                    tr(if (uiState.lightweight) UiString.APPEARANCE_LITE_ON else UiString.APPEARANCE_LITE_OFF),
+                    uiState.lightweight,
+                    viewModel::setLightweight,
+                )
             }
             ReadOnlyCard(tr(UiString.APPEARANCE_MOTION_TITLE), tr(UiString.APPEARANCE_MOTION_BODY), ZarvisAccentCyan)
         }
@@ -254,20 +262,13 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                 GlassSurface(Modifier.fillMaxWidth(), tint = GlassColors.surfaceTintElevated) {
                     Text(tr(UiString.SETTINGS_CURRENT_SETUP), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(trf(UiString.SETTINGS_LANGUAGE_LINE, if (locale == "hi") "हिंदी" else "English"))
-                    Text(trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_AURORA_LIGHT)))
+                    Text(trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_QUEEN_LIGHT)))
                 }
             }
             items(SettingsPage.values().toList(), key = { it.name }) { entry ->
                 GlassSurface(Modifier.fillMaxWidth(), onClick = { onOpen(entry) }) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val accent = when (entry) {
-                            SettingsPage.Developer, SettingsPage.Memory -> ZarvisAccents.pink
-                            SettingsPage.Ai, SettingsPage.Appearance -> ZarvisAccents.violet
-                            else -> ZarvisAccents.cyan
-                        }
-                        Box(Modifier.background(accent.copy(alpha = 0.14f), RoundedCornerShape(15.dp)).padding(11.dp)) {
-                            Icon(entry.icon, contentDescription = null, tint = accent)
-                        }
+                        JewelIcon(entry.icon, jewelFor(entry), size = 44.dp)
                         Column(Modifier.weight(1f)) {
                             Text(tr(entry.title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Text(
@@ -276,13 +277,23 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = ZarvisAccents.gold)
                     }
                 }
             }
             item { Box(Modifier.padding(bottom = 36.dp)) }
         }
     }
+}
+
+/** Each Settings page wears its own jewel (board A15), so the long list is easy to scan. */
+private fun jewelFor(page: SettingsPage): Jewel = when (page) {
+    SettingsPage.Account, SettingsPage.Ai -> Jewel.AMETHYST
+    SettingsPage.Permissions, SettingsPage.Security -> Jewel.SAPPHIRE
+    SettingsPage.Voice, SettingsPage.Memory -> Jewel.ORCHID
+    SettingsPage.Language, SettingsPage.Data, SettingsPage.Developer -> Jewel.EMERALD
+    SettingsPage.Appearance, SettingsPage.Notifications -> Jewel.GOLD
+    SettingsPage.Privacy, SettingsPage.Protection -> Jewel.RUBY
 }
 
 @Composable

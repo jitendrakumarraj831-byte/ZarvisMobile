@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.ZarvisGhostButton
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
+import com.zarvismobile.core.ui.components.QueenCrown
+import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.domain.presentation.UiString
@@ -48,48 +50,51 @@ fun OnboardingScreen(
 
     val page = OnboardingPages.all[uiState.pageIndex]
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(ZarvisSpacing.xl),
-        verticalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            if (uiState.pageIndex > 0) ZarvisGhostButton(text = tr(UiString.COMMON_BACK), onClick = viewModel::previous)
-            else Text("")
-            ZarvisGhostButton(text = tr(UiString.ONBOARDING_SKIP), onClick = viewModel::skip)
-        }
-
-        // weight(fill = false) + verticalScroll: takes only the space it needs (preserving
-        // the original SpaceBetween look for today's short copy) but scrolls instead of
-        // clipping if a longer page or a larger accessibility font size ever needs more
-        // height than is available between the skip row and the page controls below.
+    ZarvisBackground {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(ZarvisSpacing.xl),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(text = tr(page.title), style = MaterialTheme.typography.headlineLarge)
-            Text(text = tr(page.body), style = MaterialTheme.typography.bodyLarge)
-        }
-
-        Column(
-            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.lg),
-        ) {
-            PageIndicator(count = uiState.pageCount, current = uiState.pageIndex)
-            ZarvisPrimaryButton(
-                text = tr(if (uiState.pageIndex == uiState.pageCount - 1) UiString.ONBOARDING_START else UiString.ONBOARDING_NEXT),
-                onClick = viewModel::next,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-            )
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                if (uiState.pageIndex > 0) ZarvisGhostButton(text = tr(UiString.COMMON_BACK), onClick = viewModel::previous)
+                else Text("")
+                ZarvisGhostButton(text = tr(UiString.ONBOARDING_SKIP), onClick = viewModel::skip)
+            }
+
+            // weight(fill = false) + verticalScroll: takes only the space it needs (preserving
+            // the original SpaceBetween look for today's short copy) but scrolls instead of
+            // clipping if a longer page or a larger accessibility font size ever needs more
+            // height than is available between the skip row and the page controls below.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
+            ) {
+                QueenCrown(width = 64.dp)
+                Text(text = tr(page.title), style = MaterialTheme.typography.headlineLarge)
+                Text(text = tr(page.body), style = MaterialTheme.typography.bodyLarge)
+            }
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.lg),
+            ) {
+                PageIndicator(count = uiState.pageCount, current = uiState.pageIndex)
+                ZarvisPrimaryButton(
+                    text = tr(if (uiState.pageIndex == uiState.pageCount - 1) UiString.ONBOARDING_START else UiString.ONBOARDING_NEXT),
+                    onClick = viewModel::next,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
