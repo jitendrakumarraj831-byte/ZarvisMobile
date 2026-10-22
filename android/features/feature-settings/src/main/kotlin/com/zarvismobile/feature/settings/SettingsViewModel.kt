@@ -24,6 +24,7 @@ data class SettingsUiState(
     val darkTheme: Boolean = true,
     val ttsVoice: String = "Kore",
     val autoSpeak: Boolean = false,
+    val lightweight: Boolean = false,
 )
 
 enum class DeleteAccountStatus { IDLE, IN_PROGRESS, FAILED }
@@ -43,8 +44,9 @@ class SettingsViewModel @Inject constructor(
         preferences.darkTheme,
         preferences.ttsVoice,
         preferences.autoSpeak,
-    ) { locale, darkTheme, ttsVoice, autoSpeak ->
-        SettingsUiState(locale = locale, darkTheme = darkTheme, ttsVoice = ttsVoice, autoSpeak = autoSpeak)
+        preferences.lightweight,
+    ) { locale, darkTheme, ttsVoice, autoSpeak, lightweight ->
+        SettingsUiState(locale = locale, darkTheme = darkTheme, ttsVoice = ttsVoice, autoSpeak = autoSpeak, lightweight = lightweight)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
     val session: StateFlow<SessionState> = sessionRepository.state
@@ -61,6 +63,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setDarkTheme(enabled: Boolean) {
         viewModelScope.launch { preferences.setDarkTheme(enabled) }
+    }
+
+    fun setLightweight(enabled: Boolean) {
+        viewModelScope.launch { preferences.setLightweight(enabled) }
     }
 
     fun setTtsVoice(voice: String) {

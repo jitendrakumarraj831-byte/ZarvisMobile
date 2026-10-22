@@ -144,6 +144,8 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                     onNavigateToCapabilities = { navController.navigate(Routes.CAPABILITIES) },
                     onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
+                    // The crowned orb and the composer's mic: Chat, listening at once (after ZARVIS's explanation and Android's permission).
+                    onTalk = { navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=true") },
                 )
             }
             composable(Routes.CHAT) { ConversationScreen(initialText = null) }

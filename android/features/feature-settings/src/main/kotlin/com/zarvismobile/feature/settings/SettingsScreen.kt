@@ -152,6 +152,14 @@ fun SettingsScreen(
                 )
                 Text(tr(UiString.APPEARANCE_DEFAULT_NOTE), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            GlassSurface(Modifier.fillMaxWidth()) {
+                SettingSwitchRow(
+                    tr(UiString.APPEARANCE_LITE_TITLE),
+                    tr(if (uiState.lightweight) UiString.APPEARANCE_LITE_ON else UiString.APPEARANCE_LITE_OFF),
+                    uiState.lightweight,
+                    viewModel::setLightweight,
+                )
+            }
             ReadOnlyCard(tr(UiString.APPEARANCE_MOTION_TITLE), tr(UiString.APPEARANCE_MOTION_BODY), ZarvisAccentCyan)
         }
         SettingsPage.Ai -> SettingsSubPage(selected, goBack) {

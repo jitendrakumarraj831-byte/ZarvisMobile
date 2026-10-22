@@ -26,6 +26,7 @@ import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
+import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
 /** Developer Mode — see DEVELOPER_AGENT.md. */
@@ -36,58 +37,60 @@ fun DeveloperScreen(onBack: (() -> Unit)? = null, viewModel: DeveloperViewModel 
     // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23): claims the
     // gesture-nav-bar inset itself, and imePadding() keeps the repo-URL field/button above
     // the keyboard instead of the keyboard covering them.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(ZarvisSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
-    ) {
-        if (onBack != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("Back") }
+    ZarvisBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(ZarvisSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
+        ) {
+            if (onBack != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onBack) { Text("Back") }
+                }
             }
-        }
-        Text(text = "Developer Agent", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = "Read-only repository analysis. Write access (code changes, pull requests) is planned but not enabled in this build.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+            Text(text = "Developer Agent", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                text = "Read-only repository analysis. Write access (code changes, pull requests) is planned but not enabled in this build.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
-        Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
-            Text(text = "Risk level for this action:", style = MaterialTheme.typography.labelMedium)
-            RiskBadge(level = RiskBadgeLevel.LOW)
-        }
+            Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
+                Text(text = "Risk level for this action:", style = MaterialTheme.typography.labelMedium)
+                RiskBadge(level = RiskBadgeLevel.LOW)
+            }
 
-        OutlinedTextField(
-            value = uiState.repoUrl,
-            onValueChange = viewModel::onRepoUrlChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Repository URL") },
-            singleLine = true,
-        )
+            OutlinedTextField(
+                value = uiState.repoUrl,
+                onValueChange = viewModel::onRepoUrlChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Repository URL") },
+                singleLine = true,
+            )
 
-        ZarvisPrimaryButton(text = "Analyze", onClick = viewModel::analyze, modifier = Modifier.fillMaxWidth(), enabled = !uiState.isAnalyzing)
+            ZarvisPrimaryButton(text = "Analyze", onClick = viewModel::analyze, modifier = Modifier.fillMaxWidth(), enabled = !uiState.isAnalyzing)
 
-        if (uiState.isAnalyzing) {
-            CircularProgressIndicator()
-        }
+            if (uiState.isAnalyzing) {
+                CircularProgressIndicator()
+            }
 
-        uiState.error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+            uiState.error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
 
-        uiState.result?.let { structure ->
-            ZarvisCard(modifier = Modifier.fillMaxWidth()) {
-                uiState.summary?.let { Text(text = it, style = MaterialTheme.typography.bodyLarge) }
-                Text(text = "Primary language: ${structure.primaryLanguage}")
-                Text(text = "Build system: ${structure.buildSystem}")
-                Text(text = "Has tests: ${structure.hasTests}")
-                Text(text = "Has CI: ${structure.hasCi}")
-                Text(text = "Files: ${structure.fileCount}")
-                Text(text = "Top-level dirs: ${structure.topLevelDirs.joinToString(", ")}")
+            uiState.result?.let { structure ->
+                ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+                    uiState.summary?.let { Text(text = it, style = MaterialTheme.typography.bodyLarge) }
+                    Text(text = "Primary language: ${structure.primaryLanguage}")
+                    Text(text = "Build system: ${structure.buildSystem}")
+                    Text(text = "Has tests: ${structure.hasTests}")
+                    Text(text = "Has CI: ${structure.hasCi}")
+                    Text(text = "Files: ${structure.fileCount}")
+                    Text(text = "Top-level dirs: ${structure.topLevelDirs.joinToString(", ")}")
+                }
             }
         }
     }

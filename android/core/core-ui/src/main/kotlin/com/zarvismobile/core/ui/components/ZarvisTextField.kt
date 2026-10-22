@@ -1,15 +1,18 @@
 package com.zarvismobile.core.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -25,6 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.zarvisActionBrush
 import com.zarvismobile.domain.presentation.UiString
 
 /**
@@ -78,7 +83,9 @@ fun ZarvisComposer(
             unfocusedContainerColor = fill,
             disabledContainerColor = fill,
             focusedBorderColor = accent,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            // The gold edge of the Queen composer: 3.4:1 or more against the page in both themes, so the field is findable.
+            unfocusedBorderColor = ZarvisAccents.gold.copy(alpha = 0.7f),
+            unfocusedLeadingIconColor = ZarvisAccents.gold,
             cursorColor = accent,
             focusedLeadingIconColor = accent,
             focusedTrailingIconColor = accent,
@@ -92,8 +99,18 @@ fun ZarvisComposer(
             }
         },
         trailingIcon = {
-            IconButton(onClick = onSubmit, enabled = enabled && value.isNotBlank()) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = tr(UiString.A11Y_SEND))
+            val canSend = enabled && value.isNotBlank()
+            // Ready to send, the button wears the action gradient with a white arrow (at least 4.5:1 at every stop).
+            IconButton(
+                onClick = onSubmit,
+                enabled = canSend,
+                modifier = if (canSend) Modifier.background(zarvisActionBrush(), CircleShape) else Modifier,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = tr(UiString.A11Y_SEND),
+                    tint = if (canSend) Color.White else LocalContentColor.current,
+                )
             }
         },
         singleLine = false,

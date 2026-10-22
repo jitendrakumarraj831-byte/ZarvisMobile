@@ -62,6 +62,12 @@ class AppStartupViewModel @Inject constructor(
         true,
     )
 
+    val lightweight: StateFlow<Boolean> = appPreferences.lightweight.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        false,
+    )
+
     init {
         start()
         // A session can also end mid-use (TokenAuthenticator marks it); react immediately.

@@ -7,6 +7,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -75,9 +76,15 @@ private val LightColors = lightColorScheme(
     onErrorContainer = Color(0xFF6B0F14),
 )
 
+/** True while Lightweight mode is on (Settings > Appearance): every looping animation holds still, as with "Remove animations". */
+val LocalZarvisLightweight = staticCompositionLocalOf { false }
+
 @Composable
-fun ZarvisTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalZarvisExtras provides (if (darkTheme) DarkExtras else LightExtras)) {
+fun ZarvisTheme(darkTheme: Boolean = true, lightweight: Boolean = false, content: @Composable () -> Unit) {
+    CompositionLocalProvider(
+        LocalZarvisExtras provides (if (darkTheme) DarkExtras else LightExtras),
+        LocalZarvisLightweight provides lightweight,
+    ) {
         MaterialTheme(
             colorScheme = if (darkTheme) DarkColors else LightColors,
             typography = ZarvisTypography,
@@ -88,13 +95,14 @@ fun ZarvisTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
 }
 
 /**
- * True when the person (or the phone's battery saver, through "Remove animations" or an animator scale of 0) has turned animation off.
- * Read once per composition: the setting does not change while a screen is showing. Every looping animation in the app asks this
- * first and holds still instead of running, so a tester or a low-end phone is not repainting a decoration all day.
+ * True when the person (or the phone's battery saver, through "Remove animations" or an animator scale of 0) has turned animation off,
+ * or has turned on ZARVIS's own Lightweight mode. Every looping animation in the app asks this first and holds still instead of
+ * running, so a tester or a low-end phone is not repainting a decoration all day.
  */
 @Composable
 @ReadOnlyComposable
 fun zarvisReduceMotion(): Boolean {
+    if (LocalZarvisLightweight.current) return true
     val resolver = LocalContext.current.contentResolver
     return runCatching { Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false)
 }

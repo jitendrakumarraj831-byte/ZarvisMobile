@@ -12,9 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,14 +30,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.app.navigation.ZarvisNavGraph
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.GoldText
+import com.zarvismobile.core.ui.components.QueenCrown
+import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
 import com.zarvismobile.core.ui.theme.ZarvisTheme
 import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.feature.settings.CredentialsForm
@@ -70,6 +77,7 @@ private fun ZarvisRoot(
 ) {
     val startupState by startupViewModel.state.collectAsState()
     val darkTheme by startupViewModel.darkTheme.collectAsState(initial = true)
+    val lightweight by startupViewModel.lightweight.collectAsState()
     val locale by startupViewModel.locale.collectAsState()
     SystemBarsFollowTheme(darkTheme)
     LifecycleResumeEffect(Unit) {
@@ -79,7 +87,7 @@ private fun ZarvisRoot(
 
     // Choosing Hindi in Settings redraws every screen that uses tr(...) right away, with no restart.
     CompositionLocalProvider(LocalAppLocale provides (locale ?: "en")) {
-        ZarvisTheme(darkTheme = darkTheme) {
+        ZarvisTheme(darkTheme = darkTheme, lightweight = lightweight) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 // Until the saved language has been read only the spinner is drawn, so a Hindi user never sees English flash first.
                 when (val current = if (locale == null) AppStartupState.Loading else startupState) {
@@ -130,7 +138,7 @@ private fun SessionExpiredScreen(
     state: AppStartupState.SessionExpired,
     onSignIn: (String, String) -> Unit,
     onNewGuest: () -> Unit,
-) {
+) = ZarvisBackground {
     Column(
         Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -162,19 +170,35 @@ private fun SessionExpiredScreen(
     }
 }
 
+/** The launch screen (board A01): the crown over the gold ZARVIS wordmark and a thin gold progress line, on the Queen page. */
 @Composable
 private fun StartupLoading() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+    ZarvisBackground {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically),
+        ) {
+            QueenCrown(width = 96.dp)
+            GoldText(text = "ZARVIS", style = ZarvisDisplayStyles.brand.copy(fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = 8.sp))
+            LinearProgressIndicator(
+                modifier = Modifier.width(120.dp),
+                color = ZarvisAccents.gold,
+                trackColor = ZarvisAccents.gold.copy(alpha = 0.2f),
+            )
+        }
     }
 }
 
 @Composable
 private fun StartupError(message: String, onRetry: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(text = message, style = MaterialTheme.typography.bodyLarge)
-            ZarvisPrimaryButton(text = "Retry", onClick = onRetry)
+    ZarvisBackground {
+        Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                QueenCrown(width = 72.dp)
+                Text(text = message, style = MaterialTheme.typography.bodyLarge)
+                ZarvisPrimaryButton(text = "Retry", onClick = onRetry)
+            }
         }
     }
 }

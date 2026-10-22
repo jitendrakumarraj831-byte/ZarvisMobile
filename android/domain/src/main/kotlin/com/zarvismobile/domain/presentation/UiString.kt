@@ -327,9 +327,12 @@ enum class UiString(val en: String, val hi: String) {
     APPEARANCE_DEFAULT_NOTE("Queen Dark is the default appearance.", "क्वीन डार्क डिफ़ॉल्ट दिखावट है।"),
     APPEARANCE_MOTION_TITLE("Animations", "एनिमेशन"),
     APPEARANCE_MOTION_BODY(
-        "The background's gold rays, glitter and stars move slowly, and the glowing orb moves while ZARVIS is listening, working or speaking. Everything stands still when Android's \"Remove animations\" is on.",
-        "पृष्ठभूमि की सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं, और चमकता ऑर्ब तब हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो। Android में “एनिमेशन हटाएँ” चालू होने पर सब कुछ स्थिर रहता है।",
+        "The background's gold rays, glitter and stars move slowly, and the glowing orb moves while ZARVIS is listening, working or speaking. Everything stands still when Lightweight mode or Android's \"Remove animations\" is on.",
+        "पृष्ठभूमि की सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं, और चमकता ऑर्ब तब हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो। हल्का मोड या Android में “एनिमेशन हटाएँ” चालू होने पर सब कुछ स्थिर रहता है।",
     ),
+    APPEARANCE_LITE_TITLE("Lightweight mode", "हल्का मोड"),
+    APPEARANCE_LITE_ON("The background and the orb hold still", "पृष्ठभूमि और ऑर्ब स्थिर रहते हैं"),
+    APPEARANCE_LITE_OFF("Gold rays, glitter and stars move slowly", "सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं"),
 
     // ---- Settings > Voice -----------------------------------------------------------------
     VOICE_INPUT_TITLE("Voice input", "वॉइस इनपुट"),

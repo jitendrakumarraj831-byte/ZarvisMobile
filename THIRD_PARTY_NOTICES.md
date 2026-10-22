@@ -31,6 +31,16 @@ it. See `PRIVACY.md` ("Spoken replies") and `AI_MODEL_GATEWAY.md` §2.14.
 | Licence | ISC. Its text, with the copyright line, is in `LICENSES/ISC-lucide.txt` and in a comment next to the sprite in `web/index.html`. |
 | What the licence asks | That *"the above copyright notice and this permission notice appear in all copies"*. The notice travels with the sprite in the page itself. |
 
+## Fonts — Sora and Orbitron (SIL Open Font License 1.1)
+
+| | |
+|---|---|
+| What | The Android app's two typefaces (ANDROID_QUEEN_DESIGN.md): Sora for text, Orbitron for the ZARVIS wordmark and section labels. Shipped as `android/core/core-ui/src/main/res/font/sora.ttf` and `orbitron.ttf`. |
+| Upstream | The variable font files `ofl/sora/Sora[wght].ttf` (Version 2.000) and `ofl/orbitron/Orbitron[wght].ttf` (Version 2.001) from the Google Fonts repository, <https://github.com/google/fonts>, taken on 2026-10-22. Copyright 2019 The Sora Project Authors; copyright 2018 The Orbitron Project Authors, with Reserved Font Name "Orbitron". |
+| Changes | None: the files are byte-for-byte upstream's, only renamed (Android resource names must be lowercase). They are not subset or instanced, so the Reserved Font Name rule for modified versions (§3) does not come up. |
+| Licence | SIL Open Font License 1.1. Each font's text, with its copyright line, is in `LICENSES/OFL-1.1-Sora.txt` and `LICENSES/OFL-1.1-Orbitron.txt`; each font file also carries its copyright and licence statement in its own name table (IDs 0, 13 and 14). |
+| What the licence asks | §2: the fonts may be bundled with software *"provided that each copy contains the above copyright notice and this license. These can be included either as stand-alone text files, human-readable headers or in the appropriate machine-readable metadata fields within text or binary files"*. §5: the fonts must stay under the OFL; the app that bundles them does not. |
+
 ## Production dependencies
 
 A scan of the `package.json` licence field of the 133 packages the backend loads in production
