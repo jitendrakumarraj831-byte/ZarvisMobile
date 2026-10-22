@@ -44,6 +44,7 @@ import com.zarvismobile.app.ZarvisSystemDialogs
 import com.zarvismobile.core.ui.components.MarkdownText
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.theme.ZarvisTheme
+import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.feature.conversation.ConversationViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -63,7 +64,9 @@ class AssistActivity : ComponentActivity() {
         val viaAssistGesture = savedInstanceState == null && intent?.action == Intent.ACTION_ASSIST
         Log.i("ZarvisAssist", "ZARVIS_EVIDENCE default_assistant opened action=${intent?.action} autoListen=$viaAssistGesture")
         setContent {
-            ZarvisTheme(darkTheme = false) {
+            // The overlay wears the appearance chosen in Settings: Queen Dark unless the person picked Queen Light.
+            val darkTheme by remember { AppPreferences(applicationContext).darkTheme }.collectAsState(initial = true)
+            ZarvisTheme(darkTheme = darkTheme) {
                 AssistPanel(autoListen = viaAssistGesture, onClose = ::finish)
             }
         }

@@ -201,8 +201,8 @@ enum class UiString(val en: String, val hi: String) {
     SETTINGS_CURRENT_SETUP("Current setup", "मौजूदा सेटअप"),
     SETTINGS_LANGUAGE_LINE("Language: %s", "भाषा: %s"),
     SETTINGS_APPEARANCE_LINE("Appearance: %s", "दिखावट: %s"),
-    SETTINGS_DARK("Dark", "डार्क"),
-    SETTINGS_AURORA_LIGHT("Aurora Light", "ऑरोरा लाइट"),
+    SETTINGS_DARK("Queen Dark", "क्वीन डार्क"),
+    SETTINGS_QUEEN_LIGHT("Queen Light", "क्वीन लाइट"),
     SETTINGS_PAGE_ACCOUNT("Account", "खाता"),
     SETTINGS_PAGE_PERMISSIONS("Permissions & Device Access", "अनुमतियाँ और डिवाइस एक्सेस"),
     SETTINGS_PAGE_VOICE("Voice", "वॉइस"),
@@ -220,7 +220,7 @@ enum class UiString(val en: String, val hi: String) {
     SETTINGS_SUB_PERMISSIONS("What ZARVIS can access, live from Android", "ZARVIS क्या एक्सेस कर सकता है, Android से लाइव"),
     SETTINGS_SUB_VOICE("Speech recognition and spoken replies", "बोलकर इनपुट और बोले गए जवाब"),
     SETTINGS_SUB_LANGUAGE("English or Hindi", "अंग्रेज़ी या हिंदी"),
-    SETTINGS_SUB_APPEARANCE("Aurora light / dark theme", "ऑरोरा लाइट / डार्क थीम"),
+    SETTINGS_SUB_APPEARANCE("Queen dark / light theme", "क्वीन डार्क / लाइट थीम"),
     SETTINGS_SUB_AI("Current orchestration behavior", "मौजूदा ऑर्केस्ट्रेशन व्यवहार"),
     SETTINGS_SUB_NOTIFICATIONS("Mode, spoken notifications, quiet hours, exclusions", "मोड, बोली जाने वाली सूचनाएँ, शांत घंटे, बहिष्करण"),
     SETTINGS_SUB_PRIVACY("Account and privacy controls", "खाता और गोपनीयता नियंत्रण"),
@@ -322,13 +322,13 @@ enum class UiString(val en: String, val hi: String) {
 
     // ---- Settings > Appearance ------------------------------------------------------------
     APPEARANCE_DARK_TITLE("Dark theme", "डार्क थीम"),
-    APPEARANCE_DARK_ON("Dark mode is active", "डार्क मोड चालू है"),
-    APPEARANCE_DARK_OFF("Bright aurora mode is active", "चमकदार ऑरोरा मोड चालू है"),
-    APPEARANCE_DEFAULT_NOTE("Aurora Light is the default appearance.", "ऑरोरा लाइट डिफ़ॉल्ट दिखावट है।"),
+    APPEARANCE_DARK_ON("Queen Dark is active", "क्वीन डार्क चालू है"),
+    APPEARANCE_DARK_OFF("Queen Light is active", "क्वीन लाइट चालू है"),
+    APPEARANCE_DEFAULT_NOTE("Queen Dark is the default appearance.", "क्वीन डार्क डिफ़ॉल्ट दिखावट है।"),
     APPEARANCE_MOTION_TITLE("Animations", "एनिमेशन"),
     APPEARANCE_MOTION_BODY(
-        "The glowing orb moves only while ZARVIS is listening, working or speaking, and stands still when Android's \"Remove animations\" is on.",
-        "चमकता ऑर्ब तभी हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो, और Android में “एनिमेशन हटाएँ” चालू होने पर स्थिर रहता है।",
+        "The background's gold rays, glitter and stars move slowly, and the glowing orb moves while ZARVIS is listening, working or speaking. Everything stands still when Android's \"Remove animations\" is on.",
+        "पृष्ठभूमि की सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं, और चमकता ऑर्ब तब हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो। Android में “एनिमेशन हटाएँ” चालू होने पर सब कुछ स्थिर रहता है।",
     ),
 
     // ---- Settings > Voice -----------------------------------------------------------------

@@ -27,8 +27,9 @@ class AppPreferences(private val context: Context) {
     val locale: Flow<String> =
         context.dataStore.data.map { it[Keys.LOCALE] ?: "en" }
 
+    /** Queen Dark unless the person chose Queen Light in Settings > Appearance. */
     val darkTheme: Flow<Boolean> =
-        context.dataStore.data.map { it[Keys.DARK_THEME] ?: false }
+        context.dataStore.data.map { it[Keys.DARK_THEME] ?: true }
 
     val ttsVoice: Flow<String> =
         context.dataStore.data.map { it[Keys.TTS_VOICE] ?: "Kore" }

@@ -69,7 +69,7 @@ private fun ZarvisRoot(
     permissionViewModel: PermissionMonitorViewModel = hiltViewModel(),
 ) {
     val startupState by startupViewModel.state.collectAsState()
-    val darkTheme by startupViewModel.darkTheme.collectAsState(initial = false)
+    val darkTheme by startupViewModel.darkTheme.collectAsState(initial = true)
     val locale by startupViewModel.locale.collectAsState()
     SystemBarsFollowTheme(darkTheme)
     LifecycleResumeEffect(Unit) {

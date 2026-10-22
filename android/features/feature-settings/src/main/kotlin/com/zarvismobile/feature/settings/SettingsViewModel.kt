@@ -21,7 +21,7 @@ import retrofit2.HttpException
 
 data class SettingsUiState(
     val locale: String = "en",
-    val darkTheme: Boolean = false,
+    val darkTheme: Boolean = true,
     val ttsVoice: String = "Kore",
     val autoSpeak: Boolean = false,
 )

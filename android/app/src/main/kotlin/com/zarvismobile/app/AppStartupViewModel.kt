@@ -59,7 +59,7 @@ class AppStartupViewModel @Inject constructor(
     val darkTheme: StateFlow<Boolean> = appPreferences.darkTheme.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        false,
+        true,
     )
 
     init {

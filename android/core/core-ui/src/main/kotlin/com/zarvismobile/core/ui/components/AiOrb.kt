@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -25,11 +26,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.GlowColors
-import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
-import com.zarvismobile.core.ui.theme.ZarvisAccentIndigo
+import com.zarvismobile.core.ui.theme.ZarvisAmethyst
 import com.zarvismobile.core.ui.theme.ZarvisErrorDark
+import com.zarvismobile.core.ui.theme.ZarvisGold
+import com.zarvismobile.core.ui.theme.ZarvisGoldPale
+import com.zarvismobile.core.ui.theme.ZarvisOrchid
 import com.zarvismobile.core.ui.theme.zarvisReduceMotion
 import com.zarvismobile.domain.presentation.UiString
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * The primary voice-first affordance on the Home/Workspace screen (MASTER_SPEC.md §14). Each
@@ -38,6 +44,9 @@ import com.zarvismobile.domain.presentation.UiString
  * state-communication device, not decoration. Every transition is a plain state read, so the
  * orb reacts the instant [state] changes — there is no debounce or animation warm-up, which is
  * what keeps voice/text interactions feeling sub-second (§22).
+ *
+ * In the Queen theme it is a jewel: a turning sweep of the state's two colours, a bright plasma core, a gold ring and a ring of
+ * gold ticks that turns the other way, like a crown's rim.
  *
  * Motion costs battery, so it is spent only where it says something: the orb holds still while IDLE and whenever Android's
  * animations are off ("Remove animations"), and only moves for listening, working and speaking. The animated values are read
@@ -113,8 +122,37 @@ fun AiOrb(
                 center = center,
             )
         }
+
+        // The plasma core: white-hot in the middle, fading into the state colour.
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.White.copy(alpha = 0.85f), colorStart.copy(alpha = 0.45f), Color.Transparent),
+                center = center,
+                radius = radius * 0.62f,
+            ),
+            radius = radius * 0.62f,
+            center = center,
+        )
+
+        // The gold rim and its ticks, turning against the sweep.
+        drawCircle(color = ZarvisGoldPale.copy(alpha = 0.9f), radius = radius * 0.97f, center = center, style = Stroke(width = radius * 0.035f))
+        rotate(degrees = -rotation / 2f, pivot = center) {
+            for (i in 0 until ORB_TICKS) {
+                val a = i * 2.0 * PI / ORB_TICKS
+                val inner = radius * (if (i % 4 == 0) 0.76f else 0.82f)
+                val outer = radius * 0.9f
+                drawLine(
+                    color = ZarvisGoldPale.copy(alpha = if (i % 4 == 0) 0.9f else 0.55f),
+                    start = Offset(center.x + inner * cos(a).toFloat(), center.y + inner * sin(a).toFloat()),
+                    end = Offset(center.x + outer * cos(a).toFloat(), center.y + outer * sin(a).toFloat()),
+                    strokeWidth = radius * 0.025f,
+                )
+            }
+        }
     }
 }
+
+private const val ORB_TICKS = 48
 
 /** The three running values of an animated orb, or none at all while it holds still. */
 private class OrbMotion(val pulse: State<Float>?, val glow: State<Float>?, val rotation: State<Float>?) {
@@ -124,12 +162,12 @@ private class OrbMotion(val pulse: State<Float>?, val glow: State<Float>?, val r
 }
 
 private fun orbColors(state: VoiceState): Pair<Color, Color> = when (state) {
-    VoiceState.IDLE -> ZarvisAccentCyan to ZarvisAccentIndigo.copy(alpha = 0.6f)
-    VoiceState.LISTENING -> GlowColors.active to ZarvisAccentIndigo
-    VoiceState.UNDERSTANDING, VoiceState.PLANNING -> ZarvisAccentIndigo to GlowColors.active
-    VoiceState.EXECUTING -> GlowColors.active to GlowColors.active.copy(alpha = 0.5f)
+    VoiceState.IDLE -> ZarvisGold to ZarvisAmethyst
+    VoiceState.LISTENING -> ZarvisOrchid to ZarvisGold
+    VoiceState.UNDERSTANDING, VoiceState.PLANNING -> ZarvisAmethyst to ZarvisOrchid
+    VoiceState.EXECUTING -> GlowColors.active to ZarvisGoldPale
     VoiceState.SUCCESS -> GlowColors.success to GlowColors.success.copy(alpha = 0.5f)
-    VoiceState.SPEAKING -> ZarvisAccentIndigo to GlowColors.active
+    VoiceState.SPEAKING -> ZarvisAmethyst to ZarvisGold
     VoiceState.ERROR -> ZarvisErrorDark to ZarvisErrorDark.copy(alpha = 0.6f)
 }
 

@@ -254,7 +254,7 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                 GlassSurface(Modifier.fillMaxWidth(), tint = GlassColors.surfaceTintElevated) {
                     Text(tr(UiString.SETTINGS_CURRENT_SETUP), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(trf(UiString.SETTINGS_LANGUAGE_LINE, if (locale == "hi") "हिंदी" else "English"))
-                    Text(trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_AURORA_LIGHT)))
+                    Text(trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_QUEEN_LIGHT)))
                 }
             }
             items(SettingsPage.values().toList(), key = { it.name }) { entry ->
