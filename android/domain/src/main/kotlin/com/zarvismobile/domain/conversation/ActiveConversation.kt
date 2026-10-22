@@ -4,6 +4,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -76,8 +77,9 @@ class ActiveConversation(private val store: ConversationIdStore) {
 
     /** New chat (or a different account): no conversation is active, and every screen that shows the old one must drop it. */
     suspend fun startNew(): ConversationStamp {
-        val next = ConversationStamp(null, epochs.incrementAndGet())
-        current.value = next
+        // Taking the epoch and making it active is one step: two New chats at once could otherwise leave the OLDER epoch active, and an
+        // answer sent under the newer one would then be refused as stale. A retry takes a fresh epoch (skipped ones are never used).
+        val next = current.updateAndGet { ConversationStamp(null, epochs.incrementAndGet()) }!!
         persist()
         return next
     }
