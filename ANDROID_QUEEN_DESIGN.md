@@ -14,10 +14,25 @@ string has Hindi, and text is at least 4.5:1 on whatever it is drawn on.
 
 | Phase | What | Status |
 | --- | --- | --- |
-| 1 | The palette, Material colour roles, the animated page, the orb, the tab bar with Chat as the gold orb in the middle, Queen Dark as the default, the Settings wording | This change |
-| 2 | Per-screen layouts from the boards: Home's crown hero and chips row, Chat's word-by-word streaming and interrupted card, the gold skeleton/empty/error/offline states, dialogs as sheets, the Talk tab, a Lightweight mode, the Orbitron/Sora fonts | Next |
+| 1 | The palette, Material colour roles, the animated page, the orb, the tab bar with Chat as the gold orb in the middle, Queen Dark as the default, the Settings wording | Done |
+| 2 | Sora/Orbitron type; the crown, gold lettering, gold section labels, jewel icons and badges; Home (A03); launch, welcome, start error, capability detail and Developer Agent on the Queen page; the Chat look (A04) and interrupted card; the gold skeleton, crown empty state and ruby error card (A22); Queen dialogs (A21); jewel Settings rows (A15); Lightweight mode | Done |
+| Later | The items under *Not done yet* below | Open |
 
-Phase 1 changes no behaviour: every screen keeps its content, order and actions, and only its colours, its page and the tab bar change.
+Phase 1 changed no behaviour. Phase 2 changes one: the Home orb ("Tap to speak") and the composer's mic open Chat already listening,
+through ZARVIS's explanation and Android's permission like every other microphone start. Everything else keeps its content, order and
+actions.
+
+### Not done yet, and why
+
+* **Replies streaming word by word.** The backend already streams (`/orchestrator/turn-stream`, which the website uses), but the Android
+  orchestrator asks for the whole reply at once. Streaming means a new streaming client and a change in how the orchestrator handles a
+  turn, which is behaviour, not look, so it is its own change.
+* **Chat tab renamed Talk.** The Home orb now does what Talk would do. Renaming the tab changes what the emulator tests tap
+  (`ChatSyncTest`, `ShellScreenshotTest` find it by the word "Chat") and would start the microphone on every tab tap.
+* **Dialogs as bottom sheets.** They keep Material's dialog, restyled, because the emulator tests drive them through UI Automator by
+  their exact words and a sheet changes when they appear and how Back closes them.
+* **Offline banner.** The app has no connectivity state to show truthfully yet; failed loads already say so with Try again.
+* **Appearance preview cards, entrance animations, chips marquee.** Smaller polish; the switches and chips work as they are.
 
 ## Palette (`core-ui/.../theme/Color.kt`)
 
@@ -54,9 +69,21 @@ at their strongest (the worst spot is 5.1:1 in light and 5.3:1 in dark), ink on 
 * With Android's "Remove animations" on (or an animator scale of 0) the sky is one still frame. Android sends no frames while the
   app is in the background, so it costs nothing there.
 
-Every screen that already used `ZarvisBackground` gets the sky: Home, Chat, Capabilities, Work, Tasks, System Metrics, Plans & Quotas,
-Memory, Settings and Permissions. The others (welcome, start error and session ended, a capability's detail page, Developer Agent)
-are on the plain Queen page colour until Phase 2.
+Every screen draws the sky: Home, Chat, Capabilities, Work, Tasks, System Metrics, Plans & Quotas, Memory, Settings, Permissions, and
+(since Phase 2) launch, welcome, start error, session ended, a capability's detail page and Developer Agent.
+
+## Type and shared pieces
+
+* **Type** (`Type.kt`): Sora for everything people read, Orbitron for the ZARVIS wordmark and the small gold section labels
+  (`ZarvisDisplayStyles`). Both are the upstream variable fonts, unmodified (OFL 1.1, see THIRD_PARTY_NOTICES.md). Neither has
+  Devanagari, so Hindi uses the phone's own Devanagari font, and a Hindi section label keeps Sora with no letter spacing.
+* **`QueenComponents.kt`**: `QueenCrown` (bobs gently), `GoldText` (gold in Queen Dark, royal ink in Queen Light, with a shine that
+  passes every few seconds), `SectionKicker`, `JewelIcon` / `Jewel`, `SkeletonBlock` / `SkeletonList`, `QueenEmptyState`,
+  `QueenErrorCard`, `GoldDivider`.
+* **Badges**: `StatusBadge` and `RiskBadge` are filled jewel pills with their own dark ink (sapphire running, gold waiting, emerald
+  done, ruby a problem), so they read the same on both pages.
+* **Lightweight mode** (Settings › Appearance): the sky, the crown, the shine, the skeleton sweep and the orb hold still, exactly as with
+  Android's "Remove animations" (`zarvisReduceMotion()` answers true for either).
 
 ## The orb (`AiOrb`)
 
@@ -72,35 +99,35 @@ with its label under it like every other tab, so it is still found by its text a
 plum (light: white) pill with a jewel edge; the current tab sits on a gold-tinted pill with a bolder label, and the orb wears a ring
 while Chat is open. Screens opened from Work keep Work highlighted, and the bar hides while the keyboard is up (as before).
 
-Phase 2: the orb becomes **Talk**, opening Chat and starting to listen at once (the `conversation?listen=true` route already exists).
-That changes the tab's label, so the emulator's `ShellScreenshotTest` and `UiStringTest` change with it.
+Talk: the crowned orb on Home and the composer's mic open Chat already listening (`conversation?listen=true`). The middle tab stays
+**Chat**: opening Chat from the tab does not start the microphone.
 
 ## Screens (the 22 boards)
 
-| Board | Screen (code) | Phase 2 layout |
+| Board | Screen (code) | Phase 2 |
 | --- | --- | --- |
-| A01 Launch | window background (`colors.xml`, now the Queen page) and the startup screen in `MainActivity` | crown and name rise in, gold progress line |
-| A02 Welcome ×6 | `OnboardingScreen` | the sky behind each page, jewel icon per page |
-| A03 Home | `HomeScreen` | crown hero over the orb, greeting with a gold shimmer, jewel category tiles, chips row |
-| A04 Chat | `ConversationScreen` | gradient sent bubble, glass replies streaming word by word, gold composer edge |
-| A05 Assist overlay | `AssistActivity` (now follows the chosen appearance) | Queen bottom sheet |
-| A06 Start error, session ended | `MainActivity` | jewel icon, primary and outline buttons |
-| A07 Capabilities | `CapabilitiesScreen` | jewel tiles per group, truthful status chips |
-| A08 Capability detail | `FeatureDetailScreen` | the sky, status and permission card |
-| A09 Tasks / Activity | `TasksScreen` | gold progress, status badges, swipe actions |
-| A10 Work | `MoreScreen` | jewel cards per destination |
-| A11 Memory | `MemoryScreen` | glass list, forget dialog |
-| A12 System Metrics | `MetricsScreen` | gold meters |
-| A13 Plans & Quotas | `SubscriptionScreen` | crown on the current plan |
-| A14 Developer Agent | `DeveloperScreen` | the sky, repository card |
-| A15 Settings | `SettingsScreen` | jewel icons per row |
+| A01 Launch | window background (`colors.xml`) and the startup screen in `MainActivity` | Done: crown, gold wordmark, gold progress line |
+| A02 Welcome ×6 | `OnboardingScreen` | Done: the sky and the crown on each page |
+| A03 Home | `HomeScreen` | Done: gold wordmark, crowned orb that starts listening, gold chips, jewel cards, recent-task rows with a skeleton |
+| A04 Chat | `ConversationScreen` | Done: gradient sent bubble, glass replies with a jewel status badge, gold composer edge. Streaming: not yet |
+| A05 Assist overlay | `AssistActivity` (follows the chosen appearance) | Not yet: Queen bottom sheet |
+| A06 Start error, session ended | `MainActivity` | Done: the Queen page and the crown |
+| A07 Capabilities | `CapabilitiesScreen` | Done: skeleton and error card. Not yet: jewel tiles per group |
+| A08 Capability detail | `FeatureDetailScreen` | Done: the sky and a gold category label |
+| A09 Tasks / Activity | `TasksScreen` | Done: jewel rows, jewel badges, skeleton, crown empty state, error card |
+| A10 Work | `MoreScreen` | Not yet: jewel cards per destination |
+| A11 Memory | `MemoryScreen` | Done: skeleton and error card |
+| A12 System Metrics | `MetricsScreen` | Done: skeleton and error card. Not yet: gold meters |
+| A13 Plans & Quotas | `SubscriptionScreen` | Done: skeleton. Not yet: crown on the current plan |
+| A14 Developer Agent | `DeveloperScreen` | Done: the sky |
+| A15 Settings | `SettingsScreen` | Done: a jewel per page |
 | A16 Account | `SettingsScreen` (Account) | — |
-| A17 Permissions & Device Access | `PermissionCenter` | status per permission, explain-first |
+| A17 Permissions & Device Access | `PermissionCenter` | Theme colours only |
 | A18 Notifications | `NotificationSettings` | — |
-| A19 Voice, Language, Appearance | `SettingsScreen` | Appearance: Queen Dark / Queen Light preview cards |
+| A19 Voice, Language, Appearance | `SettingsScreen` | Done: Lightweight mode switch. Not yet: preview cards |
 | A20 AI, Privacy, Security, Data, Rules | `SettingsScreen` | — |
-| A21 Dialogs | permission explanation, action confirmation, delete chat (and forget memory, sign out, delete account) | bottom sheets with a gold top edge |
-| A22 States | loading, empty, offline/error, chat interrupted | gold skeleton, crown empty state, offline banner |
+| A21 Dialogs | permission explanation, action confirmation | Done: jewel icon, gold edge, gold labels, gradient button (still dialogs, see above) |
+| A22 States | loading, empty, error, chat interrupted | Done: gold skeleton, crown empty state, ruby error card, gold interrupted card. Offline banner: not yet |
 
 ## Fast and real-time rules
 
