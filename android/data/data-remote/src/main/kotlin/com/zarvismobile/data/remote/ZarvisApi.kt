@@ -94,6 +94,15 @@ interface ZarvisApi {
     @POST("api/v1/orchestrator/turn")
     suspend fun runTurn(@Body request: OrchestratorTurnRequest): OrchestratorTurnResponse
 
+    /**
+     * The same turn as Server-Sent Events, read with [TurnStreamReader]: the conversation, each planner step and tool as it happens,
+     * then the reply (`done`) or the error (`error`). A request the server refuses before the stream starts (401, 429, 400) is an
+     * HttpException, as with [runTurn].
+     */
+    @Streaming
+    @POST("api/v1/orchestrator/turn-stream")
+    suspend fun runTurnStream(@Body request: OrchestratorTurnRequest): ResponseBody
+
     /** Records what a phone action the Brain handed over did, as the turn's reply in the conversation (and plans its next step). */
     @POST("api/v1/orchestrator/device-result")
     suspend fun reportDeviceResult(@Body request: DeviceActionResultRequest): Response<DeviceResultResponse>

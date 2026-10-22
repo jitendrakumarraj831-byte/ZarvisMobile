@@ -103,7 +103,10 @@ class AndroidOrchestratorDeviceActionTest {
     private fun action(skillId: String, input: String, then: String? = null, id: String = "tc-1") =
         """{"toolCallId":"$id","skillId":"$skillId","input":$input${then?.let { ",\"then\":\"$it\"" } ?: ""}}"""
 
-    private fun handoff(skillId: String, input: String, conversationId: String = "c1", then: String? = null) = MockResponse().setBody(
+    /** The turn stream's answer: the finished turn as its `done` event. */
+    private fun streamed(turn: String) = MockResponse().setBody("event: done\ndata: $turn\n\n")
+
+    private fun handoff(skillId: String, input: String, conversationId: String = "c1", then: String? = null) = streamed(
         """{"message":"","toolCalls":[],"conversationId":"$conversationId","deviceAction":${action(skillId, input, then)}}""",
     )
 
@@ -289,7 +292,7 @@ class AndroidOrchestratorDeviceActionTest {
 
     @Test
     fun ordinaryRepliesAreUnchanged() = runBlocking<Unit> {
-        server.enqueue(MockResponse().setBody("""{"message":"Hello!","toolCalls":[],"conversationId":"c1"}"""))
+        server.enqueue(streamed("""{"message":"Hello!","toolCalls":[],"conversationId":"c1"}"""))
 
         val outcome = orchestrator.handleTurn("hello there", "acct")
 

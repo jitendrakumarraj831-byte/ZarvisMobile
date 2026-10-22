@@ -2,6 +2,14 @@ package com.zarvismobile.feature.conversation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,13 +28,14 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
@@ -37,8 +46,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,11 +69,13 @@ import com.zarvismobile.core.ui.components.StatusPulseBadge
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
 import com.zarvismobile.core.ui.theme.ZarvisGold
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.core.ui.theme.zarvisActionBrush
+import com.zarvismobile.core.ui.theme.zarvisReduceMotion
 import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.entity.ToolResultStatus
@@ -198,8 +212,10 @@ fun ConversationScreen(
                 contentPadding = PaddingValues(ZarvisSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
             ) {
-                items(uiState.turns) { turn ->
-                    TurnBubble(turn)
+                itemsIndexed(uiState.turns) { index, turn ->
+                    // The newest request's reply, while it is on its way, shows what the turn is really doing.
+                    val pending = if (index == uiState.turns.lastIndex && turn.assistantText == null) uiState.progress else null
+                    TurnBubble(turn, pending)
                 }
             }
 
@@ -209,7 +225,10 @@ fun ConversationScreen(
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
             ) {
                 AnimatedVisibility(visible = uiState.voiceState != VoiceState.IDLE) {
-                    StatusPulseBadge(label = statusText(uiState.voiceState), glowColor = GlowColorsFor(uiState.voiceState))
+                    StatusPulseBadge(
+                        label = uiState.progress?.let { progressText(it) } ?: statusText(uiState.voiceState),
+                        glowColor = GlowColorsFor(uiState.voiceState),
+                    )
                 }
                 uiState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                 // While the keyboard is up the orb is only dead space between the messages and the keys (on a 640dp phone it left the messages
@@ -239,7 +258,7 @@ fun ConversationScreen(
 }
 
 @Composable
-private fun TurnBubble(turn: ConversationTurn) {
+private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
         // An answer with no question (a conversation that began with one) shows no empty bubble.
         if (turn.userText.isNotEmpty()) {
@@ -272,8 +291,69 @@ private fun TurnBubble(turn: ConversationTurn) {
                     MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
                 }
             }
+        } else if (pending != null) {
+            PendingReply(pending, Modifier.align(Alignment.Start))
         }
     }
+}
+
+/** The reply on its way: three gold dots and the stage the turn has really reached, read out as it changes. */
+@Composable
+private fun PendingReply(progress: ChatProgress, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth(0.92f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(text = "ZARVIS", style = ZarvisDisplayStyles.kicker, color = ZarvisAccents.gold)
+        GlassSurface(
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            shape = RoundedCornerShape(topStart = 6.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 22.dp),
+            borderColor = ZarvisAccents.gold.copy(alpha = 0.45f),
+            contentPadding = 14.dp,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                TypingDots(color = ZarvisAccents.gold)
+                Text(
+                    text = progressText(progress),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Three dots that brighten one after another (alpha only, in the draw layer); still when Android's animations are off. */
+@Composable
+private fun TypingDots(color: Color) {
+    val phase: State<Float>? = if (zarvisReduceMotion()) {
+        null
+    } else {
+        rememberInfiniteTransition(label = "typing").animateFloat(
+            initialValue = 0f,
+            targetValue = 3f,
+            animationSpec = infiniteRepeatable(tween(durationMillis = 1_200, easing = LinearEasing), RepeatMode.Restart),
+            label = "typing-phase",
+        )
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { dot ->
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .graphicsLayer {
+                        alpha = phase?.value?.let { if (it.toInt() == dot) 1f else 0.3f } ?: 1f
+                    }
+                    .background(color, CircleShape),
+            )
+        }
+    }
+}
+
+@Composable
+private fun progressText(progress: ChatProgress): String = when (progress) {
+    ChatProgress.Sending -> tr(UiString.CHAT_PROGRESS_SENDING)
+    ChatProgress.SlowServer -> tr(UiString.CHAT_PROGRESS_SLOW)
+    ChatProgress.Thinking -> tr(UiString.CHAT_PROGRESS_THINKING)
+    is ChatProgress.Working -> progress.name?.let { trf(UiString.CHAT_PROGRESS_WORKING, it) } ?: tr(UiString.CHAT_PROGRESS_WORKING_PLAIN)
+    ChatProgress.OnPhone -> tr(UiString.CHAT_PROGRESS_ON_PHONE)
 }
 
 /** The tone of a reply's status badge: done is emerald, a step waiting on the person is gold, a failure is ruby. */

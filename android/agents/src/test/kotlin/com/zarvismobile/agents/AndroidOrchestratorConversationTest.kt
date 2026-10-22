@@ -61,8 +61,10 @@ class AndroidOrchestratorConversationTest {
         active.adopt(id, fresh.epoch)
     }
 
-    private fun turnReply(message: String, conversationId: String?) =
-        MockResponse().setBody("""{"message":"$message","toolCalls":[],"conversationId":${conversationId?.let { "\"$it\"" } ?: "null"}}""")
+    /** The turn stream's answer: the finished turn as its `done` event. */
+    private fun turnReply(message: String, conversationId: String?) = MockResponse().setBody(
+        "event: done\ndata: " + """{"message":"$message","toolCalls":[],"conversationId":${conversationId?.let { "\"$it\"" } ?: "null"}}""" + "\n\n",
+    )
 
     private fun history(conversationId: String, vararg messages: Pair<String, String>) = MockResponse().setBody(
         """{"conversationId":"$conversationId","title":null,"messages":[""" +
@@ -74,6 +76,47 @@ class AndroidOrchestratorConversationTest {
     private fun sentConversationId(request: RecordedRequest): String? {
         val sent = Json.parseToJsonElement(request.body.readUtf8()).jsonObject["conversationId"]
         return if (sent == null || sent == JsonNull) null else sent.jsonPrimitive.content
+    }
+
+    @Test
+    fun theStagesTheServerReallyReachesAreReportedWhileTheAnswerIsOnItsWay() = runBlocking<Unit> {
+        server.enqueue(
+            MockResponse().setBody(
+                "event: meta\ndata: {\"conversationId\":\"c1\",\"turnId\":\"t1\"}\n\n" +
+                    "event: progress\ndata: {\"type\":\"thinking\",\"step\":1}\n\n" +
+                    "event: progress\ndata: {\"type\":\"tool_started\",\"skillId\":\"web.search\",\"toolCallId\":\"x\",\"skillName\":\"Web search\"}\n\n" +
+                    "event: done\ndata: {\"message\":\"Found it.\",\"toolCalls\":[],\"conversationId\":\"c1\"}\n\n",
+            ),
+        )
+        val seen = mutableListOf<TurnProgress>()
+
+        val outcome = orchestrator.handleTurn("search the web", "acct") { seen += it }
+
+        assertEquals("/api/v1/orchestrator/turn-stream", server.takeRequest(5, TimeUnit.SECONDS)!!.path)
+        assertEquals(listOf(TurnProgress.Thinking, TurnProgress.Working("web.search", "Web search")), seen)
+        assertEquals("Found it.", outcome.message)
+        assertEquals("c1", store.id)
+    }
+
+    @Test
+    fun anAiLimitReportedInsideTheStreamIsTheHonestAnswerNotAConnectionError() = runBlocking<Unit> {
+        server.enqueue(
+            MockResponse().setBody(
+                "event: progress\ndata: {\"type\":\"thinking\",\"step\":1}\n\n" +
+                    "event: error\ndata: {\"type\":\"AI_QUOTA_EXCEEDED\",\"code\":\"AI_QUOTA_EXCEEDED\",\"error\":\"x\",\"retryable\":false}\n\n",
+            ),
+        )
+
+        val outcome = orchestrator.handleTurn("hello there", "acct")
+
+        assertTrue(outcome.message, outcome.message.contains("today's AI usage limit"))
+        assertEquals(com.zarvismobile.domain.entity.ToolResultStatus.FAILED, outcome.result?.status)
+    }
+
+    @Test
+    fun aStreamThatStopsBeforeTheAnswerIsAFailureNotAnEmptyReply() = runBlocking<Unit> {
+        server.enqueue(MockResponse().setBody("event: progress\ndata: {\"type\":\"thinking\",\"step\":1}\n\n"))
+        assertTrue(runCatching { orchestrator.handleTurn("hello there", "acct") }.exceptionOrNull() is java.io.IOException)
     }
 
     @Test

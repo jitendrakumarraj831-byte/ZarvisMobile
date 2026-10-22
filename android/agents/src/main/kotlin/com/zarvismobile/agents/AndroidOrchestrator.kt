@@ -2,11 +2,14 @@ package com.zarvismobile.agents
 
 import com.zarvismobile.core.tooling.ComposeConfirmationPort
 import com.zarvismobile.data.remote.AiServiceErrors
+import com.zarvismobile.data.remote.TurnStreamEvent
+import com.zarvismobile.data.remote.TurnStreamReader
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.DeviceActionDto
 import com.zarvismobile.data.remote.dto.DeviceActionResultRequest
 import com.zarvismobile.data.remote.dto.DeviceResultResponse
 import com.zarvismobile.data.remote.dto.OrchestratorTurnRequest
+import com.zarvismobile.data.remote.dto.OrchestratorTurnResponse
 import com.zarvismobile.data.remote.dto.StructuredResultDto
 import com.zarvismobile.domain.access.AccessCoordinator
 import com.zarvismobile.domain.access.AccessResult
@@ -39,6 +42,10 @@ import com.zarvismobile.domain.skill.PhoneCallSkillFactory
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /**
  * The result of one turn. [conversation] is the server conversation the reply was recorded under (`null` for an action done on the phone, which
@@ -52,6 +59,21 @@ data class TurnOutcome(
     val conversation: ConversationStamp? = null,
     val replacedConversation: Boolean = false,
 )
+
+/**
+ * What a turn is doing right now, as it happens (the turn stream's events, and the phone's own steps). Shown while the reply is on its
+ * way; every value is a stage the turn really reached.
+ */
+sealed interface TurnProgress {
+    /** The server has the request and the AI is working out the answer. */
+    data object Thinking : TurnProgress
+
+    /** A tool is running on the server; [name] is its display name when the server gave one. */
+    data class Working(val skillId: String, val name: String?) : TurnProgress
+
+    /** A phone action is running on this phone. */
+    data class OnPhone(val skillId: String) : TurnProgress
+}
 
 data class RestoredMessage(val role: String, val content: String)
 
@@ -69,6 +91,9 @@ enum class ConversationDeletion {
     /** The server still has it (no connection, an error, or a server without the delete route). Nothing changed on the device. */
     FAILED,
 }
+
+/** The turn stream reported an error after it had started; [body] is the error event's JSON. */
+private class TurnStreamFailedException(val body: String) : Exception("The turn stream reported an error")
 
 /** Re-issued confirmations (action changed after approval) the user is asked about per turn. */
 private const val MAX_CONFIRMATION_ROUNDS = 3
@@ -106,9 +131,15 @@ class AndroidOrchestrator(
 ) {
     private val matcher = KeywordSkillMatcher(onDeviceRegistry)
 
-    suspend fun handleTurn(utterance: String, accountId: String, locale: String = "en"): TurnOutcome {
+    /** [onProgress] hears each stage the turn reaches (on an I/O thread), so a screen can show it while the reply is on its way. */
+    suspend fun handleTurn(utterance: String, accountId: String, locale: String = "en", onProgress: (TurnProgress) -> Unit = {}): TurnOutcome {
         val skill = matcher.matchCommand(utterance)
-        return if (skill != null) handleOnDevice(skill, utterance, accountId, locale) else handleWithBrain(utterance, accountId, locale)
+        return if (skill != null) {
+            onProgress(TurnProgress.OnPhone(skill.id))
+            handleOnDevice(skill, utterance, accountId, locale)
+        } else {
+            handleWithBrain(utterance, accountId, locale, onProgress)
+        }
     }
 
     /** Called at startup: an action interrupted by process death is offered again, never auto-run. */
@@ -207,7 +238,7 @@ class AndroidOrchestrator(
         }
     }
 
-    private suspend fun handleWithBrain(utterance: String, accountId: String, locale: String): TurnOutcome {
+    private suspend fun handleWithBrain(utterance: String, accountId: String, locale: String, onProgress: (TurnProgress) -> Unit): TurnOutcome {
         // The conversation this turn is sent to. The answer is recorded under it only if the device is still in it when the answer arrives.
         val sent = conversation.current()
         var recorded = sent
@@ -216,12 +247,20 @@ class AndroidOrchestrator(
         fun outcome(message: String, result: ToolResult?) = TurnOutcome(message, result, recorded, replaced)
 
         val response = try {
-            api.runTurn(
+            streamTurn(
                 OrchestratorTurnRequest(utterance = utterance, locale = locale, conversationId = sent.id, deviceActions = deviceActionIds()),
+                onProgress,
             )
         } catch (e: retrofit2.HttpException) {
             // An exhausted AI quota / rate limit is an honest answer, not "check your connection".
             val error = AiServiceErrors.classify(e.code(), e.response()?.errorBody()?.string()) ?: throw e
+            return outcome(
+                error.message,
+                ToolResult(false, ToolResultStatus.FAILED, null, "conversation", error.message, error.retryable, null),
+            )
+        } catch (e: TurnStreamFailedException) {
+            // The same AI-service errors, reported inside the stream once it had started.
+            val error = AiServiceErrors.classify(429, e.body) ?: throw java.io.IOException("The turn failed: ${e.body.take(200)}")
             return outcome(
                 error.message,
                 ToolResult(false, ToolResultStatus.FAILED, null, "conversation", error.message, error.retryable, null),
@@ -240,7 +279,7 @@ class AndroidOrchestrator(
                 val message = "That request was for a chat you have left, so nothing was done on the phone."
                 return outcome(message, ToolResult(false, ToolResultStatus.FAILED, null, action.skillId, message, true, null))
             }
-            val done = runPhoneSteps(action, response.conversationId, sent.epoch, utterance, accountId, locale)
+            val done = runPhoneSteps(action, response.conversationId, sent.epoch, utterance, accountId, locale, onProgress)
             return done.copy(conversation = recorded, replacedConversation = replaced)
         }
         val lastResult = response.toolCalls.lastOrNull()?.result?.toDomain()
@@ -286,6 +325,41 @@ class AndroidOrchestrator(
     }
 
     /**
+     * Sends the turn to the Brain over the turn stream, telling [onProgress] each stage as it happens, and returns the finished turn.
+     * The stream is read on an I/O thread and closed when the turn ends or this coroutine is cancelled (a newer message, New chat).
+     */
+    private suspend fun streamTurn(request: OrchestratorTurnRequest, onProgress: (TurnProgress) -> Unit): OrchestratorTurnResponse {
+        val body = api.runTurnStream(request)
+        val last = try {
+            coroutineScope {
+                val reading = async(Dispatchers.IO) {
+                    TurnStreamReader.read(body.source()) { event ->
+                        when (event) {
+                            is TurnStreamEvent.Thinking -> onProgress(TurnProgress.Thinking)
+                            is TurnStreamEvent.ToolStarted -> onProgress(TurnProgress.Working(event.skillId, event.skillName))
+                            else -> Unit
+                        }
+                    }
+                }
+                try {
+                    reading.await()
+                } catch (cancelled: CancellationException) {
+                    // A blocked socket read ignores cancellation: closing the stream ends it at once.
+                    body.close()
+                    throw cancelled
+                }
+            }
+        } finally {
+            body.close()
+        }
+        return when (last) {
+            is TurnStreamEvent.Done -> last.response
+            is TurnStreamEvent.Failed -> throw TurnStreamFailedException(last.body)
+            else -> throw java.io.IOException("The reply stream ended before the answer.")
+        }
+    }
+
+    /**
      * The phone actions offered to the Brain: every on-device skill whose capability this version runs on Android. The server keeps only the
      * ids it describes (backend/src/capabilities/deviceActions.ts) and offers none when the list is absent.
      */
@@ -321,11 +395,13 @@ class AndroidOrchestrator(
         utterance: String,
         accountId: String,
         locale: String,
+        onProgress: (TurnProgress) -> Unit,
     ): TurnOutcome {
         val said = mutableListOf<String>()
         var action = first
         var step = 1
         while (true) {
+            onProgress(TurnProgress.OnPhone(action.skillId))
             val done = runDeviceAction(action, utterance, accountId, locale)
             said += done.message
             val succeeded = done.result?.status == ToolResultStatus.COMPLETED || done.result?.status == ToolResultStatus.USER_ACTION_REQUIRED
