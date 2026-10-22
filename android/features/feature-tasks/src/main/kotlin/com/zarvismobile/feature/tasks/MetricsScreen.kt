@@ -10,13 +10,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,7 +27,8 @@ import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
-import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.components.QueenErrorCard
+import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisAccents
@@ -95,13 +95,10 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
             item { Text(text = tr(UiString.METRICS_TASK_LOG), style = MaterialTheme.typography.titleMedium) }
 
             if (uiState.isLoading) {
-                item { CircularProgressIndicator() }
+                item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 2) }
             }
             if (uiState.error != null) {
-                item {
-                    Text(text = tr(UiString.METRICS_TASKS_ERROR), color = MaterialTheme.colorScheme.error)
-                    ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
-                }
+                item { QueenErrorCard(message = tr(UiString.METRICS_TASKS_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh) }
             }
             if (statusCounts.isNotEmpty()) {
                 item {

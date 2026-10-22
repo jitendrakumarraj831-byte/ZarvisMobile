@@ -2,9 +2,11 @@ package com.zarvismobile.app
 
 import android.content.Context
 import android.os.Build
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -23,8 +25,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.tooling.PendingConfirmation
 import com.zarvismobile.core.tooling.PendingRationale
+import com.zarvismobile.core.ui.components.Jewel
+import com.zarvismobile.core.ui.components.JewelIcon
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
+import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
+import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.domain.access.RationaleChoice
 import com.zarvismobile.domain.access.SettingsReason
 import com.zarvismobile.domain.capability.CapabilityRegistry
@@ -58,7 +66,10 @@ private fun RationaleDialog(pending: PendingRationale, registry: CapabilityRegis
     var learnMore by rememberSaveable(pending.request.capabilityId) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { pending.respond(RationaleChoice.NOT_NOW) },
-        title = { Text("Allow ${capability.name.lowercase()}?") },
+        modifier = Modifier.border(1.dp, ZarvisAccents.gold.copy(alpha = 0.45f), QueenDialogShape),
+        shape = QueenDialogShape,
+        icon = { JewelIcon(ZarvisIcons.Shield, Jewel.AMETHYST, size = 52.dp) },
+        title = { Text("Allow ${capability.name.lowercase()}?", fontWeight = FontWeight.ExtraBold) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 RiskBadge(level = RiskBadgeLevel.valueOf(capability.risk.name))
@@ -81,13 +92,17 @@ private fun RationaleDialog(pending: PendingRationale, registry: CapabilityRegis
             }
         },
         confirmButton = {
-            TextButton(onClick = { pending.respond(RationaleChoice.ALLOW) }) {
-                Text(if (pending.request.requiresSettings) "Open settings" else "Allow")
-            }
+            ZarvisPrimaryButton(
+                text = if (pending.request.requiresSettings) "Open settings" else "Allow",
+                onClick = { pending.respond(RationaleChoice.ALLOW) },
+            )
         },
-        dismissButton = { TextButton(onClick = { pending.respond(RationaleChoice.NOT_NOW) }) { Text("Not now") } },
+        dismissButton = { ZarvisSecondaryButton(text = "Not now", onClick = { pending.respond(RationaleChoice.NOT_NOW) }) },
     )
 }
+
+/** Board A21: the dialogs are the plum surface with a gold edge, rounded like the sheets in the design. */
+private val QueenDialogShape = RoundedCornerShape(28.dp)
 
 private fun settingsNote(pending: PendingRationale, destination: String, context: Context): String? = when (pending.request.settingsReason) {
     null -> null
@@ -111,10 +126,11 @@ private fun restrictedSettingsMayApply(pending: PendingRationale, context: Conte
     return installer != "com.android.vending"
 }
 
+/** One part of the explanation: a gold label (in its own words: the emulator tests find it by its exact text) and the plain sentence. */
 @Composable
 private fun Section(title: String, body: String) {
     Column {
-        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold, color = ZarvisAccents.gold)
         Text(body, style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -124,11 +140,14 @@ private fun Section(title: String, body: String) {
 private fun RiskConfirmationDialog(pending: PendingConfirmation) {
     AlertDialog(
         onDismissRequest = { pending.respond(false) },
-        title = { Text("Confirm this action") },
+        modifier = Modifier.border(1.dp, ZarvisAccents.gold.copy(alpha = 0.45f), QueenDialogShape),
+        shape = QueenDialogShape,
+        icon = { JewelIcon(ZarvisIcons.Check, Jewel.GOLD, size = 52.dp) },
+        title = { Text("Confirm this action", fontWeight = FontWeight.ExtraBold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 RiskBadge(level = RiskBadgeLevel.valueOf(pending.request.riskLevel.name))
-                Text(pending.request.summary, style = MaterialTheme.typography.bodyLarge)
+                Text(pending.request.summary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                 Text(
                     when (pending.request.actionClass) {
                         ActionClass.EXTERNAL_COMMUNICATION -> "This contacts someone or changes something outside this phone."
@@ -142,7 +161,7 @@ private fun RiskConfirmationDialog(pending: PendingConfirmation) {
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { pending.respond(true) }) { Text("Confirm") } },
-        dismissButton = { TextButton(onClick = { pending.respond(false) }) { Text("Cancel") } },
+        confirmButton = { ZarvisPrimaryButton(text = "Confirm", onClick = { pending.respond(true) }) },
+        dismissButton = { ZarvisSecondaryButton(text = "Cancel", onClick = { pending.respond(false) }) },
     )
 }

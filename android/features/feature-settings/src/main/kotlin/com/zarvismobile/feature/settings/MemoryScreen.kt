@@ -11,17 +11,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -33,7 +32,8 @@ import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
-import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.components.QueenErrorCard
+import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
@@ -79,20 +79,14 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (overview == null) {
             if (state.loadFailed) {
-                GlassSurface(Modifier.fillMaxWidth()) {
-                    Text(tr(UiString.MEMORY_LOAD_ERROR), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
-                    ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
-                }
+                QueenErrorCard(message = tr(UiString.MEMORY_LOAD_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh)
             } else {
-                CircularProgressIndicator()
+                SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 3)
             }
         } else {
             if (state.loadFailed) {
                 // The list below is the last one the server gave: say that it could not be refreshed instead of presenting it as current.
-                GlassSurface(Modifier.fillMaxWidth()) {
-                    Text(tr(UiString.MEMORY_LOAD_ERROR), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
-                    ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
-                }
+                QueenErrorCard(message = tr(UiString.MEMORY_LOAD_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh)
             }
             GlassSurface(Modifier.fillMaxWidth()) {
                 SettingSwitchRow(

@@ -2,6 +2,7 @@ package com.zarvismobile.feature.conversation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,8 +16,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -43,7 +45,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.AiOrb
+import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.GlowColorsFor
+import com.zarvismobile.core.ui.components.StatusBadge
+import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
+import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.components.MarkdownText
 import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisComposer
@@ -51,7 +57,12 @@ import com.zarvismobile.core.ui.components.StatusPulseBadge
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
+import com.zarvismobile.core.ui.theme.ZarvisGold
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.core.ui.theme.zarvisActionBrush
+import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.entity.ToolResultStatus
 
@@ -136,7 +147,7 @@ fun ConversationScreen(
                 Text(
                     tr(UiString.CHAT_TITLE),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.weight(1f).padding(start = if (onBack == null) ZarvisSpacing.sm else 0.dp).semantics { heading() },
                 )
                 // Always enabled: after a failed restore the screen can look empty while the server still holds the conversation, and the user must be able to leave it.
@@ -159,13 +170,19 @@ fun ConversationScreen(
                 }
             }
             uiState.interrupted?.let { action ->
-                ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
-                    Text(tr(UiString.CHAT_INTERRUPTED_TITLE), style = MaterialTheme.typography.titleSmall)
-                    Text("\"${action.utterance}\"", style = MaterialTheme.typography.bodyLarge)
-                    Text(tr(UiString.CHAT_INTERRUPTED_BODY), style = MaterialTheme.typography.bodySmall)
-                    Row {
-                        TextButton(onClick = viewModel::resumeInterrupted) { Text(tr(UiString.CHAT_CONTINUE)) }
-                        TextButton(onClick = viewModel::dismissInterrupted) { Text(tr(UiString.CHAT_DISMISS)) }
+                // Board A22: a gold-edged card. Nothing was done; Continue runs the request through access and confirmation again.
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md),
+                    shape = RoundedCornerShape(22.dp),
+                    borderColor = ZarvisAccents.gold.copy(alpha = 0.6f),
+                    tint = ZarvisGold.copy(alpha = 0.10f),
+                ) {
+                    Text(tr(UiString.CHAT_INTERRUPTED_TITLE), style = MaterialTheme.typography.titleSmall, color = ZarvisAccents.gold)
+                    Text("\"${action.utterance}\"", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = ZarvisSpacing.sm))
+                    Text(tr(UiString.CHAT_INTERRUPTED_BODY), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = ZarvisSpacing.sm))
+                    Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), modifier = Modifier.padding(top = 14.dp)) {
+                        ZarvisPrimaryButton(text = tr(UiString.CHAT_CONTINUE), onClick = viewModel::resumeInterrupted)
+                        ZarvisSecondaryButton(text = tr(UiString.CHAT_DISMISS), onClick = viewModel::dismissInterrupted)
                     }
                 }
             }
@@ -225,32 +242,46 @@ fun ConversationScreen(
 private fun TurnBubble(turn: ConversationTurn) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
         // An answer with no question (a conversation that began with one) shows no empty bubble.
-        if (turn.userText.isNotEmpty()) Surface(
-            modifier = Modifier.fillMaxWidth(0.88f).align(Alignment.End),
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.primary,
-        ) {
-            Text(
-                text = turn.userText,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
+        if (turn.userText.isNotEmpty()) {
+            // The sent message: white on the action gradient (at least 4.5:1 at every stop), its tail at the bottom right.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .fillMaxWidth(0.88f)
+                    .wrapContentWidth(Alignment.End)
+                    .background(zarvisActionBrush(), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomEnd = 6.dp, bottomStart = 22.dp))
+                    .padding(horizontal = 15.dp, vertical = 11.dp),
+            ) {
+                Text(text = turn.userText, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+            }
         }
         if (turn.assistantText != null) {
-            ZarvisCard(modifier = Modifier.fillMaxWidth(0.88f).align(Alignment.Start)) {
-                turn.status?.let { status ->
-                    Text(
-                        text = statusChip(status),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (status == ToolResultStatus.COMPLETED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
-                    )
+            Column(modifier = Modifier.fillMaxWidth(0.92f).align(Alignment.Start), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                    // A still gold label: a long chat should not run one shine animation per reply.
+                    Text(text = "ZARVIS", style = ZarvisDisplayStyles.kicker, color = ZarvisAccents.gold)
+                    // Blueprint §10 structured status, as a jewel badge (the words are always there).
+                    turn.status?.let { status -> StatusBadge(label = statusChip(status), tone = statusTone(status)) }
                 }
                 // The reply as the website draws it: headings, lists, links and code are formatted, not shown as raw symbols.
-                MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(topStart = 6.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 22.dp),
+                    contentPadding = 14.dp,
+                ) {
+                    MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
+                }
             }
         }
     }
+}
+
+/** The tone of a reply's status badge: done is emerald, a step waiting on the person is gold, a failure is ruby. */
+private fun statusTone(status: ToolResultStatus): StatusTone = when (status) {
+    ToolResultStatus.COMPLETED -> StatusTone.SUCCESS
+    ToolResultStatus.PERMISSION_REQUIRED, ToolResultStatus.USER_ACTION_REQUIRED, ToolResultStatus.CONFIRMATION_REQUIRED -> StatusTone.WAITING
+    ToolResultStatus.FAILED -> StatusTone.PROBLEM
+    ToolResultStatus.DENIED, ToolResultStatus.UNSUPPORTED -> StatusTone.NEUTRAL
 }
 
 /** Blueprint §10 structured status, shown on the reply it belongs to. */

@@ -25,14 +25,13 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Work
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -48,6 +47,8 @@ import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.ZarvisBackground
+import com.zarvismobile.core.ui.components.QueenErrorCard
+import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.SkillDto
 
@@ -79,15 +80,17 @@ fun CapabilitiesScreen(
             }
 
             when {
-                uiState.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-                uiState.error != null -> Box(modifier = Modifier.fillMaxSize().padding(ZarvisSpacing.lg), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                        Text(text = tr(UiString.CAPABILITIES_ERROR), color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = viewModel::refresh) { Text(tr(UiString.COMMON_TRY_AGAIN)) }
-                    }
-                }
+                uiState.isLoading -> SkeletonList(
+                    loadingLabel = tr(UiString.COMMON_LOADING),
+                    rows = 4,
+                    modifier = Modifier.padding(horizontal = ZarvisSpacing.lg, vertical = ZarvisSpacing.md),
+                )
+                uiState.error != null -> QueenErrorCard(
+                    message = tr(UiString.CAPABILITIES_ERROR),
+                    retryLabel = tr(UiString.COMMON_TRY_AGAIN),
+                    onRetry = viewModel::refresh,
+                    modifier = Modifier.padding(ZarvisSpacing.lg),
+                )
                 else -> {
                     val grouped = uiState.skills.groupBy { it.category }
                     LazyColumn(

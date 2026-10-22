@@ -1,18 +1,15 @@
 package com.zarvismobile.feature.tasks
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,19 +20,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.zarvismobile.core.ui.components.Jewel
+import com.zarvismobile.core.ui.components.JewelIcon
+import com.zarvismobile.core.ui.components.QueenEmptyState
+import com.zarvismobile.core.ui.components.QueenErrorCard
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisCard
-import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.TaskDto
 import com.zarvismobile.domain.presentation.StatusLabels
+import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
 
 /**
@@ -66,7 +71,12 @@ fun TasksScreen(
                 if (onBack != null) {
                     TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
                 }
-                Text(text = tr(if (onBack != null) UiString.TASKS_TITLE_WORK else UiString.TASKS_TITLE), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+                Text(
+                    text = tr(if (onBack != null) UiString.TASKS_TITLE_WORK else UiString.TASKS_TITLE),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.semantics { heading() },
+                )
                 Text(
                     text = tr(UiString.TASKS_SUBTITLE),
                     style = MaterialTheme.typography.bodyMedium,
@@ -78,34 +88,19 @@ fun TasksScreen(
                 }
             }
 
+            // The four states of the list (ANDROID_QUEEN_DESIGN.md, board A22): a gold skeleton while loading, the crown when empty,
+            // a ruby card with Try again when it failed, and the tasks.
             if (uiState.isLoading && uiState.tasks.isEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.lg), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
+                item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 4) }
             }
 
             if (uiState.tasks.isEmpty() && !uiState.isLoading && uiState.error == null) {
-                item {
-                    ZarvisCard(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = tr(UiString.TASKS_EMPTY),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                item { QueenEmptyState(title = tr(UiString.TASKS_EMPTY_TITLE), body = tr(UiString.TASKS_EMPTY)) }
             }
 
             if (uiState.error != null) {
                 // The list could not be loaded: say so and offer the retry here, instead of asking the user to leave and come back.
-                item {
-                    ZarvisCard(modifier = Modifier.fillMaxWidth()) {
-                        Text(text = tr(UiString.TASKS_ERROR), color = MaterialTheme.colorScheme.error)
-                        ZarvisSecondaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::refresh)
-                    }
-                }
+                item { QueenErrorCard(message = tr(UiString.TASKS_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh) }
             }
             if (uiState.actionFailed) {
                 item { Text(text = tr(UiString.TASKS_ACTION_ERROR), color = MaterialTheme.colorScheme.error) }
@@ -122,14 +117,15 @@ fun TasksScreen(
 @Composable
 private fun TaskRow(task: TaskDto, viewModel: TasksViewModel) {
     val locale = LocalAppLocale.current
+    val tone = StatusLabels.taskTone(task.status, task.lifecycle)
     ZarvisCard(modifier = Modifier.fillMaxWidth()) {
-        Text(text = task.goal, style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            JewelIcon(ZarvisIcons.Task, jewelFor(tone))
+            Text(text = task.goal, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        }
         // Plain-language state and risk, never the raw codes (PENDING, LOW, ...).
         Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
-            StatusBadge(
-                label = StatusLabels.taskText(task.status, task.lifecycle, locale),
-                tone = StatusLabels.taskTone(task.status, task.lifecycle),
-            )
+            StatusBadge(label = StatusLabels.taskText(task.status, task.lifecycle, locale), tone = tone)
             val risk = RiskBadgeLevel.fromWire(task.riskLevel)
             if (risk != null) RiskBadge(level = risk) else Text(text = StatusLabels.riskText(task.riskLevel, locale), style = MaterialTheme.typography.labelMedium)
         }
@@ -152,4 +148,13 @@ private fun TaskRow(task: TaskDto, viewModel: TasksViewModel) {
             }
         }
     }
+}
+
+/** The jewel behind a task's icon follows its status (the badge still says it in words). */
+private fun jewelFor(tone: StatusTone): Jewel = when (tone) {
+    StatusTone.ACTIVE -> Jewel.SAPPHIRE
+    StatusTone.WAITING -> Jewel.GOLD
+    StatusTone.SUCCESS -> Jewel.EMERALD
+    StatusTone.PROBLEM -> Jewel.RUBY
+    StatusTone.NEUTRAL -> Jewel.AMETHYST
 }

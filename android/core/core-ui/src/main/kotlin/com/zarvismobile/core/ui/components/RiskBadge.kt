@@ -1,15 +1,8 @@
 package com.zarvismobile.core.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.i18n.tr
-import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.domain.presentation.UiString
 
 /** LOW/MEDIUM/HIGH risk indicator — shown wherever an action's risk is surfaced (MASTER_SPEC.md §21). */
@@ -29,20 +22,13 @@ enum class RiskBadgeLevel(val label: String, val uiString: UiString) {
     }
 }
 
-/** Colour is never the only signal (the level is spelled out), and the colours are the theme's text-safe ones: the bright dark-page greens and ambers are under 2:1 on the light page. */
+/** Colour is never the only signal (the level is spelled out). A jewel pill with its own dark ink (see [StatusBadge]), so it reads on both pages. */
 @Composable
 fun RiskBadge(level: RiskBadgeLevel, modifier: Modifier = Modifier) {
-    val color = when (level) {
-        RiskBadgeLevel.LOW -> ZarvisAccents.success
-        RiskBadgeLevel.MEDIUM -> ZarvisAccents.warning
-        RiskBadgeLevel.HIGH, RiskBadgeLevel.VERY_HIGH -> ZarvisAccents.danger
+    val jewel = when (level) {
+        RiskBadgeLevel.LOW -> Jewel.EMERALD
+        RiskBadgeLevel.MEDIUM -> Jewel.GOLD
+        RiskBadgeLevel.HIGH, RiskBadgeLevel.VERY_HIGH -> Jewel.RUBY
     }
-    Text(
-        text = tr(level.uiString),
-        style = MaterialTheme.typography.labelMedium,
-        color = color,
-        modifier = modifier
-            .background(color = color.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-    )
+    JewelPill(label = tr(level.uiString), jewel = jewel, modifier = modifier)
 }
