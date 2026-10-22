@@ -186,6 +186,18 @@ class AndroidOrchestratorDeviceActionTest {
     }
 
     @Test
+    fun aReportAnswerThatIsNotJsonDoesNotLoseTheResult() = runBlocking<Unit> {
+        server.enqueue(handoff("phone.open_app", """{"appName":"WhatsApp"}""", then = "open the gallery"))
+        server.enqueue(MockResponse().setBody("<html>Bad gateway</html>"))
+
+        val outcome = orchestrator.handleTurn("whatsapp chahiye", "acct")
+
+        assertEquals("Opening WhatsApp.", outcome.message)
+        assertEquals(ToolResultStatus.COMPLETED, outcome.result?.status)
+        assertEquals("nothing more is planned", listOf("WhatsApp"), launcher.asked)
+    }
+
+    @Test
     fun anActionForAChatTheUserHasLeftIsNotRun() = runBlocking<Unit> {
         server.enqueue(handoff("phone.open_app", """{"appName":"WhatsApp"}""").setBodyDelay(800, TimeUnit.MILLISECONDS))
 

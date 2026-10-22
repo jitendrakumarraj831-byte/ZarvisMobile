@@ -369,6 +369,10 @@ class AndroidOrchestrator(
             api.reportDeviceResult(request).body()
         } catch (e: java.io.IOException) {
             null // no connection: see above
+        } catch (e: IllegalArgumentException) {
+            // An answer that is not the expected JSON (a kotlinx SerializationException, e.g. a cut-off body): the step already ran,
+            // so its result stands and nothing more is planned.
+            null
         }
     }
 
