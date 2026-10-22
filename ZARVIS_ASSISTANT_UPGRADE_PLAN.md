@@ -28,7 +28,7 @@ real device or is missing a piece. Fake code was not the problem anywhere.
 | Capability truth | One registry with 16 device capabilities, shared JSON, parity tests, none WORKING without device evidence (`backend/src/capabilities/registry.ts`, `shared/capability-registry.json`, `android/domain/.../capability/CapabilityRegistry.kt`) | no real-device evidence recorded yet |
 | Voice | Free keyless Edge neural voices (Hindi, English and Hinglish chosen from the text), Gemini voice as an optional fallback, streaming PCM (`backend/src/tts/*`, `backend/src/config/ttsConfig.ts`) | the reply language and the voice used two different detectors that disagreed (**fixed in Phase 1**); Android plays the non-streaming WAV |
 | Memory | Only what the user saves. Pause, per-item delete, forget all, project memory, passed to the model as data (`backend/src/api/routes/notes.ts`, `backend/src/agents/turnContext.ts`) | the user cannot say "remember this" in chat, and Android can view and delete memory but cannot add it |
-| Phone agent | 21 on-device skills including call (resolved contact, per-call confirmation), open app, alarms, reminders, notifications, global actions, screen read and tap with verification (`android/skills/.../OnDeviceSkillRegistryFactory.kt`, `android/app/.../access/ZarvisAccessibilityService.kt`) | Hindi word order ("WhatsApp kholo") and Devanagari commands mostly reach the Brain, which cannot act on the phone. A negation started the call flow (**fixed in Phase 1**) |
+| Phone agent | 21 on-device skills including call (resolved contact, per-call confirmation), open app, alarms, reminders, notifications, global actions, screen read and tap with verification (`android/skills/.../OnDeviceSkillRegistryFactory.kt`, `android/app/.../access/ZarvisAccessibilityService.kt`) | Hindi word order and Devanagari commands now reach the phone's own skills, and a request only the Brain understands is handed back to the phone as a device action (**Phase 6 in progress**, see 2.2). A negation started the call flow (**fixed in Phase 1**) |
 | Screen/camera | Web camera → vision; Android "describe a photo" → vision; Android screen text read locally with password fields skipped and sensitive apps refused | camera capture on Android is preview only, and there is no "explain my screen" with AI |
 | Tasks | Durable tasks; one step runs per user press as an ordinary turn, with evidence; workflows track steps (`backend/src/tasks/taskRunner.ts`, `backend/src/skills/automationCreateWorkflow.ts`) | device steps are not part of tasks, and reminders are local to the phone |
 | PC companion | **Nothing exists.** No client, no device pairing, no command channel | the whole feature; it is not in the blueprint yet |
@@ -56,12 +56,15 @@ the claim. Wherever the table says something is missing, the code was searched f
 
 | Feature | Android | Evidence | Gap → phase |
 |---|---|---|---|
-| Call a contact or number, with per-call confirmation of the resolved number | PARTIAL | `PhoneCallSkillFactory.kt`, `ContactMatching.kt`; `PhoneCallSkillFactoryTest`, `ContactMatchingTest` | "मम्मी को कॉल करो" (Devanagari) reaches the Brain → **P6** |
+| Call a contact or number, with per-call confirmation of the resolved number | PARTIAL | `PhoneCallSkillFactory.kt`, `ContactMatching.kt`; `PhoneCallSkillFactoryTest`, `ContactMatchingTest` | Devanagari ("मम्मी को कॉल करो" → "mummy", "पापा को फोन लगाओ") fixed in P6 (`HinglishDeviceCommandSafetyTest`); real-device run |
 | Hinglish commands: "mummy ko call karo", "home pe jao", "OK button dabao", "screen padho", "alarm laga do", "yaad dilana" | PARTIAL | `HinglishDeviceCommandSafetyTest` (P1) pins these | — |
 | Negation, deferral or a question never opens the call flow ("call mat karo", "baad mein call karna", "call kaise karte hain") | fixed in P1 | `DeviceCommandGate.notACallRequest`; `HinglishDeviceCommandSafetyTest` | — |
-| Open an app in Hindi word order ("WhatsApp kholo", "YouTube chalu karo", "व्हाट्सएप खोलो") | reaches the Brain (no device action) | measured with the P1 probe | **P6** |
-| Turn off spoken notifications in Hinglish ("notification mat bolo") | reaches the Brain | measured with the P1 probe | **P6** |
-| Hinglish call with a two-word name ("Neha Test ko call karo"; "Neha ko call karo" works) | reaches the Brain: the gate looks for "call" only in the first three words | measured with the P1 probe | **P6** |
+| Open an app in Hindi word order ("WhatsApp kholo", "YouTube chalu karo", "व्हाट्सएप खोलो", "chrome kholo na") | fixed in P6 | `DeviceCommandGate.openSubject`; `HinglishDeviceCommandSafetyTest` (with negatives: "whatsapp mat kholo", "whatsapp na kholo", "dukaan kab kholo") | real-device run |
+| Open a kind of app whatever it is called on this phone ("gallery kholo" finds Photos on a Pixel, "camera kholo", "घड़ी खोलो", "contacts kholo") | fixed in P6 | `AppAliases` (roles, Devanagari names), `AndroidAppLauncherPort` (Android's role intents, then launcher labels); `AppAliasesTest`; emulator `AppAutomationTest` checks the app really in front | real-device run |
+| Open the Settings app ("open settings", "settings kholo", "सेटिंग्स खोलो"); Wi-Fi and location screens ("wifi on karo", "location chalu karo") | fixed in P6 (Settings itself could not be opened before) | `SettingsPanel.MAIN`; `HinglishDeviceCommandSafetyTest`; emulator `AppAutomationTest` | — |
+| Turn off spoken notifications in Hinglish ("notification mat bolo") | fixed in P6 | `HinglishDeviceCommandSafetyTest` | — |
+| Hinglish call with a two-word name ("Neha Test ko call karo", "mummy ko phone lagao", "Rahul ko call kar de") | fixed in P6 | `DeviceCommandGate.callSubject`; `HinglishDeviceCommandSafetyTest` | — |
+| Brain → device handoff: a request the phone's words do not cover ("show me my gallery") is answered by running a phone action, not by manual steps | fixed in P6 | `backend/src/capabilities/deviceActions.ts`, `AndroidOrchestrator.runDeviceAction`; `deviceActionHandoff.test.ts`, `AndroidOrchestratorDeviceActionTest`, emulator `AppAutomationTest` | real-device run with a live model |
 | Global actions (home, back, recents, notifications, lock) with read-back verification | PARTIAL | `ZarvisAccessibilityService.kt` `performGlobal`; `SpecialAccessSkillsTest` | device verification |
 | Read the screen as text; tap one uniquely labelled button and check that the screen changed | PARTIAL | `AndroidScreenAccessPort.readScreen`, `tap` (password nodes skipped, sensitive apps refused) | multi-step flows → **P6** |
 | Brain plans a device action and the phone runs it | not built (the Brain only *describes* device skills) | `deviceCapabilitiesForPrompt` in `backend/src/capabilities/registry.ts` | **P6** |
@@ -197,6 +200,10 @@ COMPLETED; another account gets 404; nothing runs without a user press; process 
 **Depends on:** Phase 1; Phase 6 benefits from it.
 
 ### Phase 6: Android phone agent (blueprint Phase 11)
+
+**Status:** the first two items are done (routing corpus with negatives in `HinglishDeviceCommandSafetyTest`; the handoff in
+`backend/src/capabilities/deviceActions.ts` → `deviceAction` → `AndroidOrchestrator.runDeviceAction` →
+`POST /api/v1/orchestrator/device-result`). Multi-step accessibility flows and share-intent messaging are not started.
 
 - Hindi word order and Devanagari in `DeviceCommandGate`/`KeywordSkillMatcher`: "WhatsApp kholo", "YouTube chalu
   karo", "मम्मी को कॉल करो", "व्हाट्सएप खोलो", "notification mat bolo". Every new phrase comes with a negative case.

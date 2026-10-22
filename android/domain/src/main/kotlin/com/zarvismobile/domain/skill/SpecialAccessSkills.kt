@@ -185,7 +185,7 @@ object SpecialAccessSkills {
         capabilities = listOf(
             "stop speaking notifications", "stop speaking my notifications", "turn off spoken notifications",
             "don't speak notifications", "dont speak notifications", "stop announcing notifications",
-            "notifications mat bolo", "notification band karo", "नोटिफिकेशन मत बोलो",
+            "notifications mat bolo", "notification mat bolo", "notification band karo", "नोटिफिकेशन मत बोलो", "नोटिफिकेशन बंद करो",
         ),
         capabilityId = "notification_speak",
         risk = RiskLevel.LOW,

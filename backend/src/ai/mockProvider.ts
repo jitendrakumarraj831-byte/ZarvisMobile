@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AIProvider, AIRequest, AIResponse, AIResponseChunk, ToolDefinition } from "./provider.js";
+import { findDeviceAction } from "../capabilities/deviceActions.js";
 
 /**
  * Deterministic, zero-credential default provider — see AI_ARCHITECTURE.md "Provider
@@ -27,7 +28,7 @@ export class MockAIProvider implements AIProvider {
       };
     }
 
-    const input = fillInput(tool, utterance);
+    const input = findDeviceAction(tool.name) ? fillDeviceInput(tool.name, utterance) : fillInput(tool, utterance);
     return {
       message: { role: "assistant", content: "" },
       toolCalls: [{ id: randomUUID(), skillId: tool.name, input }],
@@ -50,11 +51,15 @@ function lastUserMessage(request: AIRequest): string {
 }
 
 function selectTool(utterance: string, tools: ToolDefinition[]): ToolDefinition | undefined {
-  const normalized = utterance.toLowerCase();
+  const normalized = utterance.toLowerCase() + " ";
   let best: { tool: ToolDefinition; score: number } | undefined;
   for (const tool of tools) {
-    const words = tool.description.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-    const score = words.filter((word) => normalized.includes(word)).length;
+    // A phone action is chosen by its own hint words, not its long description, so ordinary chat does not turn into a
+    // phone action in development (a real model reads the description).
+    const device = findDeviceAction(tool.name);
+    const score = device
+      ? device.mockHints.filter((hint) => normalized.includes(hint)).length * 2
+      : tool.description.toLowerCase().split(/\W+/).filter((w) => w.length > 3).filter((word) => normalized.includes(word)).length;
     if (score > 0 && (!best || score > best.score)) {
       best = { tool, score };
     }
@@ -130,4 +135,49 @@ function fillInput(tool: ToolDefinition, utterance: string): Record<string, unkn
 function estimateTokens(request: AIRequest): number {
   const chars = request.systemPrompt.length + request.messages.reduce((sum, m) => sum + m.content.length, 0);
   return Math.ceil(chars / 4);
+}
+
+/** Apps the mock recognises by name for phone.open_app (the phone resolves the name itself). */
+const MOCK_APPS = ["play store", "gallery", "camera", "whatsapp", "youtube", "chrome", "calculator", "calendar", "contacts", "clock", "maps", "messages", "files", "photos"];
+
+/** Words around an app or a person's name in a command, in English and Hinglish. */
+const COMMAND_WORDS = new Set([
+  "open", "launch", "start", "kholo", "khol", "do", "chalu", "karo", "kar", "please", "the", "my", "app", "me", "show",
+  "call", "dial", "phone", "lagao", "laga", "ko", "number", "ka", "ki", "of", "find", "contact", "batao", "dikhao", "a", "to",
+]);
+
+/** Input for a phone action from the utterance, named heuristics like fillInput's (development only). */
+function fillDeviceInput(skillId: string, utterance: string): Record<string, unknown> {
+  const lower = utterance.toLowerCase();
+  const rest = () => lower.split(/[^\p{L}\p{N}+]+/u).filter((word) => word && !COMMAND_WORDS.has(word)).join(" ");
+  switch (skillId) {
+    case "phone.open_app": {
+      const known = MOCK_APPS.find((app) => lower.includes(app));
+      return { appName: known ?? rest() };
+    }
+    case "phone.call":
+      return { target: rest() };
+    case "phone.find_contact":
+      return { name: rest() };
+    case "device.open_settings":
+      return { panel: /wi-?fi/.test(lower) ? "WIFI" : lower.includes("bluetooth") ? "BLUETOOTH" : /location|gps/.test(lower) ? "LOCATION" : "MAIN" };
+    case "device.global_action":
+      return {
+        action: lower.includes("lock") ? "LOCK_SCREEN"
+          : lower.includes("quick settings") ? "QUICK_SETTINGS"
+            : lower.includes("recent") ? "RECENTS"
+              : lower.includes("back") || lower.includes("wapas") ? "BACK"
+                : lower.includes("notification") ? "NOTIFICATIONS"
+                  : "HOME",
+      };
+    case "personal.reminder":
+      return /\b(list|show)\b.*\breminders\b/.test(lower) ? { action: "list" } : { action: "create", title: utterance };
+    case "screen.tap":
+      return { label: utterance.replace(/^.*?\btap\s+(?:on\s+|the\s+)?/i, "").trim() || utterance };
+    case "alarm.set":
+    case "calendar.create_event":
+      return { utterance };
+    default:
+      return {};
+  }
 }

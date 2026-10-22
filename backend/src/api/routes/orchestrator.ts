@@ -8,6 +8,7 @@ import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { findAgent } from "../../agents/agentProfiles.js";
+import { DEVICE_RESULT_STATUSES, isDeviceActionId } from "../../capabilities/deviceActions.js";
 
 /**
  * POST /api/v1/orchestrator/turn — one conversation turn (JSON).
@@ -30,6 +31,11 @@ import { findAgent } from "../../agents/agentProfiles.js";
  *
  * An optional `replyLength` (`short`, `balanced` or `detailed`) is the user's answer-length preference; the planner is
  * told it. Any other value is ignored.
+ *
+ * An optional `deviceActions` (ids from capabilities/deviceActions.ts) lists the phone actions the client runs itself.
+ * The planner may then answer with `deviceAction: { toolCallId, skillId, input }` instead of prose: nothing ran on the
+ * server, the client runs it (its own permission and confirmation flow) and reports the outcome to
+ * POST /api/v1/orchestrator/device-result, which records it as the reply in the conversation.
  */
 export function orchestratorRouter(orchestrator: Orchestrator): Router {
   const router = Router();
@@ -74,6 +80,7 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
           ...(result.replayed ? { replayed: true } : {}),
           // Which provider wrote the reply (and whether as a fallback), for the client's label. See TurnResult.ai.
           ...(result.ai ? { ai: result.ai } : {}),
+          ...(result.deviceAction ? { deviceAction: result.deviceAction } : {}),
         });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
@@ -132,6 +139,41 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
     }),
   );
 
+  /**
+   * The result of a phone action the client ran for a `deviceAction` turn, recorded as the assistant's reply so the
+   * conversation (and the next turn's context) says what really happened on the phone. Only into the caller's own
+   * conversation, only for a known phone action, and only the client's plain-language result text.
+   */
+  const deviceResultLimit = rateLimit({ name: "device-result", windowMs: 60 * 1000, max: 60, keyBy: "account" });
+  router.post(
+    "/device-result",
+    requireAuth,
+    deviceResultLimit,
+    asyncHandler<AuthenticatedRequest>(async (req, res) => {
+      const { conversationId, toolCallId, skillId, status, message } = req.body ?? {};
+      if (
+        typeof conversationId !== "string" || !conversationId.trim() || conversationId.length > 100 ||
+        typeof toolCallId !== "string" || !toolCallId.trim() || toolCallId.length > 100 ||
+        !isDeviceActionId(skillId) ||
+        typeof status !== "string" || !DEVICE_RESULT_STATUSES.has(status) ||
+        typeof message !== "string" || !message.trim()
+      ) {
+        res.status(400).json({ error: "conversationId, toolCallId, a known skillId, a result status and a message are required", code: "invalid_request" });
+        return;
+      }
+      const recorded = await orchestrator.recordDeviceResult(req.auth!.accountId, {
+        conversationId: conversationId.trim(),
+        message: message.trim().slice(0, 2000),
+      });
+      if (!recorded) {
+        res.status(404).json({ error: "Conversation not found.", code: "conversation_not_found" });
+        return;
+      }
+      logger.info("Phone action result recorded", { toolCallId: toolCallId.slice(0, 100), skillId, status });
+      res.json({ recorded: true });
+    }),
+  );
+
   return router;
 }
 
@@ -152,7 +194,7 @@ function abortOnClientGone(res: Response): { signal: AbortSignal; dispose(): voi
 const CLIENT_TURN_ID = /^[A-Za-z0-9_-]{8,100}$/;
 
 function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { error: string; code: string } } {
-  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId, projectId, agentId, replyLength } = req.body ?? {};
+  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId, projectId, agentId, replyLength, deviceActions } = req.body ?? {};
   if (typeof utterance !== "string" || utterance.trim().length === 0) {
     return { error: { error: "utterance is required", code: "invalid_request" } };
   }
@@ -180,6 +222,8 @@ function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { e
     conversationId: typeof conversationId === "string" && conversationId.trim() ? conversationId.trim().slice(0, 100) : undefined,
     // A preference: "balanced" (the default) and anything unknown mean the normal length, never an error.
     replyLength: replyLength === "short" || replyLength === "detailed" ? replyLength : undefined,
+    // Only ids the server knows; an unknown one (an older or newer client) is ignored, never an error.
+    deviceActions: Array.isArray(deviceActions) ? [...new Set(deviceActions.filter(isDeviceActionId))] : undefined,
   };
 }
 

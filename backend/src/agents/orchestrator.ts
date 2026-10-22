@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
+import { deviceActionTools, findDeviceAction, sanitizeDeviceInput, type DeviceActionRequest } from "../capabilities/deviceActions.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
 import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
@@ -53,6 +54,11 @@ export interface TurnRequest {
   signal?: AbortSignal;
   /** How long the user wants replies to be (the client's "Answer length" setting). Absent: the model's normal length. */
   replyLength?: ReplyLength;
+  /**
+   * The phone actions the client can run itself (ids from capabilities/deviceActions.ts; the Android app sends the ones
+   * it implements). The planner may hand one of them to the phone instead of describing manual steps; see TurnResult.deviceAction.
+   */
+  deviceActions?: string[];
 }
 
 /** "Balanced" is the default and needs no instruction, so it is not a value here. */
@@ -84,6 +90,13 @@ export interface TurnResult {
   turnId: string;
   /** True when this is the stored result of an already-completed turn: nothing was executed. */
   replayed?: boolean;
+  /**
+   * The planner handed a phone action to the client (one it listed in TurnRequest.deviceActions). Nothing ran on the
+   * server: the phone runs it through its own permission and confirmation flow and reports the real result to
+   * POST /api/v1/orchestrator/device-result, which records it as the reply. `message` is then only what the model said
+   * alongside (often empty).
+   */
+  deviceAction?: DeviceActionRequest;
   /**
    * Which AI provider wrote `message`, for the client's "answered by" label: its id (`groq`, `openrouter`,
    * `google`, `openai`) and whether it answered because the provider before it was unavailable (rate limited,
@@ -384,6 +397,11 @@ export class Orchestrator {
         description: skill.description,
         inputSchema: skill.inputSchema,
       }));
+    // The phone's own actions, when the client runs them (the Android app). Not with an agent: an agent's planner sees
+    // only that agent's skills.
+    const deviceTools = agent ? [] : deviceActionTools(request.deviceActions);
+    tools.push(...deviceTools);
+    const offeredDeviceActions = new Set(deviceTools.map((tool) => tool.name));
 
     /** Only a skill that was offered this turn may run: a model can name any skill, and an unlisted one must not execute. */
     const offeredSkills = new Set(tools.map((tool) => tool.name));
@@ -429,7 +447,11 @@ export class Orchestrator {
         aiResponse = await this.provider.generate({
           modelCallId: randomUUID(),
           purpose: "planner",
-          systemPrompt: buildSystemPrompt(request, step, results.length > 0, { context: turnContext, agentFocus: agent?.focus }),
+          systemPrompt: buildSystemPrompt(request, step, results.length > 0, {
+            context: turnContext,
+            agentFocus: agent?.focus,
+            phoneActionsOffered: offeredDeviceActions.size > 0,
+          }),
           messages,
           tools,
           modelConfig: this.modelConfig,
@@ -479,6 +501,26 @@ export class Orchestrator {
           });
           executedAny = true;
           continue;
+        }
+        // A phone action ends the turn here: the server never runs it. The phone does, through its own permission and
+        // confirmation flow, and reports the real result (POST /device-result), which becomes the reply.
+        if (offeredDeviceActions.has(call.skillId)) {
+          const action = findDeviceAction(call.skillId)!;
+          const deviceAction: DeviceActionRequest = {
+            toolCallId: randomUUID(),
+            skillId: call.skillId,
+            input: sanitizeDeviceInput(action, call.input),
+          };
+          stats.toolCalls.push({ toolCallId: deviceAction.toolCallId, skillId: call.skillId, chargedCredits: 0 });
+          onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: deviceAction.toolCallId, inputPreview: previewInput(deviceAction.input) });
+          logger.info("Phone action handed to the client", { turnId, skillId: call.skillId, toolCallId: deviceAction.toolCallId });
+          return {
+            message: aiResponse.message.content?.trim() ?? "",
+            toolCalls: results,
+            conversationId: activeConversation.id,
+            turnId,
+            deviceAction,
+          };
         }
         // Prevent accidental duplicate execution of the exact same request inside one run.
         // A later step may still call the same skill with different arguments.
@@ -582,6 +624,17 @@ export class Orchestrator {
     return { message: fallback, toolCalls: results, conversationId: activeConversation.id, turnId };
   }
 
+  /**
+   * Records what the phone reported for a phone action it ran (TurnResult.deviceAction) as the assistant's reply in that
+   * conversation. Only the account's own conversation; false when it has no such conversation.
+   */
+  async recordDeviceResult(accountId: string, report: { conversationId: string; message: string }): Promise<boolean> {
+    const conversation = await this.store.getConversation(accountId, report.conversationId);
+    if (!conversation) return false;
+    await this.persistAssistantMessage(conversation.id, report.message);
+    return true;
+  }
+
   private async persistAssistantMessage(conversationId: string, message: string): Promise<void> {
     await this.store.appendConversationMessages([{
       id: randomUUID(),
@@ -640,7 +693,7 @@ export function buildSystemPrompt(
   request: TurnRequest,
   step: number,
   hasExecutedTools: boolean,
-  extra: { context?: TurnContextText; agentFocus?: string } = {},
+  extra: { context?: TurnContextText; agentFocus?: string; phoneActionsOffered?: boolean } = {},
 ): string {
   const replyLanguage = detectReplyLanguage(request.utterance, request.locale);
   let prompt =
@@ -657,7 +710,7 @@ export function buildSystemPrompt(
     "natural mix. Do not switch languages just because the browser locale is English.";
 
   prompt += " " + creatorIdentityForPrompt();
-  prompt += " " + deviceCapabilitiesForPrompt();
+  prompt += " " + deviceCapabilitiesForPrompt(extra.phoneActionsOffered === true);
 
   prompt +=
     ` Respond in ${replyLanguage === "hi" ? "Hindi/Hinglish" : "English"} based on the current user message. ` +

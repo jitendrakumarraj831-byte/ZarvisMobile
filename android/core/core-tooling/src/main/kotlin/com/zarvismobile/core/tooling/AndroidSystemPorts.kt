@@ -39,6 +39,7 @@ private fun Context.startOrFalse(intent: Intent): Boolean = try {
 class AndroidSystemSettingsPort(private val context: Context) : SystemSettingsPort {
     override suspend fun open(panel: SettingsPanel): Boolean = withContext(Dispatchers.Main) {
         val intent = when (panel) {
+            SettingsPanel.MAIN -> Intent(Settings.ACTION_SETTINGS)
             SettingsPanel.BLUETOOTH -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
             SettingsPanel.WIFI -> Intent(Settings.ACTION_WIFI_SETTINGS)
             SettingsPanel.LOCATION -> Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)

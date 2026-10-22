@@ -319,7 +319,7 @@ if [ "$DEVICE" != 1 ] && [ -z "$DEVICE_LOST" ]; then
   ( while true; do timeout -k 2 10 adb emu geo fix 87.2677 26.2987 >/dev/null 2>&1; sleep 3; done ) &
   GEO_PID=$!
 fi
-run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest"
+run_classes D "$APP.SpecialAccessTest,$APP.DeviceCapabilityTest,$APP.AppAutomationTest"
 # E: the Settings UI in a fresh process, independent of D's accessibility-service toggling.
 run_classes E "$APP.SettingsUiTest"
 # F: one user turn = one execution across Activity recreation, rotation and background; and the Chat screen follows the one active conversation

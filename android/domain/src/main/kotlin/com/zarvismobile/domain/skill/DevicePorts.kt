@@ -62,7 +62,8 @@ fun interface LocationPort {
     suspend fun currentCoarseLocation(): LocationResult
 }
 
-enum class SettingsPanel { BLUETOOTH, WIFI, LOCATION, APP_NOTIFICATIONS, APP_DETAILS }
+/** [MAIN] is the Settings app itself ("open settings", "settings kholo"). */
+enum class SettingsPanel { MAIN, BLUETOOTH, WIFI, LOCATION, APP_NOTIFICATIONS, APP_DETAILS }
 
 /** Opens a system settings screen; true if Android accepted the intent. */
 fun interface SystemSettingsPort {

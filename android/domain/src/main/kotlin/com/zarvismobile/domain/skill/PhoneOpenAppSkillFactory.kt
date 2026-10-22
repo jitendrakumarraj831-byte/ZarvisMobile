@@ -23,9 +23,9 @@ object PhoneOpenAppSkillFactory {
     fun create(launcher: AppLauncherPort): SkillDefinition = SkillDefinition(
         id = "phone.open_app",
         name = "Open App",
-        description = "Open another app on the phone, e.g. \"open WhatsApp\" or \"khol do Chrome\".",
+        description = "Open another app on the phone, e.g. \"open WhatsApp\", \"WhatsApp kholo\", \"gallery kholo\" or \"व्हाट्सएप खोलो\".",
         category = SkillCategory.PHONE,
-        capabilities = listOf("open", "launch", "khol", "kholo", "chalu kar"),
+        capabilities = listOf("open", "launch", "khol", "kholo", "chalu", "chalao", "खोलो", "खोल", "चालू", "चलाओ"),
         requiredPermissions = emptyList(),
         requiredEntitlement = EntitlementLevel.FREE,
         usageCost = UsageCost.FREE,

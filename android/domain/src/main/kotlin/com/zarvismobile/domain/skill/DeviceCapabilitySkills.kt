@@ -190,16 +190,17 @@ object DeviceCapabilitySkills {
     fun openSystemSettings(settings: SystemSettingsPort) = base(
         id = "device.open_settings",
         name = "System settings",
-        description = "Open a supported system settings screen (Wi-Fi, location), e.g. \"open wifi settings\".",
-        capabilities = listOf("wifi", "wi-fi", "location settings", "gps settings"),
+        description = "Open the Settings app or its Wi-Fi or location screen, e.g. \"open settings\", \"settings kholo\" or \"open wifi settings\".",
+        capabilities = listOf("wifi", "wi-fi", "location", "gps", "settings", "setting", "सेटिंग्स", "सेटिंग", "वाईफाई", "लोकेशन"),
         capabilityId = null,
         risk = RiskLevel.LOW,
         actionClass = ActionClass.LOW_IMPACT,
         required = setOf("panel"),
         handler = SkillHandler { input, _ ->
             val panel = runCatching { SettingsPanel.valueOf((input.values["panel"] as? String).orEmpty()) }.getOrNull()
-                ?: return@SkillHandler SkillResult.Failure("unsupported_panel", "I can open Wi-Fi, Bluetooth or location settings.")
-            handOff(settings.open(panel), panel.name.lowercase().replace('_', ' ').replace("wifi", "Wi-Fi") + " settings")
+                ?: return@SkillHandler SkillResult.Failure("unsupported_panel", "I can open Settings, or its Wi-Fi, Bluetooth or location screen.")
+            val what = if (panel == SettingsPanel.MAIN) "Settings" else panel.name.lowercase().replace('_', ' ').replace("wifi", "Wi-Fi") + " settings"
+            handOff(settings.open(panel), what)
         },
     )
 
