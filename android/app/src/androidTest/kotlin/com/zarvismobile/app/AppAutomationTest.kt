@@ -56,8 +56,12 @@ class AppAutomationTest {
     }
 
     /** Apps that answer an intent, asked as the shell (the app's own query is filtered by package visibility). */
-    private fun handlers(action: String, category: String = "android.intent.category.DEFAULT"): List<String> {
-        val out = shell("cmd package query-activities -a $action -c $category" + if (category != "android.intent.category.DEFAULT") " -c android.intent.category.DEFAULT" else "")
+    private fun handlers(action: String, category: String = "android.intent.category.DEFAULT", data: String? = null): List<String> {
+        val out = shell(
+            "cmd package query-activities -a $action -c $category" +
+                (if (category != "android.intent.category.DEFAULT") " -c android.intent.category.DEFAULT" else "") +
+                (data?.let { " -d $it" } ?: ""),
+        )
         return Regex("""packageName=([A-Za-z0-9_.]+)""").findAll(out).map { it.groupValues[1] }.distinct().toList()
     }
 
@@ -86,7 +90,13 @@ class AppAutomationTest {
      * "Open a kind of app": a success must have put a matching app in front ([roleApps], or any real app when this image has none for
      * the role and one was found by its name); a failure must be the honest "couldn't find", and only when no app answers the role.
      */
-    private fun opensKindOfApp(utterance: String, label: String, roleApps: List<String>, expectedStatus: ToolResultStatus = ToolResultStatus.COMPLETED) {
+    private fun opensKindOfApp(
+        utterance: String,
+        label: String,
+        roleApps: List<String>,
+        expectedStatus: ToolResultStatus = ToolResultStatus.COMPLETED,
+        honestFailure: String = "couldn't find",
+    ): TurnOutcome {
         ui.pressHome()
         val outcome = turn(utterance)
         when (outcome.result?.status) {
@@ -100,13 +110,25 @@ class AppAutomationTest {
             }
             ToolResultStatus.FAILED -> {
                 assertTrue("\"$utterance\" failed although $roleApps answer the role: ${outcome.message}", roleApps.isEmpty())
-                assertTrue(outcome.message, outcome.message.contains("couldn't find"))
+                assertTrue(outcome.message, outcome.message.contains(honestFailure))
                 evidence("$label: \"$utterance\" -> FAILED honestly, no such app on this image: ${outcome.message}")
                 ui.pressHome()
             }
             else -> throw AssertionError("\"$utterance\" -> ${outcome.result?.status}: ${outcome.message}")
         }
+        return outcome
     }
+
+    /** The app makes (or keeps) its guest session on start; its first screen (onboarding or the tabs) shows once it has one. */
+    private fun startAppAndNewChat() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            Device.waitFor(By.pkg(APP).text(Pattern.compile("Skip|Chat")), 30_000) ?: error("the app did not start")
+        }
+        runBlocking { entry.orchestrator().startNewConversation() }
+    }
+
+    private fun history(): List<Pair<String, String>> =
+        runBlocking { entry.orchestrator().restoreConversation() }.messages.map { it.role to it.content }
 
     @Test
     fun a_settingsKholoOpensTheSettingsApp() {
@@ -161,11 +183,7 @@ class AppAutomationTest {
      */
     @Test
     fun e_theBrainHandsAGalleryRequestToThePhoneAndTheRealResultIsRecorded() {
-        // The app makes (or keeps) its guest session on start; its first screen (onboarding or the tabs) shows once it has one.
-        ActivityScenario.launch(MainActivity::class.java).use {
-            Device.waitFor(By.pkg(APP).text(Pattern.compile("Skip|Chat")), 30_000) ?: error("the app did not start")
-        }
-        runBlocking { entry.orchestrator().startNewConversation() }
+        startAppAndNewChat()
 
         val galleries = handlers("android.intent.action.MAIN", "android.intent.category.APP_GALLERY")
         opensKindOfApp("show me my gallery", "gallery via the Brain", galleries)
@@ -177,5 +195,49 @@ class AppAutomationTest {
         assertEquals("assistant", history[1].first)
         assertTrue("the reply is the phone's result: ${history[1].second}", history[1].second.startsWith("Opening ") || history[1].second.contains("couldn't find"))
         evidence("Brain handoff: conversation ${restored.conversation.id} recorded ${history[1]}")
+    }
+
+    /** Said with the app named, on the phone itself: the app (or a browser at its web address) opens at the results. */
+    @Test
+    fun f_aSearchInANamedAppOpensItsResults() {
+        opensKindOfApp("youtube pe arijit songs search karo", "search", emptyList(), honestFailure = "Nothing on this phone")
+        opensKindOfApp("airport ka rasta dikhao", "directions", emptyList(), ToolResultStatus.USER_ACTION_REQUIRED, honestFailure = "Nothing on this phone")
+    }
+
+    /**
+     * A message is only ever a draft: the Brain hands message.draft to the phone, the SMS app opens with the text and the number
+     * filled in, and it waits there for the user to press Send. Nothing is sent by ZARVIS (this test never presses Send either).
+     */
+    @Test
+    fun g_aMessageIsADraftTheUserSends() {
+        startAppAndNewChat()
+        val smsApps = handlers("android.intent.action.SENDTO", data = "smsto:5551234")
+        val outcome = opensKindOfApp("send hi to 5551234", "message draft", smsApps, ToolResultStatus.USER_ACTION_REQUIRED, honestFailure = "no SMS app")
+        if (outcome.result?.status == ToolResultStatus.USER_ACTION_REQUIRED) {
+            assertTrue(outcome.message, outcome.message.contains("Press Send"))
+            assertEquals(listOf("user" to "send hi to 5551234", "assistant" to outcome.message), history())
+        }
+    }
+
+    /**
+     * A request with two phone steps, through the Brain: the first step runs, the Brain plans the second from what is left, and the
+     * second runs. The conversation holds the request and each step's real result, nothing else.
+     */
+    @Test
+    fun h_aMultiStepRequestRunsOneStepAfterTheOther() {
+        startAppAndNewChat()
+        ui.pressHome()
+        val utterance = "show me the clock app and then show me the settings"
+        val outcome = turn(utterance)
+        val steps = outcome.message.lines()
+        assertEquals(outcome.message, 2, steps.size)
+        assertEquals(outcome.message, ToolResultStatus.USER_ACTION_REQUIRED, outcome.result?.status)
+        val settingsApps = handlers(Settings.ACTION_SETTINGS)
+        val front = frontApp { it in settingsApps }
+        assertTrue("the second step opened Settings; front=${ui.currentPackageName}", front != null)
+        assertEquals(listOf("user" to utterance, "assistant" to steps[0], "assistant" to steps[1]), history())
+        evidence("multi-step: \"$utterance\" -> ${steps.joinToString(" | ")}; in front: $front")
+        handlers(AlarmClock.ACTION_SHOW_ALARMS).forEach { shell("am force-stop $it") }
+        leave(front)
     }
 }

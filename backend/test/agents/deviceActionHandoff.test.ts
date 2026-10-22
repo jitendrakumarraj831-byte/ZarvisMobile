@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildSystemPrompt, type TurnRequest } from "../../src/agents/orchestrator.js";
 import type { AIProvider, AIRequest, AIResponse } from "../../src/ai/provider.js";
 import type { ModelGateway } from "../../src/ai/modelGateway.js";
-import { DEVICE_ACTIONS, deviceActionTools, sanitizeDeviceInput } from "../../src/capabilities/deviceActions.js";
+import { DEVICE_ACTIONS, deviceActionTools, MAX_PHONE_STEPS, NOT_SUPPORTED_ON_PHONE, sanitizeDeviceInput } from "../../src/capabilities/deviceActions.js";
 import { deviceCapabilitiesForPrompt } from "../../src/capabilities/registry.js";
 import { buildContainer } from "../../src/container.js";
 import { MockGitHubClient } from "../../src/github/githubClient.js";
@@ -72,6 +72,29 @@ describe("the phone actions catalogue", () => {
     expect(required["screen.tap"]).toEqual(["label"]);
   });
 
+  it("says how each action reaches the app it uses, and drafts are the only way to a message", () => {
+    const route = Object.fromEntries(DEVICE_ACTIONS.map((action) => [action.id, action.route]));
+    expect(route["message.draft"]).toBe("SHARE_FLOW_AVAILABLE");
+    expect(route["phone.open_app"]).toBe("INTENT_AVAILABLE");
+    expect(route["app.search"]).toBe("INTENT_AVAILABLE");
+    expect(route["device.open_settings"]).toBe("SYSTEM_FLOW_AVAILABLE");
+    for (const id of ["screen.tap", "screen.read", "device.global_action"]) expect(route[id]).toBe("ACCESSIBILITY_ALLOWED_AND_SUPPORTED");
+    for (const action of DEVICE_ACTIONS) expect(action.route, action.id).toBeTruthy();
+    const draft = DEVICE_ACTIONS.find((action) => action.id === "message.draft")!;
+    expect(draft.description).toContain("never sends");
+    expect(draft.inputSchema.requiredFields).toEqual(["text"]);
+    expect(DEVICE_ACTIONS.find((action) => action.id === "app.search")!.inputSchema.requiredFields).toEqual(["query"]);
+  });
+
+  it("lets every phone action carry the rest of a multi-step request, outside its input", () => {
+    for (const tool of deviceActionTools(["phone.open_app", "screen.tap"])) {
+      expect(tool.inputSchema.properties).toHaveProperty("then", "string");
+      expect(tool.description).toContain("Optional then");
+    }
+    const open = DEVICE_ACTIONS.find((action) => action.id === "phone.open_app")!;
+    expect(sanitizeDeviceInput(open, { appName: "WhatsApp", then: "tap Rahul" })).toEqual({ appName: "WhatsApp" });
+  });
+
   it("passes on only the declared fields, as trimmed strings", () => {
     const call = DEVICE_ACTIONS.find((action) => action.id === "phone.call")!;
     expect(sanitizeDeviceInput(call, { target: 9876543210, confirmed: true, extra: "x" })).toEqual({ target: "9876543210" });
@@ -88,6 +111,13 @@ describe("the planner is told to act on the phone, not to explain", () => {
     expect(prompt).toContain(deviceCapabilitiesForPrompt(true));
     expect(prompt).toContain("instead of explaining manual steps");
     expect(prompt).not.toContain(deviceCapabilitiesForPrompt(false));
+  });
+
+  it("with phone actions, it plans step by step, only drafts messages, and names what the phone cannot do", () => {
+    const prompt = buildSystemPrompt(base, 0, false, { phoneActionsOffered: true });
+    expect(prompt).toContain("put the rest in its `then`");
+    expect(prompt).toContain("ZARVIS never sends anything itself");
+    for (const item of NOT_SUPPORTED_ON_PHONE) expect(prompt).toContain(item);
   });
 
   it("without them (the web), it still never claims a phone action", () => {
@@ -109,6 +139,12 @@ describe("a turn that hands a phone action to the client", () => {
     // The phone reports the real outcome; nothing is stored as the answer before that.
     const messages = await store.listConversationMessages(account.id, result.conversationId, 10);
     expect(messages.map((message) => message.role)).toEqual(["user"]);
+  });
+
+  it("hands over the first step of a multi-step request with the rest of it", async () => {
+    const { result } = await turn({ deviceActions: PHONE }, [{ skillId: "phone.open_app", input: { appName: "WhatsApp", then: "  open the chat with Rahul  " } }]);
+    expect(result.deviceAction).toMatchObject({ skillId: "phone.open_app", input: { appName: "WhatsApp" }, then: "open the chat with Rahul" });
+    expect(result.deviceAction!.input).not.toHaveProperty("then");
   });
 
   it("does not offer phone actions the client did not list", async () => {
@@ -165,6 +201,75 @@ describe("POST /api/v1/orchestrator/turn and /device-result", () => {
       .send({ utterance: "Write a short product description", deviceActions: DEVICE_ACTIONS.map((action) => action.id) });
     expect(res.status).toBe(200);
     expect(res.body.deviceAction).toBeUndefined();
+  });
+
+  async function report(server: Parameters<typeof request>[0], auth: string, body: Record<string, unknown>) {
+    return request(server).post("/api/v1/orchestrator/device-result").set("Authorization", auth).send(body);
+  }
+
+  it("runs a multi-step request one phone step at a time, and records only the real results", async () => {
+    const { server, auth } = await app();
+    const actions = ["phone.open_app", "device.open_settings"];
+    const first = await request(server).post("/api/v1/orchestrator/turn").set("Authorization", auth)
+      .send({ utterance: "open the clock app and then open settings", deviceActions: actions });
+    expect(first.body.deviceAction).toMatchObject({ skillId: "phone.open_app", input: { appName: "clock" }, then: "open settings" });
+    const conversationId = first.body.conversationId as string;
+
+    const second = await report(server, auth, {
+      conversationId, toolCallId: first.body.deviceAction.toolCallId, skillId: "phone.open_app", status: "COMPLETED", message: "Opening Clock.",
+      continueWith: first.body.deviceAction.then, step: 1, deviceActions: actions,
+    });
+    expect(second.status).toBe(200);
+    expect(second.body.recorded).toBe(true);
+    expect(second.body.next.conversationId).toBe(conversationId);
+    expect(second.body.next.deviceAction).toMatchObject({ skillId: "device.open_settings", input: { panel: "MAIN" } });
+    expect(second.body.next.deviceAction.then).toBeUndefined();
+
+    const last = await report(server, auth, {
+      conversationId, toolCallId: second.body.next.deviceAction.toolCallId, skillId: "device.open_settings", status: "USER_ACTION_REQUIRED",
+      message: "I opened Settings.",
+    });
+    expect(last.body).toEqual({ recorded: true });
+    const history = await request(server).get(`/api/v1/conversations/${conversationId}/messages`).set("Authorization", auth);
+    // The planner's step instructions are never stored as something the user said.
+    expect(history.body.messages.map((message: { role: string; content: string }) => [message.role, message.content])).toEqual([
+      ["user", "open the clock app and then open settings"],
+      ["assistant", "Opening Clock."],
+      ["assistant", "I opened Settings."],
+    ]);
+  });
+
+  it("ends a multi-step request with the planner's reply when nothing is left", async () => {
+    const { server, auth } = await app();
+    const first = await request(server).post("/api/v1/orchestrator/turn").set("Authorization", auth).send({ utterance: "show me my gallery", deviceActions: PHONE });
+    const done = await report(server, auth, {
+      conversationId: first.body.conversationId, toolCallId: "t-1", skillId: "phone.open_app", status: "COMPLETED", message: "Opening Photos.",
+      continueWith: "nothing left", step: 1, deviceActions: PHONE,
+    });
+    expect(done.body.next.deviceAction).toBeUndefined();
+    expect(done.body.next.message).toBe("That's done on your phone.");
+    const history = await request(server).get(`/api/v1/conversations/${first.body.conversationId}/messages`).set("Authorization", auth);
+    expect(history.body.messages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant", "assistant"]);
+  });
+
+  it("never continues after a declined or failed step, nor past the step limit, nor in someone else's conversation", async () => {
+    const { server, auth } = await app();
+    const other = await app();
+    const first = await request(server).post("/api/v1/orchestrator/turn").set("Authorization", auth).send({ utterance: "show me my gallery", deviceActions: PHONE });
+    const body = {
+      conversationId: first.body.conversationId, toolCallId: "t-1", skillId: "phone.open_app", status: "COMPLETED", message: "Opening Photos.",
+      continueWith: "open settings", step: 1, deviceActions: PHONE,
+    };
+    for (const status of ["DENIED", "FAILED", "PERMISSION_REQUIRED"]) {
+      const res = await report(server, auth, { ...body, status, message: "Nothing was done." });
+      expect(res.body.recorded).toBe(true);
+      expect(res.body.next).toBeUndefined();
+      expect(res.body.stopped).toBeTruthy();
+    }
+    const limit = await report(server, auth, { ...body, step: MAX_PHONE_STEPS });
+    expect(limit.body.next).toBeUndefined();
+    expect(limit.body.stopped).toContain(String(MAX_PHONE_STEPS));
+    expect((await report(other.server, other.auth, body)).status).toBe(404);
   });
 
   it("records a result only in the caller's own conversation, for a known action, with a real status and text", async () => {

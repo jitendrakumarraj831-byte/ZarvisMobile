@@ -33,6 +33,7 @@ object OnDeviceInputBuilder {
         "phone.call" -> SkillInput(mapOf("target" to subject(utterance, skill)))
         "device.global_action" -> SkillInput(mapOf("action" to (SpecialAccessSkills.parseGlobalAction(utterance) ?: "")))
         "screen.tap" -> SkillInput(mapOf("label" to (SpecialAccessSkills.parseTapLabel(utterance) ?: "")))
+        "app.search" -> SkillInput(SearchCommandParser.parse(utterance)?.let { mapOf("query" to it.query, "app" to it.app) } ?: mapOf("query" to ""))
         else -> SkillInput(mapOf("utterance" to utterance))
     }
 

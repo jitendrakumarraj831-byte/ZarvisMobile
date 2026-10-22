@@ -8,7 +8,7 @@ import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { findAgent } from "../../agents/agentProfiles.js";
-import { DEVICE_RESULT_STATUSES, isDeviceActionId } from "../../capabilities/deviceActions.js";
+import { continuationNote, DEVICE_RESULT_STATUSES, isDeviceActionId, MAX_PHONE_STEPS } from "../../capabilities/deviceActions.js";
 
 /**
  * POST /api/v1/orchestrator/turn — one conversation turn (JSON).
@@ -36,6 +36,11 @@ import { DEVICE_RESULT_STATUSES, isDeviceActionId } from "../../capabilities/dev
  * The planner may then answer with `deviceAction: { toolCallId, skillId, input }` instead of prose: nothing ran on the
  * server, the client runs it (its own permission and confirmation flow) and reports the outcome to
  * POST /api/v1/orchestrator/device-result, which records it as the reply in the conversation.
+ *
+ * A multi-step phone request ("open WhatsApp and then Rahul's chat") comes back one step at a time: the deviceAction carries
+ * `then`, the rest of the request. After that step succeeds the client reports it with `continueWith` (that text), `step` (how
+ * many steps have run) and its `deviceActions`, and the response carries `next`, the following turn (another deviceAction, or
+ * the final reply). At most MAX_PHONE_STEPS steps; a step the user declined or that failed is never continued.
  */
 export function orchestratorRouter(orchestrator: Orchestrator): Router {
   const router = Router();
@@ -149,8 +154,10 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
     "/device-result",
     requireAuth,
     deviceResultLimit,
+    // Continuing plans another step with the model, so it counts against the same budget as a turn.
+    (req, res, next) => (req.body?.continueWith ? turnLimit(req, res, next) : next()),
     asyncHandler<AuthenticatedRequest>(async (req, res) => {
-      const { conversationId, toolCallId, skillId, status, message } = req.body ?? {};
+      const { conversationId, toolCallId, skillId, status, message, continueWith, step, deviceActions, locale } = req.body ?? {};
       if (
         typeof conversationId !== "string" || !conversationId.trim() || conversationId.length > 100 ||
         typeof toolCallId !== "string" || !toolCallId.trim() || toolCallId.length > 100 ||
@@ -170,7 +177,41 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
         return;
       }
       logger.info("Phone action result recorded", { toolCallId: toolCallId.slice(0, 100), skillId, status });
-      res.json({ recorded: true });
+      const then = typeof continueWith === "string" ? continueWith.trim().slice(0, 300) : "";
+      if (!then) {
+        res.json({ recorded: true });
+        return;
+      }
+      // Only after a step that did what it should; a declined, refused or failed step ends the request where it is.
+      if (status !== "COMPLETED" && status !== "USER_ACTION_REQUIRED") {
+        res.json({ recorded: true, stopped: "The last step did not finish, so the rest was not done." });
+        return;
+      }
+      const stepsDone = Number.isInteger(step) && step >= 1 ? step : 1;
+      if (stepsDone >= MAX_PHONE_STEPS) {
+        res.json({ recorded: true, stopped: `I stopped after ${MAX_PHONE_STEPS} phone steps. Ask again for what is left.` });
+        return;
+      }
+      try {
+        const next = await runWithCorrelation(correlationOf(req), () =>
+          orchestrator.runTurn({
+            accountId: req.auth!.accountId,
+            conversationId: conversationId.trim(),
+            utterance: continuationNote(stepsDone, status, then),
+            locale: typeof locale === "string" ? locale.slice(0, 16) : undefined,
+            deviceActions: Array.isArray(deviceActions) ? [...new Set(deviceActions.filter(isDeviceActionId))] : undefined,
+            continuation: true,
+          }),
+        );
+        res.json({ recorded: true, next });
+      } catch (err) {
+        if (err instanceof AIProviderError) {
+          logger.warn("Phone request stopped by the AI provider", { ...providerErrorLogFields(err) });
+          res.json({ recorded: true, stopped: providerErrorPayload(err).error });
+          return;
+        }
+        throw err;
+      }
     }),
   );
 

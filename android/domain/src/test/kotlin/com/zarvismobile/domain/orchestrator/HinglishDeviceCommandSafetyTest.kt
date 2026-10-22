@@ -3,7 +3,9 @@ package com.zarvismobile.domain.orchestrator
 import com.zarvismobile.domain.capability.ActionPolicy
 import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.capability.ConfirmationPolicy
+import com.zarvismobile.domain.skill.AppSearchSkillFactory
 import com.zarvismobile.domain.skill.DeviceCapabilitySkills
+import com.zarvismobile.domain.skill.MessageDraftSkillFactory
 import com.zarvismobile.domain.skill.PhoneCallSkillFactory
 import com.zarvismobile.domain.skill.PhoneFindContactSkillFactory
 import com.zarvismobile.domain.skill.PhoneOpenAppSkillFactory
@@ -58,6 +60,8 @@ class HinglishDeviceCommandSafetyTest {
         register(SpecialAccessSkills.readScreen(stub()))
         register(SpecialAccessSkills.tapOnScreen(stub()))
         register(SpecialAccessSkills.assistantSetup(stub()))
+        register(MessageDraftSkillFactory.create(stub(), stub()))
+        register(AppSearchSkillFactory.create(stub()))
     }
     private val matcher = KeywordSkillMatcher(registry)
     private val capabilities = CapabilityRegistry.loadDefault()
@@ -139,6 +143,51 @@ class HinglishDeviceCommandSafetyTest {
             "open quick settings" to "device.global_action",
         )) {
             assertEquals(skill, route(text)?.id, "\"$text\"")
+        }
+    }
+
+    @Test
+    fun `a search in a named app opens that app's results, in Hinglish, English or Devanagari`() {
+        val expected = listOf(
+            "YouTube pe arijit ke gaane search karo" to mapOf("query" to "arijit ke gaane", "app" to "YouTube"),
+            "youtube pe arijit ke gaane chalao" to mapOf("query" to "arijit ke gaane", "app" to "YouTube"),
+            "youtube kholo aur arijit search karo" to mapOf("query" to "arijit", "app" to "YouTube"),
+            "यूट्यूब पर भजन सर्च करो" to mapOf("query" to "भजन", "app" to "YouTube"),
+            "search pizza on the map" to mapOf("query" to "pizza", "app" to "Maps"),
+            "मैप में दिल्ली दिखाओ" to mapOf("query" to "दिल्ली", "app" to "Maps"),
+            "airport ka rasta dikhao" to mapOf("query" to "airport", "app" to "Directions"),
+            "navigate to connaught place" to mapOf("query" to "connaught place", "app" to "Directions"),
+            "google pe best laptop search karo" to mapOf("query" to "best laptop", "app" to "Web"),
+            "play store pe whatsapp search karo" to mapOf("query" to "whatsapp", "app" to "Play Store"),
+        )
+        for ((text, values) in expected) {
+            assertEquals("app.search", route(text)?.id, "\"$text\"")
+            assertEquals(values, input(text), "\"$text\"")
+        }
+        // An app is still just opened when nothing is searched for.
+        assertEquals("phone.open_app", route("youtube kholo")?.id)
+        assertEquals(mapOf("appName" to "google maps"), input("google maps kholo"))
+        // Without an app named, a question, or a "don't": the Brain answers (and may still open results itself).
+        for (text in listOf(
+            "search for the best laptop",
+            "what is youtube",
+            "how to search on youtube",
+            "youtube pe search mat karo",
+            "I watched a video on youtube yesterday",
+            "rasta batao",
+        )) {
+            assertEquals(null, route(text)?.id, "\"$text\" must go to the Brain")
+        }
+    }
+
+    @Test
+    fun `a message is never drafted from keywords, only when the Brain hands it over`() {
+        for (text in listOf("draft a message to mom", "Rahul ko message bhejo ki main late hoon", "send hi to Rahul on WhatsApp")) {
+            assertTrue(route(text)?.id != "message.draft", "\"$text\"")
+        }
+        // The emulator's Brain requests (AppAutomationTest) must reach the Brain, not a phone skill by keyword.
+        for (text in listOf("send hi to 5551234", "show me the clock app and then show me the settings", "show me my gallery")) {
+            assertEquals(null, route(text)?.id, "\"$text\"")
         }
     }
 

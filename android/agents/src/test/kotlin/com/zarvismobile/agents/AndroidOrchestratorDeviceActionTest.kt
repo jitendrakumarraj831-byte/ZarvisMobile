@@ -32,6 +32,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -99,10 +100,15 @@ class AndroidOrchestratorDeviceActionTest {
         server.shutdown()
     }
 
-    private fun handoff(skillId: String, input: String, conversationId: String = "c1") = MockResponse().setBody(
-        """{"message":"","toolCalls":[],"conversationId":"$conversationId",""" +
-            """"deviceAction":{"toolCallId":"tc-1","skillId":"$skillId","input":$input}}""",
+    private fun action(skillId: String, input: String, then: String? = null, id: String = "tc-1") =
+        """{"toolCallId":"$id","skillId":"$skillId","input":$input${then?.let { ",\"then\":\"$it\"" } ?: ""}}"""
+
+    private fun handoff(skillId: String, input: String, conversationId: String = "c1", then: String? = null) = MockResponse().setBody(
+        """{"message":"","toolCalls":[],"conversationId":"$conversationId","deviceAction":${action(skillId, input, then)}}""",
     )
+
+    /** The server's answer to a report that asked for the next step: [next] is the following turn's JSON. */
+    private fun continued(next: String) = MockResponse().setBody("""{"recorded":true,"next":$next}""")
 
     private fun recorded() = MockResponse().setBody("""{"recorded":true}""")
 
@@ -191,6 +197,82 @@ class AndroidOrchestratorDeviceActionTest {
         assertTrue("nothing was opened", launcher.asked.isEmpty())
         assertEquals(ToolResultStatus.FAILED, outcome.result?.status)
         assertEquals("no report for a chat the user left", 1, server.requestCount)
+    }
+
+    @Test
+    fun aMultiStepRequestRunsEachPlannedStepAndReportsEachRealResult() = runBlocking<Unit> {
+        val gallery = action("phone.open_app", """{"appName":"Gallery"}""", id = "tc-2")
+        server.enqueue(handoff("phone.open_app", """{"appName":"WhatsApp"}""", then = "open the gallery"))
+        server.enqueue(continued("""{"message":"","toolCalls":[],"conversationId":"c1","deviceAction":$gallery}"""))
+        server.enqueue(recorded())
+
+        val outcome = orchestrator.handleTurn("whatsapp and then the gallery", "acct")
+
+        assertEquals(listOf("WhatsApp", "Gallery"), launcher.asked)
+        assertEquals("Opening WhatsApp.\nOpening Photos.", outcome.message)
+        assertEquals(ToolResultStatus.COMPLETED, outcome.result?.status)
+        server.takeRequest(5, TimeUnit.SECONDS) // the turn
+        val first = body(server.takeRequest(5, TimeUnit.SECONDS)!!)
+        assertEquals("open the gallery", first["continueWith"]!!.jsonPrimitive.content)
+        assertEquals("1", first["step"]!!.jsonPrimitive.content)
+        assertEquals(listOf("phone.open_app"), first["deviceActions"]!!.jsonArray.map { it.jsonPrimitive.content })
+        val second = body(server.takeRequest(5, TimeUnit.SECONDS)!!)
+        assertEquals("tc-2", second["toolCallId"]!!.jsonPrimitive.content)
+        assertEquals("Opening Photos.", second["message"]!!.jsonPrimitive.content)
+        assertNull("the last step asks for nothing more", second["continueWith"])
+    }
+
+    @Test
+    fun aMultiStepRequestEndsWithTheBrainsReplyWhenNothingIsLeft() = runBlocking<Unit> {
+        server.enqueue(handoff("phone.open_app", """{"appName":"WhatsApp"}""", then = "nothing else"))
+        server.enqueue(continued("""{"message":"WhatsApp is open.","toolCalls":[],"conversationId":"c1"}"""))
+
+        val outcome = orchestrator.handleTurn("whatsapp chahiye", "acct")
+
+        assertEquals("Opening WhatsApp.\nWhatsApp is open.", outcome.message)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun aStepThatFailsEndsTheRequestThere() = runBlocking<Unit> {
+        server.enqueue(handoff("phone.open_app", """{"appName":"Snapchat"}""", then = "open the gallery"))
+        server.enqueue(recorded())
+
+        val outcome = orchestrator.handleTurn("snapchat chahiye", "acct")
+
+        assertEquals(listOf("Snapchat"), launcher.asked)
+        assertEquals(ToolResultStatus.FAILED, outcome.result?.status)
+        server.takeRequest(5, TimeUnit.SECONDS)
+        assertNull("a failed step is never continued", body(server.takeRequest(5, TimeUnit.SECONDS)!!)["continueWith"])
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun theServersReasonForStoppingIsShown() = runBlocking<Unit> {
+        server.enqueue(handoff("phone.open_app", """{"appName":"WhatsApp"}""", then = "open the gallery"))
+        server.enqueue(MockResponse().setBody("""{"recorded":true,"stopped":"I stopped after 5 phone steps."}"""))
+
+        val outcome = orchestrator.handleTurn("whatsapp chahiye", "acct")
+
+        assertEquals("Opening WhatsApp.\nI stopped after 5 phone steps.", outcome.message)
+        assertEquals(listOf("WhatsApp"), launcher.asked)
+    }
+
+    @Test
+    fun leavingTheChatStopsAMultiStepRequest() = runBlocking<Unit> {
+        val gallery = action("phone.open_app", """{"appName":"Gallery"}""", id = "tc-2")
+        server.enqueue(handoff("phone.open_app", """{"appName":"WhatsApp"}""", then = "open the gallery"))
+        server.enqueue(
+            continued("""{"message":"","toolCalls":[],"conversationId":"c1","deviceAction":$gallery}""").setBodyDelay(800, TimeUnit.MILLISECONDS),
+        )
+
+        val turn = async(Dispatchers.IO) { orchestrator.handleTurn("whatsapp and then the gallery", "acct") }
+        delay(400)
+        orchestrator.startNewConversation() // New chat while the next step is being planned
+        val outcome = turn.await()
+
+        assertEquals(listOf("WhatsApp"), launcher.asked)
+        assertTrue(outcome.message, outcome.message.endsWith("You left this chat, so I stopped there."))
     }
 
     @Test

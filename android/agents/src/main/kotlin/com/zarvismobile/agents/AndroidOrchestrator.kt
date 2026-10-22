@@ -5,6 +5,7 @@ import com.zarvismobile.data.remote.AiServiceErrors
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.DeviceActionDto
 import com.zarvismobile.data.remote.dto.DeviceActionResultRequest
+import com.zarvismobile.data.remote.dto.DeviceResultResponse
 import com.zarvismobile.data.remote.dto.OrchestratorTurnRequest
 import com.zarvismobile.data.remote.dto.StructuredResultDto
 import com.zarvismobile.domain.access.AccessCoordinator
@@ -33,6 +34,7 @@ import com.zarvismobile.domain.orchestrator.OnDeviceInputBuilder
 import com.zarvismobile.domain.port.ClockPort
 import com.zarvismobile.domain.result.ToolResult
 import com.zarvismobile.domain.result.ToolResults
+import com.zarvismobile.domain.skill.MessageDraftSkillFactory
 import com.zarvismobile.domain.skill.PhoneCallSkillFactory
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
@@ -70,6 +72,9 @@ enum class ConversationDeletion {
 
 /** Re-issued confirmations (action changed after approval) the user is asked about per turn. */
 private const val MAX_CONFIRMATION_ROUNDS = 3
+
+/** Most phone steps one request may take, the first included (the server's limit too: capabilities/deviceActions.ts). */
+private const val MAX_PHONE_STEPS = 5
 
 /**
  * The Android half of the request lifecycle (blueprint §9):
@@ -235,8 +240,7 @@ class AndroidOrchestrator(
                 val message = "That request was for a chat you have left, so nothing was done on the phone."
                 return outcome(message, ToolResult(false, ToolResultStatus.FAILED, null, action.skillId, message, true, null))
             }
-            val done = runDeviceAction(action, utterance, accountId, locale)
-            response.conversationId?.let { id -> reportDeviceResult(id, action, done) }
+            val done = runPhoneSteps(action, response.conversationId, sent.epoch, utterance, accountId, locale)
             return done.copy(conversation = recorded, replacedConversation = replaced)
         }
         val lastResult = response.toolCalls.lastOrNull()?.result?.toDomain()
@@ -305,26 +309,74 @@ class AndroidOrchestrator(
     }
 
     /**
-     * Records what the phone really did as the turn's reply in the conversation. Best effort: a report that does not arrive leaves that
-     * reply out of the conversation's history, never a wrong one in it, and the user has already been told the result.
+     * Runs the Brain's phone action and, for a multi-step request ("open WhatsApp and then Rahul's chat"), each following step the Brain
+     * plans once the previous one is done. Every step goes through [runDeviceAction] (its own permission and confirmation: each tap is
+     * confirmed). The request stops at the first step that was declined, refused or failed, when the user leaves the chat, or after
+     * [MAX_PHONE_STEPS] steps. The reply is every step's real result, in order.
      */
-    private suspend fun reportDeviceResult(conversationId: String, action: DeviceActionDto, done: TurnOutcome) {
+    private suspend fun runPhoneSteps(
+        first: DeviceActionDto,
+        conversationId: String?,
+        epoch: Long,
+        utterance: String,
+        accountId: String,
+        locale: String,
+    ): TurnOutcome {
+        val said = mutableListOf<String>()
+        var action = first
+        var step = 1
+        while (true) {
+            val done = runDeviceAction(action, utterance, accountId, locale)
+            said += done.message
+            val succeeded = done.result?.status == ToolResultStatus.COMPLETED || done.result?.status == ToolResultStatus.USER_ACTION_REQUIRED
+            val then = action.then?.takeIf { it.isNotBlank() && succeeded && step < MAX_PHONE_STEPS }
+            val reply = conversationId?.let { id -> reportDeviceResult(id, action, done, then, step, locale) }
+            fun finish(note: String? = null) = done.copy(message = (said + listOfNotNull(note)).joinToString("\n"))
+            if (then == null || reply == null) return finish()
+            val next = reply.next ?: return finish(reply.stopped)
+            // The user left the chat (New chat, another chat) while the next step was being planned: nothing more runs.
+            if (conversation.current().epoch != epoch) return finish("You left this chat, so I stopped there.")
+            action = next.deviceAction ?: return finish(next.message.takeIf { it.isNotBlank() })
+            step += 1
+        }
+    }
+
+    /**
+     * Records what the phone really did as the turn's reply in the conversation, and with [continueWith] asks for the next step.
+     * Best effort: a report that does not arrive leaves that reply out of the conversation's history, never a wrong one in it, and
+     * the user has already been told the result. Null when the server could not be reached or refused the report.
+     */
+    private suspend fun reportDeviceResult(
+        conversationId: String,
+        action: DeviceActionDto,
+        done: TurnOutcome,
+        continueWith: String?,
+        step: Int,
+        locale: String,
+    ): DeviceResultResponse? {
         val request = DeviceActionResultRequest(
             conversationId = conversationId,
             toolCallId = action.toolCallId,
             skillId = action.skillId,
             status = (done.result?.status ?: ToolResultStatus.FAILED).name,
             message = done.message,
+            continueWith = continueWith,
+            step = continueWith?.let { step },
+            deviceActions = continueWith?.let { deviceActionIds() },
+            locale = continueWith?.let { locale },
         )
-        try {
-            api.reportDeviceResult(request)
+        return try {
+            api.reportDeviceResult(request).body()
         } catch (e: java.io.IOException) {
-            // No connection: see above.
+            null // no connection: see above
         }
     }
 
-    /** phone.call by raw number needs only Phone; by name it also needs Contacts. */
+    /** phone.call by raw number needs only Phone; by name it also needs Contacts. A message draft needs Contacts for a name's number. */
     private fun permissionsFor(skill: SkillDefinition, input: SkillInput): List<PermissionType> {
+        if (skill.id == "message.draft") {
+            return if (MessageDraftSkillFactory.needsContacts(input.values)) listOf(PermissionType.CONTACTS) else emptyList()
+        }
         if (skill.id != "phone.call") return skill.requiredPermissions
         val target = input.values["target"] as? String
         return if (target != null && PhoneCallSkillFactory.looksLikePhoneNumber(target)) {

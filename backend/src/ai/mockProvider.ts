@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AIProvider, AIRequest, AIResponse, AIResponseChunk, ToolDefinition } from "./provider.js";
-import { findDeviceAction } from "../capabilities/deviceActions.js";
+import { CONTINUATION_LEAD, findDeviceAction } from "../capabilities/deviceActions.js";
 
 /**
  * Deterministic, zero-credential default provider — see AI_ARCHITECTURE.md "Provider
@@ -14,21 +14,34 @@ export class MockAIProvider implements AIProvider {
   readonly id = "mock";
 
   async generate(request: AIRequest): Promise<AIResponse> {
-    const utterance = lastUserMessage(request);
-    const tool = selectTool(utterance, request.tools ?? []);
+    const last = lastUserMessage(request);
+    // The next step of a multi-step phone request: plan only what is left (deviceActions.continuationNote).
+    const leadAt = last.indexOf(CONTINUATION_LEAD);
+    const continuing = leadAt >= 0;
+    const utterance = continuing ? last.slice(leadAt + CONTINUATION_LEAD.length) : last;
+    // "open the clock app and then open settings": the first phone step now, the rest in `then`.
+    const [first, then] = splitThen(utterance);
+    let tool = then ? selectTool(first, request.tools ?? []) : undefined;
+    const multiStep = tool !== undefined && findDeviceAction(tool.name) !== undefined;
+    if (!multiStep) tool = selectTool(utterance, request.tools ?? []);
 
     if (!tool) {
       return {
         message: {
           role: "assistant",
-          content: "I'm not sure which skill can help with that yet — could you rephrase, or ask \"what can you do?\"",
+          content: continuing
+            ? "That's done on your phone."
+            : "I'm not sure which skill can help with that yet — could you rephrase, or ask \"what can you do?\"",
         },
         toolCalls: [],
         usage: { promptTokens: estimateTokens(request), completionTokens: 12 },
       };
     }
 
-    const input = findDeviceAction(tool.name) ? fillDeviceInput(tool.name, utterance) : fillInput(tool, utterance);
+    const planned = multiStep ? first : utterance;
+    const input = findDeviceAction(tool.name)
+      ? { ...fillDeviceInput(tool.name, planned), ...(multiStep ? { then } : {}) }
+      : fillInput(tool, utterance);
     return {
       message: { role: "assistant", content: "" },
       toolCalls: [{ id: randomUUID(), skillId: tool.name, input }],
@@ -137,6 +150,14 @@ function estimateTokens(request: AIRequest): number {
   return Math.ceil(chars / 4);
 }
 
+/** A request with a second phone step: what to do first, and the rest (undefined when there is one step). */
+function splitThen(utterance: string): [string, string | undefined] {
+  const match = /\s+(?:and then|then|aur phir|phir|fir|फिर)\s+/i.exec(utterance);
+  if (!match) return [utterance, undefined];
+  const rest = utterance.slice(match.index + match[0].length).trim();
+  return [utterance.slice(0, match.index).trim(), rest || undefined];
+}
+
 /** Apps the mock recognises by name for phone.open_app (the phone resolves the name itself). */
 const MOCK_APPS = ["play store", "gallery", "camera", "whatsapp", "youtube", "chrome", "calculator", "calendar", "contacts", "clock", "maps", "messages", "files", "photos"];
 
@@ -177,6 +198,24 @@ function fillDeviceInput(skillId: string, utterance: string): Record<string, unk
     case "alarm.set":
     case "calendar.create_event":
       return { utterance };
+    case "message.draft": {
+      // "send hi to Rahul on WhatsApp", "Rahul ko WhatsApp pe message bhejo ki main late hoon"
+      const app = ["whatsapp", "telegram", "sms", "email"].find((name) => lower.includes(name));
+      const text = /\b(?:saying|that|ki)\s+(.+)$/i.exec(utterance)?.[1] ?? /\bsend\s+(.+?)\s+to\b/i.exec(utterance)?.[1] ?? utterance;
+      const to = /\bto\s+([\p{L}\d+ ]+?)(?:\s+on\b|\s+saying\b|\s+that\b|$)/iu.exec(utterance)?.[1] ?? /^([\p{L}\d+ ]+?)\s+ko\b/iu.exec(utterance)?.[1];
+      return { text: text.trim(), ...(app ? { app } : {}), ...(to ? { to: to.trim() } : {}) };
+    }
+    case "app.search": {
+      const app = lower.includes("youtube") ? "YouTube"
+        : /rasta|directions|navigate/.test(lower) ? "Directions"
+          : /\bmaps?\b/.test(lower) ? "Maps"
+            : lower.includes("play store") ? "Play Store" : "Web";
+      const query = lower
+        .replace(/\b(search|for|on|in|pe|par|mein|youtube|google|maps?|play store|the|directions|to|navigate|rasta|ka|ki|dikhao|dhundo|karo|kar|show|me|please)\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      return { query: query || utterance, app };
+    }
     default:
       return {};
   }

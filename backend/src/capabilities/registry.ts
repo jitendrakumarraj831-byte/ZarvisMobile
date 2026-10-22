@@ -1,3 +1,5 @@
+import { NOT_SUPPORTED_ON_PHONE } from "./deviceActions.js";
+
 /**
  * Phase 1 Capability Registry — the single source of truth for every device/platform
  * capability ZARVIS can ask for (ZARVIS_MASTER_PRODUCT_BLUEPRINT.md §10, §11, §19).
@@ -609,8 +611,13 @@ export function deviceCapabilitiesForPrompt(phoneActionsOffered = false): string
       "do something on their phone that one of those tools does (open an app, the gallery, the camera or settings, find a " +
       "contact, call someone, set an alarm or a reminder, read notifications, go home or back, and the like), in any " +
       "language or word order, call that tool right away with the right input instead of explaining manual steps. Call " +
-      "only one phone tool per turn. The phone asks for any Android permission it needs and asks the user to confirm " +
-      "calls and other sensitive actions, then reports the real result: never say an action happened before that. " +
+      "only one phone tool per turn; when the request needs several phone steps (open an app, then read the screen, then " +
+      "tap something), do the first and put the rest in its `then`, and you will be asked for the next step after the " +
+      "phone has done this one. The phone asks for any Android permission it needs and asks the user to confirm calls, " +
+      "taps and other sensitive actions, then reports the real result: never say an action happened before that. " +
+      "To send a message, open a draft (the message tool) and tell the user to press Send: ZARVIS never sends anything " +
+      "itself. These are not supported on the phone, whatever the request; say so plainly: " +
+      NOT_SUPPORTED_ON_PHONE.join("; ") + ". " +
       "For a phone feature no tool covers, say so plainly and give the manual way. Capability registry:\n" +
       lines.join("\n")
     );

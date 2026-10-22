@@ -79,7 +79,9 @@ object DeviceCommandGate {
             "phone.open_app" -> !isQuestion &&
                 words.none { it.trim(',', '.', '!', '?') in notAnOpenRequest } && !saysNa(clean) &&
                 openSubject(words) != null &&
-                !containsAny(lower, "settings", "setting", "सेटिंग", "bluetooth", "ब्लूटूथ", "wifi", "wi-fi", "वाईफाई", "location", "gps", "लोकेशन", "notification", "recent")
+                !containsAny(lower, "settings", "setting", "सेटिंग", "bluetooth", "ब्लूटूथ", "wifi", "wi-fi", "वाईफाई", "location", "gps", "लोकेशन", "notification", "recent") &&
+                // "YouTube kholo aur arijit search karo", "YouTube pe gaane chalao": a search in that app, not an app called "aur" or "gaane".
+                SearchCommandParser.parse(utterance) == null
             "phone.call" -> !utterance.contains("call it", ignoreCase = true) &&
                 words.none { it.trim(',', '.', '!', '?') in notACallRequest } && !saysNa(clean) &&
                 callSubject(words) != null
@@ -115,6 +117,7 @@ object DeviceCommandGate {
             "device.global_action" -> !isQuestion && SpecialAccessSkills.parseGlobalAction(utterance) != null
             "screen.read" -> containsAny(lower, "screen", "स्क्रीन") && containsAny(lower, "read", "what's on", "what is on", "padho", "kya hai", "पढ़ो")
             "screen.tap" -> SpecialAccessSkills.parseTapLabel(utterance) != null
+            "app.search" -> SearchCommandParser.parse(utterance) != null
             "assistant.setup" -> !isQuestion && containsAny(lower, "make", "set", "become", "banao", "change", "use zarvis")
             else -> false
         }

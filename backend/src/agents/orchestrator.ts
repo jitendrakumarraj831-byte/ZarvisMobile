@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
-import { deviceActionTools, findDeviceAction, sanitizeDeviceInput, type DeviceActionRequest } from "../capabilities/deviceActions.js";
+import { deviceActionTools, findDeviceAction, nextPhoneStep, sanitizeDeviceInput, type DeviceActionRequest } from "../capabilities/deviceActions.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
 import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
@@ -59,6 +59,11 @@ export interface TurnRequest {
    * it implements). The planner may hand one of them to the phone instead of describing manual steps; see TurnResult.deviceAction.
    */
   deviceActions?: string[];
+  /**
+   * The next step of a multi-step phone request (POST /device-result with `continueWith`): `utterance` is the planner's
+   * instruction from continuationNote, not something the user said, so it is not stored, and the conversation must exist.
+   */
+  continuation?: boolean;
 }
 
 /** "Balanced" is the default and needs no instruction, so it is not a value here. */
@@ -311,6 +316,7 @@ export class Orchestrator {
     const conversation = conversationId
       ? await this.store.getConversation(request.accountId, conversationId)
       : undefined;
+    if (request.continuation && !conversation) throw new Error("A phone step can only continue an existing conversation.");
     // A new chat starts in the project the user opened it from, but only if that project is theirs.
     const requestedProject = !conversation && request.projectId
       ? await this.store.getProject(request.accountId, request.projectId)
@@ -342,13 +348,14 @@ export class Orchestrator {
     }
 
     onEvent({ type: "conversation", conversationId: activeConversation.id, ...(projectId ? { projectId } : {}), ...(agent ? { agentId: agent.id } : {}) });
-    // The failed attempt being retried already stored this message: store it once.
-    const userMessageStored = previousAttempt?.conversationId === activeConversation.id;
+    // The failed attempt being retried already stored this message: store it once. A phone step's instruction is not the
+    // user's message and is never stored.
+    const userMessageStored = request.continuation === true || previousAttempt?.conversationId === activeConversation.id;
     if (userMessageStored) {
       // History is read before the current message is added below; drop the stored copy so
       // the model sees this message once, as the current one.
       const last = persistedMessages[persistedMessages.length - 1];
-      if (last?.role === "user" && last.content === request.utterance.trim().slice(0, 12000)) persistedMessages.pop();
+      if (!request.continuation && last?.role === "user" && last.content === request.utterance.trim().slice(0, 12000)) persistedMessages.pop();
     } else {
       await this.store.appendConversationMessages([{
         id: randomUUID(),
@@ -366,13 +373,13 @@ export class Orchestrator {
     // to the model for a simple greeting: otherwise a model can incorrectly reuse a previous
     // conversation's developer/search context and execute a tool for "Hi". This fast path is
     // also provider-independent, so a greeting never consumes AI/tool credits.
-    const greeting = getSimpleGreetingResponse(request.utterance, request.locale);
+    const greeting = request.continuation ? undefined : getSimpleGreetingResponse(request.utterance, request.locale);
     if (greeting) {
       await this.persistAssistantMessage(activeConversation.id, greeting);
       return { message: greeting, toolCalls: [], conversationId: activeConversation.id, turnId };
     }
 
-    const profileResponse = getZarvisProfileResponse(request.utterance, request.locale);
+    const profileResponse = request.continuation ? undefined : getZarvisProfileResponse(request.utterance, request.locale);
     if (profileResponse) {
       await this.persistAssistantMessage(activeConversation.id, profileResponse);
       return { message: profileResponse, toolCalls: [], conversationId: activeConversation.id, turnId };
@@ -506,10 +513,12 @@ export class Orchestrator {
         // confirmation flow, and reports the real result (POST /device-result), which becomes the reply.
         if (offeredDeviceActions.has(call.skillId)) {
           const action = findDeviceAction(call.skillId)!;
+          const then = nextPhoneStep(call.input);
           const deviceAction: DeviceActionRequest = {
             toolCallId: randomUUID(),
             skillId: call.skillId,
             input: sanitizeDeviceInput(action, call.input),
+            ...(then ? { then } : {}),
           };
           stats.toolCalls.push({ toolCallId: deviceAction.toolCallId, skillId: call.skillId, chargedCredits: 0 });
           onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: deviceAction.toolCallId, inputPreview: previewInput(deviceAction.input) });

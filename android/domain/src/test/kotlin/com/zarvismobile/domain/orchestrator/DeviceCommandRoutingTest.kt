@@ -1,6 +1,8 @@
 package com.zarvismobile.domain.orchestrator
 
+import com.zarvismobile.domain.skill.AppSearchSkillFactory
 import com.zarvismobile.domain.skill.DeviceCapabilitySkills
+import com.zarvismobile.domain.skill.MessageDraftSkillFactory
 import com.zarvismobile.domain.skill.PhoneCallSkillFactory
 import com.zarvismobile.domain.skill.PhoneFindContactSkillFactory
 import com.zarvismobile.domain.skill.PhoneOpenAppSkillFactory
@@ -55,6 +57,8 @@ class DeviceCommandRoutingTest {
         register(SpecialAccessSkills.readScreen(stub()))
         register(SpecialAccessSkills.tapOnScreen(stub()))
         register(SpecialAccessSkills.assistantSetup(stub()))
+        register(MessageDraftSkillFactory.create(stub(), stub()))
+        register(AppSearchSkillFactory.create(stub()))
     }
     private val matcher = KeywordSkillMatcher(registry)
     private fun route(text: String) = matcher.matchCommand(text)?.id

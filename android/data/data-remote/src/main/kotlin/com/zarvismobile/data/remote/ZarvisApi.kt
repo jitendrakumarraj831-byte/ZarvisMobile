@@ -7,6 +7,7 @@ import com.zarvismobile.data.remote.dto.IdentityResponse
 import com.zarvismobile.data.remote.dto.CreateTaskRequest
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeRequest
 import com.zarvismobile.data.remote.dto.DeviceActionResultRequest
+import com.zarvismobile.data.remote.dto.DeviceResultResponse
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeResponse
 import com.zarvismobile.data.remote.dto.DocumentExtractResponse
 import com.zarvismobile.data.remote.dto.EntitlementSnapshotResponse
@@ -93,9 +94,9 @@ interface ZarvisApi {
     @POST("api/v1/orchestrator/turn")
     suspend fun runTurn(@Body request: OrchestratorTurnRequest): OrchestratorTurnResponse
 
-    /** Records what a phone action the Brain handed over did, as the turn's reply in the conversation. */
+    /** Records what a phone action the Brain handed over did, as the turn's reply in the conversation (and plans its next step). */
     @POST("api/v1/orchestrator/device-result")
-    suspend fun reportDeviceResult(@Body request: DeviceActionResultRequest): Response<Unit>
+    suspend fun reportDeviceResult(@Body request: DeviceActionResultRequest): Response<DeviceResultResponse>
 
     @POST("api/v1/usage/charge")
     suspend fun chargeUsage(@Body request: UsageChargeRequest): UsageChargeResponse

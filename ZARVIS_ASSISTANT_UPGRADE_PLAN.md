@@ -66,9 +66,9 @@ the claim. Wherever the table says something is missing, the code was searched f
 | Hinglish call with a two-word name ("Neha Test ko call karo", "mummy ko phone lagao", "Rahul ko call kar de") | fixed in P6 | `DeviceCommandGate.callSubject`; `HinglishDeviceCommandSafetyTest` | — |
 | Brain → device handoff: a request the phone's words do not cover ("show me my gallery") is answered by running a phone action, not by manual steps | fixed in P6 | `backend/src/capabilities/deviceActions.ts`, `AndroidOrchestrator.runDeviceAction`; `deviceActionHandoff.test.ts`, `AndroidOrchestratorDeviceActionTest`, emulator `AppAutomationTest` | real-device run with a live model |
 | Global actions (home, back, recents, notifications, lock) with read-back verification | PARTIAL | `ZarvisAccessibilityService.kt` `performGlobal`; `SpecialAccessSkillsTest` | device verification |
-| Read the screen as text; tap one uniquely labelled button and check that the screen changed | PARTIAL | `AndroidScreenAccessPort.readScreen`, `tap` (password nodes skipped, sensitive apps refused) | multi-step flows → **P6** |
+| Read the screen as text; tap one uniquely labelled button and check that the screen changed | PARTIAL | `AndroidScreenAccessPort.readScreen`, `tap` (password nodes skipped, sensitive apps refused); multi-step requests one confirmed step at a time (`AndroidOrchestrator.runPhoneSteps`) | real-device run |
 | Brain plans a device action and the phone runs it | not built (the Brain only *describes* device skills) | `deviceCapabilitiesForPrompt` in `backend/src/capabilities/registry.ts` | **P6** |
-| Send a message through a third-party app | UNSUPPORTED (no legitimate automatic route) | — | share-intent draft that the user sends → **P6** |
+| Send a message through a third-party app | a draft the user sends (P6); never sent automatically | `message.draft` (`MessageDraftSkillFactory`, `AndroidMessageDraftPort`); `ShareAndSearchSkillsTest`, emulator `AppAutomationTest` | real-device run |
 
 ### 2.3 Screen and camera understanding
 
@@ -201,9 +201,24 @@ COMPLETED; another account gets 404; nothing runs without a user press; process 
 
 ### Phase 6: Android phone agent (blueprint Phase 11)
 
-**Status:** the first two items are done (routing corpus with negatives in `HinglishDeviceCommandSafetyTest`; the handoff in
-`backend/src/capabilities/deviceActions.ts` → `deviceAction` → `AndroidOrchestrator.runDeviceAction` →
-`POST /api/v1/orchestrator/device-result`). Multi-step accessibility flows and share-intent messaging are not started.
+**Status:** implemented; a real-device run with a live model is still required before anything is marked WORKING.
+- Routing corpus with negatives: `HinglishDeviceCommandSafetyTest`.
+- Handoff: `backend/src/capabilities/deviceActions.ts` → `deviceAction` → `AndroidOrchestrator.runDeviceAction` →
+  `POST /api/v1/orchestrator/device-result`.
+- Multi-step requests: the planner does the first phone step and puts the rest in `then`; after that step succeeds the phone
+  reports it with `continueWith` and gets the next step (`next`). Each step runs through the phone's own permission and
+  confirmation flow (every tap is confirmed, `screen.tap` checks that the screen changed, sensitive apps are refused). The
+  request stops at a declined, refused or failed step, when the user leaves the chat, or after 5 steps
+  (`AndroidOrchestrator.runPhoneSteps`, `MAX_PHONE_STEPS`; tests: `deviceActionHandoff.test.ts`,
+  `AndroidOrchestratorDeviceActionTest`, emulator `AppAutomationTest`).
+- Third-party states: every phone action declares its route (`ThirdPartyRoute`: API_AVAILABLE, INTENT_AVAILABLE,
+  SHARE_FLOW_AVAILABLE, SYSTEM_FLOW_AVAILABLE, ACCESSIBILITY_ALLOWED_AND_SUPPORTED), and `NOT_SUPPORTED_ON_PHONE` lists what
+  no action does (send without the user, pay, read other apps' private data, change settings by itself, act in banking or
+  password apps); the planner is told both.
+- Messages: `message.draft` opens a draft in WhatsApp (the contact's chat), the SMS or email app, or another app that shares
+  text, and the user presses Send. ZARVIS never sends.
+- In-app search (INTENT_AVAILABLE): `app.search` opens YouTube, Maps, the Play Store or the browser at the results, or Maps at
+  the directions to a place ("YouTube pe arijit search karo", "airport ka rasta dikhao").
 
 - Hindi word order and Devanagari in `DeviceCommandGate`/`KeywordSkillMatcher`: "WhatsApp kholo", "YouTube chalu
   karo", "मम्मी को कॉल करो", "व्हाट्सएप खोलो", "notification mat bolo". Every new phrase comes with a negative case.
