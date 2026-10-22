@@ -154,9 +154,10 @@ fun HomeScreen(
             item {
                 // The crowned orb. Still while idle (see AiOrb): the first thing on screen costs nothing to keep open.
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Box(modifier = Modifier.fillMaxWidth().height(232.dp), contentAlignment = Alignment.TopCenter) {
-                        AiOrb(state = VoiceState.IDLE, size = 150.dp, onClick = onTalk, modifier = Modifier.padding(top = 52.dp))
-                        QueenCrown(width = 72.dp, modifier = Modifier.padding(top = 4.dp))
+                    // Compact enough that the composer and the category chips stay on the first screen of a small phone.
+                    Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.TopCenter) {
+                        AiOrb(state = VoiceState.IDLE, size = 132.dp, onClick = onTalk, modifier = Modifier.padding(top = 44.dp))
+                        QueenCrown(width = 64.dp, modifier = Modifier.padding(top = 2.dp))
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
                         Box(Modifier.size(7.dp).background(ZarvisAccents.gold, CircleShape))

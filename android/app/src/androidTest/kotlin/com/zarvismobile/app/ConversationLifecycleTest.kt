@@ -4,6 +4,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -51,7 +52,8 @@ class ConversationLifecycleTest {
             }
             if (compose.onAllNodes(skip).fetchSemanticsNodes().isNotEmpty()) compose.onAllNodes(skip).onFirst().performClick()
             compose.waitUntil(20_000) { compose.onAllNodes(chip).fetchSemanticsNodes().isNotEmpty() }
-            compose.onAllNodes(chip).onFirst().performClick()
+            // Bring the chip fully on screen first: on a small screen it can sit partly under the tab bar, where a tap lands on the bar.
+            compose.onAllNodes(chip).onFirst().performScrollTo().performClick()
 
             compose.waitUntil(20_000) { sentCount() >= 1 }
             assertEquals("sent once on submit", 1, settleAndCount())
