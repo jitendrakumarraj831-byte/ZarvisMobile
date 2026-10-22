@@ -96,6 +96,19 @@ jobs:
           working-directory: android
           script: bash scripts/emulator/${{ matrix.mode == 'harness-selftest' && 'selftest-emulator-loss.sh' || 'verify.sh' }} ${{ matrix.api-level }}
 
+      # ShellScreenshotTest's small JPEG copies, printed as base64 between markers so the screens can be reviewed from the log
+      # where the uploaded artifact cannot be downloaded. API 34 only, to keep the logs short.
+      - name: Print screenshot thumbnails
+        if: always() && matrix.api-level == 34 && !matrix.mode
+        run: |
+          shopt -s nullglob
+          for f in android/build/emulator-evidence/screenshots/thumb-*.jpg; do
+            echo "ZARVIS_SCREENSHOT_BEGIN $(basename "$f" .jpg)"
+            base64 -w 0 "$f"
+            echo
+            echo "ZARVIS_SCREENSHOT_END"
+          done
+
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
