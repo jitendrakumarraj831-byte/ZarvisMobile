@@ -62,6 +62,11 @@ data class OrchestratorTurnRequest(
     val utterance: String,
     val locale: String? = null,
     val conversationId: String? = null,
+    /**
+     * The phone actions (on-device skill ids) this app can run. The server may then hand one back as [OrchestratorTurnResponse.deviceAction]
+     * instead of describing manual steps (backend/src/capabilities/deviceActions.ts). Omitted: the server offers none.
+     */
+    val deviceActions: List<String>? = null,
 )
 
 @Serializable
@@ -69,6 +74,41 @@ data class OrchestratorTurnResponse(
     val message: String,
     val toolCalls: List<ToolCallResultDto> = emptyList(),
     val conversationId: String? = null,
+    /** A phone action the Brain chose for this turn. The server did not run it: the app runs it and reports the result. */
+    val deviceAction: DeviceActionDto? = null,
+)
+
+/**
+ * One phone action handed to the app: which on-device skill, with what input. [toolCallId] is echoed in the report. [then] is the
+ * rest of a multi-step request, for the app to continue with after this step succeeds.
+ */
+@Serializable
+data class DeviceActionDto(val toolCallId: String, val skillId: String, val input: Map<String, String> = emptyMap(), val then: String? = null)
+
+/**
+ * What happened when the app ran a [DeviceActionDto]: [status] is a ToolResultStatus name, [message] what the user was told. With
+ * [continueWith] (the action's `then`), [step] (steps run so far), [deviceActions] and [locale], the server plans the next step and
+ * answers it in [DeviceResultResponse.next].
+ */
+@Serializable
+data class DeviceActionResultRequest(
+    val conversationId: String,
+    val toolCallId: String,
+    val skillId: String,
+    val status: String,
+    val message: String,
+    val continueWith: String? = null,
+    val step: Int? = null,
+    val deviceActions: List<String>? = null,
+    val locale: String? = null,
+)
+
+/** [next] is the following step of a multi-step request (another device action, or the final reply); [stopped] says why there is none. */
+@Serializable
+data class DeviceResultResponse(
+    val recorded: Boolean = false,
+    val next: OrchestratorTurnResponse? = null,
+    val stopped: String? = null,
 )
 
 @Serializable

@@ -109,7 +109,8 @@ val devApiBaseUrl = "http://$devApiHost:$devApiPort/"
 // backend above unless it is pointed at a deployed HTTPS backend instead, which is how a
 // debug APK for a phone reaches production (no LAN server, no release signing key needed):
 //
-//   -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/   (or ZARVIS_API_BASE_URL)
+//   -Pzarvis.devApiBaseUrl=https://zarvismobile.onrender.com/   (the debug build's API URL)
+//   -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/      (the same; or ZARVIS_API_BASE_URL)
 //
 // Only https:// is accepted: a dev server over plain HTTP stays -Pzarvis.devApiHost, whose
 // cleartext rules above still apply. Such a build carries no cleartext exemption at all,
@@ -117,12 +118,21 @@ val devApiBaseUrl = "http://$devApiHost:$devApiPort/"
 // ---------------------------------------------------------------------------------------
 val productionApiBaseUrl = "https://zarvismobile.onrender.com/"
 
+val devApiBaseUrlFromProperty = (project.findProperty("zarvis.devApiBaseUrl") as String?)?.trim()?.ifEmpty { null }
 val apiBaseUrlFromProperty = (project.findProperty("zarvis.apiBaseUrl") as String?)?.trim()?.ifEmpty { null }
 val apiBaseUrlFromEnv = System.getenv("ZARVIS_API_BASE_URL")?.trim()?.ifEmpty { null }
-val apiBaseUrlSource = if (apiBaseUrlFromProperty != null) "-Pzarvis.apiBaseUrl" else "ZARVIS_API_BASE_URL"
+require(devApiBaseUrlFromProperty == null || apiBaseUrlFromProperty == null || devApiBaseUrlFromProperty == apiBaseUrlFromProperty) {
+    "ZARVIS: the API base URL is given twice, differently: -Pzarvis.devApiBaseUrl=$devApiBaseUrlFromProperty and " +
+        "-Pzarvis.apiBaseUrl=$apiBaseUrlFromProperty. Pass only one of them."
+}
+val apiBaseUrlSource = when {
+    devApiBaseUrlFromProperty != null -> "-Pzarvis.devApiBaseUrl"
+    apiBaseUrlFromProperty != null -> "-Pzarvis.apiBaseUrl"
+    else -> "ZARVIS_API_BASE_URL"
+}
 
 /** The deployed backend a debug build was pointed at, ending in '/' as Retrofit requires; null for the dev backend. */
-val deployedApiBaseUrl: String? = (apiBaseUrlFromProperty ?: apiBaseUrlFromEnv)?.let { raw ->
+val deployedApiBaseUrl: String? = (devApiBaseUrlFromProperty ?: apiBaseUrlFromProperty ?: apiBaseUrlFromEnv)?.let { raw ->
     val uri = runCatching { URI(raw) }.getOrNull()
     require(uri != null && uri.scheme == "https" && !uri.host.isNullOrEmpty() && uri.userInfo == null && uri.query == null && uri.fragment == null) {
         "ZARVIS: the API base URL (from $apiBaseUrlSource) must be an https:// URL such as $productionApiBaseUrl, with no user, query or " +
@@ -162,7 +172,7 @@ if (deployedApiBaseUrl != null) {
         logger.warn(
             "ZARVIS: dev API host '$devApiHost' is not a private/LAN address, so cleartext HTTP to it is " +
                 "NOT permitted by the generated network security config (it would downgrade a public host to " +
-                "plaintext). Use -Pzarvis.apiBaseUrl=https://… for a deployed backend, or a LAN address for local dev.",
+                "plaintext). Use -Pzarvis.devApiBaseUrl=https://… for a deployed backend, or a LAN address for local dev.",
         )
     }
 }

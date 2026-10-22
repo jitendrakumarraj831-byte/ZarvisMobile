@@ -1,3 +1,5 @@
+import { NOT_SUPPORTED_ON_PHONE } from "./deviceActions.js";
+
 /**
  * Phase 1 Capability Registry — the single source of truth for every device/platform
  * capability ZARVIS can ask for (ZARVIS_MASTER_PRODUCT_BLUEPRINT.md §10, §11, §19).
@@ -587,7 +589,13 @@ export const CAPABILITIES: readonly CapabilityDefinition[] = [
  * clients"; §9 "the LLM proposes, the policy layer decides"). Generated from this registry so
  * the model's picture of what exists can never drift from what the clients actually do.
  */
-export function deviceCapabilitiesForPrompt(): string {
+/**
+ * What the planner is told about phone features. [phoneActionsOffered] is true when the turn comes from the Android app
+ * and its phone actions are in the tool list (capabilities/deviceActions.ts): the model must then hand the action to the
+ * phone instead of describing manual steps. Otherwise (the web, or a client that offers none) it cannot act on a phone
+ * and says so honestly.
+ */
+export function deviceCapabilitiesForPrompt(phoneActionsOffered = false): string {
   const lines = CAPABILITIES.map((c) => {
     const where = [
       c.platforms.android.status === "WORKING" || c.platforms.android.status === "PARTIAL" ? "Android app" : null,
@@ -596,6 +604,24 @@ export function deviceCapabilitiesForPrompt(): string {
     return `- ${c.name}: ${where.length ? `available in the ${where.join(" and ")}` : "not available anywhere yet"}` +
       (c.confirmation === "PER_ACTION" ? "; each action needs the user's explicit confirmation" : "") + ".";
   });
+  if (phoneActionsOffered) {
+    return (
+      "This request comes from the user's ZARVIS Android app, which performs phone actions itself: the tools whose " +
+      "description starts with \"On this phone\" run on the user's phone, never on the server. When the user asks you to " +
+      "do something on their phone that one of those tools does (open an app, the gallery, the camera or settings, find a " +
+      "contact, call someone, set an alarm or a reminder, read notifications, go home or back, and the like), in any " +
+      "language or word order, call that tool right away with the right input instead of explaining manual steps. Call " +
+      "only one phone tool per turn; when the request needs several phone steps (open an app, then read the screen, then " +
+      "tap something), do the first and put the rest in its `then`, and you will be asked for the next step after the " +
+      "phone has done this one. The phone asks for any Android permission it needs and asks the user to confirm calls, " +
+      "taps and other sensitive actions, then reports the real result: never say an action happened before that. " +
+      "To send a message, open a draft (the message tool) and tell the user to press Send: ZARVIS never sends anything " +
+      "itself. These are not supported on the phone, whatever the request; say so plainly: " +
+      NOT_SUPPORTED_ON_PHONE.join("; ") + ". " +
+      "For a phone feature no tool covers, say so plainly and give the manual way. Capability registry:\n" +
+      lines.join("\n")
+    );
+  }
   return (
     "Device capabilities (phone features) are executed only by the ZARVIS client on the user's own device, " +
     "after the user grants Android/browser access — never by you and never through your tools. " +

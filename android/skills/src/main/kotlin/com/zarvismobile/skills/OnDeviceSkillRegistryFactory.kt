@@ -3,18 +3,22 @@ package com.zarvismobile.skills
 import android.content.Context
 import com.zarvismobile.core.tooling.AndroidAlarmClockPort
 import com.zarvismobile.core.tooling.AndroidAppLauncherPort
+import com.zarvismobile.core.tooling.AndroidAppSearchPort
 import com.zarvismobile.core.tooling.AndroidCalendarInsertPort
 import com.zarvismobile.core.tooling.AndroidContactLookupPort
 import com.zarvismobile.core.tooling.AndroidLocationPort
+import com.zarvismobile.core.tooling.AndroidMessageDraftPort
 import com.zarvismobile.core.tooling.AndroidPhoneCallPort
 import com.zarvismobile.core.tooling.AndroidReminderAlarmPort
 import com.zarvismobile.core.tooling.AndroidSystemSettingsPort
 import com.zarvismobile.data.local.reminder.ReminderDao
 import com.zarvismobile.data.local.reminder.RoomReminderScheduler
 import com.zarvismobile.domain.port.SystemClockPort
+import com.zarvismobile.domain.skill.AppSearchSkillFactory
 import com.zarvismobile.domain.skill.CameraCapturePort
 import com.zarvismobile.domain.skill.DeviceCapabilitySkills
 import com.zarvismobile.domain.skill.DocumentPickerPort
+import com.zarvismobile.domain.skill.MessageDraftSkillFactory
 import com.zarvismobile.domain.skill.PhoneCallSkillFactory
 import com.zarvismobile.domain.skill.PhoneFindContactSkillFactory
 import com.zarvismobile.domain.skill.PhoneOpenAppSkillFactory
@@ -90,6 +94,10 @@ object OnDeviceSkillRegistryFactory {
         registry.register(SpecialAccessSkills.readScreen(special.screen))
         registry.register(SpecialAccessSkills.tapOnScreen(special.screen))
         registry.register(SpecialAccessSkills.assistantSetup(special.assistantRole))
+
+        // Handed over by the Brain (a draft the user sends) or said with an app named ("YouTube pe … search karo").
+        registry.register(MessageDraftSkillFactory.create(contacts, AndroidMessageDraftPort(context)))
+        registry.register(AppSearchSkillFactory.create(AndroidAppSearchPort(context)))
 
         return registry
     }

@@ -3,7 +3,9 @@ package com.zarvismobile.domain.orchestrator
 import com.zarvismobile.domain.capability.ActionPolicy
 import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.capability.ConfirmationPolicy
+import com.zarvismobile.domain.skill.AppSearchSkillFactory
 import com.zarvismobile.domain.skill.DeviceCapabilitySkills
+import com.zarvismobile.domain.skill.MessageDraftSkillFactory
 import com.zarvismobile.domain.skill.PhoneCallSkillFactory
 import com.zarvismobile.domain.skill.PhoneFindContactSkillFactory
 import com.zarvismobile.domain.skill.PhoneOpenAppSkillFactory
@@ -20,10 +22,10 @@ import java.lang.reflect.Proxy
  * Phase 1 reliability: how Hindi and Hinglish voice commands reach the phone's own skills, with the app's real on-device catalogue
  * (the same skills as skills/OnDeviceSkillRegistryFactory; ports are inert, routing never calls them).
  *
- * Pinned here: the commands that already work, that a sentence which says NOT to call (or asks how to) never opens the call flow,
- * and that whatever a sentence is routed to, an action the registry marks per-action still asks first. Commands that do not reach a
- * device skill yet ("WhatsApp kholo", "मम्मी को कॉल करो") go to the Brain, which cannot act on the phone; they are listed in
- * ZARVIS_ASSISTANT_UPGRADE_PLAN.md for the Phone Agent phase rather than pinned here.
+ * Pinned here: the commands that already work, Hindi word order and Devanagari ("WhatsApp kholo", "मम्मी को कॉल करो") reaching the
+ * phone's own skill instead of the Brain, that a sentence which says NOT to open or call (or asks how to) never acts, and that whatever
+ * a sentence is routed to, an action the registry marks per-action still asks first. Anything else goes to the Brain, which may hand a
+ * phone action back to the app (ZARVIS_ASSISTANT_UPGRADE_PLAN.md Phase 6).
  */
 class HinglishDeviceCommandSafetyTest {
     private inline fun <reified T : Any> stub(): T =
@@ -58,6 +60,8 @@ class HinglishDeviceCommandSafetyTest {
         register(SpecialAccessSkills.readScreen(stub()))
         register(SpecialAccessSkills.tapOnScreen(stub()))
         register(SpecialAccessSkills.assistantSetup(stub()))
+        register(MessageDraftSkillFactory.create(stub(), stub()))
+        register(AppSearchSkillFactory.create(stub()))
     }
     private val matcher = KeywordSkillMatcher(registry)
     private val capabilities = CapabilityRegistry.loadDefault()
@@ -97,6 +101,115 @@ class HinglishDeviceCommandSafetyTest {
     }
 
     @Test
+    fun `Hindi word order and Devanagari open apps, settings and calls on the phone`() {
+        val expected = listOf(
+            "WhatsApp kholo" to ("phone.open_app" to mapOf("appName" to "whatsapp")),
+            "whatsapp open karo" to ("phone.open_app" to mapOf("appName" to "whatsapp")),
+            "mera whatsapp jaldi se kholo" to ("phone.open_app" to mapOf("appName" to "whatsapp")),
+            "YouTube chalu karo" to ("phone.open_app" to mapOf("appName" to "youtube")),
+            "chrome kholo na" to ("phone.open_app" to mapOf("appName" to "chrome")),
+            "व्हाट्सएप खोलो" to ("phone.open_app" to mapOf("appName" to "व्हाट्सएप")),
+            "gallery kholo" to ("phone.open_app" to mapOf("appName" to "gallery")),
+            "गैलरी खोलो" to ("phone.open_app" to mapOf("appName" to "गैलरी")),
+            "घड़ी खोलो" to ("phone.open_app" to mapOf("appName" to "घड़ी")),
+            "open the gallery" to ("phone.open_app" to mapOf("appName" to "gallery")),
+            "camera kholo" to ("phone.open_app" to mapOf("appName" to "camera")),
+            "open camera" to ("phone.open_app" to mapOf("appName" to "camera")),
+            "contacts kholo" to ("phone.open_app" to mapOf("appName" to "contacts")),
+            "settings kholo" to ("device.open_settings" to mapOf("panel" to "MAIN")),
+            "open settings" to ("device.open_settings" to mapOf("panel" to "MAIN")),
+            "सेटिंग्स खोलो" to ("device.open_settings" to mapOf("panel" to "MAIN")),
+            "wifi on karo" to ("device.open_settings" to mapOf("panel" to "WIFI")),
+            "location chalu karo" to ("device.open_settings" to mapOf("panel" to "LOCATION")),
+            "लोकेशन चालू करो" to ("device.open_settings" to mapOf("panel" to "LOCATION")),
+            "मम्मी को कॉल करो" to ("phone.call" to mapOf("target" to "mummy")),
+            "पापा को फोन लगाओ" to ("phone.call" to mapOf("target" to "papa")),
+            "mummy ko phone lagao" to ("phone.call" to mapOf("target" to "mummy")),
+            "Neha Test ko call karo" to ("phone.call" to mapOf("target" to "neha test")),
+            "Rahul ko call kar de" to ("phone.call" to mapOf("target" to "rahul")),
+            "Rahul ko call karo na" to ("phone.call" to mapOf("target" to "rahul")),
+        )
+        for ((text, routed) in expected) {
+            val (skill, values) = routed
+            assertEquals(skill, route(text)?.id, "\"$text\"")
+            assertEquals(values, input(text), "\"$text\"")
+        }
+        for ((text, skill) in listOf(
+            "notification mat bolo" to "notifications.speak_off",
+            "meri location batao" to "location.current",
+            "open bluetooth settings" to "bluetooth.open_settings",
+            "take a photo" to "camera.capture_photo",
+            "please remind me to call mom" to "personal.reminder",
+            "open quick settings" to "device.global_action",
+        )) {
+            assertEquals(skill, route(text)?.id, "\"$text\"")
+        }
+    }
+
+    @Test
+    fun `a search in a named app opens that app's results, in Hinglish, English or Devanagari`() {
+        val expected = listOf(
+            "YouTube pe arijit ke gaane search karo" to mapOf("query" to "arijit ke gaane", "app" to "YouTube"),
+            "youtube pe arijit ke gaane chalao" to mapOf("query" to "arijit ke gaane", "app" to "YouTube"),
+            "youtube kholo aur arijit search karo" to mapOf("query" to "arijit", "app" to "YouTube"),
+            "यूट्यूब पर भजन सर्च करो" to mapOf("query" to "भजन", "app" to "YouTube"),
+            "search pizza on the map" to mapOf("query" to "pizza", "app" to "Maps"),
+            "मैप में दिल्ली दिखाओ" to mapOf("query" to "दिल्ली", "app" to "Maps"),
+            "airport ka rasta dikhao" to mapOf("query" to "airport", "app" to "Directions"),
+            "navigate to connaught place" to mapOf("query" to "connaught place", "app" to "Directions"),
+            "google pe best laptop search karo" to mapOf("query" to "best laptop", "app" to "Web"),
+            "play store pe whatsapp search karo" to mapOf("query" to "whatsapp", "app" to "Play Store"),
+        )
+        for ((text, values) in expected) {
+            assertEquals("app.search", route(text)?.id, "\"$text\"")
+            assertEquals(values, input(text), "\"$text\"")
+        }
+        // An app is still just opened when nothing is searched for.
+        assertEquals("phone.open_app", route("youtube kholo")?.id)
+        assertEquals(mapOf("appName" to "google maps"), input("google maps kholo"))
+        // Without an app named, a question, or a "don't": the Brain answers (and may still open results itself).
+        for (text in listOf(
+            "search for the best laptop",
+            "what is youtube",
+            "how to search on youtube",
+            "youtube pe search mat karo",
+            "I watched a video on youtube yesterday",
+            "rasta batao",
+        )) {
+            assertEquals(null, route(text)?.id, "\"$text\" must go to the Brain")
+        }
+    }
+
+    @Test
+    fun `a message is never drafted from keywords, only when the Brain hands it over`() {
+        for (text in listOf("draft a message to mom", "Rahul ko message bhejo ki main late hoon", "send hi to Rahul on WhatsApp")) {
+            assertTrue(route(text)?.id != "message.draft", "\"$text\"")
+        }
+        // The emulator's Brain requests (AppAutomationTest) must reach the Brain, not a phone skill by keyword.
+        for (text in listOf("send hi to 5551234", "show me the clock app and then show me the settings", "show me my gallery")) {
+            assertEquals(null, route(text)?.id, "\"$text\"")
+        }
+    }
+
+    @Test
+    fun `a sentence that says not to open something, or asks about opening, opens nothing`() {
+        for (text in listOf(
+            "whatsapp mat kholo",
+            "whatsapp na kholo",
+            "how to open whatsapp",
+            "kya tum whatsapp khol sakte ho",
+            "dukaan kab kholo",
+            "the shop is open",
+            "is the gallery open",
+            "I want to know if the shop is open today",
+            "change my privacy settings in facebook",
+            "Write a short product description",
+        )) {
+            assertEquals(null, route(text)?.id, "\"$text\" must go to the Brain")
+        }
+    }
+
+    @Test
     fun `a sentence that says not to call, to call later, or asks how to call never opens the call flow`() {
         for (text in listOf(
             "call mat karo",
@@ -110,6 +223,8 @@ class HinglishDeviceCommandSafetyTest {
             "call kaise karte hain",
             "call kyun nahi lag raha",
             "मम्मी को कॉल मत करो",
+            "call na karo Rahul",
+            "Rahul ko call na karo",
             "call me later",
             "call off the meeting",
         )) {
@@ -123,6 +238,7 @@ class HinglishDeviceCommandSafetyTest {
             "mummy ko call karo", "call karna hai Rahul ko", "call 9876543210", "call Mom", "home pe jao", "wapas jao", "phone lock karo",
             "lock the screen", "OK button dabao", "tap OK", "screen padho", "स्क्रीन पढ़ो", "read my screen", "meri notifications padho",
             "read my notifications", "aaj ka screen time kitna hai", "what's my screen time today", "go home", "tap Apps",
+            "WhatsApp kholo", "मम्मी को कॉल करो", "mummy ko phone lagao", "settings kholo", "gallery kholo",
         )
         for (text in corpus) {
             val skill = route(text)

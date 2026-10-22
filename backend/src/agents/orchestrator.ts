@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deviceCapabilitiesForPrompt } from "../capabilities/registry.js";
+import { deviceActionTools, findDeviceAction, nextPhoneStep, sanitizeDeviceInput, type DeviceActionRequest } from "../capabilities/deviceActions.js";
 import { resolveEntitlement } from "../domain/entitlementResolver.js";
 import type { SkillExecutionContext, ToolCall, ToolExecutionOutcome } from "../domain/types.js";
 import { toStructuredResult, type StructuredToolResult } from "../tooling/toolResult.js";
@@ -53,6 +54,16 @@ export interface TurnRequest {
   signal?: AbortSignal;
   /** How long the user wants replies to be (the client's "Answer length" setting). Absent: the model's normal length. */
   replyLength?: ReplyLength;
+  /**
+   * The phone actions the client can run itself (ids from capabilities/deviceActions.ts; the Android app sends the ones
+   * it implements). The planner may hand one of them to the phone instead of describing manual steps; see TurnResult.deviceAction.
+   */
+  deviceActions?: string[];
+  /**
+   * The next step of a multi-step phone request (POST /device-result with `continueWith`): `utterance` is the planner's
+   * instruction from continuationNote, not something the user said, so it is not stored, and the conversation must exist.
+   */
+  continuation?: boolean;
 }
 
 /** "Balanced" is the default and needs no instruction, so it is not a value here. */
@@ -84,6 +95,13 @@ export interface TurnResult {
   turnId: string;
   /** True when this is the stored result of an already-completed turn: nothing was executed. */
   replayed?: boolean;
+  /**
+   * The planner handed a phone action to the client (one it listed in TurnRequest.deviceActions). Nothing ran on the
+   * server: the phone runs it through its own permission and confirmation flow and reports the real result to
+   * POST /api/v1/orchestrator/device-result, which records it as the reply. `message` is then only what the model said
+   * alongside (often empty).
+   */
+  deviceAction?: DeviceActionRequest;
   /**
    * Which AI provider wrote `message`, for the client's "answered by" label: its id (`groq`, `openrouter`,
    * `google`, `openai`) and whether it answered because the provider before it was unavailable (rate limited,
@@ -298,6 +316,7 @@ export class Orchestrator {
     const conversation = conversationId
       ? await this.store.getConversation(request.accountId, conversationId)
       : undefined;
+    if (request.continuation && !conversation) throw new Error("A phone step can only continue an existing conversation.");
     // A new chat starts in the project the user opened it from, but only if that project is theirs.
     const requestedProject = !conversation && request.projectId
       ? await this.store.getProject(request.accountId, request.projectId)
@@ -329,13 +348,14 @@ export class Orchestrator {
     }
 
     onEvent({ type: "conversation", conversationId: activeConversation.id, ...(projectId ? { projectId } : {}), ...(agent ? { agentId: agent.id } : {}) });
-    // The failed attempt being retried already stored this message: store it once.
-    const userMessageStored = previousAttempt?.conversationId === activeConversation.id;
+    // The failed attempt being retried already stored this message: store it once. A phone step's instruction is not the
+    // user's message and is never stored.
+    const userMessageStored = request.continuation === true || previousAttempt?.conversationId === activeConversation.id;
     if (userMessageStored) {
       // History is read before the current message is added below; drop the stored copy so
       // the model sees this message once, as the current one.
       const last = persistedMessages[persistedMessages.length - 1];
-      if (last?.role === "user" && last.content === request.utterance.trim().slice(0, 12000)) persistedMessages.pop();
+      if (!request.continuation && last?.role === "user" && last.content === request.utterance.trim().slice(0, 12000)) persistedMessages.pop();
     } else {
       await this.store.appendConversationMessages([{
         id: randomUUID(),
@@ -353,13 +373,13 @@ export class Orchestrator {
     // to the model for a simple greeting: otherwise a model can incorrectly reuse a previous
     // conversation's developer/search context and execute a tool for "Hi". This fast path is
     // also provider-independent, so a greeting never consumes AI/tool credits.
-    const greeting = getSimpleGreetingResponse(request.utterance, request.locale);
+    const greeting = request.continuation ? undefined : getSimpleGreetingResponse(request.utterance, request.locale);
     if (greeting) {
       await this.persistAssistantMessage(activeConversation.id, greeting);
       return { message: greeting, toolCalls: [], conversationId: activeConversation.id, turnId };
     }
 
-    const profileResponse = getZarvisProfileResponse(request.utterance, request.locale);
+    const profileResponse = request.continuation ? undefined : getZarvisProfileResponse(request.utterance, request.locale);
     if (profileResponse) {
       await this.persistAssistantMessage(activeConversation.id, profileResponse);
       return { message: profileResponse, toolCalls: [], conversationId: activeConversation.id, turnId };
@@ -384,6 +404,11 @@ export class Orchestrator {
         description: skill.description,
         inputSchema: skill.inputSchema,
       }));
+    // The phone's own actions, when the client runs them (the Android app). Not with an agent: an agent's planner sees
+    // only that agent's skills.
+    const deviceTools = agent ? [] : deviceActionTools(request.deviceActions);
+    tools.push(...deviceTools);
+    const offeredDeviceActions = new Set(deviceTools.map((tool) => tool.name));
 
     /** Only a skill that was offered this turn may run: a model can name any skill, and an unlisted one must not execute. */
     const offeredSkills = new Set(tools.map((tool) => tool.name));
@@ -429,7 +454,11 @@ export class Orchestrator {
         aiResponse = await this.provider.generate({
           modelCallId: randomUUID(),
           purpose: "planner",
-          systemPrompt: buildSystemPrompt(request, step, results.length > 0, { context: turnContext, agentFocus: agent?.focus }),
+          systemPrompt: buildSystemPrompt(request, step, results.length > 0, {
+            context: turnContext,
+            agentFocus: agent?.focus,
+            phoneActionsOffered: offeredDeviceActions.size > 0,
+          }),
           messages,
           tools,
           modelConfig: this.modelConfig,
@@ -479,6 +508,28 @@ export class Orchestrator {
           });
           executedAny = true;
           continue;
+        }
+        // A phone action ends the turn here: the server never runs it. The phone does, through its own permission and
+        // confirmation flow, and reports the real result (POST /device-result), which becomes the reply.
+        if (offeredDeviceActions.has(call.skillId)) {
+          const action = findDeviceAction(call.skillId)!;
+          const then = nextPhoneStep(call.input);
+          const deviceAction: DeviceActionRequest = {
+            toolCallId: randomUUID(),
+            skillId: call.skillId,
+            input: sanitizeDeviceInput(action, call.input),
+            ...(then ? { then } : {}),
+          };
+          stats.toolCalls.push({ toolCallId: deviceAction.toolCallId, skillId: call.skillId, chargedCredits: 0 });
+          onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: deviceAction.toolCallId, inputPreview: previewInput(deviceAction.input) });
+          logger.info("Phone action handed to the client", { turnId, skillId: call.skillId, toolCallId: deviceAction.toolCallId });
+          return {
+            message: aiResponse.message.content?.trim() ?? "",
+            toolCalls: results,
+            conversationId: activeConversation.id,
+            turnId,
+            deviceAction,
+          };
         }
         // Prevent accidental duplicate execution of the exact same request inside one run.
         // A later step may still call the same skill with different arguments.
@@ -582,6 +633,17 @@ export class Orchestrator {
     return { message: fallback, toolCalls: results, conversationId: activeConversation.id, turnId };
   }
 
+  /**
+   * Records what the phone reported for a phone action it ran (TurnResult.deviceAction) as the assistant's reply in that
+   * conversation. Only the account's own conversation; false when it has no such conversation.
+   */
+  async recordDeviceResult(accountId: string, report: { conversationId: string; message: string }): Promise<boolean> {
+    const conversation = await this.store.getConversation(accountId, report.conversationId);
+    if (!conversation) return false;
+    await this.persistAssistantMessage(conversation.id, report.message);
+    return true;
+  }
+
   private async persistAssistantMessage(conversationId: string, message: string): Promise<void> {
     await this.store.appendConversationMessages([{
       id: randomUUID(),
@@ -640,7 +702,7 @@ export function buildSystemPrompt(
   request: TurnRequest,
   step: number,
   hasExecutedTools: boolean,
-  extra: { context?: TurnContextText; agentFocus?: string } = {},
+  extra: { context?: TurnContextText; agentFocus?: string; phoneActionsOffered?: boolean } = {},
 ): string {
   const replyLanguage = detectReplyLanguage(request.utterance, request.locale);
   let prompt =
@@ -657,7 +719,7 @@ export function buildSystemPrompt(
     "natural mix. Do not switch languages just because the browser locale is English.";
 
   prompt += " " + creatorIdentityForPrompt();
-  prompt += " " + deviceCapabilitiesForPrompt();
+  prompt += " " + deviceCapabilitiesForPrompt(extra.phoneActionsOffered === true);
 
   prompt +=
     ` Respond in ${replyLanguage === "hi" ? "Hindi/Hinglish" : "English"} based on the current user message. ` +

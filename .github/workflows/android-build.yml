@@ -239,9 +239,9 @@ jobs:
 
       # The same debug build pointed at the deployed production backend instead of a dev server: the APK
       # to side-load on a phone. HTTPS only, so it must carry no cleartext exemption at all, not even the
-      # emulator/loopback aliases (app/build.gradle.kts, -Pzarvis.apiBaseUrl).
+      # emulator/loopback aliases (app/build.gradle.kts, -Pzarvis.devApiBaseUrl).
       - name: Assemble debug APK for the production backend (Render)
-        run: ./gradlew :app:assembleDebug -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/ --stacktrace --console=plain
+        run: ./gradlew :app:assembleDebug -Pzarvis.devApiBaseUrl=https://zarvismobile.onrender.com/ --stacktrace --console=plain
 
       - name: Assert the production debug APK dials Render over HTTPS only
         run: |
@@ -253,7 +253,11 @@ jobs:
           grep -q 'API_BASE_URL = "https://zarvismobile.onrender.com/"' "$BUILD_CONFIG" \
             || { echo "::error::debug API_BASE_URL is not the Render backend"; exit 1; }
           if grep -q '10\.0\.2\.2' "$BUILD_CONFIG"; then echo "::error::10.0.2.2 is in the production debug BuildConfig"; exit 1; fi
-          # What the APK itself carries, not only the generated source.
+          # What the APK itself carries, not only the generated source: the compiled code holds the Render URL and no dev URL.
+          DEX_STRINGS="$RUNNER_TEMP/render-apk-dex-strings.txt"
+          unzip -p "$APK" 'classes*.dex' | strings -n 8 > "$DEX_STRINGS"
+          grep -q 'https://zarvismobile.onrender.com/' "$DEX_STRINGS" || { echo "::error::the APK's code does not contain https://zarvismobile.onrender.com/"; exit 1; }
+          if grep -Eq 'http://10\.0\.2\.2:[0-9]' "$DEX_STRINGS"; then echo "::error::the APK's code contains the emulator dev URL"; exit 1; fi
           AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
           NSC=$("$AAPT2" dump xmltree --file res/xml/network_security_config.xml "$APK")
           echo "$NSC"
@@ -267,25 +271,38 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          # Built with -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/: the debug APK to install on a phone.
+          # Built with -Pzarvis.devApiBaseUrl=https://zarvismobile.onrender.com/: the debug APK to install on a phone.
           # It talks to the production backend, so accounts made with it are real production accounts.
           name: app-debug-apk-render
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      # -Pzarvis.apiBaseUrl (or ZARVIS_API_BASE_URL) takes an https:// URL only; anything else stops the
-      # build with the reason, and a missing trailing slash (which Retrofit requires) is added.
+      # -Pzarvis.devApiBaseUrl, -Pzarvis.apiBaseUrl (or ZARVIS_API_BASE_URL) take an https:// URL only; anything
+      # else stops the build with the reason, and a missing trailing slash (which Retrofit requires) is added.
       - name: Assert the API base URL rules
         run: |
           set -euo pipefail
-          for bad in "http://zarvismobile.onrender.com/" "zarvismobile.onrender.com" \
-                     "https://user:pw@zarvismobile.onrender.com/" "https://zarvismobile.onrender.com/?a=1"; do
-            if out=$(./gradlew :app:generateDebugBuildConfig -q --console=plain "-Pzarvis.apiBaseUrl=$bad" 2>&1); then
-              echo "::error::the build accepted -Pzarvis.apiBaseUrl=$bad"; exit 1
-            fi
-            grep -q "ZARVIS: the API base URL" <<<"$out" || { echo "::error::no ZARVIS reason for $bad"; echo "$out" | tail -n 20; exit 1; }
-            echo "ok: rejected $bad"
+          for property in zarvis.devApiBaseUrl zarvis.apiBaseUrl; do
+            for bad in "http://zarvismobile.onrender.com/" "zarvismobile.onrender.com" \
+                       "https://user:pw@zarvismobile.onrender.com/" "https://zarvismobile.onrender.com/?a=1"; do
+              if out=$(./gradlew :app:generateDebugBuildConfig -q --console=plain "-P$property=$bad" 2>&1); then
+                echo "::error::the build accepted -P$property=$bad"; exit 1
+              fi
+              grep -q "ZARVIS: the API base URL" <<<"$out" || { echo "::error::no ZARVIS reason for $bad"; echo "$out" | tail -n 20; exit 1; }
+              echo "ok: rejected -P$property=$bad"
+            done
           done
+          # Two different URLs are a mistake, not a choice.
+          if out=$(./gradlew :app:generateDebugBuildConfig -q --console=plain -Pzarvis.devApiBaseUrl=https://zarvismobile.onrender.com/ \
+                   -Pzarvis.apiBaseUrl=https://example.com/ 2>&1); then
+            echo "::error::the build accepted two different API base URLs"; exit 1
+          fi
+          grep -q "ZARVIS: the API base URL is given twice" <<<"$out" || { echo "::error::no ZARVIS reason for two URLs"; echo "$out" | tail -n 20; exit 1; }
+          echo "ok: rejected two different URLs"
+          ./gradlew :app:generateDebugBuildConfig -q --console=plain -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com > /dev/null 2>&1
+          CONFIG=$(find app/build/generated -path '*debug*' -name BuildConfig.java | head -n 1)
+          grep -q 'API_BASE_URL = "https://zarvismobile.onrender.com/"' "$CONFIG" \
+            || { echo "::error::-Pzarvis.apiBaseUrl was not used, or its trailing slash was not added"; grep API_BASE_URL "$CONFIG"; exit 1; }
           ZARVIS_API_BASE_URL=https://zarvismobile.onrender.com ./gradlew :app:generateDebugBuildConfig -q --console=plain > /dev/null 2>&1
           CONFIG=$(find app/build/generated -path '*debug*' -name BuildConfig.java | head -n 1)
           grep -q 'API_BASE_URL = "https://zarvismobile.onrender.com/"' "$CONFIG" \

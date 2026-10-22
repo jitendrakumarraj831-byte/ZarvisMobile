@@ -88,7 +88,7 @@ The app has exactly one network destination, `BuildConfig.API_BASE_URL`, fixed a
 | Build | Base URL | Cleartext HTTP |
 |---|---|---|
 | `debug` | `http://<dev host>:<dev port>/` | Only to private addresses (loopback, RFC1918, link-local, `.local`) and `10.0.2.2`. |
-| `debug` with `-Pzarvis.apiBaseUrl=https://…` | that URL (see "The deployed (HTTPS) backend") | None, not even `10.0.2.2`. |
+| `debug` with `-Pzarvis.devApiBaseUrl=https://…` (or `-Pzarvis.apiBaseUrl`) | that URL (see "The deployed (HTTPS) backend") | None, not even `10.0.2.2`. |
 | `release` | `https://zarvismobile.onrender.com/` (the production backend) | None. There is no network security config in a release build. |
 
 **Dev host and port, in order of precedence.** Nothing machine-specific is committed; set these on your own machine.
@@ -151,12 +151,13 @@ cd android && ./gradlew :app:installDebug -Pzarvis.devApiHost=127.0.0.1
 A debug build talks to a deployed backend instead of a dev server when it is given its HTTPS address. This is the APK to install on a phone that should use production:
 
 ```
-cd android && ./gradlew :app:assembleDebug -Pzarvis.apiBaseUrl=https://zarvismobile.onrender.com/
+cd android && ./gradlew :app:assembleDebug -Pzarvis.devApiBaseUrl=https://zarvismobile.onrender.com/
 ```
 
-`ZARVIS_API_BASE_URL` works the same way, and `-P` wins over it. Only `https://` is accepted (a missing trailing `/` is added); `http://`, a bare host name, a user, a query or a
-fragment stops the build with the reason. Such a build has no cleartext exemption at all. CI builds exactly this APK and uploads it as the `app-debug-apk-render` artifact of the
-"Android build" workflow (`app-debug-apk-emulator` is the `10.0.2.2` build, for emulators only).
+`-Pzarvis.apiBaseUrl` and `ZARVIS_API_BASE_URL` work the same way; a `-P` property wins over the environment variable, and two different `-P` URLs stop the build. Only `https://` is accepted (a missing trailing `/` is added); `http://`, a bare host name, a user, a query or a
+fragment stops the build with the reason. Such a build has no cleartext exemption at all. CI builds exactly this APK, checks that its code holds the HTTPS Render URL and no emulator URL, and uploads it as the
+`app-debug-apk-render` artifact of the "Android build" workflow (`app-debug-apk-emulator` is the `10.0.2.2` build, for emulators only). The workflow runs on every push
+to `main`, and can be started by hand from `main` (Actions → Android build → Run workflow).
 
 The `release` build type always talks to the production backend, and a release build needs signing credentials that are never in the repository:
 `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD` in the environment, or the same four keys (`storeFile`, `storePassword`, `keyAlias`,

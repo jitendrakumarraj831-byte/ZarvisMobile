@@ -33,6 +33,7 @@ object OnDeviceInputBuilder {
         "phone.call" -> SkillInput(mapOf("target" to subject(utterance, skill)))
         "device.global_action" -> SkillInput(mapOf("action" to (SpecialAccessSkills.parseGlobalAction(utterance) ?: "")))
         "screen.tap" -> SkillInput(mapOf("label" to (SpecialAccessSkills.parseTapLabel(utterance) ?: "")))
+        "app.search" -> SkillInput(SearchCommandParser.parse(utterance)?.let { mapOf("query" to it.query, "app" to it.app) } ?: mapOf("query" to ""))
         else -> SkillInput(mapOf("utterance" to utterance))
     }
 
@@ -60,7 +61,11 @@ object OnDeviceInputBuilder {
         }
         // "call mobile" would otherwise lose its only word; a lone noise word is better treated as the name than as nothing.
         val chosen = if (withoutNoise.isBlank()) remainder else withoutNoise
-        return chosen.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.joinToString(" ")
+        // "call kar de", "whatsapp khol na": a helper word that ends the sentence; inside a name ("De Silva") it stays.
+        val words = chosen.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val subject = words.dropLastWhile { it in TRAILING_FILLER_WORDS }.ifEmpty { words }.joinToString(" ")
+        // "मम्मी को कॉल करो": the address book almost always has the relation in Latin letters ("Mummy").
+        return if (skill.id in CONTACT_SKILL_IDS) RELATIONS_IN_LATIN[subject] ?: subject else subject
     }
 
     /** Whole-word removal that also works for neighbours ("call call") and keeps the spaces the next word needs. */
@@ -86,10 +91,11 @@ object OnDeviceInputBuilder {
     private fun settingsPanel(utterance: String): String {
         val lower = utterance.lowercase()
         return when {
-            lower.contains("wifi") || lower.contains("wi-fi") -> "WIFI"
-            lower.contains("location") || lower.contains("gps") -> "LOCATION"
+            lower.contains("wifi") || lower.contains("wi-fi") || lower.contains("वाईफाई") -> "WIFI"
+            lower.contains("location") || lower.contains("gps") || lower.contains("लोकेशन") -> "LOCATION"
             lower.contains("bluetooth") -> "BLUETOOTH"
-            else -> ""
+            // "open settings", "settings kholo": the Settings app itself.
+            else -> "MAIN"
         }
     }
 
@@ -107,10 +113,24 @@ object OnDeviceInputBuilder {
         "batao", "bata", "bataiye", "dikhao", "dikha", "dhundo", "dhoondo", "khojo", "dedo", "dena", "chahiye", "hai", "kya",
         // how / when the call is made
         "now", "abhi", "jaldi", "speaker", "speakerphone", "lagao", "laga", "lagana", "lagado", "karna", "karde", "kardo", "kijiye", "karein",
+        "milao", "mila", "hai",
+        // the same in Devanagari
+        "नंबर", "बताओ", "बता", "दिखाओ", "ढूंढो", "लगाओ", "लगा", "मिलाओ", "अभी", "करना", "कीजिए", "है",
+    )
+
+    /** Family words people say in Devanagari, as their contacts are usually saved (in Latin letters). Only a whole name is replaced. */
+    private val RELATIONS_IN_LATIN = mapOf(
+        "मम्मी" to "mummy", "मम्मा" to "mumma", "माँ" to "maa", "मां" to "maa", "पापा" to "papa", "पिताजी" to "pitaji",
+        "भैया" to "bhaiya", "भाई" to "bhai", "दीदी" to "didi", "चाचा" to "chacha", "चाची" to "chachi", "मामा" to "mama",
+        "मामी" to "mami", "नाना" to "nana", "नानी" to "nani", "दादा" to "dada", "दादी" to "dadi",
     )
 
     private val FILLER_WORDS = listOf(
-        "please", "the", "to", "a", "an", "for", "me", "my", "on", "up",
-        "ka", "ki", "ko", "se", "kar", "karo", "do", "kro", "zara",
+        "please", "the", "to", "a", "an", "for", "me", "my", "on", "up", "app",
+        "ka", "ki", "ko", "se", "kar", "karo", "do", "kro", "zara", "jaldi", "mera", "meri", "mere",
+        "को", "का", "की", "से", "कर", "करो", "दो", "दें", "ज़रा", "जरा", "जल्दी", "मेरा", "मेरी", "मेरे", "ऐप",
     )
+
+    /** Hindi helper words that only end a request ("kar de", "khol na"); removed from the end, never from inside a name. */
+    private val TRAILING_FILLER_WORDS = setOf("de", "dena", "na", "dijiye", "दे", "देना", "ना", "दीजिए")
 }
