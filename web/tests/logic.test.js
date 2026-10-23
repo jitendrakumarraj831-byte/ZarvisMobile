@@ -142,6 +142,62 @@ test("?api= can only point at this origin: tokens are never sent to a host from 
   assert.equal(L.resolveApiBase("?api=javascript:alert(1)", o), o + "/api/v1");
 });
 
+test("the chat's project chip reads a missing project name once, never in a loop", async () => {
+  // Mirrors app.js renderChatContext: draw the chip, and read the projects when the name is not known.
+  const run = async (loadProjects) => {
+    const lookup = L.createProjectNameLookup();
+    const state = { projectId: "archived-1" };
+    let renders = 0;
+    let reads = 0;
+    const render = () => {
+      renders += 1;
+      if (renders > 20) throw new Error("renderChatContext is looping");
+      const name = ""; // never in the list
+      if (lookup.shouldRead(state.projectId, name)) {
+        reads += 1;
+        void loadProjects().then(() => {
+          if (state.projectId === "archived-1") render();
+        });
+      }
+    };
+    render();
+    // A macrotask still runs: before the fix the promise chain starved the page (it froze).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { renders, reads };
+  };
+  // The name is missing from a cached list (only ACTIVE projects were cached): the cache answers at once.
+  assert.deepEqual(await run(async () => [{ id: "active-1", name: "Active" }]), { renders: 2, reads: 1 });
+  // GET /projects failed (offline, 5xx): workspace.js answers with an empty list instead of throwing.
+  assert.deepEqual(await run(async () => []), { renders: 2, reads: 1 });
+});
+
+test("project name lookup: a known name is never read, and leaving the project lets it be read again", () => {
+  const lookup = L.createProjectNameLookup();
+  assert.equal(lookup.shouldRead("p1", "Website relaunch"), false);
+  assert.equal(lookup.shouldRead("p1", ""), true);
+  assert.equal(lookup.shouldRead("p1", ""), false);
+  assert.equal(lookup.shouldRead("p2", undefined), true); // another chat's project
+  assert.equal(lookup.shouldRead(null, ""), false); // a chat without a project
+  assert.equal(lookup.shouldRead("p2", ""), true); // opened again later: asked once more
+});
+
+test("an attached document is sent with the message but shown as 📎 name, also when the chat is opened again", () => {
+  const asked = L.attachmentMessage("  What is the total?  ", "invoice.txt", "Line 1\nTotal: 40");
+  assert.equal(asked.utterance, "What is the total?\n\n[Attached document: invoice.txt]\nLine 1\nTotal: 40");
+  assert.equal(asked.displayText, "📎 invoice.txt\nWhat is the total?");
+  assert.equal(L.userMessageDisplay(asked.utterance), asked.displayText);
+
+  const plain = L.attachmentMessage("", "notes.md", "# Notes");
+  assert.equal(plain.utterance, "Please summarize this document (notes.md).\n\n[Attached document: notes.md]\n# Notes");
+  assert.equal(plain.displayText, "📎 notes.md");
+  assert.equal(L.userMessageDisplay(plain.utterance), "📎 notes.md");
+
+  // An ordinary message, even one that mentions documents, is shown as written.
+  assert.equal(L.userMessageDisplay("Summarize [Attached document: x] please"), "Summarize [Attached document: x] please");
+  assert.equal(L.userMessageDisplay(""), "");
+  assert.equal(L.userMessageDisplay(undefined), "");
+});
+
 test("the AI provider status shown in Settings and Metrics is truthful for every provider the server can report", () => {
   assert.deepEqual(L.aiProviderStatus("groq"), { configured: true, label: "Groq", sentence: "Groq is answering your requests." });
   assert.deepEqual(L.aiProviderStatus("google"), { configured: true, label: "Gemini", sentence: "Google Gemini is answering your requests." });

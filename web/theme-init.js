@@ -54,6 +54,9 @@
       dictionary.src = "./i18n.js";
       dictionary.async = true;
       dictionary.setAttribute("data-i18n", "");
+      // A failed download (offline on a first Hindi visit) is marked: its error event may fire before app.js listens, and
+      // app.js then fetches the dictionary again instead of waiting for an event that already happened.
+      dictionary.onerror = function () { dictionary.setAttribute("data-i18n-failed", ""); };
       document.head.appendChild(dictionary);
     }
   } catch (e) {}

@@ -555,7 +555,9 @@
                 confirmation: null,
               });
               card.stage("result", ok ? "done" : "failed", ok ? "Completed" : STATUS_LABEL[(body && body.result && body.result.status) || "FAILED"]);
-              if (host.reply) host.reply((body && body.message) || "Done.");
+              // Only while this card's chat is still the one on screen: after a switch the answer belongs to the other chat,
+              // where the server already stored it, and must not appear in the one now open.
+              if (host.reply && card.root.isConnected) host.reply((body && body.message) || "Done.");
             },
           });
           card.confirmBox.hidden = false;

@@ -11,7 +11,7 @@
  * MASTER_SPEC.md Product Principle #4 forbids; a real network failure there should surface
  * as the honest error app.js already shows, not a stale cache hit.
  */
-const CACHE_NAME = "zarvis-shell-v58";
+const CACHE_NAME = "zarvis-shell-v59";
 // i18n.js (the Hindi dictionary) is not precached: English readers never need it, and the fetch handler below caches it the first time Hindi loads it.
 const SHELL_FILES = ["/", "/index.html", "/app.js", "/logic.js", "/feature-pages.js", "/shell.js", "/chat-kit.js", "/exec-cards.js", "/workspace.js", "/theme-init.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 

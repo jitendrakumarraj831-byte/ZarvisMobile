@@ -15,6 +15,21 @@ test("English, unknown text and non-strings pass through untouched", () => {
   assert.equal(translate(null, "hi"), null);
 });
 
+test("the chat's own controls and the loading and error states have Hindi", () => {
+  const strings = [
+    // Reply actions, message tools, refine chips, code copy, the speaking row and the progress line inside the thread.
+    "Copy", "Listen", "Regenerate", "Share", "Download", "Save to Files", "Edit", "Remember", "Copy code", "Copied", "Stop speaking",
+    "Shorter", "Simpler", "More detail", "As a checklist", "In English", "In Hindi", "Reviewing the result…", "Using Web search…",
+    // States and messages the app writes outside the thread.
+    "Loading…", "Checking…", "Deleting…", "Unavailable", "Opening secure checkout…", "Verifying with GitHub…", "Couldn't reach ZARVIS.",
+    "Couldn't load capabilities right now.", "Couldn't check the GitHub connection.", "Couldn't load account details. Check your connection.",
+    "Couldn't load the capability list. Check your connection.", "Couldn't delete your account. Check the connection and try again.",
+    "GitHub connection isn't configured on this server. Public repositories can still be analyzed.",
+    "This chat can use every skill again.", "This chat is still loading. Send your message again in a moment.", "Scroll to the latest message",
+  ];
+  for (const text of strings) assert.notEqual(translate(text, "hi"), text, "no Hindi for " + JSON.stringify(text));
+});
+
 test("strings with a changing part are translated by pattern", () => {
   assert.equal(translate("Ends 21 Oct", "hi"), "समाप्त: 21 Oct");
   assert.equal(translate("Save 17%", "hi"), "17% बचाएँ");
