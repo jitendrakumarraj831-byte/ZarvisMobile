@@ -17,6 +17,7 @@ import com.zarvismobile.domain.notification.SpeakDecision
 import com.zarvismobile.domain.skill.NotificationSettingsPort
 import java.time.LocalTime
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +62,35 @@ class NotificationSpeaker(
 
     /** Decisions for the last few notifications by Android notification key (never content). */
     val recentOutcomes: StateFlow<List<Pair<String, SpeakOutcome>>> = _recent.asStateFlow()
+
+    /** The audio focus each queued or speaking utterance holds, and who waits for it to start, by utterance id. */
+    private val focusByUtterance = ConcurrentHashMap<String, AudioFocusRequest>()
+    private val startedByUtterance = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
+
+    /**
+     * One listener for every utterance. Utterances queue (QUEUE_ADD), so a new notification can be spoken while another is still
+     * speaking; a listener per utterance replaced the previous one, whose audio focus was then never given back (music stayed ducked).
+     */
+    private val progress = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            startedByUtterance.remove(utteranceId ?: return)?.complete(true)
+        }
+
+        override fun onDone(utteranceId: String?) = finished(utteranceId, started = true)
+
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String?) = finished(utteranceId, started = false)
+
+        override fun onStop(utteranceId: String?, interrupted: Boolean) = finished(utteranceId, started = false)
+    }
+
+    private fun finished(utteranceId: String?, started: Boolean) {
+        val id = utteranceId ?: return
+        startedByUtterance.remove(id)?.complete(started)
+        focusByUtterance.remove(id)?.let { audioManager().abandonAudioFocusRequest(it) }
+    }
+
+    private fun audioManager() = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     fun onNotificationPosted(snapshot: NotificationSnapshot) {
         scope.launch { handle(snapshot) }
@@ -133,7 +163,7 @@ class NotificationSpeaker(
     /** Returns only once Android reports the utterance actually started (or failed). */
     private suspend fun speak(text: String): SpeakOutcome {
         val engine = engine().getOrElse { return SpeakOutcome.Failed(it.message ?: NO_ENGINE) }
-        val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val audio = audioManager()
         val attributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -142,25 +172,13 @@ class NotificationSpeaker(
         audio.requestAudioFocus(focus)
         val started = CompletableDeferred<Boolean>()
         val id = UUID.randomUUID().toString()
+        focusByUtterance[id] = focus
+        startedByUtterance[id] = started
         engine.setAudioAttributes(attributes)
-        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                if (utteranceId == id) started.complete(true)
-            }
-
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == id) audio.abandonAudioFocusRequest(focus)
-            }
-
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {
-                if (utteranceId == id) {
-                    started.complete(false)
-                    audio.abandonAudioFocusRequest(focus)
-                }
-            }
-        })
+        engine.setOnUtteranceProgressListener(progress)
         if (engine.speak(text, TextToSpeech.QUEUE_ADD, null, id) != TextToSpeech.SUCCESS) {
+            startedByUtterance.remove(id)
+            focusByUtterance.remove(id)
             audio.abandonAudioFocusRequest(focus)
             return SpeakOutcome.Failed("text-to-speech rejected the request")
         }

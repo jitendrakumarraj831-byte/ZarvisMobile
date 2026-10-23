@@ -118,6 +118,45 @@ class DeviceCommandRoutingTest {
         assertEquals("bluetooth.open_settings", route("open bluetooth settings"))
     }
 
+    /** Regression: "call" and "set an alarm" outscored the reminder, so these rang a contact named "mummy karne yaad dilana" or set an alarm. */
+    @Test
+    fun aReminderAboutCallingOrSettingAnAlarmIsAReminder() {
+        assertEquals("personal.reminder", route("mummy ko call karne ki yaad dilana"))
+        assertEquals("personal.reminder", route("Rahul ko call karna yaad dilana 5 baje"))
+        assertEquals("personal.reminder", route("remind me to set an alarm"))
+        assertEquals("personal.reminder", route("remind me to set an alarm at 9pm"))
+        // The plain commands still go where they did.
+        assertEquals("phone.call", route("mummy ko call karo"))
+        assertEquals("phone.call", route("call mom to remind her about dinner"))
+        assertEquals("alarm.set", route("kal subah 6 baje alarm laga do"))
+        assertEquals("alarm.set", route("set an alarm for 6am"))
+    }
+
+    /** Regression: "open WhatsApp and then Rahul's chat" (a multi-step request for the Brain) tried to open an app of that whole name. */
+    @Test
+    fun anOpenCommandWithAFurtherStepGoesToTheBrain() {
+        assertNull(route("open whatsapp and then rahul's chat"))
+        assertNull(route("open whatsapp and call rahul"))
+        assertNull(route("WhatsApp kholo aur Rahul ka chat kholo"))
+        assertNull(route("whatsapp kholo phir rahul ko message karo"))
+        assertEquals("phone.open_app", route("open whatsapp"))
+        assertEquals("phone.open_app", route("whatsapp kholo"))
+        assertEquals("phone.open_app", route("chrome kholo na"))
+        assertEquals("phone.open_app", route("open google maps"))
+    }
+
+    /** Regression: these were taken as new reminders, and the user was asked "When should I remind you?". */
+    @Test
+    fun askingWhichRemindersThereAreListsThem() {
+        for (text in listOf("what reminders do I have", "any reminders today?", "kal ke reminders dikhao", "show my reminders")) {
+            val skill = assertNotNull(matcher.matchCommand(text), text)
+            assertEquals("personal.reminder", skill.id, text)
+            assertEquals("list", OnDeviceInputBuilder.build(skill, text).values["action"], text)
+        }
+        val reminder = assertNotNull(registry.find("personal.reminder"))
+        assertEquals("create", OnDeviceInputBuilder.build(reminder, "remind me to check my reminders at 5pm").values["action"])
+    }
+
     @Test
     fun everyCommandTheEmulatorSuiteSendsStillRoutesToASkill() {
         // The utterances DeviceCapabilityTest / SpecialAccessTest send on the emulator.

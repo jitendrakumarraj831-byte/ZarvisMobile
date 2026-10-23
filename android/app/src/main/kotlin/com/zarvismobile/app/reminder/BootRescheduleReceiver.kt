@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.zarvismobile.core.tooling.AndroidReminderAlarmPort
+import com.zarvismobile.core.tooling.ReminderAlarmReceiver
 import com.zarvismobile.data.local.reminder.ReminderDao
 import com.zarvismobile.data.local.reminder.toDomain
 import dagger.hilt.android.AndroidEntryPoint
@@ -20,6 +21,8 @@ import javax.inject.Inject
  * would fire). Re-arms every incomplete reminder from Room on `BOOT_COMPLETED`; a reminder
  * whose `dueAt` already passed while the device was off fires immediately, since
  * `AlarmManager.setAndAllowWhileIdle` triggers right away for a past `triggerAtMillis`.
+ * A reminder whose alarm already fired ([ReminderAlarmReceiver.firedIds]) is marked completed
+ * first and never re-armed, so a reboot does not show every past reminder again.
  *
  * Registered with `@AndroidEntryPoint` (unlike the plain [com.zarvismobile.core.tooling.
  * ReminderAlarmReceiver], which needs no injected dependencies) because rescheduling needs
@@ -36,9 +39,13 @@ class BootRescheduleReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
 
         val pendingResult = goAsync()
-        val alarmPort = AndroidReminderAlarmPort(context.applicationContext)
+        val appContext = context.applicationContext
+        val alarmPort = AndroidReminderAlarmPort(appContext)
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                val fired = ReminderAlarmReceiver.firedIds(appContext)
+                fired.forEach { reminderDao.markCompleted(it) }
+                ReminderAlarmReceiver.forgetFired(appContext, fired)
                 reminderDao.getAll()
                     .filterNot { it.completed }
                     .forEach { alarmPort.schedule(it.toDomain()) }

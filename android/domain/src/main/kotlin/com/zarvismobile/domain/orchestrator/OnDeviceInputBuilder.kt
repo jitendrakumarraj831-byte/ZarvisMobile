@@ -84,8 +84,10 @@ object OnDeviceInputBuilder {
 
     private fun isReminderListRequest(utterance: String): Boolean {
         val lower = utterance.lowercase()
-        return !lower.contains("remind me") &&
-            (Regex("""\b(list|show|what are|my)\b.*\breminders\b""").containsMatchIn(lower) || lower.trim() == "reminders")
+        // Any request about "reminders" that does not ask to be reminded: "show my reminders", "what reminders do I have",
+        // "kal ke reminders dikhao".
+        return !lower.contains("remind me") && !lower.contains("yaad dila") && !lower.contains("याद दिला") &&
+            Regex("""\breminders\b""").containsMatchIn(lower)
     }
 
     private fun settingsPanel(utterance: String): String {

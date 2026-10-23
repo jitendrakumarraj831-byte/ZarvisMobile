@@ -73,6 +73,9 @@ class TokenAuthenticator(
         val tokenOnFailedRequest = failedRequest.header("Authorization")?.removePrefix("Bearer ")
         val currentlyStored = secureStorage.getString(TokenStorageKeys.ACCESS_TOKEN)
         if (currentlyStored != null && currentlyStored != tokenOnFailedRequest) return currentlyStored
+        // No session on this device (signed out, or the account deleted, while this request was on its way): nothing to refresh,
+        // and nothing the server ended, so the session must not be marked expired.
+        if (secureStorage.getString(TokenStorageKeys.REFRESH_TOKEN) == null) return null
 
         return when (val outcome = refresh()) {
             is RefreshOutcome.Refreshed -> outcome.accessToken

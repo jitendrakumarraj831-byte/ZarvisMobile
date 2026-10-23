@@ -21,7 +21,8 @@ class AndroidPhoneCallPort(private val context: Context) : PhoneCallPort {
 
     override suspend fun call(phoneNumber: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$phoneNumber"))
+            // fromParts, not parse: a "#" in the number ("*99#", an extension) would otherwise start a URI fragment and be cut off.
+            val intent = Intent(Intent.ACTION_CALL, Uri.fromParts("tel", phoneNumber, null))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             true

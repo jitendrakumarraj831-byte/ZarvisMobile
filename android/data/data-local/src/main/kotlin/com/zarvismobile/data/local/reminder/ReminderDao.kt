@@ -15,4 +15,8 @@ interface ReminderDao {
 
     @Query("UPDATE reminders SET completed = 1 WHERE id = :id")
     suspend fun markCompleted(id: String): Int
+
+    /** Every reminder, when the account they belong to signs out or is deleted. */
+    @Query("DELETE FROM reminders")
+    suspend fun deleteAll()
 }

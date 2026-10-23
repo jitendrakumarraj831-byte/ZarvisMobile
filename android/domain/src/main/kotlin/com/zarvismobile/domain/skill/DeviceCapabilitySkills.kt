@@ -27,6 +27,7 @@ object DeviceCapabilitySkills {
 
     private val TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
     private val DATE_TIME = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a", Locale.ENGLISH)
+    private val DAY = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
 
     private fun base(
         id: String,
@@ -228,9 +229,18 @@ object DeviceCapabilitySkills {
         handler = SkillHandler { input, _ ->
             val text = (input.values["utterance"] as? String).orEmpty()
             val now = ZonedDateTime.ofInstant(clock.now(), zone())
-            val time = when (val parsed = ReminderTimeParser.parse(text, now)) {
+            val time = when (val parsed = ReminderTimeParser.parse(text, now, forAlarm = true)) {
                 is ReminderTimeParser.Result.Parsed -> parsed.dueAt
                 else -> return@SkillHandler SkillResult.Failure("missing_time", "What time should the alarm be for? For example \"6:30 am\".")
+            }
+            // The Clock app is only given a time and rings at its next occurrence, so a later day ("monday at 6 am") can't be passed on.
+            val next = now.with(time.toLocalTime()).let { if (it.isAfter(now)) it else it.plusDays(1) }
+            if (next.toLocalDate() != time.toLocalDate()) {
+                return@SkillHandler SkillResult.Failure(
+                    "day_not_supported",
+                    "I can only give the Clock app a time, so the alarm would ring at the next ${TIME.format(next)} (${DAY.format(next)}), " +
+                        "not on ${DAY.format(time)}. Set it in the Clock app, or ask me to remind you then instead.",
+                )
             }
             if (!clockApp.handOffAlarm(time.hour, time.minute, "ZARVIS")) {
                 return@SkillHandler SkillResult.Failure("no_clock_app", "No Clock app on this phone accepted the alarm.")

@@ -41,7 +41,25 @@ object ReminderTimeParser {
         Regex("""\bin\s+(half)\s+(an\s+)?(hour)\b""", RegexOption.IGNORE_CASE),
     )
 
+    /** Hours and minutes said together ("in 1 hour 30 minutes", "in 2 hours and 15 mins", "1 ghanta 30 minute baad"): group 1 hours, 2 minutes. */
+    private val HOURS_AND_MINUTES = listOf(
+        Regex("""\bin\s+$NUM\s*(?:hours?|hrs?)\s*(?:and\s+)?$NUM\s*(?:minutes?|mins?)\b""", RegexOption.IGNORE_CASE),
+        Regex(
+            """(?<![\p{L}\d])$NUM\s*(?:ghante|ghanta|घंटे|घंटा)\s*(?:aur\s+|और\s+)?$NUM\s*(?:minute|minutes|min|mins|मिनट)\s*(?:mein|me|main|baad|bad|में|बाद)(?![\p{L}])""",
+            RegexOption.IGNORE_CASE,
+        ),
+    )
+
+    /** "in an hour and a half", "in 2 hours and a half": group 1 hours. */
+    private val HOURS_AND_A_HALF = Regex("""\bin\s+$NUM\s*(?:hours?|hrs?)\s+and\s+a\s+half\b""", RegexOption.IGNORE_CASE)
+
     private val CLOCK_AT = Regex("""\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?(?![\d:])""", RegexOption.IGNORE_CASE)
+
+    /** Alarms only: "an alarm for 6:30". Never a length of time ("for 5 minutes"). Same groups as [CLOCK_AT]. */
+    private val CLOCK_FOR = Regex(
+        """\bfor\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?(?![\d:])(?!\s*(?:minutes?|mins?|hours?|hrs?|seconds?|secs?)\b)""",
+        RegexOption.IGNORE_CASE,
+    )
     private val CLOCK_AMPM = Regex("""(?<![\d:])(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)(?![\p{L}])""", RegexOption.IGNORE_CASE)
     private val CLOCK_BAJE = Regex("""(?<![\d:])(\d{1,2})(?::(\d{2}))?\s*(baje|bje|बजे)(?![\p{L}])""", RegexOption.IGNORE_CASE)
 
@@ -69,35 +87,57 @@ object ReminderTimeParser {
         Regex("""\s*(mujhe|मुझे)\s*""", RegexOption.IGNORE_CASE),
     )
 
-    fun parse(text: String, now: ZonedDateTime): Result {
+    /**
+     * [forAlarm]: the time is for an alarm, so an hour said without am/pm or a daypart is in the morning ("set an alarm at 6" is 6 am,
+     * not the reminders' "1 to 6 is pm"), and "for 6:30" is a clock time.
+     */
+    fun parse(text: String, now: ZonedDateTime, forAlarm: Boolean = false): Result {
         var remainder = " $text "
         var dueAt: ZonedDateTime? = null
 
-        // 1. Relative ("in 10 minutes") wins outright.
-        for (pattern in RELATIVE) {
+        // 1. Relative ("in 10 minutes") wins outright. Hours and minutes said together are added up first.
+        for (pattern in HOURS_AND_MINUTES) {
             val match = pattern.find(remainder) ?: continue
-            val amount = if (match.groupValues[1].equals("half", true)) 30 else toNumber(match.groupValues[1]) ?: continue
-            val unit = match.value.lowercase()
-            val minutes = when {
-                match.groupValues[1].equals("half", true) -> 30L
-                unit.contains("hour") || unit.contains("hr") || unit.contains("ghant") || unit.contains("घंट") -> amount * 60L
-                else -> amount.toLong()
-            }
-            if (minutes <= 0 || minutes > 60L * 24 * 30) continue
-            dueAt = now.plusMinutes(minutes).withSecond(0).withNano(0)
+            val hours = toNumber(match.groupValues[1]) ?: continue
+            val minutes = toNumber(match.groupValues[2]) ?: continue
+            dueAt = relative(now, hours * 60L + minutes) ?: continue
             remainder = remainder.removeRange(match.range)
             break
+        }
+        if (dueAt == null) {
+            HOURS_AND_A_HALF.find(remainder)?.let { match ->
+                val hours = toNumber(match.groupValues[1]) ?: return@let
+                dueAt = relative(now, hours * 60L + 30) ?: return@let
+                remainder = remainder.removeRange(match.range)
+            }
+        }
+        if (dueAt == null) {
+            for (pattern in RELATIVE) {
+                val match = pattern.find(remainder) ?: continue
+                val amount = if (match.groupValues[1].equals("half", true)) 30 else toNumber(match.groupValues[1]) ?: continue
+                // The unit word itself, never the whole match: "three" contains "hr".
+                val unit = match.groupValues[2].lowercase()
+                val minutes = when {
+                    match.groupValues[1].equals("half", true) -> 30L
+                    unit.contains("hour") || unit.contains("hr") || unit.contains("ghant") || unit.contains("घंट") -> amount * 60L
+                    else -> amount.toLong()
+                }
+                dueAt = relative(now, minutes) ?: continue
+                remainder = remainder.removeRange(match.range)
+                break
+            }
         }
 
         if (dueAt == null) {
             // 2. Clock time + day qualifiers.
-            val clock = CLOCK_AT.find(remainder) ?: CLOCK_AMPM.find(remainder) ?: CLOCK_BAJE.find(remainder)
+            val clock = CLOCK_AT.find(remainder) ?: (if (forAlarm) CLOCK_FOR.find(remainder) else null)
+                ?: CLOCK_AMPM.find(remainder) ?: CLOCK_BAJE.find(remainder)
             var time: LocalTime? = null
             if (clock != null) {
                 val hourRaw = clock.groupValues[1].toInt()
                 val minute = clock.groupValues[2].toIntOrNull() ?: 0
                 val meridiem = clock.groupValues.getOrNull(3)?.lowercase()?.replace(".", "").orEmpty()
-                val hour = resolveHour(hourRaw, meridiem, remainder)
+                val hour = resolveHour(hourRaw, meridiem, remainder, forAlarm)
                 if (hour != null && minute in 0..59) {
                     time = LocalTime.of(hour, minute)
                     remainder = remainder.removeRange(clock.range)
@@ -106,6 +146,9 @@ object ReminderTimeParser {
 
             var date: LocalDate? = null
             var explicitDay = false
+            // Read before the day words are taken out: "tonight" is both a day word and a daypart.
+            val night = NIGHT.containsMatchIn(remainder)
+            var tonight = false
             TOMORROW.find(remainder)?.let {
                 date = now.toLocalDate().plusDays(1)
                 explicitDay = true
@@ -115,6 +158,7 @@ object ReminderTimeParser {
                 TODAY.find(remainder)?.let {
                     date = now.toLocalDate()
                     explicitDay = true
+                    tonight = night
                     if (time == null && it.value.equals("tonight", true)) time = LocalTime.of(21, 0)
                     remainder = remainder.removeRange(it.range)
                 }
@@ -134,7 +178,9 @@ object ReminderTimeParser {
             if (time != null) {
                 val day = date ?: now.toLocalDate()
                 var candidate = ZonedDateTime.of(day, time, now.zone)
-                if (!explicitDay && !candidate.isAfter(now)) candidate = candidate.plusDays(1)
+                // "tonight at 12", "aaj raat 1 baje": a small hour of tonight is after midnight, so on the next date.
+                val afterMidnightTonight = tonight && time.hour < 5
+                if ((!explicitDay || afterMidnightTonight) && !candidate.isAfter(now)) candidate = candidate.plusDays(1)
                 dueAt = candidate
             } else if (date != null) {
                 // A day without a time is not enough — ask instead of guessing a time.
@@ -150,8 +196,12 @@ object ReminderTimeParser {
         }
     }
 
-    /** 12-hour inference: explicit am/pm wins; else daypart words; else 1–6 → pm, 7–11 → am. */
-    private fun resolveHour(hour: Int, meridiem: String, context: String): Int? {
+    /** [minutes] from [now], or null when that is no time at all or more than 30 days away. */
+    private fun relative(now: ZonedDateTime, minutes: Long): ZonedDateTime? =
+        if (minutes <= 0 || minutes > 60L * 24 * 30) null else now.plusMinutes(minutes).withSecond(0).withNano(0)
+
+    /** 12-hour inference: explicit am/pm wins; else daypart words; else 1–6 → pm, 7–11 → am (for an alarm, 1–11 → am). */
+    private fun resolveHour(hour: Int, meridiem: String, context: String, forAlarm: Boolean): Int? {
         if (hour !in 0..23) return null
         return when {
             meridiem == "am" -> if (hour == 12) 0 else hour.takeIf { it in 1..12 }
@@ -165,6 +215,8 @@ object ReminderTimeParser {
                 else -> hour + 12
             }
             hour == 12 -> 12
+            // An alarm without am/pm or a daypart is almost always for the morning ("set an alarm at 6").
+            forAlarm -> hour
             hour in 1..6 -> hour + 12
             else -> hour
         }

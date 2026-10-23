@@ -24,6 +24,7 @@ import com.zarvismobile.core.security.PermissionRequestLog
 import com.zarvismobile.core.security.SecureStorage
 import com.zarvismobile.core.security.SpecialAccessComponents
 import com.zarvismobile.core.security.SpecialAccessStates
+import com.zarvismobile.core.tooling.AndroidReminderAlarmPort
 import com.zarvismobile.core.tooling.ComposeConfirmationPort
 import com.zarvismobile.core.tooling.ComposeRationalePort
 import com.zarvismobile.data.local.ZarvisDatabase
@@ -93,8 +94,20 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSessionRepository(api: ZarvisApi, secureStorage: SecureStorage): SessionRepository =
-        SessionRepository(api, secureStorage)
+    fun provideSessionRepository(
+        api: ZarvisApi,
+        secureStorage: SecureStorage,
+        @ApplicationContext context: Context,
+        reminderDao: ReminderDao,
+        pendingActions: PendingActionStore,
+    ): SessionRepository =
+        SessionRepository(api, secureStorage) {
+            // Signed out or account deleted: that account's reminders stop firing and leave this phone, as does an interrupted action.
+            val alarms = AndroidReminderAlarmPort(context)
+            reminderDao.getAll().forEach { alarms.cancel(it.id) }
+            reminderDao.deleteAll()
+            pendingActions.clear()
+        }
 
     @Provides
     @Singleton
