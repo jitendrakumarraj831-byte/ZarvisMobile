@@ -696,7 +696,9 @@ function getSimpleGreetingResponse(utterance: string, locale?: string): string |
 
   if (!isGreeting) return undefined;
 
-  return locale?.toLowerCase().startsWith("hi")
+  // The greeting's own language decides, as for every other reply: "नमस्ते" or "namaste" with an English app gets Hindi, and
+  // a greeting with no language of its own ("hi", "hello") follows the app language.
+  return detectReplyLanguage(normalized, locale) === "hi"
     ? "नमस्ते! 👋 मैं ZARVIS हूँ। मैं आपकी कैसे मदद कर सकता हूँ?"
     : "Hi! 👋 I'm ZARVIS. How can I help you today?";
 }
