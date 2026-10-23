@@ -41,6 +41,18 @@ describe("automation.create_workflow skill", () => {
     }
   });
 
+  it("keeps a workflow within the same limits as POST /tasks (20 steps, 300 characters each, a 500-character goal)", async () => {
+    const skill = createAutomationCreateWorkflowSkill(taskService);
+    const many = Array.from({ length: 500 }, (_, i) => `step ${i}`).join(", ");
+    const tooMany = await skill.handler({ values: { goal: "Goal", steps: many } }, context);
+    expect(tooMany).toMatchObject({ kind: "failure", reason: "too_many_steps" });
+    const longStep = await skill.handler({ values: { goal: "Goal", steps: "x".repeat(301) } }, context);
+    expect(longStep).toMatchObject({ kind: "failure", reason: "step_too_long" });
+    const longGoal = await skill.handler({ values: { goal: "g".repeat(501), steps: "one" } }, context);
+    expect(longGoal).toMatchObject({ kind: "failure", reason: "goal_too_long" });
+    expect(await taskService.listForAccount(context.accountId)).toEqual([]);
+  });
+
   it("falls back to one step when the text has no separator", async () => {
     const skill = createAutomationCreateWorkflowSkill(taskService);
     const result = await skill.handler({ values: { goal: "Goal", steps: "just one thing" } }, context);

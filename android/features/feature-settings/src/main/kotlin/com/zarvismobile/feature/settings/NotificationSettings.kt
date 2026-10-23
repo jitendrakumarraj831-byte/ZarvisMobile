@@ -60,6 +60,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 
 data class InstalledApp(val packageName: String, val label: String)
 
@@ -222,23 +226,35 @@ fun ColumnScope.NotificationSettingsContent(viewModel: NotificationSettingsViewM
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = { showApps = !showApps; if (showApps) viewModel.loadApps() }) { Text(if (showApps) "Hide apps" else "Choose apps") }
-        if (showApps) {
-            apps.forEach { app ->
-                val excluded = app.packageName in settings.excludedPackages
-                Row(
-                    Modifier.fillMaxWidth().toggleable(value = excluded, role = Role.Checkbox) { on ->
-                        viewModel.update { current ->
-                            current.copy(excludedPackages = if (on) current.excludedPackages + app.packageName else current.excludedPackages - app.packageName)
+        TextButton(onClick = { showApps = true; viewModel.loadApps() }) { Text("Choose apps") }
+    }
+
+    if (showApps) {
+        AlertDialog(
+            onDismissRequest = { showApps = false },
+            title = { Text("Excluded apps") },
+            text = {
+                // Lazy, in its own window: a phone can have hundreds of apps, and composing every row inside the settings page made
+                // each change there stutter on a low-end phone. One row per app even when it has several launcher entries.
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(apps.distinctBy { it.packageName }, key = { it.packageName }) { app ->
+                        val excluded = app.packageName in settings.excludedPackages
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(value = excluded, role = Role.Checkbox) { on ->
+                                viewModel.update { current ->
+                                    current.copy(excludedPackages = if (on) current.excludedPackages + app.packageName else current.excludedPackages - app.packageName)
+                                }
+                            }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = excluded, onCheckedChange = null)
+                            Text(app.label, modifier = Modifier.padding(start = 8.dp))
                         }
-                    }.padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = excluded, onCheckedChange = null)
-                    Text(app.label, modifier = Modifier.padding(start = 8.dp))
+                    }
                 }
-            }
-        }
+            },
+            confirmButton = { TextButton(onClick = { showApps = false }) { Text("Done") } },
+        )
     }
 }
 

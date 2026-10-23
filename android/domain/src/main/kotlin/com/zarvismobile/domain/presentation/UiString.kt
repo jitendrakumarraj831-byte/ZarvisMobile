@@ -18,7 +18,8 @@ enum class UiString(val en: String, val hi: String) {
     // ---- Bottom navigation ------------------------------------------------------------------
     NAV_HOME("Home", "होम"),
     NAV_CHAT("Chat", "चैट"),
-    NAV_CAPABILITIES("Capabilities", "क्षमताएँ"),
+    // "Skills" on the tab: "Capabilities" does not fit five tabs on a 360dp phone (it pushed Work's label out). The page keeps its title.
+    NAV_CAPABILITIES("Skills", "क्षमताएँ"),
     NAV_TASKS("Tasks", "कार्य"),
     NAV_WORK("Work", "काम"),
 
@@ -72,6 +73,7 @@ enum class UiString(val en: String, val hi: String) {
         "इस फ़ोन से आप क्या कर सकते हैं। “सिर्फ़ वेबसाइट पर” वाली चीज़ें अभी ऐप में नहीं हैं।",
     ),
     WORK_ON_THE_WEBSITE("On the website", "वेबसाइट पर"),
+    WORK_ON_THIS_PHONE("On this phone", "इस फ़ोन पर"),
     WORK_AVAILABILITY_AVAILABLE("Available now", "अभी उपलब्ध"),
     WORK_AVAILABILITY_ANDROID("Android only", "सिर्फ़ Android पर"),
     WORK_AVAILABILITY_CHAT("Works in Chat", "चैट में चलता है"),
@@ -155,6 +157,7 @@ enum class UiString(val en: String, val hi: String) {
     METRICS_NO_TURNS("No turns yet this session — ask ZARVIS something in Chat and it shows up here instantly.", "इस सेशन में अभी कोई बातचीत नहीं — चैट में ZARVIS से कुछ पूछें, वह यहाँ तुरंत दिखेगा।"),
     METRICS_TASK_LOG("Task Log", "कार्य लॉग"),
     METRICS_TASKS_ERROR("Couldn't load the task log.", "कार्य लॉग लोड नहीं हो सका।"),
+    METRICS_SLOWEST("Slowest", "सबसे धीमा"),
 
     // ---- Chat -----------------------------------------------------------------------------
     CHAT_TITLE("Chat with ZARVIS", "ZARVIS से चैट"),
@@ -176,6 +179,24 @@ enum class UiString(val en: String, val hi: String) {
     CHAT_STATE_DONE("Done", "हो गया"),
     CHAT_STATE_SPEAKING("Speaking…", "बोल रहा है…"),
     CHAT_STATE_ERROR("Something went wrong — try again", "कुछ गड़बड़ हुई — फिर कोशिश करें"),
+    CHAT_PROGRESS_SENDING("Sending to ZARVIS…", "ZARVIS को भेजा जा रहा है…"),
+    CHAT_PROGRESS_SLOW(
+        "The server is taking longer than usual — it may be starting up, which can take up to a minute.",
+        "सर्वर को सामान्य से ज़्यादा समय लग रहा है — शायद वह शुरू हो रहा है, इसमें एक मिनट तक लग सकता है।",
+    ),
+    CHAT_PROGRESS_THINKING("Thinking…", "सोच रहा है…"),
+    CHAT_PROGRESS_WORKING("Working: %s…", "काम चल रहा है: %s…"),
+    CHAT_PROGRESS_WORKING_PLAIN("Working on it…", "काम चल रहा है…"),
+    CHAT_PROGRESS_ON_PHONE("Doing it on your phone…", "आपके फ़ोन पर किया जा रहा है…"),
+    CHAT_STOPPED("Stopped before the reply arrived.", "जवाब आने से पहले रोका गया।"),
+    CHAT_EMPTY_TITLE("What can I do for you?", "मैं आपके लिए क्या करूँ?"),
+    CHAT_EMPTY_BODY(
+        "Type below or tap the orb to speak. I can open apps, draft messages, set reminders, search and answer questions.",
+        "नीचे लिखें या बोलने के लिए ऑर्ब दबाएँ। मैं ऐप खोल सकता हूँ, मैसेज का ड्राफ़्ट बना सकता हूँ, रिमाइंडर लगा सकता हूँ, खोज सकता हूँ और सवालों के जवाब दे सकता हूँ।",
+    ),
+    CHAT_SUGGEST_CAMERA("Open the camera", "कैमरा खोलो"),
+    CHAT_SUGGEST_REMINDER("Remind me in 10 minutes to drink water", "10 मिनट बाद पानी पीने की याद दिलाना"),
+    CHAT_SUGGEST_WRITE("Write a short birthday wish for my friend", "मेरे दोस्त के लिए जन्मदिन की एक छोटी शुभकामना लिखो"),
     CHAT_STATUS_COMPLETED("✓ Completed", "✓ पूरा हुआ"),
     CHAT_STATUS_DECLINED("Not done — declined", "नहीं हुआ — मना किया गया"),
     CHAT_STATUS_PERMISSION("Needs permission", "अनुमति चाहिए"),
@@ -382,6 +403,32 @@ enum class UiString(val en: String, val hi: String) {
         "Couldn't delete the account. Check the connection and try again.",
         "खाता नहीं हट सका। कनेक्शन जाँचें और फिर कोशिश करें।",
     ),
+    // Plans & quotas (Work › Plans).
+    PLANS_SUBTITLE("Your plan, your credits, and what each plan includes.", "आपका प्लान, आपके क्रेडिट, और हर प्लान में क्या शामिल है।"),
+    PLANS_CURRENT("Current plan", "मौजूदा प्लान"),
+    PLANS_CREDITS_LEFT("credits left", "क्रेडिट बाकी"),
+    PLANS_TRIAL_ENDS("Trial ends %s", "ट्रायल %s को खत्म होगा"),
+    PLANS_ERROR("Couldn't load your plan. Check your connection and try again.", "आपका प्लान लोड नहीं हो सका। अपना कनेक्शन जाँचें और फिर से कोशिश करें।"),
+    PLANS_MONTHLY("Monthly", "मासिक"),
+    PLANS_YEARLY("Yearly", "वार्षिक"),
+    PLANS_RECOMMENDED("Recommended", "सुझाया गया"),
+    PLANS_YOUR_PLAN("Your plan", "आपका प्लान"),
+    PLANS_FREE_TAGLINE("Get started with zero commitment.", "बिना किसी वादे के शुरू करें।"),
+    PLANS_FREE_1("Low-risk, low-cost skills", "कम जोखिम और कम लागत वाली स्किल्स"),
+    PLANS_FREE_2("Voice and text in English, Hindi and Hinglish", "अंग्रेज़ी, हिंदी और हिंग्लिश में आवाज़ और टेक्स्ट"),
+    PLANS_FREE_3("Standard response speed", "सामान्य जवाब की गति"),
+    PLANS_PRO_TAGLINE("Full access to every skill ZARVIS ships.", "ZARVIS की हर स्किल का पूरा इस्तेमाल।"),
+    PLANS_PRO_1("Every skill, at every risk level", "हर स्किल, हर जोखिम स्तर पर"),
+    PLANS_PRO_2("A higher usage and credit limit", "ज़्यादा इस्तेमाल और क्रेडिट की सीमा"),
+    PLANS_PRO_3("Priority in the request queue", "अनुरोधों की कतार में प्राथमिकता"),
+    PLANS_BILLED_MONTHLY("Billed monthly · pricing coming soon", "मासिक बिलिंग · कीमत जल्द आएगी"),
+    PLANS_BILLED_YEARLY("Billed yearly · pricing coming soon", "वार्षिक बिलिंग · कीमत जल्द आएगी"),
+    PLANS_UPGRADE_TITLE("Upgrading", "अपग्रेड करना"),
+    PLANS_UPGRADE_BODY(
+        "Purchases through Google Play are not switched on in this build yet, so nothing can be bought or charged here. The server side is ready.",
+        "इस बिल्ड में Google Play से खरीदारी अभी चालू नहीं है, इसलिए यहाँ कुछ खरीदा या चार्ज नहीं किया जा सकता। सर्वर की तरफ़ से तैयारी पूरी है।",
+    ),
+    PLANS_UPGRADE_BUTTON("Upgrade (coming soon)", "अपग्रेड (जल्द आ रहा है)"),
     ;
 
     /** The text in [locale] (`"hi"` or `"hi-IN"`; anything else is English). */

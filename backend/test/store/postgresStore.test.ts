@@ -30,6 +30,44 @@ describe.skipIf(!TEST_DATABASE_URL)("PostgresStore", () => {
     expect(await reread.getCreditBalance(account.id)).toBe(50);
   });
 
+  it("creates an account, its trial and its balance together: a failure part way leaves no half-made account", async () => {
+    const user = await store.createUser(`halfway-${Date.now()}@example.com`, "hashed");
+    // The trial insert fails (a dropped connection), whichever way the store sends its statements.
+    type Query = (...args: unknown[]) => Promise<unknown>;
+    type Client = { query: Query; release: (...args: unknown[]) => unknown };
+    const pool = (store as unknown as { pool: { query: Query; connect: (cb?: unknown) => Promise<Client> } }).pool;
+    const failOnTrial = (query: Query): Query => async (...args) => {
+      if (typeof args[0] === "string" && /INSERT INTO trials/.test(args[0])) throw new Error("Connection terminated unexpectedly");
+      return query(...args);
+    };
+    const originalQuery = pool.query;
+    const originalConnect = pool.connect;
+    pool.query = failOnTrial(originalQuery.bind(pool));
+    pool.connect = (cb?: unknown) => {
+      if (typeof cb === "function") return originalConnect.call(pool, cb); // pool.query's own checkout
+      return originalConnect.call(pool).then((client) => {
+        const { query, release } = client;
+        client.query = failOnTrial(query.bind(client));
+        client.release = (...args: unknown[]) => {
+          client.query = query;
+          client.release = release;
+          return release.apply(client, args);
+        };
+        return client;
+      });
+    };
+    try {
+      await expect(store.createAccountForUser(user.id)).rejects.toThrow(/Connection terminated/);
+    } finally {
+      pool.query = originalQuery;
+      pool.connect = originalConnect;
+    }
+    expect(await store.getAccountByUserId(user.id)).toBeUndefined();
+    const account = await store.createAccountForUser(user.id);
+    expect(await store.getCreditBalance(account.id)).toBe(50);
+    expect(await store.getTrial(account.id)).toMatchObject({ accountId: account.id, includedCredits: 50 });
+  });
+
   it("atomically deducts usage from the credit balance", async () => {
     const user = await store.createUser(`usage-${Date.now()}@example.com`, "hashed");
     const account = await store.createAccountForUser(user.id);

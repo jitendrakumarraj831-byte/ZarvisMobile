@@ -12,12 +12,13 @@ import com.zarvismobile.domain.skill.ReminderAlarmPort
  * Real, on-device implementation of [ReminderAlarmPort] for the `personal.reminder` skill.
  * [ReminderAlarmReceiver] posts the notification when the alarm fires.
  *
- * Timing: an inexact alarm (`set`/`setAndAllowWhileIdle`) may be delivered up to 75% of its
- * lead time late — a reminder set at 8 PM for 8 AM could arrive hours late — so ZARVIS uses an
- * exact, Doze-proof alarm wherever Android allows it: always before Android 12, and on 12+ when
- * the exact-alarm permission is granted (by default on Android 12, by the user in Settings >
- * Alarms & reminders on 13+). Without it, a bounded 10-minute window is the best Android
- * offers, and the capability registry states that limit.
+ * Timing: an inexact alarm may be delivered well after its time — a reminder set at 8 PM for
+ * 8 AM could arrive hours late — so ZARVIS uses an exact, Doze-proof alarm wherever Android
+ * allows it: always before Android 12, and on 12+ when the exact-alarm permission is granted
+ * (by default on Android 12, by the user in Settings > Alarms & reminders on 13+; Android 14
+ * denies it by default). Without it, the fallback is `setAndAllowWhileIdle`: still inexact, so
+ * it can arrive some time after `dueAt`, but unlike `setWindow` it is not held back until the
+ * next Doze maintenance window, which can be hours away while the phone sits idle overnight.
  */
 class AndroidReminderAlarmPort(private val context: Context) : ReminderAlarmPort {
 
@@ -35,7 +36,7 @@ class AndroidReminderAlarmPort(private val context: Context) : ReminderAlarmPort
         } catch (e: SecurityException) {
             // Exact-alarm access was revoked between the check and the call.
         }
-        alarmManager.setWindow(AlarmManager.RTC_WAKEUP, at, INEXACT_WINDOW_MS, pendingIntent)
+        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pendingIntent)
     }
 
     fun canScheduleExact(): Boolean =
@@ -55,9 +56,5 @@ class AndroidReminderAlarmPort(private val context: Context) : ReminderAlarmPort
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-    }
-
-    private companion object {
-        const val INEXACT_WINDOW_MS = 10 * 60 * 1000L
     }
 }

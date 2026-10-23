@@ -65,4 +65,39 @@ class ReminderTimeParserTest {
     fun `an explicit day with a past time is InPast`() {
         assertIs<ReminderTimeParser.Result.InPast>(ReminderTimeParser.parse("today at 7am walk", now))
     }
+
+    /** Regression: the unit was looked for in the whole match, and "three" contains "hr", so 3 minutes became 3 hours. */
+    @Test
+    fun `a spelled-out number is never read as hours because of its letters`() {
+        assertEquals(now.plusMinutes(3), parsed("remind me in three minutes to check the oven").dueAt)
+        assertEquals(now.plusMinutes(3), parsed("three minute baad chai banana yaad dilana").dueAt)
+        assertEquals(now.plusHours(3), parsed("remind me in three hours to call").dueAt)
+    }
+
+    /** Regression: only the first duration was used ("in 1 hour 30 minutes" was +60 min, titled "30 minutes to stretch"). */
+    @Test
+    fun `hours and minutes said together are added up`() {
+        val stretch = parsed("remind me in 1 hour 30 minutes to stretch")
+        assertEquals(now.plusMinutes(90), stretch.dueAt)
+        assertEquals("stretch", stretch.title)
+        assertEquals(now.plusMinutes(150), parsed("in 2 hours and 30 minutes check the oven").dueAt)
+        assertEquals(now.plusMinutes(90), parsed("remind me in an hour and a half to stretch").dueAt)
+        val chai = parsed("1 ghanta 30 minute baad chai yaad dilana")
+        assertEquals(now.plusMinutes(90), chai.dueAt)
+        assertEquals("chai", chai.title)
+    }
+
+    /** Regression: "tonight" fixed the date to today, so a small hour of tonight (after midnight) was refused as already past. */
+    @Test
+    fun `a small hour tonight is after midnight, not already past`() {
+        val late = now.withHour(22)
+        fun dueAt(text: String, at: ZonedDateTime = late) =
+            assertIs<ReminderTimeParser.Result.Parsed>(ReminderTimeParser.parse(text, at), text).dueAt
+        val midnight = late.plusDays(1).withHour(0).withMinute(0)
+        assertEquals(midnight, dueAt("remind me tonight at 12 to take medicine"))
+        assertEquals(midnight.withHour(1), dueAt("remind me tonight at 1 am to check the oven"))
+        assertEquals(midnight, dueAt("aaj raat 12 baje dawai yaad dilana"))
+        // Already past midnight: tonight's 1 am is still today.
+        assertEquals(now.withHour(1).withMinute(0), dueAt("remind me tonight at 1 am", now.withHour(0).withMinute(30)))
+    }
 }

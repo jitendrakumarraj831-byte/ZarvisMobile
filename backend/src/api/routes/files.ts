@@ -101,6 +101,10 @@ export function filesRouter(workspace: WorkspaceService, store: Store): Router {
         return;
       }
       try {
+        const body = (req.body ?? {}) as { projectId?: unknown };
+        const projectId = typeof body.projectId === "string" && body.projectId ? body.projectId : undefined;
+        // A file that could not be stored is refused before it is extracted or (for a picture) sent to a vision model.
+        await workspace.assertCanSaveFile(req.auth!.accountId, projectId);
         // The gateway is read at request time (set by buildServer), so this router never holds a stale one.
         const gateway = req.app.locals.modelGateway as ModelGateway | undefined;
         const result = await runWithCorrelation(correlationOf(req), () => processUpload(file, { gateway }));
@@ -108,11 +112,10 @@ export function filesRouter(workspace: WorkspaceService, store: Store): Router {
           res.status(result.status).json(result.body);
           return;
         }
-        const body = (req.body ?? {}) as { projectId?: unknown };
         const saved = await workspace.saveFile(req.auth!.accountId, {
           name: decodeUploadFilename(file.originalname),
           text: result.text,
-          projectId: typeof body.projectId === "string" && body.projectId ? body.projectId : undefined,
+          projectId,
           mimeType: file.mimetype,
           kind: result.kind === "image" ? "image" : "document",
           source: "upload",

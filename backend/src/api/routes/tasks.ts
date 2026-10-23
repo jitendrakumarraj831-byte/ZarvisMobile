@@ -1,15 +1,13 @@
 import { Router } from "express";
 import { logger } from "../../security/redact.js";
 import type { Store } from "../../store/store.js";
-import { TaskError, TaskNotFoundError, type TaskService } from "../../tasks/taskService.js";
+import { TASK_LIMITS, TaskError, TaskNotFoundError, type TaskService } from "../../tasks/taskService.js";
 import { taskView } from "../../tasks/taskView.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth, type AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 
-const MAX_STEPS = 20;
-const MAX_STEP_CHARS = 300;
-const MAX_GOAL_CHARS = 500;
+const { maxSteps: MAX_STEPS, maxStepChars: MAX_STEP_CHARS, maxGoalChars: MAX_GOAL_CHARS } = TASK_LIMITS;
 
 /**
  * POST /api/v1/tasks, GET /, GET /:id, POST /:id/{run,resume,retry,cancel,pause}. See MASTER_SPEC.md §18.

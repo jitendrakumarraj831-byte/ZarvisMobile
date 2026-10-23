@@ -103,4 +103,33 @@ describe.each(STORES)("files (API, %s)", (_label, makeStore) => {
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("limit_reached");
   });
+
+  it("refuses an upload it cannot store before paying for image analysis", async () => {
+    let analyses = 0;
+    // A vision model that would answer: the refusal must come before it is asked.
+    h.app.locals.modelGateway = {
+      canAnalyzeImage: () => true,
+      analyzeImage: async () => {
+        analyses += 1;
+        return { text: "A photo of a receipt." };
+      },
+    };
+    const upload = (fields: Record<string, string> = {}) => {
+      let req = request(h.app).post("/api/v1/files/upload").set(auth(me));
+      for (const [key, value] of Object.entries(fields)) req = req.field(key, value);
+      return req.attach("file", Buffer.from("png"), { filename: "pic.png", contentType: "image/png" });
+    };
+
+    const unknownProject = await upload({ projectId: crypto.randomUUID() });
+    expect(unknownProject.status).toBe(404);
+    expect(unknownProject.body.code).toBe("project_not_found");
+
+    for (let i = 0; i < LIMITS.maxFiles; i += 1) {
+      await h.store.createFile({ id: crypto.randomUUID(), accountId: me.accountId, name: "f" + i, mimeType: "text/plain", kind: "text", source: "upload", sizeBytes: 1, text: "x", createdAt: new Date() });
+    }
+    const full = await upload();
+    expect(full.status).toBe(409);
+    expect(full.body.code).toBe("limit_reached");
+    expect(analyses).toBe(0);
+  });
 });

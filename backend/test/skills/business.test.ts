@@ -136,6 +136,17 @@ describe("parseInvoiceLineItems", () => {
     expect(parseInvoiceLineItems("2 lamps at Rs 1500 each")[0]?.unitPrice).toBe(1500);
   });
 
+  it("reads prices written with thousands separators, in Indian or international grouping", () => {
+    expect(parseInvoiceLineItems("5 chairs at 2,000 each, 2 tables at 5,000 each")).toEqual([
+      { description: "chairs", quantity: 5, unitPrice: 2000, lineTotal: 10000 },
+      { description: "tables", quantity: 2, unitPrice: 5000, lineTotal: 10000 },
+    ]);
+    expect(parseInvoiceLineItems("1 laptop at ₹1,50,000")[0]?.unitPrice).toBe(150000);
+    expect(parseInvoiceLineItems("1 server at 1,250,000.50")[0]?.unitPrice).toBe(1250000.5);
+    // A comma that separates items still does, with or without a space after it.
+    expect(parseInvoiceLineItems("5 chairs at 2000 each,2 tables at 5000 each").map((item) => item.unitPrice)).toEqual([2000, 5000]);
+  });
+
   it("returns an empty list for text with no matching shape", () => {
     expect(parseInvoiceLineItems("some chairs and tables")).toEqual([]);
   });

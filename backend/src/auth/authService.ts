@@ -114,11 +114,7 @@ export class AuthService {
     if (!user || user.isGuest || !verifyPassword(password, user.passwordHash)) {
       throw new AuthError("invalid_credentials", "Invalid email or password");
     }
-    const account = await this.store.getAccountByUserId(user.id);
-    if (!account) {
-      throw new AuthError("invalid_credentials", "Invalid email or password");
-    }
-    return this.startSession(user, account);
+    return this.startSession(user, await this.accountFor(user));
   }
 
   /**
@@ -148,9 +144,7 @@ export class AuthService {
       } else {
         user = await this.store.linkGoogleIdentity(user.id, profile);
       }
-      const account = await this.store.getAccountByUserId(user.id);
-      if (!account) throw new AuthError("session_invalid", "Unknown account");
-      return this.startSession(user, account);
+      return this.startSession(user, await this.accountFor(user));
     } catch (err) {
       if (err instanceof EmailTakenError || err instanceof GoogleIdentityTakenError) {
         throw new AuthError("google_conflict", err.message);
@@ -263,6 +257,24 @@ export class AuthService {
       throw new AuthError("session_invalid", "Unknown account");
     }
     return { user, account };
+  }
+
+  /**
+   * The user's account. A user whose account was never made (signup creates the user, then the account, and
+   * the second step can fail on a dropped connection) gets it now: otherwise signup would say the email is
+   * taken and sign-in would refuse it, for good.
+   */
+  private async accountFor(user: User): Promise<Account> {
+    const existing = await this.store.getAccountByUserId(user.id);
+    if (existing) return existing;
+    try {
+      return await this.store.createAccountForUser(user.id);
+    } catch (err) {
+      // Two sign-ins at once: the other one made it.
+      const made = await this.store.getAccountByUserId(user.id);
+      if (made) return made;
+      throw err;
+    }
   }
 
   private async startSession(user: User, account: Account): Promise<AuthTokens> {

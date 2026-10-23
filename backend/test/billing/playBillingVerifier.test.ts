@@ -58,16 +58,18 @@ describe("GooglePlayBillingVerifier", () => {
       );
       expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer fake-access-token");
       return new Response(
-        JSON.stringify({ paymentState: 1, orderId: "GPA.1234", expiryTimeMillis: String(Date.now() + 86_400_000) }),
+        JSON.stringify({ paymentState: 1, orderId: "GPA.1234", expiryTimeMillis: String(expiry) }),
         { status: 200 },
       );
     });
     vi.stubGlobal("fetch", fetchMock);
+    const expiry = Date.now() + 86_400_000;
 
     const verifier = new GooglePlayBillingVerifier(serviceAccountJson, "com.zarvismobile.app");
     const result = await verifier.verifyPurchaseToken("purchase-token-123", "zarvis_pro_monthly");
 
-    expect(result).toEqual({ valid: true, planId: "zarvis_pro_monthly", orderId: "GPA.1234" });
+    // The subscription's own end: the plan it grants must end then too.
+    expect(result).toEqual({ valid: true, planId: "zarvis_pro_monthly", orderId: "GPA.1234", expiresAt: new Date(expiry) });
     expect(calls).toHaveLength(2);
   });
 

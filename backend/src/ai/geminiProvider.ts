@@ -23,7 +23,18 @@ import type {
   ImageAnalysisResult,
   ToolDefinition,
 } from "./provider.js";
-import { isAbortError, isTransportError, readJsonBody, timeoutError, transportFailure, unreadableResponse } from "./transportErrors.js";
+import { isAbortError, isTransportError, readJsonBody, readWithIdleLimit, timeoutError, transportFailure, unreadableResponse } from "./transportErrors.js";
+
+/** How long a stream may go quiet after it started before it is given up (the same default as OpenRouter's). */
+const STREAM_IDLE_TIMEOUT_MS = 30_000;
+
+/** A 2xx answer whose body is still to be read, inside the request's time limit; call `stop()` once it is read. */
+interface Answered {
+  res: Response;
+  stop(): void;
+  /** True when the time limit, not the caller, aborted the request. */
+  timedOut(): boolean;
+}
 
 /**
  * Real [AIProvider] adapter for Google Gemini — see AI_ARCHITECTURE.md "Provider
@@ -62,7 +73,7 @@ export class GeminiProvider implements AIProvider {
      * `skipRateLimitWait`: asked when a short rate limit arrives; true fails the model at once instead of
      * waiting to retry it, because another key can take the request now (ai/keyRotatingProvider.ts).
      */
-    private readonly options: { skipRateLimitWait?: () => boolean } = {},
+    private readonly options: { skipRateLimitWait?: () => boolean; streamIdleTimeoutMs?: number } = {},
   ) {}
 
   /** The configured model first, then the fallbacks; a model whose daily quota is spent goes last for a while. */
@@ -81,8 +92,17 @@ export class GeminiProvider implements AIProvider {
   }
 
   async generate(request: AIRequest): Promise<AIResponse> {
-    const res = await this.send(request, "generateContent", "Gemini generateContent", 90_000);
-    const json = await readJsonBody<GeminiGenerateResponse>(res, "Gemini generateContent", this.id, request.modelConfig.model);
+    const answered = await this.send(request, "generateContent", "Gemini generateContent", 90_000);
+    let json: GeminiGenerateResponse;
+    try {
+      // Still inside the request's time limit: a body that stalls after a 200 is a timeout, not a hang.
+      json = await readJsonBody<GeminiGenerateResponse>(answered.res, "Gemini generateContent", this.id, request.modelConfig.model);
+    } catch (error) {
+      if (isAbortError(error) && answered.timedOut() && !request.signal?.aborted) throw timeoutError("Gemini request", this.id, request.modelConfig.model);
+      throw error;
+    } finally {
+      answered.stop();
+    }
     if (json.responseId) request.trace?.responseIds.push(json.responseId);
     return fromGeminiResponse(json);
   }
@@ -104,14 +124,17 @@ export class GeminiProvider implements AIProvider {
   async *streamGenerate(request: AIRequest): AsyncIterable<AIResponseChunk> {
     // Retries happen only inside send(), i.e. before any byte of the stream was read, so an
     // already-rendered reply is never duplicated.
-    const res = await this.send(request, "streamGenerateContent?alt=sse", "Gemini streamGenerateContent", 120_000);
+    const { res, stop } = await this.send(request, "streamGenerateContent?alt=sse", "Gemini streamGenerateContent", 120_000);
+    // The header time limit is over; from here a stream is bounded by how long it may stay silent.
+    stop();
     if (!res.body) throw new Error("Gemini streamGenerateContent returned no body");
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    const idleMs = this.options.streamIdleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
     let buffer = "";
     try {
       while (true) {
-        const { value, done } = await reader.read();
+        const { value, done } = await readWithIdleLimit(() => reader.read(), idleMs, () => timeoutError("Gemini stream", this.id, request.modelConfig.model));
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -149,7 +172,7 @@ export class GeminiProvider implements AIProvider {
    * is tried after a 404, a transient failure that outlasted its retries, or a quota Google counts per
    * model (each model has its own free-tier allowance); any other quota ends the call.
    */
-  private async send(request: AIRequest, method: string, label: string, timeoutMs: number): Promise<Response> {
+  private async send(request: AIRequest, method: string, label: string, timeoutMs: number): Promise<Answered> {
     const models = this.modelOrder(request.modelConfig.model);
     const body = JSON.stringify(toGeminiRequestBody(request));
     let lastError: Error | undefined;
@@ -161,9 +184,9 @@ export class GeminiProvider implements AIProvider {
         if (request.signal?.aborted) throw abortError();
         if (request.trace) request.trace.httpRequests += 1;
         call.httpRequests += 1;
-        let res: Response;
+        let answered: Answered;
         try {
-          res = await fetchWithTimeout(
+          answered = await fetchWithTimeout(
             `${this.baseUrl}/models/${encodeURIComponent(model)}:${method}`,
             { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": key }, body },
             timeoutMs,
@@ -186,6 +209,7 @@ export class GeminiProvider implements AIProvider {
           await sleep(wait, request.signal);
           continue;
         }
+        const { res } = answered;
         if (res.ok) {
           request.trace?.servedModels?.push(model);
           call.servedModel = model;
@@ -198,11 +222,13 @@ export class GeminiProvider implements AIProvider {
               label,
             });
           }
-          return res;
+          return answered;
         }
         call.status = res.status;
 
+        // Still inside the time limit: an error body that stalls cannot pin the request.
         const text = await res.text().catch(() => "");
+        answered.stop();
         const failure = classifyGeminiFailure(res.status, text, res.headers.get("retry-after"));
         const providerError = toProviderError(label, res.status, res.statusText, failure, text, model);
         providerError.provider = this.id;
@@ -348,6 +374,10 @@ function extractText(chunk: GeminiGenerateResponse): string {
 }
 
 
+/**
+ * One request under a time limit that keeps running after the headers arrive: the caller reads the body,
+ * then calls `stop()`. A body that stalls after a 200 is aborted by the same limit instead of hanging.
+ */
 async function fetchWithTimeout(
   input: string,
   init: RequestInit,
@@ -355,20 +385,25 @@ async function fetchWithTimeout(
   cancel: AbortSignal | undefined,
   provider: string,
   model: string,
-): Promise<Response> {
+): Promise<Answered> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const stop = () => clearTimeout(timer);
   const signal = cancel ? AbortSignal.any([controller.signal, cancel]) : controller.signal;
   try {
-    return await fetch(input, { ...init, signal });
+    const res = await fetch(input, { ...init, signal });
+    return { res, stop, timedOut: () => timedOut };
   } catch (error) {
+    stop();
     if (cancel?.aborted) throw abortError();
     if (isAbortError(error)) {
       // Our own time budget ran out. Keeps the long-standing message "Gemini request timed out".
       throw timeoutError("Gemini request", provider, model);
     }
     throw error;
-  } finally {
-    clearTimeout(timer);
   }
 }

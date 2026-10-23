@@ -567,6 +567,50 @@
   }
 
   /**
+   * Whether the chat's project chip may ask the server for a project name it does not know: once per project. A name that is
+   * still missing after that read (an archived project left out of a cached list, one made on another device, a failed read)
+   * is shown without its name, never asked for again in a loop. A chat without a project lets the next one be asked again.
+   */
+  function createProjectNameLookup() {
+    let asked = null;
+    return {
+      shouldRead(projectId, knownName) {
+        if (!projectId) {
+          asked = null;
+          return false;
+        }
+        if (knownName || asked === projectId) return false;
+        asked = projectId;
+        return true;
+      },
+    };
+  }
+
+  /** The default question for an attachment sent without one. */
+  const summarizeAttachment = (filename) => `Please summarize this document (${filename}).`;
+
+  /**
+   * A message with an attached document: `utterance` is what the server gets (the question, then the document's text), and
+   * `displayText` what the user's own bubble shows ("📎 name", then the question), so the document never fills the thread.
+   */
+  function attachmentMessage(instruction, filename, text) {
+    const question = String(instruction || "").trim();
+    return {
+      utterance: `${question || summarizeAttachment(filename)}\n\n[Attached document: ${filename}]\n${text}`,
+      displayText: question ? `📎 ${filename}\n${question}` : `📎 ${filename}`,
+    };
+  }
+
+  /** How a stored user message is shown when a chat is opened again: the same "📎 name" bubble it had when it was sent. */
+  function userMessageDisplay(content) {
+    const text = String(content ?? "");
+    const match = /^([\s\S]*?)\n\n\[Attached document: ([^\]\n]+)\]\n/.exec(text);
+    if (!match) return text;
+    const question = match[1].trim();
+    return question && question !== summarizeAttachment(match[2]) ? `📎 ${match[2]}\n${question}` : `📎 ${match[2]}`;
+  }
+
+  /**
    * What a refused or unreachable /billing/verify means for the person who just paid, from the server's own
    * status. The Checkout callback only says the gateway took the payment; this decides what the page may claim:
    *  - rejected: the server checked and it did not verify (400/404). The plan did not change.
@@ -1099,5 +1143,8 @@
     cameraFailureKind,
     createClientTurnId,
     resolveApiBase,
+    createProjectNameLookup,
+    attachmentMessage,
+    userMessageDisplay,
   };
 });

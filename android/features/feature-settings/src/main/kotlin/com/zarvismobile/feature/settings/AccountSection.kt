@@ -21,6 +21,8 @@ import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.data.repository.SessionState
+import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.domain.presentation.UiString
 
 /**
  * Account continuity (blueprint §2): a guest account can be linked to an email so the same
@@ -75,7 +77,7 @@ fun AccountSection(
         onSubmit = onSignIn,
     )
     if (session is SessionState.Active) {
-        ZarvisSecondaryButton("Sign out", onClick = onSignOut)
+        ZarvisSecondaryButton(tr(UiString.SIGN_OUT), onClick = onSignOut)
     }
 }
 

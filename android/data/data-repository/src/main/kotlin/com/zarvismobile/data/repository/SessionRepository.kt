@@ -6,6 +6,7 @@ import com.zarvismobile.data.remote.TokenAuthenticator
 import com.zarvismobile.data.remote.TokenStorageKeys
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.LoginRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +39,11 @@ class SessionExpiredException(val reason: String) : IllegalStateException("Your 
 class SessionRepository(
     private val api: ZarvisApi,
     private val secureStorage: SecretStore,
+    /**
+     * Forgets what this device keeps for the account outside the token store (its reminders and their alarms, an interrupted action)
+     * when the user signs out or deletes the account, so the next account on this phone never sees them or hears them fire.
+     */
+    private val forgetLocalData: suspend () -> Unit = {},
 ) {
     private val _state = MutableStateFlow(readState())
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -83,12 +89,25 @@ class SessionRepository(
         runCatching { api.logout() }
         clearAccount()
         refreshState()
+        forgetDeviceData()
     }
 
     /** Local-only forget (used after account deletion). */
-    fun clearLocal() {
+    suspend fun clearLocal() {
         clearAccount()
         refreshState()
+        forgetDeviceData()
+    }
+
+    /** Best effort: the account is already gone from this device, so a failure here must not undo or block that. */
+    private suspend fun forgetDeviceData() {
+        try {
+            forgetLocalData()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Nothing else to do: the tokens are cleared either way.
+        }
     }
 
     fun requireAccountId(): String =

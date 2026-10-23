@@ -38,7 +38,6 @@ import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentPink
-import com.zarvismobile.core.ui.theme.readableAccent
 import com.zarvismobile.data.remote.dto.MemoryNoteDto
 import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
@@ -53,10 +52,15 @@ fun MemoryScreen(onBack: () -> Unit) {
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onBack) { Text("‹ " + tr(UiString.COMMON_BACK)) }
-                Text(tr(UiString.MEMORY_TITLE), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            }
+            com.zarvismobile.core.ui.components.QueenPageHeader(
+                title = tr(UiString.MEMORY_TITLE),
+                subtitle = tr(UiString.WORK_MEMORY_BODY),
+                icon = com.zarvismobile.core.ui.icons.ZarvisIcons.Memory,
+                jewel = com.zarvismobile.core.ui.components.Jewel.ORCHID,
+                kicker = "ZARVIS",
+                onBack = onBack,
+                backLabel = tr(UiString.COMMON_BACK),
+            )
             MemoryContent()
         }
     }
@@ -103,7 +107,7 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
                 Text(trf(UiString.MEMORY_FORGOT, removed), color = MaterialTheme.colorScheme.primary)
             }
 
-            SectionTitle(tr(UiString.MEMORY_PERSONAL), ZarvisAccentCyan)
+            SectionTitle(tr(UiString.MEMORY_PERSONAL))
             Text(
                 trf(UiString.MEMORY_PERSONAL_HINT, overview.limits.memoryItemsUsed),
                 style = MaterialTheme.typography.bodySmall,
@@ -122,7 +126,7 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
                 )
             }
 
-            SectionTitle(tr(UiString.MEMORY_PROJECT), ZarvisAccentPink)
+            SectionTitle(tr(UiString.MEMORY_PROJECT))
             if (overview.projects.isEmpty()) {
                 ReadOnlyCard(tr(UiString.MEMORY_PROJECT_EMPTY), tr(UiString.MEMORY_PROJECT_HINT), ZarvisAccentPink)
             } else {
@@ -172,8 +176,9 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun SectionTitle(text: String, accent: androidx.compose.ui.graphics.Color) {
-    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = readableAccent(accent))
+private fun SectionTitle(text: String) {
+    // The gold section label every Queen page uses.
+    com.zarvismobile.core.ui.components.SectionKicker(text = text, modifier = Modifier.padding(top = 8.dp))
 }
 
 @Composable

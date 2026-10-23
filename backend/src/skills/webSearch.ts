@@ -1,5 +1,6 @@
 import { beginModelCall, withKeySlot } from "../ai/callTrace.js";
 import { AIProviderError, classifyGeminiFailure, providerErrorUserMessage, retryDelayMs, sleep, toProviderError } from "../ai/geminiErrors.js";
+import { timeoutError } from "../ai/transportErrors.js";
 import { keyFailureOf } from "../ai/keyRotatingProvider.js";
 import { classifyOpenRouterFailure, toOpenRouterError } from "../ai/openRouterErrors.js";
 import { NO_REDIRECTS, isUsableApiKey, openRouterHeaders, openRouterUrl, unusableKeyError } from "../ai/openRouterHttp.js";
@@ -69,25 +70,28 @@ export class GeminiSearchProvider implements SearchProvider {
     });
     const models = [this.model, ...this.fallbackModels].filter((model, index, all) => all.indexOf(model) === index);
     const call = beginModelCall("search", this.model, undefined, "google");
-    let response: Response | undefined;
+    let response: Timed | undefined;
     let last: { error: AIProviderError; quota: boolean } | undefined;
     for (const [index, model] of models.entries()) {
       const hasNext = index < models.length - 1;
       for (let attempt = 0; ; attempt += 1) {
         call.httpRequests += 1;
-        const answer = await fetchWithTimeout(
+        const timed = await fetchWithTimeout(
           `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
           { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey }, body },
           60_000,
+          model,
         );
+        const answer = timed.res;
         if (answer.ok) {
-          response = answer;
+          response = timed;
           call.servedModel = model;
           call.outcome = "ok";
           break;
         }
         call.status = answer.status;
         const detail = await answer.text().catch(() => "");
+        timed.stop();
         const failure = classifyGeminiFailure(answer.status, detail, answer.headers.get("retry-after"));
         const error = toProviderError("Gemini Google Search", answer.status, answer.statusText, failure, detail, model);
         // A model that does not exist says nothing about why the one before it failed, so it does not replace that reason.
@@ -105,7 +109,16 @@ export class GeminiSearchProvider implements SearchProvider {
     if (!response) throw last!.quota ? explainable(last!.error) : last!.error;
     if (call.servedModel !== this.model) logger.warn("Gemini search answered with a fallback model", { configuredModel: this.model, servedModel: call.servedModel });
 
-    const json = (await response.json()) as GeminiSearchResponse;
+    // Read inside the same time limit as the request: a body that stalls after a 200 is a timeout, not a hang.
+    let json: GeminiSearchResponse;
+    try {
+      json = (await response.res.json()) as GeminiSearchResponse;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError" && response.timedOut()) throw timeoutError("Gemini Google Search", "google", call.servedModel);
+      throw error;
+    } finally {
+      response.stop();
+    }
     const candidate = json.candidates?.[0];
     const answer = candidate?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
     const chunks = candidate?.groundingMetadata?.groundingChunks ?? [];
@@ -412,13 +425,28 @@ export class FallbackSearchProvider implements SearchProvider {
   }
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+/** A response whose time limit is still running: read its body, then call `stop()`. */
+interface Timed {
+  res: Response;
+  stop(): void;
+  timedOut(): boolean;
+}
+
+/** One request under a time limit that also covers reading the body (the caller stops it once the body is read). */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number, model: string): Promise<Timed> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const stop = () => clearTimeout(timer);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
+    return { res: await fetch(url, { ...init, signal: controller.signal }), stop, timedOut: () => timedOut };
+  } catch (error) {
+    stop();
+    if (timedOut) throw timeoutError("Gemini Google Search", "google", model);
+    throw error;
   }
 }
 

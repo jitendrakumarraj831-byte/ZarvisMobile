@@ -1,5 +1,5 @@
 import { taskLifecycle, TERMINAL_LIFECYCLES, type Task, type TaskLifecycle } from "../domain/types.js";
-import { isStale } from "./taskState.js";
+import { approvalExpired, isStale } from "./taskState.js";
 
 export type TaskAction = "run" | "retry" | "cancel";
 
@@ -19,7 +19,8 @@ export function availableActions(task: Task, now: Date): TaskAction[] {
     case "VERIFYING":
       return isStale(task, now) ? ["retry", "cancel"] : ["cancel"];
     case "CONFIRMATION_REQUIRED":
-      return ["cancel"];
+      // Once the approval has expired it can no longer be given: the step can be run again to ask anew.
+      return approvalExpired(task, now) ? ["retry", "cancel"] : ["cancel"];
     case "COMPLETED":
     case "CANCELLED":
       return [];

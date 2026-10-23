@@ -8,10 +8,14 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
-import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.lifecycle.Lifecycle
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -89,7 +93,10 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
         else -> currentRoute ?: Routes.HOME
     }
     // The tab bar sits behind the keyboard, so while typing it is only dead space between the composer and the keys: hide it.
-    val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    // derivedStateOf: the graph recomposes when the keyboard opens or closes, not on every frame of its slide.
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    val keyboardOpen by remember { derivedStateOf { imeInsets.getBottom(density) > 0 } }
     val showBottomBar = navItems.any { it.route == selectedRoute } && !keyboardOpen
 
     Scaffold(
@@ -105,7 +112,9 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                         val backAtTab = route == selectedRoute && currentRoute != route && navController.popBackStack(route, false)
                         if (!backAtTab) {
                             navController.navigate(route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                // HOME, not the graph's start: in a new user's first session the start is the onboarding, which is no longer on the
+                                // stack, so popping to it did nothing and every tab visited piled up behind Back.
+                                popUpTo(Routes.HOME) { saveState = true }
                                 launchSingleTop = true
                                 restoreState = true
                             }
@@ -132,43 +141,43 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     },
                 )
             }
-            composable(Routes.HOME) {
+            composable(Routes.HOME) { entry ->
                 HomeScreen(
                     onNavigateToConversation = { initialText ->
                         val encoded = Uri.encode(initialText ?: "")
-                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=true&listen=false")
+                        navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=true&listen=false")
                     },
-                    onNavigateToTasks = { navController.navigate(Routes.ACTIVITY) },
-                    onNavigateToSubscription = { navController.navigate(Routes.SUBSCRIPTION) },
-                    onNavigateToDeveloper = { navController.navigate(Routes.DEVELOPER) },
-                    onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
-                    onNavigateToCapabilities = { navController.navigate(Routes.CAPABILITIES) },
-                    onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
+                    onNavigateToTasks = { navController.openFrom(entry, Routes.ACTIVITY) },
+                    onNavigateToSubscription = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
+                    onNavigateToDeveloper = { navController.openFrom(entry, Routes.DEVELOPER) },
+                    onNavigateToSettings = { navController.openFrom(entry, Routes.SETTINGS) },
+                    onNavigateToCapabilities = { navController.openFrom(entry, Routes.CAPABILITIES) },
+                    onOpenFeature = { featureId -> navController.openFrom(entry, "feature/$featureId") },
                     // The crowned orb and the composer's mic: Chat, listening at once (after ZARVIS's explanation and Android's permission).
-                    onTalk = { navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=true") },
+                    onTalk = { navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=true") },
                 )
             }
             composable(Routes.CHAT) { ConversationScreen(initialText = null) }
-            composable(Routes.CAPABILITIES) {
+            composable(Routes.CAPABILITIES) { entry ->
                 CapabilitiesScreen(
                     onRunSkill = { initialText ->
                         val encoded = Uri.encode(initialText)
-                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=true&listen=false")
+                        navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=true&listen=false")
                     },
-                    onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
-                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
+                    onOpenFeature = { featureId -> navController.openFrom(entry, "feature/$featureId") },
+                    onOpenPlans = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
                 )
             }
-            composable(Routes.MORE) {
+            composable(Routes.MORE) { entry ->
                 MoreScreen(
-                    onOpenScreen = { screen -> navController.navigate(routeFor(screen)) },
-                    onOpenFeature = { featureId -> navController.navigate("feature/$featureId") },
+                    onOpenScreen = { screen -> navController.openFrom(entry, routeFor(screen)) },
+                    onOpenFeature = { featureId -> navController.openFrom(entry, "feature/$featureId") },
                 )
             }
-            composable(Routes.ACTIVITY) {
+            composable(Routes.ACTIVITY) { entry ->
                 TasksScreen(
-                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
-                    onOpenTasksFeature = { navController.navigate("feature/tasks") },
+                    onOpenPlans = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
+                    onOpenTasksFeature = { navController.openFrom(entry, "feature/tasks") },
                 )
             }
             composable(
@@ -180,16 +189,16 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     onBack = { navController.popBackStack() },
                     onStartChat = { prompt, listen ->
                         val encoded = Uri.encode(prompt)
-                        navController.navigate("${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=false&listen=$listen")
+                        navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=false&listen=$listen")
                     },
-                    onOpenDeveloper = { navController.navigate(Routes.DEVELOPER) },
+                    onOpenDeveloper = { navController.openFrom(entry, Routes.DEVELOPER) },
                 )
             }
             composable(Routes.METRICS) { MetricsScreen(onBack = { navController.popBackStack() }) }
-            composable(Routes.TASKS) {
+            composable(Routes.TASKS) { entry ->
                 TasksScreen(
-                    onOpenPlans = { navController.navigate(Routes.SUBSCRIPTION) },
-                    onOpenTasksFeature = { navController.navigate("feature/tasks") },
+                    onOpenPlans = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
+                    onOpenTasksFeature = { navController.openFrom(entry, "feature/tasks") },
                     onBack = { navController.popBackStack() },
                 )
             }
@@ -222,7 +231,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
             }
             composable(Routes.DEVELOPER) { DeveloperScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.SUBSCRIPTION) { SubscriptionScreen(onBack = { navController.popBackStack() }) }
-            composable(Routes.SETTINGS) {
+            composable(Routes.SETTINGS) { entry ->
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
                     onSessionCleared = {
@@ -230,9 +239,17 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                             popUpTo(Routes.HOME) { inclusive = true }
                         }
                     },
-                    onDeveloper = { navController.navigate(Routes.DEVELOPER) },
+                    onDeveloper = { navController.openFrom(entry, Routes.DEVELOPER) },
                 )
             }
         }
     }
+}
+
+/**
+ * Navigates only while [from] is the screen in front. During its exit animation the screen being left still takes taps, so a double
+ * tap on a category chip or Run opened Chat twice and sent the request twice (two AI turns).
+ */
+private fun NavController.openFrom(from: NavBackStackEntry, route: String) {
+    if (from.lifecycle.currentState == Lifecycle.State.RESUMED) navigate(route)
 }

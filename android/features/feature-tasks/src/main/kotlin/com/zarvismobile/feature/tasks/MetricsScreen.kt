@@ -1,6 +1,9 @@
 package com.zarvismobile.feature.tasks
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,16 +15,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.common.metrics.TurnMetric
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.GoldMeter
+import com.zarvismobile.core.ui.components.Jewel
+import com.zarvismobile.core.ui.components.QueenPageHeader
+import com.zarvismobile.core.ui.components.QueenStatTile
+import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
@@ -31,11 +40,13 @@ import com.zarvismobile.core.ui.components.QueenErrorCard
 import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.TaskDto
 import com.zarvismobile.domain.presentation.StatusLabels
 import com.zarvismobile.domain.presentation.UiString
+import java.util.Locale
 import kotlin.math.roundToLong
 
 /**
@@ -43,6 +54,7 @@ import kotlin.math.roundToLong
  * measured latency for every orchestrator turn this session, plus the current task log —
  * both already-available data, timed/read on the client only. No backend or API change.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
@@ -61,24 +73,56 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
             item {
-                if (onBack != null) TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
-                Text(text = tr(UiString.METRICS_TITLE), style = MaterialTheme.typography.headlineMedium)
-                Text(
-                    text = tr(UiString.METRICS_SUBTITLE),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                QueenPageHeader(
+                    title = tr(UiString.METRICS_TITLE),
+                    subtitle = tr(UiString.METRICS_SUBTITLE),
+                    icon = ZarvisIcons.Chart,
+                    jewel = Jewel.EMERALD,
+                    kicker = "ZARVIS",
+                    onBack = onBack,
+                    backLabel = tr(UiString.COMMON_BACK),
                 )
             }
 
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                    StatTile(label = tr(UiString.METRICS_AVG_LATENCY), value = if (latencyLog.isEmpty()) "—" else "${avgLatencyMs}ms", modifier = Modifier.weight(1f))
-                    StatTile(label = tr(UiString.METRICS_TURNS), value = "${latencyLog.size}", modifier = Modifier.weight(1f))
-                    StatTile(label = tr(UiString.METRICS_SUCCESS), value = if (latencyLog.isEmpty()) "—" else "$successRatePercent%", modifier = Modifier.weight(1f))
+                    QueenStatTile(
+                        value = if (latencyLog.isEmpty()) "—" else formatLatency(avgLatencyMs),
+                        label = tr(UiString.METRICS_AVG_LATENCY),
+                        icon = ZarvisIcons.Bolt,
+                        jewel = Jewel.GOLD,
+                        modifier = Modifier.weight(1f),
+                    )
+                    QueenStatTile(
+                        value = "${latencyLog.size}",
+                        label = tr(UiString.METRICS_TURNS),
+                        icon = ZarvisIcons.Chat,
+                        jewel = Jewel.AMETHYST,
+                        modifier = Modifier.weight(1f),
+                    )
+                    QueenStatTile(
+                        value = if (latencyLog.isEmpty()) "—" else "$successRatePercent%",
+                        label = tr(UiString.METRICS_SUCCESS),
+                        icon = ZarvisIcons.Check,
+                        jewel = Jewel.EMERALD,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
 
-            item { Text(text = tr(UiString.METRICS_LIVE_LATENCY), style = MaterialTheme.typography.titleMedium) }
+            if (latencyLog.isNotEmpty()) {
+                item {
+                    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(tr(UiString.METRICS_SUCCESS), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text("$successRatePercent%", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold)
+                        }
+                        GoldMeter(fraction = successRatePercent / 100f, modifier = Modifier.padding(top = 10.dp))
+                    }
+                }
+            }
+
+            item { SectionKicker(text = tr(UiString.METRICS_LIVE_LATENCY), modifier = Modifier.padding(start = ZarvisSpacing.xs, top = ZarvisSpacing.xs)) }
 
             if (latencyLog.isEmpty()) {
                 item {
@@ -89,10 +133,12 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
                     )
                 }
             } else {
-                items(items = latencyLog, key = { it.id }) { metric -> LatencyRow(metric) }
+                // Each bar is the turn's time against the slowest one shown, so a slow reply stands out at a glance.
+                val slowest = latencyLog.maxOf { it.durationMs }.coerceAtLeast(1L)
+                items(items = latencyLog, key = { it.id }) { metric -> LatencyRow(metric, slowest) }
             }
 
-            item { Text(text = tr(UiString.METRICS_TASK_LOG), style = MaterialTheme.typography.titleMedium) }
+            item { SectionKicker(text = tr(UiString.METRICS_TASK_LOG), modifier = Modifier.padding(start = ZarvisSpacing.xs, top = ZarvisSpacing.xs)) }
 
             if (uiState.isLoading) {
                 item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 2) }
@@ -102,7 +148,8 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
             }
             if (statusCounts.isNotEmpty()) {
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+                    // Wrapped, so four statuses (longer in Hindi) never squeeze each other on a narrow phone.
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
                         statusCounts.forEach { (label, count) -> ZarvisChip(label = "$label · $count", onClick = null) }
                     }
                 }
@@ -114,19 +161,14 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
     }
 }
 
-@Composable
-private fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
-    GlassSurface(modifier = modifier) {
-        Text(text = value, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
-        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
+/** "850 ms" under a second, "1.2 s" above: short enough for a third of a 360dp screen. */
+private fun formatLatency(ms: Long): String = if (ms < 1_000) "$ms ms" else String.format(Locale.US, "%.1f s", ms / 1_000.0)
 
 @Composable
-private fun LatencyRow(metric: TurnMetric) {
+private fun LatencyRow(metric: TurnMetric, slowest: Long) {
     // Text colour, so the theme's readable green and red, not the bright dark-page glows (1.8:1 on the light page).
     val glow = if (metric.success) ZarvisAccents.success else ZarvisAccents.danger
-    GlassSurface(modifier = Modifier.fillMaxWidth(), contentPadding = ZarvisSpacing.sm) {
+    GlassSurface(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -135,13 +177,15 @@ private fun LatencyRow(metric: TurnMetric) {
             Text(
                 text = metric.label,
                 style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             Spacer(modifier = Modifier.size(ZarvisSpacing.sm))
-            Text(text = "${metric.durationMs}ms", style = MaterialTheme.typography.labelLarge, color = glow)
+            Text(text = formatLatency(metric.durationMs), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = glow)
         }
+        GoldMeter(fraction = metric.durationMs.toFloat() / slowest, modifier = Modifier.padding(top = 8.dp), height = 6.dp)
     }
 }
 

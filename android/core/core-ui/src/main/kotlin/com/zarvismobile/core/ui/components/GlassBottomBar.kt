@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -82,8 +81,9 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp),
+                    // Every tab gets the same share of the bar, so a long label is shortened instead of pushing the last tab out.
                     modifier = Modifier
-                        .widthIn(min = 56.dp)
+                        .weight(1f)
                         .heightIn(min = 56.dp)
                         .clip(RoundedCornerShape(18.dp))
                         .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(item.route) })

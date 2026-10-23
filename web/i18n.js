@@ -1510,7 +1510,27 @@
     "Speaking": "बोल रहा हूँ",
     "Stop": "बंद करें",
     "Checked again": "फिर जाँच लिया",
-    "Microphone": "माइक्रोफ़ोन"
+    "Microphone": "माइक्रोफ़ोन",
+    /* The chat's own controls (reply actions, code copy, the speaking row) and states that were still English. */
+    "Share": "शेयर करें",
+    "Copy code": "कोड कॉपी करें",
+    "Stop speaking": "बोलना बंद करें",
+    "Scroll to the latest message": "सबसे नए संदेश पर जाएँ",
+    "This chat can use every skill again.": "यह चैट फिर से हर स्किल इस्तेमाल कर सकती है।",
+    "This chat is still loading. Send your message again in a moment.": "यह चैट अभी लोड हो रही है। थोड़ी देर में अपना संदेश फिर भेजें।",
+    "Loading…": "लोड हो रहा है…",
+    "Checking…": "जाँच हो रही है…",
+    "Deleting…": "हटाया जा रहा है…",
+    "Unavailable": "उपलब्ध नहीं",
+    "Opening secure checkout…": "सुरक्षित चेकआउट खुल रहा है…",
+    "Verifying with GitHub…": "GitHub से पुष्टि हो रही है…",
+    "Couldn't reach ZARVIS.": "ZARVIS तक नहीं पहुँच सके।",
+    "Couldn't load capabilities right now.": "अभी क्षमताएँ लोड नहीं हो सकीं।",
+    "Couldn't check the GitHub connection.": "GitHub कनेक्शन जाँचा नहीं जा सका।",
+    "Couldn't load account details. Check your connection.": "खाते का विवरण लोड नहीं हो सका। कनेक्शन जाँचें।",
+    "Couldn't load the capability list. Check your connection.": "क्षमताओं की सूची लोड नहीं हो सकी। कनेक्शन जाँचें।",
+    "GitHub connection isn't configured on this server. Public repositories can still be analyzed.": "इस सर्वर पर GitHub कनेक्शन सेट नहीं है। सार्वजनिक रिपॉज़िटरी का विश्लेषण फिर भी हो सकता है।",
+    "Couldn't delete your account. Check the connection and try again.": "आपका खाता हटाया नहीं जा सका। कनेक्शन जाँचें और फिर कोशिश करें।"
   };
   for (var extra in HI_WORKSPACE) if (Object.prototype.hasOwnProperty.call(HI_WORKSPACE, extra) && !Object.prototype.hasOwnProperty.call(HI, extra)) HI[extra] = HI_WORKSPACE[extra];
 
@@ -1673,9 +1693,10 @@
   var observer = null;
   var touched = new Set();
 
-  /* The interface's own cards inside the chat (execution cards, confirmation cards) are translated; anything the user, a
-     website or the model wrote inside them is marked data-user-text and stays as it is. */
-  var ISLANDS = ".exec-card, .confirm-card";
+  /* The interface's own parts inside the chat (execution and confirmation cards, a reply's action buttons, the tools under
+     your messages, the refine chips, the progress line, a code block's Copy button, the speaking row) are translated;
+     anything the user, a website or the model wrote inside them is marked data-user-text and stays as it is. */
+  var ISLANDS = ".exec-card, .confirm-card, .bubble-actions, .bubble-tools, .refine-row, .thinking-label, .progress-note, .code-copy, .waveform-row";
 
   function inUserContent(el) {
     if (!el) return true;
@@ -1698,9 +1719,10 @@
     touched.add(node);
   }
 
-  /* An element's own label is interface text unless it sits inside something the user wrote. */
+  /* An element's own label is interface text unless it sits inside something the user wrote. An island's own label (a code
+     block's "Copy code" button sits inside the code) is interface text too. */
   function attributeIsUserContent(el) {
-    return el.matches(".bubble, .task-goal, [data-user-text]") || inUserContent(el.parentElement);
+    return el.matches(".bubble, .task-goal, [data-user-text]") || (!el.matches(ISLANDS) && inUserContent(el.parentElement));
   }
 
   function localizeAttribute(el, name) {

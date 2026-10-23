@@ -70,14 +70,14 @@ class ConversationViewModelSyncTest {
         @Synchronized
         override fun dispatch(request: RecordedRequest): MockResponse {
             val path = request.path.orEmpty()
-            if (request.method == "POST" && path == "/api/v1/orchestrator/turn") {
+            if (request.method == "POST" && path == "/api/v1/orchestrator/turn-stream") {
                 val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
                 val utterance = body.getValue("utterance").jsonPrimitive.content
                 val sent = body["conversationId"]?.takeIf { it != JsonNull }?.jsonPrimitive?.content
                 turnRequests += utterance to sent
                 val id = if (sent != null && chats.containsKey(sent)) sent else "chat-${++next}"
                 chats.getOrPut(id) { mutableListOf() } += listOf("user" to utterance, "assistant" to "answer to $utterance")
-                val reply = MockResponse().setBody("""{"message":"answer to $utterance","toolCalls":[],"conversationId":"$id"}""")
+                val reply = MockResponse().setBody("event: done\ndata: " + """{"message":"answer to $utterance","toolCalls":[],"conversationId":"$id"}""" + "\n\n")
                 slow[utterance]?.let { reply.setHeadersDelay(it, TimeUnit.MILLISECONDS) }
                 return reply
             }

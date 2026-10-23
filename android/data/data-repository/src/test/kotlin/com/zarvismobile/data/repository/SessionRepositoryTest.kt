@@ -115,4 +115,21 @@ class SessionRepositoryTest {
         assertEquals(SessionState.Active("guest-2", isGuest = true, email = null), repo.state.value)
         assertEquals(null, store.getString(TokenStorageKeys.EMAIL))
     }
+
+    @Test
+    fun `signing out and deleting the account forget what this device kept for that account`() = runTest {
+        signedIn()
+        server.enqueue(MockResponse().setResponseCode(204))
+        var forgotten = 0
+        val repo = SessionRepository(ApiClientFactory.create(store, server.url("/").toString()), store) { forgotten++ }
+
+        repo.signOut()
+        assertEquals(1, forgotten)
+        assertEquals(SessionState.None, repo.state.value)
+
+        signedIn()
+        repo.clearLocal()
+        assertEquals(2, forgotten)
+        assertEquals(SessionState.None, repo.state.value)
+    }
 }

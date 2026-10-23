@@ -84,6 +84,20 @@ class TokenAuthenticatorTest {
     }
 
     @Test
+    fun `a 401 after signing out does not mark a session expired`() {
+        // Signed out while the request was on its way: no tokens are stored any more.
+        store.remove(TokenStorageKeys.ACCESS_TOKEN)
+        store.remove(TokenStorageKeys.REFRESH_TOKEN)
+        store.remove(TokenStorageKeys.ACCOUNT_ID)
+        server.enqueue(MockResponse().setResponseCode(401))
+
+        assertEquals(401, call())
+        assertEquals(listOf("/api/v1/auth/me"), paths())
+        assertNull(store.getString(TokenStorageKeys.SESSION_EXPIRED))
+        assertNull(SessionEvents.expired.value)
+    }
+
+    @Test
     fun `server error during refresh keeps the same account`() {
         server.enqueue(MockResponse().setResponseCode(401))
         server.enqueue(MockResponse().setResponseCode(503))

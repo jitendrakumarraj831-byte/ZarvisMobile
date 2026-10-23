@@ -36,6 +36,16 @@ object DeviceCommandGate {
         "मत", "नहीं", "कब", "कैसे", "क्यों",
     )
 
+    /** Words that join a further step to an open command ("open WhatsApp and then Rahul's chat"): a multi-step request is the Brain's. */
+    private val nextStepWords = setOf("and", "then", "aur", "phir", "fir", "और", "फिर", "&")
+
+    /**
+     * A request to be reminded ("remind me to set an alarm", "mummy ko call karne ki yaad dilana"): the call or alarm in it is what to be
+     * reminded of, not something to do now.
+     */
+    private fun asksForReminder(lower: String, words: List<String>): Boolean =
+        words.firstOrNull { it != "please" }?.startsWith("remind") == true || lower.contains("yaad dila") || lower.contains("याद दिला")
+
     /**
      * "na" is "not" before a verb ("WhatsApp na kholo", "call na karo") but only a softener at the end ("chrome kholo na", "call karo na
      * please"), which is still a request.
@@ -78,15 +88,18 @@ object DeviceCommandGate {
         return when (skillId) {
             "phone.open_app" -> !isQuestion &&
                 words.none { it.trim(',', '.', '!', '?') in notAnOpenRequest } && !saysNa(clean) &&
+                clean.none { it in nextStepWords } &&
                 openSubject(words) != null &&
                 !containsAny(lower, "settings", "setting", "सेटिंग", "bluetooth", "ब्लूटूथ", "wifi", "wi-fi", "वाईफाई", "location", "gps", "लोकेशन", "notification", "recent") &&
                 // "YouTube kholo aur arijit search karo", "YouTube pe gaane chalao": a search in that app, not an app called "aur" or "gaane".
                 SearchCommandParser.parse(utterance) == null
             "phone.call" -> !utterance.contains("call it", ignoreCase = true) &&
-                words.none { it.trim(',', '.', '!', '?') in notACallRequest } && !saysNa(clean) &&
+                words.none { it.trim(',', '.', '!', '?') in notACallRequest } && !saysNa(clean) && !asksForReminder(lower, clean) &&
                 callSubject(words) != null
             "phone.find_contact" -> words.take(4).any { it == "find" || it == "contact" || it == "number" } && words.size >= 2
-            "personal.reminder" -> words.take(4).any { it == "remind" || it == "reminder" || it == "reminders" || it == "yaad" }
+            // "yaad dilana" ends a Hindi-order request, however long: "mummy ko call karne ki yaad dilana".
+            "personal.reminder" -> words.take(4).any { it == "remind" || it == "reminder" || it == "reminders" || it == "yaad" } ||
+                lower.contains("yaad dila") || lower.contains("याद दिला")
             "files.pick_document", "photos.pick_photo", "camera.capture_photo" -> !isQuestion
             // A command about a photo ("describe a photo", "what's in this photo"), not a writing request that merely mentions one
             // ("write a poem describing a photo"): the describing word must open the sentence.
@@ -105,7 +118,7 @@ object DeviceCommandGate {
             } else {
                 words.any { it.trim(',', '.', '!', '?') in openVerbs } && words.none { it.trim(',', '.', '!', '?') in notAnOpenRequest } && !saysNa(clean)
             }
-            "alarm.set" -> !isQuestion && containsAny(lower, "set", "laga", "wake me", "जगा", "लगा")
+            "alarm.set" -> !isQuestion && !asksForReminder(lower, clean) && containsAny(lower, "set", "laga", "wake me", "जगा", "लगा")
             "calendar.create_event" -> !isQuestion && containsAny(lower, "add", "create", "schedule", "put", "daal", "banao", "जोड़")
             "notifications.read_recent" -> !containsAny(lower, "speak", "aloud", "announce", "bol", "stop", "turn off", "don't", "dont", "बोलो") &&
                 containsAny(lower, "read", "padho", "batao", "check", "what", "any", "show", "पढ़ो", "my notifications")

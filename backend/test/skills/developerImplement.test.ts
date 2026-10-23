@@ -49,6 +49,25 @@ async function access(github: GitHubClient, connect = true): Promise<{ service: 
 const validPlan = JSON.stringify({ summary: "ok", steps: ["edit"], tests: ["npm test"], files: [{ path: "src/a.ts", content: "x" }] });
 
 describe("developer.implement skill", () => {
+  it("a plan whose steps or tests are not lists still opens the pull request it committed for", async () => {
+    const github = client({ canPush: true });
+    const { service } = await access(github);
+    const plan = JSON.stringify({ summary: "ok", steps: "edit the file", tests: "npm test", files: [{ path: "src/a.ts", content: "x" }] });
+    const skill = createDeveloperImplementSkill(service, { generate: vi.fn(async () => plan) } as unknown as ContentGenerator);
+    const result = await skill.handler({ values: { repoUrl: REPO, requirement: "fix it" } }, { accountId: "a1" });
+    expect(result).toMatchObject({ kind: "success", output: { pullRequest: { number: 7 }, suggestedTests: [] } });
+    expect(github.createPullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("a plan that is not a JSON object is invalid agent output, and nothing is written", async () => {
+    const github = client({ canPush: true });
+    const { service } = await access(github);
+    const skill = createDeveloperImplementSkill(service, { generate: vi.fn(async () => "null") } as unknown as ContentGenerator);
+    const result = await skill.handler({ values: { repoUrl: REPO, requirement: "fix it" } }, { accountId: "a1" });
+    expect(result).toMatchObject({ kind: "failure", reason: "invalid_agent_output" });
+    expect(github.createImplementationBranch).not.toHaveBeenCalled();
+  });
+
   it("is explicitly high-risk, external, confirmation-gated and describes the exact action", async () => {
     const { service } = await access(client({ canPush: true }));
     const skill = createDeveloperImplementSkill(service, { generate: vi.fn() } as unknown as ContentGenerator);

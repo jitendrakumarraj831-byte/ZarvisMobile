@@ -1,5 +1,5 @@
 import type { SkillDefinition } from "../domain/types.js";
-import type { TaskService } from "../tasks/taskService.js";
+import { TASK_LIMITS, type TaskService } from "../tasks/taskService.js";
 
 /**
  * Splits a plain-text step description into individual steps — "then"/newline/comma
@@ -56,7 +56,17 @@ export function createAutomationCreateWorkflowSkill(taskService: TaskService): S
           userMessage: "What are the steps? e.g. \"check email, then draft replies, then send a summary\".",
         };
       }
+      // The same limits as a task made through POST /tasks: a step runs as a whole turn, so their number is bounded.
+      if (goal.length > TASK_LIMITS.maxGoalChars) {
+        return { kind: "failure", reason: "goal_too_long", userMessage: `Please describe the workflow's goal in at most ${TASK_LIMITS.maxGoalChars} characters.` };
+      }
       const stepDescriptions = splitSteps(stepsText);
+      if (stepDescriptions.length > TASK_LIMITS.maxSteps) {
+        return { kind: "failure", reason: "too_many_steps", userMessage: `A workflow can have at most ${TASK_LIMITS.maxSteps} steps; this one has ${stepDescriptions.length}. Nothing was created.` };
+      }
+      if (stepDescriptions.some((step) => step.length > TASK_LIMITS.maxStepChars)) {
+        return { kind: "failure", reason: "step_too_long", userMessage: `Each step can be at most ${TASK_LIMITS.maxStepChars} characters. Nothing was created.` };
+      }
       const task = await taskService.create(context.accountId, goal, "LOW", stepDescriptions);
       return {
         kind: "success",

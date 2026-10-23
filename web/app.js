@@ -547,6 +547,11 @@
     if (!i18nLoad) {
       i18nLoad = new Promise((resolve) => {
         let script = document.querySelector("script[data-i18n]");
+        // theme-init.js's early copy already failed (its error event is gone): it is dropped and the dictionary asked for again.
+        if (script && script.hasAttribute("data-i18n-failed")) {
+          script.remove();
+          script = null;
+        }
         if (!script) {
           script = document.createElement("script");
           script.src = "./i18n.js";
@@ -810,7 +815,17 @@
       if (!event.target.closest?.(".modal-overlay, .palette-overlay, .shell-popover")) lastOutside = event.target;
     });
     const focusable = (root) => Array.from(root.querySelectorAll('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')).filter((node) => !node.disabled && node.getClientRects().length);
-    const openOverlay = () => overlays.find((overlay) => !overlay.hidden);
+    // Open overlays in the order they opened. The newest is the one focus belongs to: a confirmation opened from a file preview
+    // sits above that preview, although it comes after it in the page.
+    const stack = [];
+    const openOverlay = () => {
+      for (const overlay of overlays) {
+        const at = stack.indexOf(overlay);
+        if (!overlay.hidden && at < 0) stack.push(overlay);
+        else if (overlay.hidden && at >= 0) stack.splice(at, 1);
+      }
+      return stack[stack.length - 1];
+    };
     let wasOpen = false;
     const sync = () => {
       const open = openOverlay();
@@ -833,7 +848,7 @@
     // Browsers without `inert` still get a Tab trap.
     document.addEventListener("keydown", (event) => {
       const open = openOverlay();
-      if (!open || event.key !== "Tab") return;
+      if (!open || event.key !== "Tab" || event.defaultPrevented) return;
       const items = focusable(open);
       if (!items.length) return;
       const first = items[0], last = items[items.length - 1];
@@ -1403,24 +1418,36 @@
 
   /** One load per conversation at a time: the start-up restore and a deep link must not both fill the thread. */
   let restoreInFlight = null;
+  /** Bumped whenever the thread is emptied for another chat (or a new one): a load started before that must not fill it. */
+  let threadGeneration = 0;
 
   /** Returns "loaded", "missing" (the server no longer has it), "error" or "skipped". */
   function restoreConversation() {
     if (!state.conversationId || el.conversation.children.length > 0) return Promise.resolve("skipped");
-    if (restoreInFlight && restoreInFlight.id === state.conversationId) return restoreInFlight.promise;
+    if (threadLoading()) return restoreInFlight.promise;
     const id = state.conversationId;
-    const promise = loadConversationMessages(id).finally(() => {
+    const generation = threadGeneration;
+    const promise = loadConversationMessages(id, generation).finally(() => {
       if (restoreInFlight?.promise === promise) restoreInFlight = null;
     });
-    restoreInFlight = { id, promise };
+    restoreInFlight = { id, generation, promise };
     return promise;
   }
 
-  async function loadConversationMessages(wanted) {
+  const THREAD_LOADING_TOAST = "This chat is still loading. Send your message again in a moment.";
+
+  /** True while the open chat's earlier messages are still on their way: a message sent now would land above them. */
+  function threadLoading() {
+    return !!restoreInFlight && restoreInFlight.id === state.conversationId && restoreInFlight.generation === threadGeneration;
+  }
+
+  async function loadConversationMessages(wanted, generation) {
+    // Another chat was opened while this one loaded (or this one again, A → B → A): the newer load fills the thread, not this one.
+    const stale = () => state.conversationId !== wanted || generation !== threadGeneration;
     kit("setThreadLoading", true);
     try {
       const res = await apiFetch(`/conversations/${encodeURIComponent(wanted)}/messages`, { timeoutMs: READ_TIMEOUT_MS });
-      if (state.conversationId !== wanted) return "skipped"; // another chat was opened while this one loaded
+      if (stale()) return "skipped";
       if (res.status === 404) {
         state.conversationId = null;
         localStorage.removeItem(STORAGE_KEYS.conversationId);
@@ -1428,7 +1455,7 @@
       }
       if (!res.ok) return "error";
       const body = await res.json();
-      if (state.conversationId !== wanted) return "skipped";
+      if (stale()) return "skipped";
       const messages = body.messages || [];
       // The chat belongs to a project, or not: the server says so.
       state.projectId = body.projectId || null;
@@ -1443,14 +1470,16 @@
         if (err instanceof SessionEndedError) return "skipped";
         console.warn("Stored tool runs could not be loaded:", err);
       }
-      if (state.conversationId !== wanted) return "skipped";
+      if (stale()) return "skipped";
       let next = 0;
       for (const message of messages) {
         const sentAt = message.createdAt ? Date.parse(message.createdAt) : NaN;
         if (message.role === "assistant" && Number.isFinite(sentAt)) {
           while (next < stored.length && stored[next].at <= sentAt) el.conversation.appendChild(stored[next++].node);
         }
-        addBubble(message.role === "user" ? "user" : "assistant", message.content, undefined, message.createdAt ? new Date(message.createdAt) : null);
+        // A message sent with a document shows "📎 name" as it did when it was sent, not the document's whole text.
+        const shown = message.role === "user" ? Logic.userMessageDisplay(message.content) : message.content;
+        addBubble(message.role === "user" ? "user" : "assistant", shown, undefined, message.createdAt ? new Date(message.createdAt) : null);
         state.history.push({ role: message.role, content: message.content });
       }
       while (next < stored.length) el.conversation.appendChild(stored[next++].node); // e.g. an action still waiting after the last message
@@ -1467,7 +1496,7 @@
       if (!(err instanceof SessionEndedError)) console.warn("Conversation restore failed:", err);
       return "error";
     } finally {
-      if (state.conversationId === wanted || !state.conversationId) kit("setThreadLoading", false);
+      if (generation === threadGeneration) kit("setThreadLoading", false);
     }
   }
 
@@ -1486,6 +1515,7 @@
     state.projectId = null;
     state.agentId = null;
     renderChatContext();
+    threadGeneration += 1;
     el.conversation.replaceChildren();
     kit("threadReset");
     syncChatConversationLayout();
@@ -1753,7 +1783,9 @@
         }
         note.textContent = Logic.toolStatusLabel(body.result?.status) + ".";
         if (options.onResolved) options.onResolved(body);
-        else if (container === el.conversation) addBubble("assistant", body.message || "Done.");
+        else if (container === el.conversation) {
+          if (card.isConnected) addBubble("assistant", body.message || "Done."); // not into a chat opened since
+        }
         else renderDeveloperMessage(body.message || "Done.", body.result?.success ? "success" : "error", true, body);
       } catch (err) {
         if (err instanceof SessionEndedError) return;
@@ -2397,19 +2429,30 @@
     });
   }
 
+  /** A project name the chip does not know is read once per project, never in a loop (see Logic.createProjectNameLookup). */
+  const projectNameLookup = Logic.createProjectNameLookup();
+
   /** The project and agent chips under the chat title: what the open chat is working in and with. */
   function renderChatContext() {
     const wrap = document.getElementById("chat-context");
     const projectChip = document.getElementById("chat-project-chip");
     const agentChip = document.getElementById("chat-agent-chip");
     if (!wrap || !projectChip || !agentChip) return;
+    const name = state.projectId ? workspace()?.projectName(state.projectId) : "";
+    const reading = projectNameLookup.shouldRead(state.projectId, name);
     projectChip.hidden = !state.projectId;
     if (state.projectId) {
-      const name = workspace()?.projectName(state.projectId);
-      projectChip.textContent = "Project: " + (name || "…");
+      const shown = name ? "Project: " + name : reading ? "Project: …" : "Project";
+      projectChip.textContent = shown;
       projectChip.dataset.userText = "";
-      projectChip.setAttribute("aria-label", "Project: " + (name || "loading") + ". Open the project.");
-      if (!name) void workspace()?.loadProjects().then(() => renderChatContext());
+      projectChip.setAttribute("aria-label", (name || !reading ? shown : "Project: loading") + ". Open the project.");
+      // Every project is read, archived ones too. The answer redraws the chip once; a name still missing then is not asked for again.
+      if (reading) {
+        const wanted = state.projectId;
+        void workspace()?.loadProjects(true).then(() => {
+          if (state.projectId === wanted) renderChatContext();
+        }, () => {});
+      }
     }
     agentChip.hidden = !state.agentId;
     if (state.agentId) {
@@ -2472,6 +2515,7 @@
     state.agentId = null;
     state.history = [];
     state.firstTurn = true;
+    threadGeneration += 1;
     el.conversation.replaceChildren();
     renderChatContext();
     kit("threadReset");
@@ -3263,7 +3307,8 @@
       implementRepo();
     });
     el.developerRepoInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") analyzeRepo();
+      // Not while an analysis is already running (the button is disabled then), nor for an Enter that confirms an IME composition.
+      if (e.key === "Enter" && !e.isComposing && !el.developerAnalyzeBtn.disabled) analyzeRepo();
     });
   }
 
@@ -4194,6 +4239,11 @@
   async function submitUtterance(rawText, isVoice = false, displayText) {
     const utterance = rawText.trim();
     if (!utterance) return;
+    // The open chat's earlier messages are still loading: sent now, this message would land above them and go without them.
+    if (threadLoading()) {
+      showToast(THREAD_LOADING_TOAST);
+      return;
+    }
     el.input.value = "";
     kit("clearDraft");
     kit("noteUserMessage", displayText ?? utterance);
@@ -4225,6 +4275,10 @@
     // Declared outside `try` because `finally` below uses them.
     const ttsQueue = [];
     let ttsStartTimer = null;
+    // Stop (the speech bar, a waveform) or Listen on another reply bumps speechEpoch: from then on no further segment
+    // of this turn's reply may start speaking.
+    const turnSpeech = speechEpoch;
+    const speechSilenced = () => speechEpoch !== turnSpeech;
 
     try {
       // Create/resume the AudioContext directly from the user's voice gesture before the
@@ -4278,6 +4332,10 @@
       let replyAi = null;
 
       const drainTts = () => {
+        if (speechSilenced()) {
+          for (const item of ttsQueue.splice(0)) item.ticket.done(); // silenced: these segments will never play
+          return;
+        }
         while (
           ttsQueue.length &&
           ttsTasks.size < TTS_MAX_CONCURRENT_STREAMS &&
@@ -4307,7 +4365,7 @@
 
       const enqueueTts = (text, immediate = false) => {
         const clean = text.trim();
-        if (!clean || !isVoice || !state.speak || ttsUnavailable || Date.now() < ttsBlockedUntil) return;
+        if (!clean || !isVoice || !state.speak || ttsUnavailable || speechSilenced() || Date.now() < ttsBlockedUntil) return;
         // The ticket is taken at enqueue time, so playback order == reply order even when a
         // later segment's audio downloads first.
         ttsQueue.push({ text: clean, ticket: ttsSegments.next() });
@@ -4594,8 +4652,12 @@
       if (utterance) {
         const { button: again } = actionButton("i-refresh", "Regenerate");
         again.addEventListener("click", () => {
-          bubble.remove();
-          runTurn(utterance, false);
+          // Asked again as a new message, which is how the server stores it: this answer stays where it is and the
+          // question and the new answer follow, so the thread after a reload is the one on screen now.
+          const shown = Logic.userMessageDisplay(utterance);
+          kit("noteUserMessage", shown);
+          addBubble("user", shown);
+          void runTurn(utterance, false);
         });
         actions.appendChild(again);
       }
@@ -5010,6 +5072,15 @@
    * "attach a document, then ask a question" and "attach, then just hit Send" both work
    * from the exact same code path `submitUtterance()` itself doesn't need to know about. */
   function submitComposerInput(rawText, isVoice = false) {
+    // The open chat is still loading its earlier messages: the text (and any attachment) waits in the composer instead.
+    if (threadLoading() && (String(rawText || "").trim() || state.pendingAttachment)) {
+      if (!el.input.value.trim()) {
+        el.input.value = rawText;
+        resizeComposer();
+      }
+      showToast(THREAD_LOADING_TOAST);
+      return undefined;
+    }
     // A spoken command should produce a spoken reply automatically. This keeps typed chat
     // silent by default while making voice interaction feel like a real two-way conversation.
     // The user can still turn spoken replies off from Settings after the voice turn.
@@ -5022,10 +5093,7 @@
     const attachment = state.pendingAttachment;
     if (!attachment) return submitUtterance(rawText, isVoice);
 
-    const instruction = rawText.trim();
-    const task = instruction || `Please summarize this document (${attachment.filename}).`;
-    const utterance = `${task}\n\n[Attached document: ${attachment.filename}]\n${attachment.text}`;
-    const displayText = instruction ? `📎 ${attachment.filename}\n${instruction}` : `📎 ${attachment.filename}`;
+    const { utterance, displayText } = Logic.attachmentMessage(rawText, attachment.filename, attachment.text);
     clearPendingAttachment();
     return submitUtterance(utterance, isVoice, displayText);
   }
@@ -5285,7 +5353,10 @@
   // The server's voice is the only voice provider. Browser speechSynthesis is NOT a TTS fallback.
   async function speak(text, node, force = false) {
     if ((!state.speak && !force) || !text) return;
-    speechEpoch += 1; // this playback now owns the orb state
+    // One reply is spoken at a time: whatever is still playing (an earlier Listen, a spoken reply) is silenced first,
+    // or it would play on over this one with nothing left on screen to stop it.
+    silenceSpeech();
+    const epoch = ++speechEpoch; // this playback now owns the orb state
     if (node) attachWaveform(node);
     try {
       await speakWithGemini(text);
@@ -5297,7 +5368,7 @@
       }
     } finally {
       if (node) detachWaveform(node);
-      if (el.orb.dataset.state === "SPEAKING") setOrbState("IDLE");
+      if (epoch === speechEpoch && el.orb.dataset.state === "SPEAKING") setOrbState("IDLE");
     }
   }
 
@@ -5340,9 +5411,8 @@
         });
       } finally {
         URL.revokeObjectURL(url);
-        activeAudio = null;
+        if (activeAudio === audio) activeAudio = null; // a newer Listen may own it by now
       }
-      setOrbState("IDLE");
     } finally {
       activeTtsControllers.delete(controller);
     }
@@ -5534,6 +5604,12 @@
 
   function stopSpeaking() {
     speechEpoch += 1;
+    silenceSpeech();
+    setOrbState("IDLE");
+  }
+
+  /** Silences every voice still playing or on its way (a Listen, a streamed reply's segments) without touching the orb. */
+  function silenceSpeech() {
     speechPaused = false;
     if (activeAudioContext && activeAudioContext.state === "suspended") void activeAudioContext.resume(); // the next reply must be able to play
     for (const controller of activeTtsControllers) controller.abort();
@@ -5546,7 +5622,6 @@
     for (const timer of ttsOrbTimers) clearTimeout(timer);
     ttsOrbTimers.clear();
     ttsScheduledUntil = 0;
-    setOrbState("IDLE");
   }
 
   // Started last, once every `const`/`let` above is initialised: init() runs synchronously up to

@@ -82,6 +82,39 @@ class DeviceCapabilitySkillsTest {
     fun `alarm without a time asks instead of guessing`() = runTest {
         val skill = DeviceCapabilitySkills.setAlarm({ _, _, _ -> error("must not be called") }, clock, zone)
         assertEquals("missing_time", assertIs<SkillResult.Failure>(skill.handler.execute(SkillInput(mapOf("utterance" to "set an alarm")), context)).reason)
+        // A length of time is not a clock time: "for 5 minutes" must not become a 5 am alarm.
+        assertEquals(
+            "missing_time",
+            assertIs<SkillResult.Failure>(skill.handler.execute(SkillInput(mapOf("utterance" to "set an alarm for 5 minutes")), context)).reason,
+        )
+    }
+
+    /** Regression: alarms used the reminder rule "1 to 6 is pm", so "set an alarm at 6" rang at 6 pm, and "for 5:30" was not understood. */
+    @Test
+    fun `an alarm hour without am or pm is in the morning, and an alarm for a time is understood`() = runTest {
+        var handed: Pair<Int, Int>? = null
+        val skill = DeviceCapabilitySkills.setAlarm({ h, m, _ -> handed = h to m; true }, clock, zone)
+        for ((text, expected) in listOf(
+            "set an alarm at 6" to (6 to 0),
+            "alarm 6 baje laga do" to (6 to 0),
+            "set an alarm for 5:30" to (5 to 30),
+            "set alarm for 6" to (6 to 0),
+            "kal subah 6 baje alarm laga do" to (6 to 0),
+            "set an alarm for 6 pm" to (18 to 0),
+            "shaam 6 baje alarm laga do" to (18 to 0),
+        )) {
+            handed = null
+            assertIs<SkillResult.Success>(skill.handler.execute(SkillInput(mapOf("utterance" to text)), context), text)
+            assertEquals(expected, handed, text)
+        }
+    }
+
+    /** Regression: the day was dropped, so "monday at 6 am" set an alarm for the next 6 am, whatever day that was. */
+    @Test
+    fun `an alarm for a later day is refused, because the Clock app is only given a time`() = runTest {
+        val skill = DeviceCapabilitySkills.setAlarm({ _, _, _ -> error("must not be called") }, clock, zone)
+        val failure = assertIs<SkillResult.Failure>(skill.handler.execute(SkillInput(mapOf("utterance" to "set an alarm for monday at 6 am")), context))
+        assertEquals("day_not_supported", failure.reason)
     }
 
     @Test

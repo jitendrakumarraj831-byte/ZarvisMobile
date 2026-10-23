@@ -487,21 +487,34 @@ export class PostgresStore implements Store {
     const id = randomUUID();
     const createdAt = new Date();
     const plan = "TRIAL";
-    await this.query(
-      "INSERT INTO accounts (id, user_id, plan, created_at) VALUES ($1, $2, $3, $4)",
-      [id, userId, plan, createdAt],
-    );
-
     const startsAt = new Date();
     const expiresAt = new Date(startsAt.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
-    await this.query(
-      "INSERT INTO trials (account_id, starts_at, expires_at, included_credits) VALUES ($1, $2, $3, $4)",
-      [id, startsAt, expiresAt, TRIAL_INCLUDED_CREDITS],
-    );
-    await this.query("INSERT INTO credit_balances (account_id, balance) VALUES ($1, $2)", [
-      id,
-      TRIAL_INCLUDED_CREDITS,
-    ]);
+    // One transaction: an account without its trial or balance (a connection lost half way) would be
+    // a TRIAL that never ends with no credits. Either all three rows exist or none does.
+    await this.ensureSchema();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock_shared($1)", [SCHEMA_LOCK_KEY]);
+      await client.query(
+        "INSERT INTO accounts (id, user_id, plan, created_at) VALUES ($1, $2, $3, $4)",
+        [id, userId, plan, createdAt],
+      );
+      await client.query(
+        "INSERT INTO trials (account_id, starts_at, expires_at, included_credits) VALUES ($1, $2, $3, $4)",
+        [id, startsAt, expiresAt, TRIAL_INCLUDED_CREDITS],
+      );
+      await client.query("INSERT INTO credit_balances (account_id, balance) VALUES ($1, $2)", [
+        id,
+        TRIAL_INCLUDED_CREDITS,
+      ]);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
 
     return { id, userId, plan, createdAt };
   }
@@ -677,6 +690,41 @@ export class PostgresStore implements Store {
       [purchaseToken, accountId, productId, new Date()],
     );
     return rows.length > 0;
+  }
+
+  async grantPlayPurchase(purchaseToken: string, accountId: string, productId: string, plan: Account["plan"], expiresAt: Date): Promise<Account | undefined> {
+    await this.ensureSchema();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock_shared($1)", [SCHEMA_LOCK_KEY]);
+      const claimed = await client.query(
+        `INSERT INTO consumed_purchase_tokens (purchase_token, account_id, product_id, consumed_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (purchase_token) DO NOTHING
+         RETURNING purchase_token`,
+        [purchaseToken, accountId, productId, new Date()],
+      );
+      if (!claimed.rowCount) {
+        await client.query("ROLLBACK");
+        return undefined;
+      }
+      // A period of the same plan that already runs longer is kept (renewing early never shortens paid time).
+      const { rows } = await client.query<AccountRow>(
+        `UPDATE accounts SET plan = $2,
+           plan_expires_at = CASE WHEN plan = $2 AND plan_expires_at > $3 THEN plan_expires_at ELSE $3 END
+         WHERE id = $1 RETURNING *`,
+        [accountId, plan, expiresAt],
+      );
+      if (!rows[0]) throw new Error(`Cannot update unknown account '${accountId}'`);
+      await client.query("COMMIT");
+      return toAccount(rows[0]);
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async listUsage(accountId: string): Promise<UsageEntry[]> {

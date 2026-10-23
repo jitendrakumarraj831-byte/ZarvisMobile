@@ -7,12 +7,12 @@ import com.zarvismobile.core.common.voice.TextToSpeechEngine
 import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.TtsSynthesizeRequest
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 
 /**
  * The ZARVIS voice via the backend (POST /api/v1/tts/synthesize, which returns a playable WAV).
@@ -24,7 +24,7 @@ class AndroidTextToSpeechEngine(
     private val api: ZarvisApi,
     private val preferences: AppPreferences,
 ) : TextToSpeechEngine {
-    private var activePlayer: MediaPlayer? = null
+    @Volatile private var active: Playback? = null
 
     override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
         if (text.isBlank()) return
@@ -45,41 +45,53 @@ class AndroidTextToSpeechEngine(
     }
 
     private suspend fun playWav(bytes: ByteArray, onPlaybackStarted: () -> Unit) = suspendCancellableCoroutine<Unit> { continuation ->
+        val player = MediaPlayer()
+        val playback = Playback(player, continuation)
+        // One voice at a time: a reply still playing (from another screen) ends here, and its speak() returns.
+        active?.let { finish(it) }
+        active = playback
+        continuation.invokeOnCancellation { finish(playback) }
         try {
-            val player = MediaPlayer()
-            activePlayer = player
             player.setDataSource(ByteArrayMediaDataSource(bytes))
-            player.setOnCompletionListener {
-                activePlayer = null
-                it.release()
-                if (continuation.isActive) continuation.resume(Unit)
-            }
-            player.setOnErrorListener { mp, _, _ ->
-                activePlayer = null
-                mp.release()
-                if (continuation.isActive) continuation.resumeWith(Result.failure(IOException("Audio playback failed")))
+            player.setOnCompletionListener { finish(playback) }
+            player.setOnErrorListener { _, _, _ ->
+                finish(playback, IOException("Audio playback failed"))
                 true
             }
             player.prepare()
             player.start()
             onPlaybackStarted()
-            continuation.invokeOnCancellation {
-                activePlayer = null
-                runCatching { player.stop() }
-                player.release()
-            }
         } catch (e: IOException) {
-            activePlayer = null
-            if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+            finish(playback, e)
         }
     }
 
+    private fun finish(playback: Playback, error: Throwable? = null) {
+        if (active === playback) active = null
+        playback.end(error)
+    }
+
+    /**
+     * Stops what is playing. The speak() waiting on it returns too: the engine is shared by every screen, and a stop from one of them
+     * (a new turn, the microphone, the Assist overlay) used to leave the other screen's turn waiting forever, stuck on "Speaking".
+     */
     override fun stop() {
-        activePlayer?.let { player ->
-            activePlayer = null
-            runCatching { player.stop() }
-            player.release()
+        active?.let { finish(it) }
+    }
+}
+
+/** One reply being played: its player and the speak() call waiting for it to end. Ended once, whichever way it ends. */
+private class Playback(private val player: MediaPlayer, private val done: CancellableContinuation<Unit>) {
+    private var ended = false
+
+    fun end(error: Throwable?) {
+        synchronized(this) {
+            if (ended) return
+            ended = true
         }
+        runCatching { player.stop() }
+        player.release()
+        if (done.isActive) done.resumeWith(if (error == null) Result.success(Unit) else Result.failure(error))
     }
 }
 

@@ -54,4 +54,44 @@ describe("AuthService", () => {
     const initial = await authService.signup("misuse@example.com", "password123");
     await expect(authService.refresh(initial.accessToken)).rejects.toThrow(AuthError);
   });
+
+  describe("an account whose creation failed half way (a dropped database connection)", () => {
+    function failingOnce(store: InMemoryStore): InMemoryStore {
+      const original = store.createAccountForUser.bind(store);
+      let failed = false;
+      store.createAccountForUser = async (userId: string) => {
+        if (!failed) {
+          failed = true;
+          throw new Error("Connection terminated unexpectedly");
+        }
+        return original(userId);
+      };
+      return store;
+    }
+
+    it("signing in creates the missing account instead of locking the email out", async () => {
+      const store = failingOnce(new InMemoryStore());
+      const service = new AuthService(store);
+      await expect(service.signup("halfway@example.com", "password123")).rejects.toThrow(/Connection terminated/);
+      await expect(service.signup("halfway@example.com", "password123")).rejects.toMatchObject({ code: "email_taken" });
+
+      const tokens = await service.login("halfway@example.com", "password123");
+      expect(tokens.accountId).toBeTruthy();
+      const user = await store.findUserByEmail("halfway@example.com");
+      expect((await store.getAccountByUserId(user!.id))?.id).toBe(tokens.accountId);
+      expect(await store.getCreditBalance(tokens.accountId)).toBe(50);
+      // The same account from now on.
+      expect((await service.login("halfway@example.com", "password123")).accountId).toBe(tokens.accountId);
+    });
+
+    it("signing in with Google again creates the missing account", async () => {
+      const store = failingOnce(new InMemoryStore());
+      const service = new AuthService(store);
+      const profile = { sub: "g-halfway", email: "halfway-google@example.com", name: "Half" };
+      await expect(service.googleSignIn(profile)).rejects.toThrow(/Connection terminated/);
+      const tokens = await service.googleSignIn(profile);
+      expect(tokens.accountId).toBeTruthy();
+      expect((await service.googleSignIn(profile)).accountId).toBe(tokens.accountId);
+    });
+  });
 });

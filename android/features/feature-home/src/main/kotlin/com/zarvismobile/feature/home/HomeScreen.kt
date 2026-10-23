@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -114,7 +114,8 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var composerText by remember { mutableStateOf("") }
+    // Saveable: a half-typed request survives turning the phone and a visit to another tab.
+    var composerText by rememberSaveable { mutableStateOf("") }
     val locale = LocalAppLocale.current
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()

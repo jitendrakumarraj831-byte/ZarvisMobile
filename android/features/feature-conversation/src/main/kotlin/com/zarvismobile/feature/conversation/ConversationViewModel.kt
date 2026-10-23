@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.agents.AndroidOrchestrator
 import com.zarvismobile.agents.ConversationDeletion
+import com.zarvismobile.agents.PRIVATE_RESULT_SKILLS
+import com.zarvismobile.agents.TurnProgress
 import com.zarvismobile.core.common.metrics.TurnMetricsStore
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val SUCCESS_FLASH_MS = 450L
+private const val SLOW_SERVER_MS = 6_000L
 private const val START_REQUEST_HANDLED = "conversation.startRequestHandled"
 
 data class ConversationTurn(
@@ -46,10 +49,30 @@ data class ConversationTurn(
     val assistantText: String?,
     /** Structured status of the tool action behind this reply, when there was one. */
     val status: ToolResultStatus? = null,
+    /** The request was stopped (a newer message, the microphone) before its reply came: the bubble says so instead of staying empty. */
+    val stopped: Boolean = false,
 )
+
+/** What the reply on its way is waiting for, shown live in its bubble. Each is a stage the turn really reached. */
+sealed interface ChatProgress {
+    /** Sent; nothing back from the server yet. */
+    data object Sending : ChatProgress
+
+    /** Still nothing back after [SLOW_SERVER_MS]: the server may be starting up (a sleeping free instance takes up to a minute). */
+    data object SlowServer : ChatProgress
+
+    data object Thinking : ChatProgress
+
+    /** A tool is running on the server; [name] is its display name when the server gave one. */
+    data class Working(val name: String?) : ChatProgress
+
+    data object OnPhone : ChatProgress
+}
 
 data class ConversationUiState(
     val voiceState: VoiceState = VoiceState.IDLE,
+    /** Live progress of the turn in flight, null when none is. */
+    val progress: ChatProgress? = null,
     val composerText: String = "",
     val turns: List<ConversationTurn> = emptyList(),
     val error: String? = null,
@@ -86,6 +109,12 @@ class ConversationViewModel @Inject constructor(
 
     // The in-flight turn, so tapping the orb interrupts it cleanly (network call or playback).
     private var turnJob: Job? = null
+
+    // Which turn's live progress is shown; set by each new turn.
+    @Volatile private var currentTurn: Any? = null
+
+    // The microphone session, so a cancel ends it without sending what was heard so far.
+    private var listenJob: Job? = null
 
     // Set once the first restore has finished, so the first resume does not ask the server for the same history twice.
     // (Declared before `init`: the coroutine started there may run right away, and a later initializer would reset it.)
@@ -244,6 +273,7 @@ class ConversationViewModel @Inject constructor(
 
     fun startNewConversation() {
         turnJob?.cancel()
+        listenJob?.cancel()
         // Gone from this screen at once, before anything is written; every other screen drops it when it sees the new conversation.
         _uiState.update { ConversationUiState() }
         viewModelScope.launch {
@@ -254,9 +284,10 @@ class ConversationViewModel @Inject constructor(
 
     fun startListening() {
         if (_uiState.value.voiceState == VoiceState.LISTENING) return
-        turnJob?.cancel()
+        stopTurnInFlight()
         ttsEngine.stop()
-        viewModelScope.launch {
+        listenJob?.cancel()
+        listenJob = viewModelScope.launch {
             // Microphone goes through the same permission intelligence as every capability.
             when (val result = access.ensure(capabilities.get(CapabilityId.MICROPHONE))) {
                 AccessResult.Granted -> Unit
@@ -291,7 +322,9 @@ class ConversationViewModel @Inject constructor(
     }
 
     fun cancelListening() {
-        sttEngine.stop()
+        // Not sttEngine.stop(): Android's stopListening() recognizes what was heard so far, and that half sentence was then sent as a
+        // request. Cancelling the collection closes and destroys the recognizer, so nothing is sent.
+        listenJob?.cancel()
         if (_uiState.value.voiceState == VoiceState.LISTENING) {
             _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
         }
@@ -300,16 +333,43 @@ class ConversationViewModel @Inject constructor(
     private fun runTurn(utterance: String) {
         // One turn at a time: a new request (typed, voice, resume) supersedes the one in flight
         // instead of running beside it and writing its reply into the wrong bubble.
-        turnJob?.cancel()
+        stopTurnInFlight()
         ttsEngine.stop()
+        val token = Any()
+        currentTurn = token
         turnJob = viewModelScope.launch {
             _uiState.update {
-                it.copy(voiceState = VoiceState.UNDERSTANDING, turns = it.turns + ConversationTurn(utterance, null), error = null)
+                it.copy(
+                    voiceState = VoiceState.UNDERSTANDING,
+                    progress = ChatProgress.Sending,
+                    turns = it.turns + ConversationTurn(utterance, null),
+                    error = null,
+                )
+            }
+            // Only this turn's progress is shown: a superseded turn's late events are dropped.
+            fun show(progress: ChatProgress) {
+                if (currentTurn === token) _uiState.update { if (it.progress == null) it else it.copy(progress = progress) }
+            }
+            val slow = launch {
+                delay(SLOW_SERVER_MS)
+                if (_uiState.value.progress == ChatProgress.Sending) show(ChatProgress.SlowServer)
             }
             try {
                 val accountId = sessionRepository.ensureSession()
                 val locale = if (preferences.locale.first() == "hi") "hi-IN" else "en-US"
-                val timed = measureTimedValue { orchestrator.handleTurn(utterance, accountId, locale = locale.take(2)) }
+                val timed = measureTimedValue {
+                    orchestrator.handleTurn(utterance, accountId, locale = locale.take(2)) { progress ->
+                        slow.cancel()
+                        show(
+                            when (progress) {
+                                TurnProgress.Thinking -> ChatProgress.Thinking
+                                is TurnProgress.Working -> ChatProgress.Working(progress.name)
+                                is TurnProgress.OnPhone -> ChatProgress.OnPhone
+                            },
+                        )
+                    }
+                }
+                slow.cancel()
                 val outcome = timed.value
                 // Only a COMPLETED action flashes success. A hand-off (USER_ACTION_REQUIRED, e.g. the
                 // alarm opened in the Clock app) has `success = true` but nothing is done yet.
@@ -322,6 +382,7 @@ class ConversationViewModel @Inject constructor(
                 // The device may have left this conversation (a New chat on another screen) while the reply was on its way: it is not shown here.
                 val reply = ConversationSync.finishOwnTurn(shown, outcome.conversation, outcome.replacedConversation, orchestrator.conversation.state.value)
                 if (reply is OwnReply.Discard) {
+                    _uiState.update { it.copy(progress = null) }
                     orchestrator.conversation.state.value?.let(::onActiveConversation)
                     return@launch
                 }
@@ -338,10 +399,13 @@ class ConversationViewModel @Inject constructor(
                             replaceLastAssistantReply(state.turns, utterance, outcome.message, outcome.result?.status)
                         },
                         voiceState = if (succeeded) VoiceState.SUCCESS else VoiceState.IDLE,
+                        progress = null,
                     )
                 }
                 if (succeeded) delay(SUCCESS_FLASH_MS)
-                if (preferences.autoSpeak.first()) {
+                // A private on-device result (the screen, notifications, location…) is not sent to the server's voice: it stays on the phone.
+                val keepOnPhone = outcome.result?.skillId in PRIVATE_RESULT_SKILLS
+                if (preferences.autoSpeak.first() && !keepOnPhone) {
                     try {
                         ttsEngine.speak(outcome.message, locale = locale) {
                             _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
@@ -356,12 +420,31 @@ class ConversationViewModel @Inject constructor(
                     _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
                 }
             } catch (t: CancellationException) {
+                // Stopped (the microphone, New chat): its progress goes. A newer turn has already taken currentTurn and shows its own.
+                if (currentTurn === token) _uiState.update { it.copy(progress = null) }
                 throw t
             } catch (e: SessionExpiredException) {
+                slow.cancel()
                 failTurn(utterance, "Your session has ended. Sign in again to continue.")
             } catch (t: Throwable) {
+                slow.cancel()
                 TurnMetricsStore.record("conversation", durationMs = 0L, success = false)
                 failTurn(utterance, "I couldn't reach ZARVIS, so nothing was done. Check your connection and try again.")
+            }
+        }
+    }
+
+    /** Cancels the turn in flight; its question, still without a reply, is marked as stopped rather than left empty for good. */
+    private fun stopTurnInFlight() {
+        val inFlight = turnJob?.isActive == true
+        turnJob?.cancel()
+        if (!inFlight) return
+        _uiState.update { state ->
+            val last = state.turns.lastOrNull()
+            if (last == null || last.assistantText != null) {
+                state.copy(progress = null)
+            } else {
+                state.copy(turns = state.turns.dropLast(1) + last.copy(stopped = true), progress = null)
             }
         }
     }
@@ -373,6 +456,7 @@ class ConversationViewModel @Inject constructor(
             state.copy(
                 turns = replaceLastAssistantReply(state.turns, utterance, message, ToolResultStatus.FAILED),
                 voiceState = VoiceState.ERROR,
+                progress = null,
                 error = message,
             )
         }

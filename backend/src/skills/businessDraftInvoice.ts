@@ -16,8 +16,15 @@ export interface InvoiceLineItem {
  * silently skipped rather than guessed at — see the skill handler below for what happens
  * when that leaves zero items.
  */
+/**
+ * A number written with digit-group separators: international (`2,000`, `1,250,000`) or Indian (`1,50,000`).
+ * Its commas are part of the number, not separators between items.
+ */
+const GROUPED_NUMBER = /(?<!\d)\d{1,3}(?:,\d{2,3})*,\d{3}(?!\d)/g;
+
 export function parseInvoiceLineItems(itemsText: string): InvoiceLineItem[] {
   const segments = itemsText
+    .replace(GROUPED_NUMBER, (number) => number.replace(/,/g, ""))
     .split(/,|\band\b/i)
     .map((segment) => segment.trim())
     .filter(Boolean);

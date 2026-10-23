@@ -123,7 +123,12 @@ private fun AssistPanel(
                         Text(turn.userText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         // The reply as the Chat screen draws it (headings, lists, links and code formatted), not raw symbols.
                         val reply = turn.assistantText
-                        if (reply == null) Text("…", style = MaterialTheme.typography.bodyMedium) else MarkdownText(text = reply, style = MaterialTheme.typography.bodyMedium)
+                        // A request a newer one replaced says so, instead of "…" for good.
+                        if (reply == null) {
+                            Text(if (turn.stopped) "Stopped before the reply arrived." else "…", style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            MarkdownText(text = reply, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }

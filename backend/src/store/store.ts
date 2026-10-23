@@ -262,6 +262,13 @@ export interface Store {
    * Returns false when that token was already consumed, including by another account.
    */
   claimPurchaseToken(purchaseToken: string, accountId: string, productId: string): Promise<boolean>;
+  /**
+   * Records a verified Play purchase token and grants its plan until `expiresAt`, in ONE atomic step: the
+   * token is consumed only together with the grant. A period of the same plan that already runs past
+   * `expiresAt` is kept. Returns undefined, changing nothing, when the token was already consumed (by
+   * anyone). Throws if the account is unknown (and then the token stays unused).
+   */
+  grantPlayPurchase(purchaseToken: string, accountId: string, productId: string, plan: EntitlementLevel, expiresAt: Date): Promise<Account | undefined>;
 
   /** Records a Razorpay order the server just created for this account. */
   createPaymentOrder(order: PaymentOrder): Promise<void>;
