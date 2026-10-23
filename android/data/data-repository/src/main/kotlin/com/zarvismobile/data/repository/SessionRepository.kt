@@ -5,6 +5,7 @@ import com.zarvismobile.data.remote.SessionEvents
 import com.zarvismobile.data.remote.TokenAuthenticator
 import com.zarvismobile.data.remote.TokenStorageKeys
 import com.zarvismobile.data.remote.ZarvisApi
+import com.zarvismobile.data.remote.dto.AuthTokensResponse
 import com.zarvismobile.data.remote.dto.LoginRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,7 +42,8 @@ class SessionRepository(
     private val secureStorage: SecretStore,
     /**
      * Forgets what this device keeps for the account outside the token store (its reminders and their alarms, an interrupted action)
-     * when the user signs out or deletes the account, so the next account on this phone never sees them or hears them fire.
+     * when the user signs out, deletes the account, or another account takes this device's session, so the next account on this phone
+     * never sees them or hears them fire.
      */
     private val forgetLocalData: suspend () -> Unit = {},
 ) {
@@ -63,17 +65,28 @@ class SessionRepository(
     /** Explicit user action (first launch, or "Start a new guest session" after expiry). */
     suspend fun startGuestSession(): String {
         val tokens = api.createGuest()
-        clearAccount()
-        TokenAuthenticator.storeTokens(secureStorage, tokens)
-        refreshState()
+        replaceAccount(tokens)
         return tokens.accountId
     }
 
     suspend fun signIn(email: String, password: String): SessionState.Active {
         val tokens = api.login(LoginRequest(email.trim(), password))
+        replaceAccount(tokens)
+        return refreshState() as SessionState.Active
+    }
+
+    /**
+     * Makes [tokens] this device's session. Only once the server has answered, so a failed sign-in changes nothing. When they belong to
+     * another account than the one this device had (sign in with a different email, a new guest after the session ended), what the
+     * device kept for the old account is forgotten first, as on sign-out: its reminders must not fire, and its interrupted action must
+     * not be offered, to the next account. Signing back in to the same account keeps them.
+     */
+    private suspend fun replaceAccount(tokens: AuthTokensResponse) {
+        val previous = secureStorage.getString(TokenStorageKeys.ACCOUNT_ID)
+        if (previous != null && previous != tokens.accountId) forgetDeviceData()
         clearAccount()
         TokenAuthenticator.storeTokens(secureStorage, tokens)
-        return refreshState() as SessionState.Active
+        refreshState()
     }
 
     /** Adds an email/password to the current guest account. The account id and data stay the same. */
