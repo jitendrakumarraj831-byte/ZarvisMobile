@@ -22,6 +22,10 @@ Security requirements are governed by [ZARVIS_MASTER_PRODUCT_BLUEPRINT.md](./ZAR
 - File access ≠ permission to upload everything.
 - Accessibility ≠ universal automation.
 
+Every phone action runs under the phone-automation policy, [AUTOMATION_SECURITY_POLICY.md](./AUTOMATION_SECURITY_POLICY.md)
+(`shared/automation-policy.json`). It is default deny, has a pause switch, refuses sensitive apps and security screens, requires
+confirmation, accepts one result report per handed-over action, and keeps an on-device history.
+
 ## Risk classes
 
 Actions are evaluated as LOW, MEDIUM, HIGH or VERY_HIGH risk. High-impact actions require appropriate confirmation and policy checks.

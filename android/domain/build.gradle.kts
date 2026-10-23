@@ -33,11 +33,12 @@ sourceSets {
 
 tasks.test {
     useJUnitPlatform()
-    // NavigationReachabilityTest reads NavGraph.kt, and SharedFeatureCatalogTest reads the website's embedded copy of the shared
-    // catalogue. They are inputs, so with the build cache on, changing only one of them still re-runs the tests instead of restoring
-    // a result from before the change.
+    // NavigationReachabilityTest reads NavGraph.kt, SharedFeatureCatalogTest reads the website's embedded copy of the shared
+    // catalogue, and AutomationPolicyTest reads the list of registered on-device skills. They are inputs, so with the build cache
+    // on, changing only one of them still re-runs the tests instead of restoring a result from before the change.
     inputs.files(
         "../app/src/main/kotlin/com/zarvismobile/app/navigation/NavGraph.kt",
         "../../web/feature-pages.js",
+        "../skills/src/main/kotlin/com/zarvismobile/skills/OnDeviceSkillRegistryFactory.kt",
     ).withPropertyName("guardedAndroidSources")
 }

@@ -344,7 +344,7 @@ object SpecialAccessSkills {
         )
         SensitiveApps.isSensitivePackage(target.packageName) -> SkillResult.Failure(
             "sensitive_app",
-            "${target.appLabel} looks like a banking, payment, authenticator or password app, so I won't read or tap its screen.",
+            "${target.appLabel} looks like a banking, payment, trading, authenticator or password app, so I won't read or tap its screen.",
         )
         else -> null
     }
