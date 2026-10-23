@@ -153,15 +153,10 @@ private fun TaskRow(task: TaskDto, busy: Boolean, viewModel: TasksViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                // Off while this task's Pause or Cancel is on its way.
-                Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                    when (task.status) {
-                        "PENDING", "PAUSED" -> ZarvisSecondaryButton(tr(UiString.TASKS_CANCEL), onClick = { viewModel.cancel(task.id) }, enabled = !busy)
-                        "RUNNING" -> {
-                            ZarvisSecondaryButton(tr(UiString.TASKS_PAUSE), onClick = { viewModel.pause(task.id) }, enabled = !busy)
-                            ZarvisSecondaryButton(tr(UiString.TASKS_CANCEL), onClick = { viewModel.cancel(task.id) }, enabled = !busy)
-                        }
-                    }
+                // Off while this task's Cancel is on its way. No Pause: the server refuses to pause a step that is running (its
+                // result would be thrown away and its tools run again), so a Pause button here would only ever answer with an error.
+                if (task.status == "PENDING" || task.status == "PAUSED" || task.status == "RUNNING") {
+                    ZarvisSecondaryButton(tr(UiString.TASKS_CANCEL), onClick = { viewModel.cancel(task.id) }, enabled = !busy)
                 }
             }
         }
