@@ -2,6 +2,7 @@ package com.zarvismobile.agents
 
 import com.zarvismobile.core.tooling.ComposeConfirmationPort
 import com.zarvismobile.data.remote.AiServiceErrors
+import com.zarvismobile.data.remote.ApiErrorBodies
 import com.zarvismobile.data.remote.TurnStreamEvent
 import com.zarvismobile.data.remote.TurnStreamReader
 import com.zarvismobile.data.remote.ZarvisApi
@@ -35,6 +36,8 @@ import com.zarvismobile.domain.entity.ToolResultStatus
 import com.zarvismobile.domain.orchestrator.KeywordSkillMatcher
 import com.zarvismobile.domain.orchestrator.OnDeviceInputBuilder
 import com.zarvismobile.domain.port.ClockPort
+import com.zarvismobile.domain.presentation.TurnFailure
+import com.zarvismobile.domain.presentation.TurnFailures
 import com.zarvismobile.domain.result.ToolResult
 import com.zarvismobile.domain.result.ToolResults
 import com.zarvismobile.domain.skill.MessageDraftSkillFactory
@@ -58,7 +61,15 @@ data class TurnOutcome(
     val result: ToolResult? = null,
     val conversation: ConversationStamp? = null,
     val replacedConversation: Boolean = false,
+    /** The Brain could not answer for a reason that may pass (the AI service was busy or down): sending the same message again can help. */
+    val retryable: Boolean = false,
 )
+
+/**
+ * A message sent to the Brain got no answer. [failure] says why, in the terms the user is told (TurnFailures): never "check your
+ * connection" for a server that answered with an error, and never "nothing was done" once the server had started on it.
+ */
+class TurnFailedException(val failure: TurnFailure, cause: Throwable? = null) : Exception("The turn failed: ${failure.kind}", cause)
 
 /**
  * What a turn is doing right now, as it happens (the turn stream's events, and the phone's own steps). Shown while the reply is on its
@@ -146,14 +157,24 @@ class AndroidOrchestrator(
 ) {
     private val matcher = KeywordSkillMatcher(onDeviceRegistry)
 
-    /** [onProgress] hears each stage the turn reaches (on an I/O thread), so a screen can show it while the reply is on its way. */
-    suspend fun handleTurn(utterance: String, accountId: String, locale: String = "en", onProgress: (TurnProgress) -> Unit = {}): TurnOutcome {
+    /**
+     * [onProgress] hears each stage the turn reaches (on an I/O thread), so a screen can show it while the reply is on its way.
+     * [clientTurnId] is the id of this one user message, the same when the user retries it (OrchestratorTurnRequest.clientTurnId); a turn
+     * the Brain cannot answer throws [TurnFailedException].
+     */
+    suspend fun handleTurn(
+        utterance: String,
+        accountId: String,
+        locale: String = "en",
+        clientTurnId: String? = null,
+        onProgress: (TurnProgress) -> Unit = {},
+    ): TurnOutcome {
         val skill = matcher.matchCommand(utterance)
         return if (skill != null) {
             onProgress(TurnProgress.OnPhone(skill.id))
             handleOnDevice(skill, utterance, accountId, locale)
         } else {
-            handleWithBrain(utterance, accountId, locale, onProgress)
+            handleWithBrain(utterance, accountId, locale, clientTurnId, onProgress)
         }
     }
 
@@ -253,33 +274,66 @@ class AndroidOrchestrator(
         }
     }
 
-    private suspend fun handleWithBrain(utterance: String, accountId: String, locale: String, onProgress: (TurnProgress) -> Unit): TurnOutcome {
+    private suspend fun handleWithBrain(
+        utterance: String,
+        accountId: String,
+        locale: String,
+        clientTurnId: String?,
+        onProgress: (TurnProgress) -> Unit,
+    ): TurnOutcome {
         // The conversation this turn is sent to. The answer is recorded under it only if the device is still in it when the answer arrives.
         val sent = conversation.current()
         var recorded = sent
         var replaced = false
         var stale = false
-        fun outcome(message: String, result: ToolResult?) = TurnOutcome(message, result, recorded, replaced)
+        fun outcome(message: String, result: ToolResult?, retryable: Boolean = false) = TurnOutcome(message, result, recorded, replaced, retryable)
+        val stream = StreamProgress()
+
+        /**
+         * The server stored the user's message in the conversation its `meta` event named before the turn failed: the device continues
+         * that conversation (with the same rules as an answered turn), so the next message, or a retry, is not sent to a fresh one.
+         */
+        suspend fun keepTheConversationTheFailedTurnStarted() {
+            stream.conversationId?.let { conversation.adopt(it, sent.epoch) }
+        }
 
         val response = try {
             streamTurn(
-                OrchestratorTurnRequest(utterance = utterance, locale = locale, conversationId = sent.id, deviceActions = deviceActionIds()),
+                OrchestratorTurnRequest(
+                    utterance = utterance,
+                    locale = locale,
+                    conversationId = sent.id,
+                    deviceActions = deviceActionIds(),
+                    clientTurnId = clientTurnId,
+                ),
+                stream,
                 onProgress,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: retrofit2.HttpException) {
+            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull()
             // An exhausted AI quota / rate limit is an honest answer, not "check your connection".
-            val error = AiServiceErrors.classify(e.code(), e.response()?.errorBody()?.string()) ?: throw e
+            val error = AiServiceErrors.classify(e.code(), body)
+                ?: throw TurnFailedException(TurnFailures.fromHttp(e.code(), ApiErrorBodies.code(body)), e)
             return outcome(
                 error.message,
                 ToolResult(false, ToolResultStatus.FAILED, null, "conversation", error.message, error.retryable, null),
+                retryable = error.retryable,
             )
         } catch (e: TurnStreamFailedException) {
+            keepTheConversationTheFailedTurnStarted()
             // The same AI-service errors, reported inside the stream once it had started.
-            val error = AiServiceErrors.classify(429, e.body) ?: throw java.io.IOException("The turn failed: ${e.body.take(200)}")
+            val error = AiServiceErrors.classify(429, e.body)
+                ?: throw TurnFailedException(TurnFailures.fromStreamError(ApiErrorBodies.code(e.body), ApiErrorBodies.retryable(e.body)), e)
             return outcome(
                 error.message,
                 ToolResult(false, ToolResultStatus.FAILED, null, "conversation", error.message, error.retryable, null),
+                retryable = error.retryable,
             )
+        } catch (e: java.io.IOException) {
+            keepTheConversationTheFailedTurnStarted()
+            throw TurnFailedException(TurnFailures.network(replyStarted = stream.started), e)
         }
         response.conversationId?.let { id ->
             val adoption = conversation.adopt(id, sent.epoch)
@@ -346,17 +400,30 @@ class AndroidOrchestrator(
         )
     }
 
+    /** How far a reply stream got: whether the server had answered with its start, and the conversation its `meta` event named. */
+    private class StreamProgress {
+        @Volatile var started: Boolean = false
+        @Volatile var conversationId: String? = null
+    }
+
     /**
      * Sends the turn to the Brain over the turn stream, telling [onProgress] each stage as it happens, and returns the finished turn.
      * The stream is read on an I/O thread and closed when the turn ends or this coroutine is cancelled (a newer message, New chat).
+     * [progress] records how far it got, for a turn that fails part way.
      */
-    private suspend fun streamTurn(request: OrchestratorTurnRequest, onProgress: (TurnProgress) -> Unit): OrchestratorTurnResponse {
+    private suspend fun streamTurn(
+        request: OrchestratorTurnRequest,
+        progress: StreamProgress,
+        onProgress: (TurnProgress) -> Unit,
+    ): OrchestratorTurnResponse {
         val body = api.runTurnStream(request)
+        progress.started = true
         val last = try {
             coroutineScope {
                 val reading = async(Dispatchers.IO) {
                     TurnStreamReader.read(body.source()) { event ->
                         when (event) {
+                            is TurnStreamEvent.Meta -> progress.conversationId = event.conversationId
                             is TurnStreamEvent.Thinking -> onProgress(TurnProgress.Thinking)
                             is TurnStreamEvent.ToolStarted -> onProgress(TurnProgress.Working(event.skillId, event.skillName))
                             else -> Unit

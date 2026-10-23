@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.zarvismobile.core.common.voice.SpeechRecognitionFailure
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TranscriptUpdate
 import kotlinx.coroutines.channels.awaitClose
@@ -18,7 +19,7 @@ class AndroidSpeechToTextEngine(private val context: Context) : SpeechToTextEngi
 
     override fun listen(locale: String): Flow<TranscriptUpdate> = callbackFlow {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            close(IllegalStateException("Speech recognition is not available on this device"))
+            close(SpeechRecognitionFailure(code = null))
             return@callbackFlow
         }
 
@@ -34,7 +35,8 @@ class AndroidSpeechToTextEngine(private val context: Context) : SpeechToTextEngi
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
             override fun onError(error: Int) {
-                close(IllegalStateException("Speech recognition error (code $error)"))
+                // The chat says what happened in words (domain SpeechErrors): hearing nothing is a hint, not an error with a number.
+                close(SpeechRecognitionFailure(error))
             }
 
             override fun onResults(results: Bundle?) {

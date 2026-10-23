@@ -1,7 +1,9 @@
 package com.zarvismobile.data.remote
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.zarvismobile.data.remote.dto.CreateNoteRequest
 import com.zarvismobile.data.remote.dto.MemorySettingsRequest
+import com.zarvismobile.data.remote.dto.UpdateNoteRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -112,6 +114,55 @@ class MemoryApiTest {
         val request = server.takeRequest()
         assertEquals("DELETE", request.method)
         assertEquals("/api/v1/notes/n1", request.path)
+    }
+
+    @Test
+    fun addingAMemoryPostsOnlyTheKindAndTheTextAndReadsTheSavedNote() = runBlocking<Unit> {
+        server.enqueue(
+            MockResponse().setResponseCode(201).setBody(
+                """{"id":"n9","projectId":null,"kind":"memory","content":"I am vegetarian","enabled":true,"sources":[],"executionId":null,
+                    "createdAt":"2026-10-23T10:00:00.000Z","updatedAt":"2026-10-23T10:00:00.000Z"}""",
+            ),
+        )
+        val saved = api.createNote(CreateNoteRequest(kind = "memory", content = "I am vegetarian"))
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/notes", request.path)
+        // No project: a personal memory item, exactly as the website saves one.
+        assertEquals("""{"kind":"memory","content":"I am vegetarian"}""", request.body.readUtf8())
+        assertEquals("n9", saved.id)
+        assertTrue(saved.enabled)
+        assertNull(saved.projectId)
+    }
+
+    @Test
+    fun pausingOneItemIsAPatchOfItsEnabledFlag() = runBlocking<Unit> {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"id":"n1","projectId":null,"kind":"memory","content":"I live in Pune","enabled":false,"sources":[],"executionId":null,
+                    "createdAt":"2026-10-10T10:00:00.000Z","updatedAt":"2026-10-23T10:00:00.000Z"}""",
+            ),
+        )
+        val updated = api.updateNote("n1", UpdateNoteRequest(enabled = false))
+
+        val request = server.takeRequest()
+        assertEquals("PATCH", request.method)
+        assertEquals("/api/v1/notes/n1", request.path)
+        assertEquals("""{"enabled":false}""", request.body.readUtf8())
+        assertFalse(updated.enabled)
+    }
+
+    @Test
+    fun aFullMemoryIsRefusedWithTheServersCodeNotTakenAsSaved() = runBlocking<Unit> {
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"error":"You can keep up to 500 notes. Delete some first.","code":"limit_reached"}"""))
+        try {
+            api.createNote(CreateNoteRequest(kind = "memory", content = "one more"))
+            fail("a refused save must not look saved")
+        } catch (e: HttpException) {
+            assertEquals(409, e.code())
+            assertTrue(e.response()?.errorBody()?.string().orEmpty().contains("\"code\":\"limit_reached\""))
+        }
     }
 
     @Test

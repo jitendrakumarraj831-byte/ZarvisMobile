@@ -131,6 +131,8 @@ private fun AssistPanel(
                         }
                     }
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    // Not an error (the microphone heard nothing).
+                    state.hint?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 }
                 OutlinedTextField(
                     value = state.composerText,
@@ -142,6 +144,11 @@ private fun AssistPanel(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = viewModel::startListening) { Text(if (state.voiceState == VoiceState.LISTENING) "Listening…" else "Speak") }
                     TextButton(onClick = viewModel::submitComposerText, enabled = state.composerText.isNotBlank()) { Text("Send") }
+                    // The last request failed in a way sending it again can fix (same id: a finished turn is not run twice).
+                    val last = state.turns.lastOrNull()
+                    if (last != null && last.retryable && last.assistantText != null && state.progress == null) {
+                        TextButton(onClick = viewModel::retry) { Text("Try again") }
+                    }
                 }
             }
         }

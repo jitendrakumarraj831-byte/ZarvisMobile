@@ -6,8 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.zarvismobile.agents.AndroidOrchestrator
 import com.zarvismobile.agents.ConversationDeletion
 import com.zarvismobile.agents.PRIVATE_RESULT_SKILLS
+import com.zarvismobile.agents.TurnFailedException
 import com.zarvismobile.agents.TurnProgress
 import com.zarvismobile.core.common.metrics.TurnMetricsStore
+import com.zarvismobile.core.common.voice.SpeechRecognitionFailure
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
 import com.zarvismobile.core.ui.components.VoiceState
@@ -25,8 +27,13 @@ import com.zarvismobile.domain.presentation.ConversationSync
 import com.zarvismobile.domain.presentation.OwnReply
 import com.zarvismobile.domain.presentation.Reconciled
 import com.zarvismobile.domain.presentation.ServerConversation
+import com.zarvismobile.domain.presentation.SpeechErrors
+import com.zarvismobile.domain.presentation.TurnFailures
 import com.zarvismobile.domain.presentation.TurnText
+import com.zarvismobile.domain.presentation.UiString
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
+import java.util.UUID
 import javax.inject.Inject
 import kotlin.time.measureTimedValue
 import kotlinx.coroutines.CancellationException
@@ -39,6 +46,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 private const val SUCCESS_FLASH_MS = 450L
 private const val SLOW_SERVER_MS = 6_000L
@@ -51,6 +59,13 @@ data class ConversationTurn(
     val status: ToolResultStatus? = null,
     /** The request was stopped (a newer message, the microphone) before its reply came: the bubble says so instead of staying empty. */
     val stopped: Boolean = false,
+    /**
+     * The id this message was sent with (OrchestratorTurnRequest.clientTurnId). Try again sends it again, so the server answers a turn
+     * it already finished from its stored result instead of running it twice. Null for an exchange restored from the server.
+     */
+    val clientTurnId: String? = null,
+    /** The reply is a failure that sending the same message again can fix: the bubble offers Try again. */
+    val retryable: Boolean = false,
 )
 
 /** What the reply on its way is waiting for, shown live in its bubble. Each is a stage the turn really reached. */
@@ -76,6 +91,8 @@ data class ConversationUiState(
     val composerText: String = "",
     val turns: List<ConversationTurn> = emptyList(),
     val error: String? = null,
+    /** A note that is not an error, e.g. the microphone heard nothing: shown quietly, and the screen stays ready. */
+    val hint: String? = null,
     /** An action that was waiting on the user when the app process was killed. */
     val interrupted: PendingAction? = null,
     val notice: String? = null,
@@ -293,17 +310,17 @@ class ConversationViewModel @Inject constructor(
                 AccessResult.Granted -> Unit
                 else -> {
                     val reason = when (result) {
-                        is AccessResult.Declined -> "Voice input stays off. You can type instead."
-                        is AccessResult.Denied -> "Microphone access is off, so voice input can't start. You can type instead."
-                        else -> "Voice input isn't available on this device. You can type instead."
+                        is AccessResult.Declined -> UiString.VOICE_DECLINED
+                        is AccessResult.Denied -> UiString.VOICE_PERMISSION_OFF
+                        else -> UiString.VOICE_UNAVAILABLE
                     }
-                    _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = reason) }
+                    _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = reason.text(appLocale())) }
                     return@launch
                 }
             }
-            _uiState.update { it.copy(voiceState = VoiceState.LISTENING, error = null) }
+            _uiState.update { it.copy(voiceState = VoiceState.LISTENING, error = null, hint = null) }
             try {
-                val locale = if (preferences.locale.first() == "hi") "hi-IN" else "en-US"
+                val locale = if (appLocale() == "hi") "hi-IN" else "en-US"
                 sttEngine.listen(locale = locale).collect { update ->
                     _uiState.update { it.copy(composerText = update.text) }
                     if (update.isFinal) {
@@ -316,7 +333,12 @@ class ConversationViewModel @Inject constructor(
             } catch (t: CancellationException) {
                 throw t
             } catch (t: Throwable) {
-                _uiState.update { it.copy(voiceState = VoiceState.ERROR, error = t.message ?: "Couldn't hear that.") }
+                // In words, never Android's error number. Hearing nothing (the most common ending) is a hint, and the screen stays ready.
+                val heard = (t as? SpeechRecognitionFailure)?.let { SpeechErrors.describe(it.code) } ?: SpeechErrors.Outcome(UiString.VOICE_FAILED, isError = true)
+                val text = heard.text.text(appLocale())
+                _uiState.update {
+                    if (heard.isError) it.copy(voiceState = VoiceState.ERROR, error = text) else it.copy(voiceState = VoiceState.IDLE, hint = text)
+                }
             }
         }
     }
@@ -330,20 +352,38 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    private fun runTurn(utterance: String) {
+    /**
+     * Sends the last message again under the same id, after its reply was a failure that trying again can fix. The server answers a
+     * turn it already finished from its stored result, and reuses the tool runs a failed attempt already completed.
+     */
+    fun retry() {
+        // Not while a request is on its way. A failed reply still being read aloud is simply stopped: runTurn ends it.
+        if (_uiState.value.progress != null) return
+        val last = _uiState.value.turns.lastOrNull() ?: return
+        val id = last.clientTurnId ?: return
+        if (!last.retryable) return
+        runTurn(last.userText, retryOf = id)
+    }
+
+    /** [retryOf] is the id of the failed message being sent again: its exchange is replaced instead of the question being asked twice. */
+    private fun runTurn(utterance: String, retryOf: String? = null) {
         // One turn at a time: a new request (typed, voice, resume) supersedes the one in flight
         // instead of running beside it and writing its reply into the wrong bubble.
         stopTurnInFlight()
         ttsEngine.stop()
         val token = Any()
         currentTurn = token
+        val clientTurnId = retryOf ?: newClientTurnId()
         turnJob = viewModelScope.launch {
             _uiState.update {
+                val asked = ConversationTurn(utterance, null, clientTurnId = clientTurnId)
+                val retried = retryOf != null && it.turns.lastOrNull()?.clientTurnId == retryOf
                 it.copy(
                     voiceState = VoiceState.UNDERSTANDING,
                     progress = ChatProgress.Sending,
-                    turns = it.turns + ConversationTurn(utterance, null),
+                    turns = if (retried) it.turns.dropLast(1) + asked else it.turns + asked,
                     error = null,
+                    hint = null,
                 )
             }
             // Only this turn's progress is shown: a superseded turn's late events are dropped.
@@ -354,11 +394,13 @@ class ConversationViewModel @Inject constructor(
                 delay(SLOW_SERVER_MS)
                 if (_uiState.value.progress == ChatProgress.Sending) show(ChatProgress.SlowServer)
             }
+            var language = "en"
             try {
+                language = appLocale()
                 val accountId = sessionRepository.ensureSession()
-                val locale = if (preferences.locale.first() == "hi") "hi-IN" else "en-US"
+                val locale = if (language == "hi") "hi-IN" else "en-US"
                 val timed = measureTimedValue {
-                    orchestrator.handleTurn(utterance, accountId, locale = locale.take(2)) { progress ->
+                    orchestrator.handleTurn(utterance, accountId, locale = locale.take(2), clientTurnId = clientTurnId) { progress ->
                         slow.cancel()
                         show(
                             when (progress) {
@@ -392,12 +434,9 @@ class ConversationViewModel @Inject constructor(
                     OwnReply.Discard -> shown
                 } ?: shown
                 _uiState.update { state ->
+                    val answered = ConversationTurn(utterance, outcome.message, outcome.result?.status, clientTurnId = clientTurnId, retryable = outcome.retryable)
                     state.copy(
-                        turns = if (reply is OwnReply.Fresh) {
-                            listOf(ConversationTurn(utterance, outcome.message, outcome.result?.status))
-                        } else {
-                            replaceLastAssistantReply(state.turns, utterance, outcome.message, outcome.result?.status)
-                        },
+                        turns = if (reply is OwnReply.Fresh) listOf(answered) else replaceLastAssistantReply(state.turns, answered),
                         voiceState = if (succeeded) VoiceState.SUCCESS else VoiceState.IDLE,
                         progress = null,
                     )
@@ -414,7 +453,7 @@ class ConversationViewModel @Inject constructor(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Throwable) {
-                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = "Voice playback failed — the reply is shown as text.") }
+                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = UiString.VOICE_PLAYBACK_FAILED.text(language)) }
                     }
                 } else {
                     _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
@@ -425,14 +464,25 @@ class ConversationViewModel @Inject constructor(
                 throw t
             } catch (e: SessionExpiredException) {
                 slow.cancel()
-                failTurn(utterance, "Your session has ended. Sign in again to continue.")
+                failTurn(utterance, clientTurnId, UiString.CHAT_FAIL_SESSION.text(language), retryable = false)
             } catch (t: Throwable) {
                 slow.cancel()
                 TurnMetricsStore.record("conversation", durationMs = 0L, success = false)
-                failTurn(utterance, "I couldn't reach ZARVIS, so nothing was done. Check your connection and try again.")
+                // Say what really happened: "check your connection" only when the phone never reached the server, and Try again only
+                // where it can help (TurnFailures).
+                when (t) {
+                    is TurnFailedException -> failTurn(utterance, clientTurnId, t.failure.message(language), t.failure.retryable)
+                    is HttpException -> failTurn(utterance, clientTurnId, TurnFailures.fromHttp(t.code(), null).message(language), retryable = false)
+                    is IOException -> failTurn(utterance, clientTurnId, TurnFailures.network(replyStarted = false).message(language), retryable = false)
+                    else -> failTurn(utterance, clientTurnId, UiString.CHAT_FAIL_UNEXPECTED.text(language), retryable = false)
+                }
             }
         }
     }
+
+    private suspend fun appLocale(): String = preferences.locale.first()
+
+    private fun newClientTurnId(): String = "android-" + UUID.randomUUID()
 
     /** Cancels the turn in flight; its question, still without a reply, is marked as stopped rather than left empty for good. */
     private fun stopTurnInFlight() {
@@ -449,12 +499,15 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    private fun failTurn(utterance: String, message: String) {
+    private fun failTurn(utterance: String, clientTurnId: String, message: String, retryable: Boolean) {
         // The screen was already reset because the device left this conversation: the failure of a turn that belonged to it is not shown.
         if (leftConversation()) return
         _uiState.update { state ->
             state.copy(
-                turns = replaceLastAssistantReply(state.turns, utterance, message, ToolResultStatus.FAILED),
+                turns = replaceLastAssistantReply(
+                    state.turns,
+                    ConversationTurn(utterance, message, ToolResultStatus.FAILED, clientTurnId = clientTurnId, retryable = retryable),
+                ),
                 voiceState = VoiceState.ERROR,
                 progress = null,
                 error = message,
@@ -462,14 +515,9 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    private fun replaceLastAssistantReply(
-        turns: List<ConversationTurn>,
-        userText: String,
-        reply: String,
-        status: ToolResultStatus?,
-    ): List<ConversationTurn> {
-        if (turns.isEmpty()) return listOf(ConversationTurn(userText, reply, status))
-        return turns.dropLast(1) + ConversationTurn(userText, reply, status)
+    private fun replaceLastAssistantReply(turns: List<ConversationTurn>, answered: ConversationTurn): List<ConversationTurn> {
+        if (turns.isEmpty()) return listOf(answered)
+        return turns.dropLast(1) + answered
     }
 }
 

@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -243,7 +244,9 @@ fun ConversationScreen(
                 itemsIndexed(uiState.turns) { index, turn ->
                     // The newest request's reply, while it is on its way, shows what the turn is really doing.
                     val pending = if (index == uiState.turns.lastIndex && turn.assistantText == null) uiState.progress else null
-                    TurnBubble(turn, pending)
+                    // Only the newest exchange, only after a failure that sending it again can fix, and not while anything is on its way.
+                    val canRetry = index == uiState.turns.lastIndex && turn.retryable && turn.assistantText != null && uiState.progress == null
+                    TurnBubble(turn, pending, onRetry = if (canRetry) viewModel::retry else null)
                 }
             }
 
@@ -259,6 +262,15 @@ fun ConversationScreen(
                     )
                 }
                 uiState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                // Not an error (the microphone heard nothing): said quietly, and read out once.
+                uiState.hint?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
                 // While the keyboard is up the orb is only dead space between the messages and the keys (on a 640dp phone it left the messages
                 // under two lines); it comes back when the keyboard closes, and stays whenever it is showing a live state.
                 if (!keyboardOpen || uiState.voiceState != VoiceState.IDLE) {
@@ -286,7 +298,7 @@ fun ConversationScreen(
 }
 
 @Composable
-private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?) {
+private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?, onRetry: (() -> Unit)? = null) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
         // An answer with no question (a conversation that began with one) shows no empty bubble.
         if (turn.userText.isNotEmpty()) {
@@ -317,6 +329,13 @@ private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?) {
                     contentPadding = 14.dp,
                 ) {
                     MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
+                }
+                // Sends the same message again under the same id: a turn the server already finished is shown from its stored result.
+                if (onRetry != null) {
+                    val described = trf(UiString.CHAT_RETRY_NAMED, turn.userText.take(60))
+                    TextButton(onClick = onRetry, modifier = Modifier.semantics { contentDescription = described }) {
+                        Text(tr(UiString.COMMON_TRY_AGAIN), color = ZarvisAccents.gold, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         } else if (pending != null) {

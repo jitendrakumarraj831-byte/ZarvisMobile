@@ -3,6 +3,8 @@ package com.zarvismobile.agents
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.domain.conversation.ActiveConversation
+import com.zarvismobile.domain.presentation.TurnFailure
+import com.zarvismobile.domain.presentation.TurnFailureKind
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,6 +21,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -116,7 +119,84 @@ class AndroidOrchestratorConversationTest {
     @Test
     fun aStreamThatStopsBeforeTheAnswerIsAFailureNotAnEmptyReply() = runBlocking<Unit> {
         server.enqueue(MockResponse().setBody("event: progress\ndata: {\"type\":\"thinking\",\"step\":1}\n\n"))
-        assertTrue(runCatching { orchestrator.handleTurn("hello there", "acct") }.exceptionOrNull() is java.io.IOException)
+        val failed = runCatching { orchestrator.handleTurn("hello there", "acct") }.exceptionOrNull()
+        // The server had started on it: "interrupted" (part of it may have run), not "couldn't reach ZARVIS".
+        assertEquals(TurnFailureKind.INTERRUPTED, (failed as TurnFailedException).failure.kind)
+        assertTrue(failed.cause is java.io.IOException)
+    }
+
+    @Test
+    fun theMessageCarriesItsIdAndARetryCarriesTheSameOne() = runBlocking<Unit> {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"error":"AI service temporarily unavailable","code":"internal_error","retryable":true}"""))
+        server.enqueue(turnReply("Done.", "c1"))
+
+        val failed = runCatching { orchestrator.handleTurn("plan my week", "acct", clientTurnId = "android-turn-0001") }.exceptionOrNull()
+        assertEquals(TurnFailure(TurnFailureKind.SERVER, retryable = true), (failed as TurnFailedException).failure)
+        val retried = orchestrator.handleTurn("plan my week", "acct", clientTurnId = "android-turn-0001")
+
+        val ids = (1..2).map { Json.parseToJsonElement(server.takeRequest(5, TimeUnit.SECONDS)!!.body.readUtf8()).jsonObject["clientTurnId"]?.jsonPrimitive?.content }
+        assertEquals(listOf("android-turn-0001", "android-turn-0001"), ids)
+        assertEquals("Done.", retried.message)
+    }
+
+    @Test
+    fun aTurnWithoutAnIdSendsNoneAsBefore() = runBlocking<Unit> {
+        server.enqueue(turnReply("Hi.", "c1"))
+        orchestrator.handleTurn("hello there", "acct")
+        assertNull(Json.parseToJsonElement(server.takeRequest(5, TimeUnit.SECONDS)!!.body.readUtf8()).jsonObject["clientTurnId"])
+    }
+
+    @Test
+    fun eachFailureIsNamedForWhatHappened() = runBlocking<Unit> {
+        suspend fun failureOf(reply: MockResponse): TurnFailure {
+            server.enqueue(reply)
+            return (runCatching { orchestrator.handleTurn("hello there", "acct") }.exceptionOrNull() as TurnFailedException).failure
+        }
+        assertEquals(TurnFailure(TurnFailureKind.BUSY, true), failureOf(MockResponse().setResponseCode(409).setBody("""{"error":"still","code":"turn_in_progress","retryable":true}""")))
+        assertEquals(TurnFailure(TurnFailureKind.REJECTED, false), failureOf(MockResponse().setResponseCode(400).setBody("""{"error":"utterance is required","code":"invalid_request"}""")))
+        assertEquals(TurnFailure(TurnFailureKind.SERVER, true), failureOf(MockResponse().setResponseCode(500).setBody("""{"error":"Internal error","code":"internal_error"}""")))
+        // An error inside the stream that is not an AI limit: the server's own words decide, never "check your connection".
+        assertEquals(
+            TurnFailure(TurnFailureKind.SERVER, true),
+            failureOf(MockResponse().setBody("event: error\ndata: {\"error\":\"The request could not be completed.\",\"retryable\":true,\"turnId\":\"t\"}\n\n")),
+        )
+        assertEquals(
+            TurnFailure(TurnFailureKind.BUSY, true),
+            failureOf(MockResponse().setBody("event: error\ndata: {\"error\":\"still\",\"code\":\"turn_in_progress\",\"retryable\":true,\"turnId\":\"t\"}\n\n")),
+        )
+        // The phone never got an answer at all: nothing listens where the server should be.
+        val closedPort = java.net.ServerSocket(0).use { it.localPort }
+        val unreachable = Retrofit.Builder()
+            .baseUrl("http://127.0.0.1:$closedPort/")
+            .addConverterFactory(Json { ignoreUnknownKeys = true }.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(ZarvisApi::class.java)
+        val offline = runCatching { OrchestratorFixture.create(unreachable, ActiveConversation(InMemoryConversationId())).handleTurn("hello there", "acct") }
+        assertEquals(TurnFailure(TurnFailureKind.OFFLINE, true), (offline.exceptionOrNull() as TurnFailedException).failure)
+    }
+
+    @Test
+    fun aTurnThatFailsAfterTheServerNamedItsConversationContinuesThatConversation() = runBlocking<Unit> {
+        // The server stores the message in c7 and says so in `meta`, then the stream breaks off before the answer.
+        server.enqueue(MockResponse().setBody("event: meta\ndata: {\"conversationId\":\"c7\",\"turnId\":\"t1\"}\n\nevent: progress\ndata: {\"type\":\"thinking\",\"step\":1}\n\n"))
+        server.enqueue(turnReply("Here it is.", "c7"))
+
+        val failed = runCatching { orchestrator.handleTurn("plan my trip", "acct", clientTurnId = "android-turn-0002") }.exceptionOrNull()
+        assertEquals(TurnFailureKind.INTERRUPTED, (failed as TurnFailedException).failure.kind)
+        assertEquals("c7", active.state.value?.id)
+        assertEquals("c7", store.id)
+
+        orchestrator.handleTurn("plan my trip", "acct", clientTurnId = "android-turn-0002")
+        assertNull(sentConversationId(server.takeRequest(5, TimeUnit.SECONDS)!!))
+        assertEquals("the retry goes to the conversation that holds the message", "c7", sentConversationId(server.takeRequest(5, TimeUnit.SECONDS)!!))
+    }
+
+    @Test
+    fun aRetryableAiLimitSaysSoOnTheOutcome() = runBlocking<Unit> {
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"busy","code":"AI_RATE_LIMITED","retryable":true}"""))
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"spent","code":"AI_QUOTA_EXCEEDED","retryable":false}"""))
+        assertTrue(orchestrator.handleTurn("hello there", "acct").retryable)
+        assertFalse(orchestrator.handleTurn("hello there", "acct").retryable)
     }
 
     @Test

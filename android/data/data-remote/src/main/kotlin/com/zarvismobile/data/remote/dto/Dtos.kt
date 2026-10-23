@@ -25,9 +25,9 @@ data class AuthTokensResponse(
 @Serializable
 data class IdentityResponse(val accountId: String, val isGuest: Boolean, val email: String? = null)
 
-/** Error body shape for auth failures: `code` distinguishes "session gone" from other errors. */
+/** The server's usual error body: `code` distinguishes "session gone" (and other known cases) from other errors; `retryable` when sent. */
 @Serializable
-data class ApiErrorResponse(val error: String? = null, val code: String? = null)
+data class ApiErrorResponse(val error: String? = null, val code: String? = null, val retryable: Boolean? = null)
 
 @Serializable
 data class SkillDto(
@@ -67,6 +67,12 @@ data class OrchestratorTurnRequest(
      * instead of describing manual steps (backend/src/capabilities/deviceActions.ts). Omitted: the server offers none.
      */
     val deviceActions: List<String>? = null,
+    /**
+     * The idempotency key of this one user message (8-100 of `A-Z a-z 0-9 _ -`), the same on every Retry of it: the server answers a
+     * turn it already finished from its stored result, and a retry of a failed one reuses the tool runs that already succeeded
+     * (backend/src/agents/orchestrator.ts claimTurn). Omitted (null): no protection, as before.
+     */
+    val clientTurnId: String? = null,
 )
 
 @Serializable
@@ -76,6 +82,8 @@ data class OrchestratorTurnResponse(
     val conversationId: String? = null,
     /** A phone action the Brain chose for this turn. The server did not run it: the app runs it and reports the result. */
     val deviceAction: DeviceActionDto? = null,
+    /** True when this is the stored answer of a turn the server had already finished (a Retry): nothing ran again. */
+    val replayed: Boolean = false,
 )
 
 /**
@@ -227,6 +235,14 @@ data class MemoryOverviewResponse(
     val limits: MemoryLimitsDto = MemoryLimitsDto(),
 )
 
+/** `POST /api/v1/notes` for one personal memory item (no project): only what the user typed. */
+@Serializable
+data class CreateNoteRequest(val kind: String, val content: String)
+
+/** `PATCH /api/v1/notes/:id`: pause (`false`) or resume (`true`) one memory item. It stays saved either way. */
+@Serializable
+data class UpdateNoteRequest(val enabled: Boolean)
+
 @Serializable
 data class MemorySettingsRequest(val enabled: Boolean)
 
@@ -243,18 +259,26 @@ data class DeveloperAnalyzeRequest(val repoUrl: String)
 data class TtsSynthesizeRequest(val text: String, val voice: String? = null)
 
 /**
- * Only the success shape is fully modeled — other [ToolExecutionOutcome] kinds (permission/
- * entitlement denial, etc.) are rendered from [kind] alone in this pass. See
- * DEVELOPER_AGENT.md for the full outcome semantics, defined authoritatively server-side.
+ * The answer of `POST /api/v1/developer/analyze` (backend/src/api/routes/developer.ts): the pipeline's outcome plus `structured`, its
+ * plain-language result. `result` has two shapes: on success the skill's output and summary, on `execution_failed` the failure
+ * (`reason`, `userMessage`). Every field of it is optional so that both decode: a required `summary` used to make every failed
+ * analysis (a private or missing repository, GitHub's rate limit) a decoding error shown to the user as a stack-trace message.
  */
 @Serializable
 data class DeveloperAnalyzeResponse(
     val kind: String,
     val result: DeveloperAnalyzeResult? = null,
+    val structured: StructuredResultDto? = null,
 )
 
 @Serializable
-data class DeveloperAnalyzeResult(val summary: String, val output: DeveloperAnalyzeOutput)
+data class DeveloperAnalyzeResult(
+    val summary: String? = null,
+    val output: DeveloperAnalyzeOutput? = null,
+    /** A failed run's own words for the user. */
+    val userMessage: String? = null,
+    val reason: String? = null,
+)
 
 @Serializable
 data class DeveloperAnalyzeOutput(val structure: RepoStructureDto)
