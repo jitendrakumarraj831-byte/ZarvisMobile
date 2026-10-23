@@ -245,6 +245,44 @@ describe("TaskRunner: a step is a real turn, and the task says only what happene
     await second;
   });
 
+  it("pausing a step that is running right now is refused: its result is kept and it runs once", async () => {
+    const task = await make(["Slow step", "Next"]);
+    let release!: () => void;
+    script = () => new Promise((resolve) => { release = () => resolve(reply("slow result")); });
+    const running = service.resume(task.id);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(service.pause(task.id)).rejects.toMatchObject({ code: "task_already_running" });
+    release();
+    const after = await running;
+    expect(after.lifecycle).toBe("WAITING");
+    expect(after.steps[0]).toMatchObject({ status: "DONE", resultSummary: "slow result" });
+    script = async () => reply("second step");
+    await service.resume(task.id);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.utterance).toContain("Step 2 of 2");
+  });
+
+  it("a task whose approval expired can be retried: the step runs again and asks anew", async () => {
+    const task = await make(["Open the pull request"]);
+    const confirmationId = crypto.randomUUID();
+    await store.createConfirmation({
+      id: confirmationId, accountId, skillId: "developer.implement", input: {}, inputHash: "h", action: "Open a PR", riskLevel: "HIGH",
+      actionClass: "EXTERNAL_COMMUNICATION", taskId: task.id, status: "PENDING", createdAt: clock, expiresAt: new Date(clock.getTime() + 10 * 60_000),
+    });
+    const pending = call("developer.implement", { kind: "confirmation_required", confirmation: { id: confirmationId, skillId: "developer.implement", skillName: "Implement", action: "Open a PR", riskLevel: "HIGH", actionClass: "EXTERNAL_COMMUNICATION", expiresAt: new Date(clock.getTime() + 10 * 60_000).toISOString() } }, "CONFIRMATION_REQUIRED");
+    script = async () => reply("I need your approval", [pending]);
+    expect((await service.resume(task.id)).lifecycle).toBe("CONFIRMATION_REQUIRED");
+    await expect(service.retry(task.id)).rejects.toThrow(/approve or decline/); // still approvable: not yet
+
+    clock = new Date(clock.getTime() + 11 * 60_000); // the approval can no longer be given
+    expect(taskView((await store.getTask(task.id))!, clock).actions).toEqual(["retry", "cancel"]);
+    script = async () => reply("Opened the pull request");
+    const retried = await service.retry(task.id);
+    expect(requests).toHaveLength(2);
+    expect(retried.lifecycle).toBe("COMPLETED");
+    expect(retried.steps[0]).toMatchObject({ status: "DONE", retryCount: 1 });
+  });
+
   it("a run that died is shown as stale and can be retried after a while, but not before", async () => {
     const task = await make(["Step"]);
     const claimed = await store.claimTaskRun(accountId, task.id, ["QUEUED"], clock, new Date(clock.getTime() - 180_000));

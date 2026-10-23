@@ -336,12 +336,16 @@ export class Orchestrator {
     if (!conversation && persistedMessages.length === 0 && request.history?.length) {
       // Compatibility bridge for an existing browser session: seed only the bounded,
       // user/assistant history once, then all subsequent turns come from the server.
-      const seed = request.history.map((message) => ({
+      // Each message gets its own, later time: a database orders messages by time, and messages that
+      // share one could come back in any order. They are dated just before now, so the current
+      // message (stored next, at the present time) still comes after them.
+      const seededAt = Date.now() - request.history.length;
+      const seed = request.history.map((message, index) => ({
         id: randomUUID(),
         conversationId: activeConversation.id,
         role: message.role,
         content: message.content,
-        createdAt: new Date(),
+        createdAt: new Date(seededAt + index),
       } satisfies StoredConversationMessage));
       await this.store.appendConversationMessages(seed);
       persistedMessages.push(...seed);

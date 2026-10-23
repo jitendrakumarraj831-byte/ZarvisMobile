@@ -299,6 +299,17 @@ export class InMemoryStore implements Store {
     return true;
   }
 
+  async grantPlayPurchase(purchaseToken: string, accountId: string, _productId: string, plan: Account["plan"], expiresAt: Date): Promise<Account | undefined> {
+    if (this.purchaseTokens.has(purchaseToken)) return undefined;
+    const existing = this.accountsById.get(accountId);
+    if (!existing) throw new Error(`Cannot update unknown account '${accountId}'`);
+    const keep = existing.plan === plan && existing.planExpiresAt && existing.planExpiresAt.getTime() > expiresAt.getTime();
+    const updated: Account = { ...existing, plan, planExpiresAt: keep ? existing.planExpiresAt : expiresAt };
+    this.purchaseTokens.add(purchaseToken);
+    this.accountsById.set(accountId, updated);
+    return updated;
+  }
+
   async listUsage(accountId: string): Promise<UsageEntry[]> {
     return this.usageLedger.filter((entry) => entry.accountId === accountId);
   }

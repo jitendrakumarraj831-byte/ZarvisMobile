@@ -325,10 +325,7 @@ export class WorkspaceService {
     if (!body) throw new WorkspaceError(400, "invalid_request", "There is no text to save.");
     if (body.length > MAX_FILE_TEXT_CHARS) throw new WorkspaceError(413, "document_too_long", `Text is limited to ${MAX_FILE_TEXT_CHARS} characters.`);
     const projectId = input.projectId === undefined || input.projectId === null ? undefined : String(input.projectId);
-    if (projectId) await this.requireProject(accountId, projectId);
-    if ((await this.store.listFiles(accountId)).length >= LIMITS.maxFiles) {
-      throw new WorkspaceError(409, "limit_reached", `You can keep up to ${LIMITS.maxFiles} files. Delete some first.`);
-    }
+    await this.assertCanSaveFile(accountId, projectId);
     const file = await this.store.createFile({
       id: randomUUID(),
       accountId,
@@ -344,6 +341,17 @@ export class WorkspaceService {
     });
     if (projectId) await this.touchProject(accountId, projectId);
     return file;
+  }
+
+  /**
+   * Throws the refusal saveFile would give for where a file goes (an unknown project, a full library). The
+   * upload route asks first, so a file that cannot be stored is refused before it is extracted or analysed.
+   */
+  async assertCanSaveFile(accountId: string, projectId?: string): Promise<void> {
+    if (projectId) await this.requireProject(accountId, projectId);
+    if ((await this.store.listFiles(accountId)).length >= LIMITS.maxFiles) {
+      throw new WorkspaceError(409, "limit_reached", `You can keep up to ${LIMITS.maxFiles} files. Delete some first.`);
+    }
   }
 
   async getFile(accountId: string, fileId: string): Promise<WorkspaceFile> {

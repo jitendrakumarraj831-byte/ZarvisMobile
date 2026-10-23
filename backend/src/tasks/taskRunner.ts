@@ -8,7 +8,7 @@ import { explainOutcome } from "../tooling/explainOutcome.js";
 import { toStructuredResult } from "../tooling/toolResult.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
 import { TaskAlreadyRunningError, TaskNotFoundError, TaskNotRunnableError } from "./errors.js";
-import { event, TASK_STALE_MS, withEvent, withLifecycle } from "./taskState.js";
+import { approvalExpired, event, TASK_STALE_MS, withEvent, withLifecycle } from "./taskState.js";
 
 export { TaskAlreadyRunningError, TaskError, TaskNotFoundError, TaskNotRunnableError } from "./errors.js";
 
@@ -54,14 +54,21 @@ export class TaskRunner implements TaskRunnerPort {
 
   async runNext(accountId: string, taskId: string): Promise<Task> {
     const started = this.now();
-    const claimed = await this.store.claimTaskRun(accountId, taskId, ["QUEUED", "WAITING", "FAILED", "BLOCKED"], started, new Date(started.getTime() - TASK_STALE_MS));
+    const staleBefore = new Date(started.getTime() - TASK_STALE_MS);
+    let claimed = await this.store.claimTaskRun(accountId, taskId, ["QUEUED", "WAITING", "FAILED", "BLOCKED"], started, staleBefore);
     if (!claimed) {
       const existing = await this.store.getTask(taskId);
       if (!existing || existing.accountId !== accountId) throw new TaskNotFoundError(`Unknown task '${taskId}'`);
       const lifecycle = taskLifecycle(existing);
       if (lifecycle === "RUNNING" || lifecycle === "EXECUTING" || lifecycle === "VERIFYING") throw new TaskAlreadyRunningError();
-      if (lifecycle === "CONFIRMATION_REQUIRED") throw new TaskNotRunnableError("This task is waiting for you to approve or decline an action. Do that first.");
-      throw new TaskNotRunnableError(`A ${lifecycle.toLowerCase()} task can't be started.`);
+      if (lifecycle !== "CONFIRMATION_REQUIRED") throw new TaskNotRunnableError(`A ${lifecycle.toLowerCase()} task can't be started.`);
+      // An approval that can no longer be given (it expired, or was resolved without the task hearing of it)
+      // must not hold the task forever: the step runs again and asks anew.
+      if (await this.awaitingApproval(existing, started)) {
+        throw new TaskNotRunnableError("This task is waiting for you to approve or decline an action. Do that first.");
+      }
+      claimed = await this.store.claimTaskRun(accountId, taskId, ["CONFIRMATION_REQUIRED"], started, staleBefore);
+      if (!claimed) throw new TaskAlreadyRunningError();
     }
 
     // A task made without steps is one step: its goal.
@@ -78,19 +85,32 @@ export class TaskRunner implements TaskRunnerPort {
     const step: TaskStep = { ...previous, status: "RUNNING", retryCount: attempt, startedAt: started.toISOString(), completedAt: undefined, error: undefined, evidence: undefined };
     const steps = task.steps.map((s, i) => (i === index ? step : s));
 
-    let conversationId = task.conversationId;
-    if (!conversationId) {
-      const conversation = await this.store.createConversation(accountId, ("Task: " + task.goal).slice(0, 80), task.projectId);
-      conversationId = conversation.id;
-    }
-    task = withEvent(
-      { ...task, steps, conversationId, startedAt: task.startedAt ?? started.toISOString(), error: undefined, blockedReason: undefined, pendingConfirmationId: undefined, retryCount: (task.retryCount ?? 0) + (attempt > 0 ? 1 : 0), updatedAt: started },
-      event(attempt > 0 ? "step_retried" : "step_started", `${attempt > 0 ? "Retrying" : "Starting"} step ${index + 1} of ${steps.length}: ${step.description}`, started, step.id),
-    );
-    task = await this.store.updateTask(task);
-
+    // Registered as soon as the task is claimed, so a cancel that arrives while the step is being set up
+    // reaches this run too.
     const controller = new AbortController();
     this.inflight.set(task.id, controller);
+    try {
+      let conversationId = task.conversationId;
+      if (!conversationId) {
+        const conversation = await this.store.createConversation(accountId, ("Task: " + task.goal).slice(0, 80), task.projectId);
+        conversationId = conversation.id;
+      }
+      task = withEvent(
+        { ...task, steps, conversationId, startedAt: task.startedAt ?? started.toISOString(), error: undefined, blockedReason: undefined, pendingConfirmationId: undefined, retryCount: (task.retryCount ?? 0) + (attempt > 0 ? 1 : 0), updatedAt: started },
+        event(attempt > 0 ? "step_retried" : "step_started", `${attempt > 0 ? "Retrying" : "Starting"} step ${index + 1} of ${steps.length}: ${step.description}`, started, step.id),
+      );
+      // Only while the claim still stands: a cancel that landed in the meantime is kept, and nothing runs.
+      const written = controller.signal.aborted ? undefined : await this.store.updateTaskIf(task, IN_RUN);
+      if (!written) {
+        this.inflight.delete(task.id);
+        return await this.reload(task.id);
+      }
+      task = written;
+    } catch (err) {
+      this.inflight.delete(task.id);
+      throw err;
+    }
+
     let executing: Promise<void> | undefined;
     const onEvent = (turnEvent: TurnEvent) => {
       // The first real tool start moves the task to EXECUTING; the write is best effort progress, not a result.
@@ -103,7 +123,7 @@ export class TaskRunner implements TaskRunnerPort {
       const request: TurnRequest = {
         accountId,
         utterance: stepUtterance(task, index),
-        conversationId,
+        conversationId: task.conversationId,
         taskId: task.id,
         clientTurnId: `task-${task.id}-${step.id.slice(0, 8)}-a${attempt}`,
         signal: controller.signal,
@@ -239,6 +259,18 @@ export class TaskRunner implements TaskRunnerPort {
     } catch (err) {
       logger.error("Could not record a task confirmation outcome", { taskId: record.taskId, error: errorText(err) });
     }
+  }
+
+  /**
+   * True while the approval the task waits for still decides what happens: it can still be given (pending and
+   * unexpired), or it was just given and the approval request is running that action now (it reports back).
+   */
+  private async awaitingApproval(task: Task, now: Date): Promise<boolean> {
+    const record = task.pendingConfirmationId ? await this.store.getConfirmation(task.accountId, task.pendingConfirmationId) : undefined;
+    if (!record) return !approvalExpired(task, now);
+    if (record.status === "PENDING") return record.expiresAt.getTime() > now.getTime();
+    if (record.status === "APPROVED") return now.getTime() - (record.resolvedAt ?? record.createdAt).getTime() <= TASK_STALE_MS;
+    return false;
   }
 
   private async reload(taskId: string): Promise<Task> {

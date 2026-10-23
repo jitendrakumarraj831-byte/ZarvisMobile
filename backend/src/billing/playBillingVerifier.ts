@@ -4,6 +4,8 @@ export interface PlayPurchaseVerification {
   valid: boolean;
   planId?: string;
   orderId?: string;
+  /** When the paid subscription period ends (Play's `expiryTimeMillis`); the plan it grants ends then too. */
+  expiresAt?: Date;
 }
 
 export interface PlayBillingVerifier {
@@ -95,7 +97,7 @@ export class GooglePlayBillingVerifier implements PlayBillingVerifier {
       const isPaid = body.paymentState === 1 || body.paymentState === 2;
       const notExpired = typeof body.expiryTimeMillis === "string" && Number(body.expiryTimeMillis) > Date.now();
       if (!isPaid || !notExpired) return { valid: false };
-      return { valid: true, planId: productId, orderId: body.orderId };
+      return { valid: true, planId: productId, orderId: body.orderId, expiresAt: new Date(Number(body.expiryTimeMillis)) };
     } catch {
       return { valid: false };
     }

@@ -1,4 +1,5 @@
 import { legacyStatus, taskLifecycle, type Task, type TaskEvent, type TaskLifecycle } from "../domain/types.js";
+import { CONFIRMATION_TTL_MS } from "../security/confirmationService.js";
 
 /** A running state not touched for this long belongs to a request that died; Retry may take it over. */
 export const TASK_STALE_MS = 3 * 60 * 1000;
@@ -26,4 +27,12 @@ export function isMidRun(task: Task): boolean {
 
 export function isStale(task: Task, now: Date): boolean {
   return isMidRun(task) && now.getTime() - (task.updatedAt ?? task.createdAt).getTime() > TASK_STALE_MS;
+}
+
+/**
+ * A task waiting for an approval that can no longer be given: the confirmation was issued when the task
+ * entered CONFIRMATION_REQUIRED and expires CONFIRMATION_TTL_MS later. The step may then be run again.
+ */
+export function approvalExpired(task: Task, now: Date): boolean {
+  return taskLifecycle(task) === "CONFIRMATION_REQUIRED" && now.getTime() - (task.updatedAt ?? task.createdAt).getTime() > CONFIRMATION_TTL_MS;
 }

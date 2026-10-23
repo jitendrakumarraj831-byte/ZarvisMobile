@@ -89,20 +89,32 @@ export function createDeveloperImplementSkill(github: GitHubAccessService, gener
       const { client, login } = await checkWriteAccess(github, repoUrl, context.accountId);
       const repoContext = await client.getImplementationContext(repoUrl);
       const raw = await generator.generate(JSON.stringify({ requirement, repository: repoContext }, null, 2));
-      let plan: { summary: string; steps: string[]; files: Array<{ path: string; content: string }>; tests: string[] };
+      const invalidPlan = { kind: "failure" as const, reason: "invalid_agent_output", userMessage: "The coding agent returned an invalid change plan. No repository changes were made." };
+      let parsed: unknown;
       try {
         const cleaned = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
-        plan = JSON.parse(cleaned);
+        parsed = JSON.parse(cleaned);
       } catch {
-        return { kind: "failure", reason: "invalid_agent_output", userMessage: "The coding agent returned an invalid change plan. No repository changes were made." };
+        return invalidPlan;
       }
-      const files = Array.isArray(plan.files) ? plan.files.filter((f) =>
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return invalidPlan;
+      // Read every field the model wrote before anything is written to the repository: a field of the wrong
+      // shape must not fail the change half way, after the branch and its commits already exist.
+      const fields = parsed as { summary?: unknown; steps?: unknown; files?: unknown; tests?: unknown };
+      const texts = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+      const plan = {
+        summary: typeof fields.summary === "string" ? fields.summary : "",
+        steps: texts(fields.steps),
+        tests: texts(fields.tests),
+        files: (Array.isArray(fields.files) ? fields.files : []) as Array<{ path: string; content: string }>,
+      };
+      const files = plan.files.filter((f) =>
         f && typeof f.path === "string" && typeof f.content === "string" &&
         f.path.length > 0 && f.path.length < 220 &&
         !f.path.startsWith("/") && !f.path.includes("..") &&
         !/(^|\/)(node_modules|dist|build|\.git|\.github|coverage)(\/|$)/i.test(f.path) &&
         !/\.(png|jpe?g|gif|webp|zip|apk|aab|pdf)$/i.test(f.path)
-      ).slice(0, 6) : [];
+      ).slice(0, 6);
       const total = files.reduce((n, f) => n + Buffer.byteLength(f.content, "utf8"), 0);
       if (!files.length) return { kind: "failure", reason: "no_safe_changes", userMessage: plan.summary || "No safe code changes could be generated from the available repository context." };
       if (total > 60000) return { kind: "failure", reason: "change_too_large", userMessage: "Generated changes exceed the safety size limit; no repository changes were made." };
@@ -115,17 +127,17 @@ export function createDeveloperImplementSkill(github: GitHubAccessService, gener
         plan.summary,
         "",
         "### Steps",
-        ...(plan.steps || []).map((s) => `- ${s}`),
+        ...plan.steps.map((s) => `- ${s}`),
         "",
         "### Suggested verification (not run by ZARVIS)",
-        ...(plan.tests || []).map((s) => `- ${s}`),
+        ...plan.tests.map((s) => `- ${s}`),
         "",
         `Changes were committed to **${branch}** by ${login} via ZARVIS for human review. ZARVIS does not merge this PR and has not run these tests.`,
       ].join("\n");
       const pr = await client.createPullRequest(repoUrl, branch, `ZARVIS Agent: ${requirement.slice(0, 72)}`, body);
       return {
         kind: "success",
-        output: { branch, pullRequest: pr, files: files.map((f) => f.path), suggestedTests: plan.tests || [] },
+        output: { branch, pullRequest: pr, files: files.map((f) => f.path), suggestedTests: plan.tests },
         summary: `Committed ${files.length} file change(s) to ${branch} and opened PR #${pr.number} (${pr.url}). Tests were not run; human review is required before merge.`,
       };
     },

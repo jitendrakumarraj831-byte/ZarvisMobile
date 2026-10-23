@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { taskLifecycle, type RiskLevel, type Task, type TaskLifecycle, type TaskStep } from "../domain/types.js";
+import { legacyStatus, taskLifecycle, type RiskLevel, type Task, type TaskLifecycle, type TaskStep } from "../domain/types.js";
 import type { Store } from "../store/store.js";
-import { TaskError, TaskExecutionUnavailableError, TaskNotFoundError } from "./errors.js";
+import { TaskAlreadyRunningError, TaskError, TaskExecutionUnavailableError, TaskNotFoundError } from "./errors.js";
 import type { TaskRunnerPort } from "./taskRunner.js";
-import { event, withEvent, withLifecycle } from "./taskState.js";
+import { event, isStale, withEvent, withLifecycle } from "./taskState.js";
 
 export { TaskError, TaskExecutionUnavailableError, TaskNotFoundError };
+
+/** The size of a task, the same wherever one is made (POST /tasks, automation.create_workflow). */
+export const TASK_LIMITS = { maxSteps: 20, maxStepChars: 300, maxGoalChars: 500 } as const;
 
 /** Lifecycles a user can cancel from: every one that has not ended. */
 const CANCELLABLE: TaskLifecycle[] = ["QUEUED", "WAITING", "BLOCKED", "RUNNING", "EXECUTING", "VERIFYING", "CONFIRMATION_REQUIRED"];
@@ -85,11 +88,18 @@ export class TaskService {
     return this.store.listTasksForAccount(accountId);
   }
 
-  /** Legacy: older clients could pause a task a previous version left RUNNING. Only that state can be paused. */
+  /**
+   * Legacy: older clients could pause a task a previous version left RUNNING. Only that state can be paused,
+   * and only when no live run owns it: pausing a step that is running now would throw its result away and run
+   * it (and its tools) again on the next Run. Such a run can be cancelled instead.
+   */
   async pause(taskId: string): Promise<Task> {
     const task = await this.requireTask(taskId);
     if (taskLifecycle(task) !== "RUNNING") throw new TaskError(`Cannot move task from ${task.status} to PAUSED`);
     const now = this.now();
+    // Written by this version's runner (lifecycle and status agree) and touched recently: a run is live.
+    const writtenByRunner = task.lifecycle !== undefined && legacyStatus(task.lifecycle) === task.status;
+    if (writtenByRunner && !isStale(task, now)) throw new TaskAlreadyRunningError();
     return this.store.updateTask(withEvent(withLifecycle(task, "WAITING", now), event("paused", "Paused.", now)));
   }
 

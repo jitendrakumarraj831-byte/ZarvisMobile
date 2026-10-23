@@ -21,6 +21,16 @@ const PRODUCT_ID_TO_PLAN: Record<string, EntitlementLevel> = {
   zarvis_pro_yearly: "PRO",
 };
 
+/**
+ * How long a product's period lasts, used only when the verifier does not report the subscription's own
+ * expiry (the development mock). A real verification always carries Play's `expiryTimeMillis`.
+ */
+const PRODUCT_PERIOD_DAYS: Record<string, number> = {
+  zarvis_pro_monthly: 30,
+  zarvis_pro_yearly: 365,
+};
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** POST /api/v1/billing/webhook — Play Billing verification callback. See SUBSCRIPTIONS.md. */
 export function billingRouter(verifier: PlayBillingVerifier, store: Store, payments: PaymentService): Router {
   const router = Router();
@@ -111,13 +121,16 @@ export function billingRouter(verifier: PlayBillingVerifier, store: Store, payme
         res.status(422).json({ error: "Purchase token could not be verified" });
         return;
       }
-      const claimed = await store.claimPurchaseToken(purchaseToken, req.auth!.accountId, productId);
-      if (!claimed) {
+      // The plan lasts as long as the subscription period Play reports, never indefinitely. The token is
+      // consumed only together with the grant, so a grant that fails can be retried with the same token.
+      const { expiresAt, ...shown } = verification;
+      const paidUntil = expiresAt ?? new Date(Date.now() + (PRODUCT_PERIOD_DAYS[productId] ?? 30) * DAY_MS);
+      const account = await store.grantPlayPurchase(purchaseToken, req.auth!.accountId, productId, plan, paidUntil);
+      if (!account) {
         res.status(409).json({ error: "Purchase token has already been used" });
         return;
       }
-      const account = await store.updateAccountPlan(req.auth!.accountId, plan);
-      res.json({ acknowledged: true, verification, account: { id: account.id, plan: account.plan } });
+      res.json({ acknowledged: true, verification: shown, account: { id: account.id, plan: account.plan } });
     }),
   );
 

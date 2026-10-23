@@ -82,6 +82,27 @@ describe.each(STORES)("task writes that race (%s)", (_label, makeStore) => {
     expect(stored.steps.map((s) => s.status)).toEqual(["SKIPPED", "PENDING"]);
   });
 
+  it("a cancel that arrives while a run is being set up stays cancelled, and no turn runs", async () => {
+    const task = await service.create(accountId, "Goal", "LOW", ["One"]);
+    let turns = 0;
+    turn = async () => {
+      turns += 1;
+      return reply("ran anyway");
+    };
+    // The run has claimed the task and is creating its conversation when the user cancels.
+    const original = store.createConversation.bind(store);
+    let cancelled: Task | undefined;
+    (store as { createConversation: Store["createConversation"] }).createConversation = async (...args) => {
+      cancelled = await service.cancel(task.id);
+      return original(...args);
+    };
+    const final = await service.resume(task.id);
+    expect(cancelled?.lifecycle).toBe("CANCELLED");
+    expect(final.lifecycle).toBe("CANCELLED");
+    expect(turns).toBe(0);
+    expect(taskLifecycle((await store.getTask(task.id))!)).toBe("CANCELLED");
+  });
+
   it("two cancels at once end in one cancellation, not an error loop", async () => {
     const task = await service.create(accountId, "Goal", "LOW", ["One"]);
     const results = await Promise.allSettled([service.cancel(task.id), service.cancel(task.id)]);

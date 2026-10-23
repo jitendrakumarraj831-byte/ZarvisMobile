@@ -66,7 +66,11 @@ export async function analyzeImageWithGemini(buffer: Buffer, mimeType: string, o
       call.httpRequests += 1;
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
       let response: Response;
       try {
         response = await fetch(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
@@ -76,11 +80,12 @@ export async function analyzeImageWithGemini(buffer: Buffer, mimeType: string, o
           signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
         });
       } catch (error) {
+        clearTimeout(timer);
         if (options.signal?.aborted) throw abortError();
         if (isAbortError(error)) {
-          const timedOut = timeoutError(label, "google", model);
-          call.failure = { code: timedOut.code, model };
-          throw timedOut;
+          const failed = timeoutError(label, "google", model);
+          call.failure = { code: failed.code, model };
+          throw failed;
         }
         if (!isTransportError(error)) throw error;
         lastError = transportFailure(label, "google", error, model);
@@ -89,12 +94,23 @@ export async function analyzeImageWithGemini(buffer: Buffer, mimeType: string, o
         if (wait === null) break;
         await sleep(wait, options.signal);
         continue;
-      } finally {
-        clearTimeout(timer);
       }
 
+      // The limit keeps running until the body is read: a body that stalls after the headers is a timeout too.
       if (response.ok) {
-        const json = await readJsonBody<GeminiVisionResponse>(response, label, "google", model);
+        let json: GeminiVisionResponse;
+        try {
+          json = await readJsonBody<GeminiVisionResponse>(response, label, "google", model);
+        } catch (error) {
+          if (isAbortError(error) && timedOut && !options.signal?.aborted) {
+            const failed = timeoutError(label, "google", model);
+            call.failure = { code: failed.code, model };
+            throw failed;
+          }
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
         if (json.responseId) options.trace?.responseIds.push(json.responseId);
         const text = json.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
         if (text) {
@@ -110,6 +126,7 @@ export async function analyzeImageWithGemini(buffer: Buffer, mimeType: string, o
 
       call.status = response.status;
       const details = await response.text().catch(() => "");
+      clearTimeout(timer);
       const failure: ProviderFailure = classifyGeminiFailure(response.status, details, response.headers.get("retry-after"));
       const providerError: AIProviderError = toProviderError(label, response.status, response.statusText, failure, details, model);
       providerError.provider = "google";
