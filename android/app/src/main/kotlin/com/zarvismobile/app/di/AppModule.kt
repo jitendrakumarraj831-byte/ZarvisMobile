@@ -28,6 +28,7 @@ import com.zarvismobile.core.tooling.AndroidReminderAlarmPort
 import com.zarvismobile.core.tooling.ComposeConfirmationPort
 import com.zarvismobile.core.tooling.ComposeRationalePort
 import com.zarvismobile.data.local.ZarvisDatabase
+import com.zarvismobile.data.local.automation.DataStoreAutomationSafety
 import com.zarvismobile.data.local.access.DataStoreAccessSnapshotStore
 import com.zarvismobile.data.local.access.DataStoreNotificationSettings
 import com.zarvismobile.data.local.access.DataStorePendingActionStore
@@ -46,6 +47,8 @@ import com.zarvismobile.domain.access.RevocationDetector
 import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.conversation.ActiveConversation
 import com.zarvismobile.domain.conversation.ConversationIdStore
+import com.zarvismobile.domain.policy.AutomationHistoryStore
+import com.zarvismobile.domain.policy.AutomationPauseStore
 import com.zarvismobile.domain.port.ConfirmationPort
 import com.zarvismobile.domain.port.EntitlementPort
 import com.zarvismobile.domain.port.PermissionPort
@@ -100,13 +103,16 @@ object AppModule {
         @ApplicationContext context: Context,
         reminderDao: ReminderDao,
         pendingActions: PendingActionStore,
+        automationSafety: DataStoreAutomationSafety,
     ): SessionRepository =
         SessionRepository(api, secureStorage) {
-            // Signed out or account deleted: that account's reminders stop firing and leave this phone, as does an interrupted action.
+            // Signed out or account deleted: that account's reminders stop firing and leave this phone, as do an interrupted action and
+            // the history of its phone actions. The pause switch stays: it is this phone's safety setting, not the account's.
             val alarms = AndroidReminderAlarmPort(context)
             reminderDao.getAll().forEach { alarms.cancel(it.id) }
             reminderDao.deleteAll()
             pendingActions.clear()
+            automationSafety.clear()
         }
 
     @Provides
@@ -258,6 +264,18 @@ object AppModule {
             photoDescriber,
         )
 
+    /** Settings › Phone action safety: the pause switch and the history of phone actions, on this phone only. */
+    @Provides
+    @Singleton
+    fun provideAutomationSafety(@ApplicationContext context: Context): DataStoreAutomationSafety = DataStoreAutomationSafety(context)
+
+    @Provides
+    fun provideAutomationPauseStore(safety: DataStoreAutomationSafety): AutomationPauseStore = safety
+
+    @Provides
+    fun provideAutomationHistoryStore(safety: DataStoreAutomationSafety): AutomationHistoryStore = safety
+
+    /** Every on-device skill runs under shared/automation-policy.json (the pipeline's default), the pause switch and the history. */
     @Provides
     @Singleton
     fun provideOnDeviceToolPipeline(
@@ -266,7 +284,12 @@ object AppModule {
         entitlementPort: EntitlementPort,
         usagePort: UsagePort,
         confirmationPort: ConfirmationPort,
-    ): ToolPipeline = ToolPipeline(registry, permissionPort, entitlementPort, usagePort, confirmationPort)
+        automationSafety: DataStoreAutomationSafety,
+    ): ToolPipeline = ToolPipeline(
+        registry, permissionPort, entitlementPort, usagePort, confirmationPort,
+        automationSwitch = automationSafety,
+        journal = automationSafety,
+    )
 
     @Provides
     @Singleton

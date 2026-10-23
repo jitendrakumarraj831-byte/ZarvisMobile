@@ -124,9 +124,6 @@ private class TurnStreamFailedException(val body: String) : Exception("The turn 
 /** Re-issued confirmations (action changed after approval) the user is asked about per turn. */
 private const val MAX_CONFIRMATION_ROUNDS = 3
 
-/** Most phone steps one request may take, the first included (the server's limit too: capabilities/deviceActions.ts). */
-private const val MAX_PHONE_STEPS = 5
-
 /**
  * The Android half of the request lifecycle (blueprint §9):
  *
@@ -237,6 +234,12 @@ class AndroidOrchestrator(
         if (capability != null && !capability.implementedOnAndroid) {
             return unsupported(skill, capability)
         }
+        // The safety policy answers first (not in the policy, or phone actions paused), so no permission is explained for an action
+        // that would not run anyway. The pipeline checks the same again.
+        onDevicePipeline.refuseByPolicy(skill, SkillExecutionContext(accountId = accountId, locale = locale))?.let { refused ->
+            val result = ToolResults.from(skill.id, skill, refused)
+            return TurnOutcome(message = result.userSafeMessage, result = result)
+        }
         val pending = PendingAction(
             id = UUID.randomUUID().toString(),
             utterance = utterance,
@@ -297,13 +300,14 @@ class AndroidOrchestrator(
             stream.conversationId?.let { conversation.adopt(it, sent.epoch) }
         }
 
+        val offeredDeviceActions = deviceActionIds()
         val response = try {
             streamTurn(
                 OrchestratorTurnRequest(
                     utterance = utterance,
                     locale = locale,
                     conversationId = sent.id,
-                    deviceActions = deviceActionIds(),
+                    deviceActions = offeredDeviceActions,
                     clientTurnId = clientTurnId,
                 ),
                 stream,
@@ -449,11 +453,19 @@ class AndroidOrchestrator(
     }
 
     /**
-     * The phone actions offered to the Brain: every on-device skill whose capability this version runs on Android. The server keeps only the
-     * ids it describes (backend/src/capabilities/deviceActions.ts) and offers none when the list is absent.
+     * The phone actions offered to the Brain: every on-device skill whose capability this version runs on Android and that the
+     * phone-automation policy lets the Brain hand over. None while the user has paused phone actions, so the Brain answers in words
+     * instead of handing over an action the phone would refuse. The server keeps only the ids it describes
+     * (backend/src/capabilities/deviceActions.ts) and offers none when the list is absent.
      */
-    private fun deviceActionIds(): List<String>? =
-        onDeviceRegistry.all().filter { capabilities.find(it.capabilityId)?.implementedOnAndroid != false }.map { it.id }.ifEmpty { null }
+    private suspend fun deviceActionIds(): List<String>? {
+        if (onDevicePipeline.automationPaused()) return null
+        return onDeviceRegistry.all()
+            .filter { capabilities.find(it.capabilityId)?.implementedOnAndroid != false }
+            .filter { onDevicePipeline.policy.rule(it.id)?.brainHandoff == true }
+            .map { it.id }
+            .ifEmpty { null }
+    }
 
     /**
      * Runs a phone action the Brain chose exactly as a spoken command runs (Android permission explained first, then the confirmation the
@@ -475,7 +487,7 @@ class AndroidOrchestrator(
      * Runs the Brain's phone action and, for a multi-step request ("open WhatsApp and then Rahul's chat"), each following step the Brain
      * plans once the previous one is done. Every step goes through [runDeviceAction] (its own permission and confirmation: each tap is
      * confirmed). The request stops at the first step that was declined, refused or failed, when the user leaves the chat, or after
-     * [MAX_PHONE_STEPS] steps. The reply is every step's real result, in order.
+     * the policy's most phone steps (shared/automation-policy.json; the server's limit too). The reply is every step's real result, in order.
      */
     private suspend fun runPhoneSteps(
         first: DeviceActionDto,
@@ -494,7 +506,7 @@ class AndroidOrchestrator(
             val done = runDeviceAction(action, utterance, accountId, locale)
             said += done.message
             val succeeded = done.result?.status == ToolResultStatus.COMPLETED || done.result?.status == ToolResultStatus.USER_ACTION_REQUIRED
-            val then = action.then?.takeIf { it.isNotBlank() && succeeded && step < MAX_PHONE_STEPS }
+            val then = action.then?.takeIf { it.isNotBlank() && succeeded && step < onDevicePipeline.policy.maxPhoneSteps }
             val reply = conversationId?.let { id -> reportDeviceResult(id, action, done, then, step, locale) }
             fun finish(note: String? = null) = done.copy(message = (said + listOfNotNull(note)).joinToString("\n"))
             if (then == null || reply == null) return finish()

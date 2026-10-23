@@ -288,6 +288,7 @@ enum class UiString(val en: String, val hi: String) {
     SETTINGS_PAGE_SECURITY("Security", "सुरक्षा"),
     SETTINGS_PAGE_DATA("Data", "डेटा"),
     SETTINGS_PAGE_MEMORY("Memory", "मेमोरी"),
+    SETTINGS_PAGE_PHONE_SAFETY("Phone action safety", "फ़ोन एक्शन सुरक्षा"),
     SETTINGS_PAGE_PROTECTION("Rules & Protection", "नियम और सुरक्षा"),
     SETTINGS_PAGE_DEVELOPER("Developer Agent", "डेवलपर एजेंट"),
     SETTINGS_SUB_ACCOUNT("Guest, linked email, sign in and out", "गेस्ट, जुड़ा ईमेल, साइन इन और साइन आउट"),
@@ -301,6 +302,7 @@ enum class UiString(val en: String, val hi: String) {
     SETTINGS_SUB_SECURITY("Secure tokens and local session", "सुरक्षित टोकन और लोकल सेशन"),
     SETTINGS_SUB_DATA("Server data and deletion", "सर्वर डेटा और हटाना"),
     SETTINGS_SUB_MEMORY("What ZARVIS saved about you: view and delete", "ZARVIS ने आपके बारे में क्या सहेजा: देखें और हटाएँ"),
+    SETTINGS_SUB_PHONE_SAFETY("Pause phone actions, see what ZARVIS did on this phone", "फ़ोन एक्शन रोकें, देखें ZARVIS ने इस फ़ोन पर क्या किया"),
     SETTINGS_SUB_PROTECTION("What this build actually enforces", "यह बिल्ड असल में क्या लागू करता है"),
     SETTINGS_SUB_DEVELOPER("Repository analysis", "रिपॉज़िटरी विश्लेषण"),
     SETTINGS_SUBPAGE_KICKER("ZARVIS settings", "ZARVIS सेटिंग्स"),
@@ -308,13 +310,55 @@ enum class UiString(val en: String, val hi: String) {
     LANGUAGE_HINDI_SUB("Menus and labels, voice input and read-aloud", "मेन्यू और लेबल, बोलकर लिखना और ज़ोर से पढ़ना"),
     LANGUAGE_SCOPE_TITLE("What Hindi changes today", "आज हिंदी में क्या बदलता है"),
     LANGUAGE_SCOPE_BODY(
-        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, the Settings list, Appearance, Voice and this page, the sign-out and delete-account questions, and the welcome pages, and Chat's own messages about failed requests and voice input. It also sets the language for voice input and read-aloud. " +
+        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, Phone action safety, the Settings list, Appearance, Voice and this page, the sign-out and delete-account questions, and the welcome pages, and Chat's own messages about failed requests and voice input. It also sets the language for voice input and read-aloud. " +
             "It does not decide the language of your conversation: ZARVIS answers in the language you write or speak in, and uses this setting only when that is not clear, such as a plain \"hi\". " +
             "Error messages outside Chat, longer explanations, Permissions & Device Access, Plans, Developer Agent and the other Settings pages (AI, Notifications, Privacy, Data, Rules & Protection) are still in English.",
-        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, सेटिंग्स की सूची, दिखावट, वॉइस और यह पन्ना, साइन आउट और खाता हटाने के सवाल, स्वागत पन्नों के मेन्यू, शीर्षक और बटन, तथा चैट में अधूरे अनुरोधों और बोलकर लिखने के संदेश हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
+        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, फ़ोन एक्शन सुरक्षा, सेटिंग्स की सूची, दिखावट, वॉइस और यह पन्ना, साइन आउट और खाता हटाने के सवाल, स्वागत पन्नों के मेन्यू, शीर्षक और बटन, तथा चैट में अधूरे अनुरोधों और बोलकर लिखने के संदेश हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
             "यह आपकी बातचीत की भाषा तय नहीं करता: ZARVIS उसी भाषा में जवाब देता है जिसमें आप लिखते या बोलते हैं, और यह सेटिंग तभी काम आती है जब भाषा साफ़ न हो, जैसे सिर्फ़ \"hi\"। " +
             "चैट के बाहर के त्रुटि संदेश, लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और सेटिंग्स के बाकी पन्ने (AI, सूचनाएँ, गोपनीयता, डेटा, नियम और सुरक्षा) अभी अंग्रेज़ी में हैं।",
     ),
+
+    // ---- Phone action safety (Settings > Phone action safety; shared/automation-policy.json) -----
+    PHONE_SAFETY_PAUSE_TITLE("Pause all phone actions", "सभी फ़ोन एक्शन रोकें"),
+    PHONE_SAFETY_PAUSE_ON(
+        "Paused: ZARVIS does nothing on this phone for you (no calls, opening apps, reading the screen or taps) until you turn this off. Chat still works, and reminders you already set still ring.",
+        "रुका हुआ: जब तक आप इसे बंद नहीं करते, ZARVIS इस फ़ोन पर आपके लिए कुछ नहीं करेगा (न call, न app खोलना, न screen पढ़ना, न tap)। चैट चलती रहेगी, और पहले से लगाए reminders बजते रहेंगे।",
+    ),
+    PHONE_SAFETY_PAUSE_OFF(
+        "On: ZARVIS runs the phone actions you ask for, under the rules below.",
+        "चालू: आप जो फ़ोन एक्शन कहें, ZARVIS उन्हें नीचे दिए नियमों के साथ करता है।",
+    ),
+    PHONE_SAFETY_NEVER_TITLE("ZARVIS never", "ZARVIS कभी नहीं"),
+    PHONE_SAFETY_CONFIRM_TITLE("Always asked first", "हमेशा पहले पूछता है"),
+    PHONE_SAFETY_CONFIRM_BODY(
+        "Calling, reading your notifications or screen time, pressing Back or Home or locking the screen, reading the screen and tapping a button each show you exactly what will happen and wait for your OK, every time.",
+        "Call करना, आपकी सूचनाएँ या screen time पढ़ना, Back या Home दबाना या screen lock करना, screen पढ़ना और button tap करना: हर बार ZARVIS ठीक-ठीक बताता है कि क्या होगा और आपके OK का इंतज़ार करता है।",
+    ),
+    PHONE_SAFETY_HISTORY_TITLE("What ZARVIS did on this phone", "ZARVIS ने इस फ़ोन पर क्या किया"),
+    PHONE_SAFETY_HISTORY_BODY(
+        "The last 100 phone actions ZARVIS was asked to run, newest first, and how each ended. Kept only on this phone, never uploaded, and cleared when you sign out or another account signs in.",
+        "ZARVIS से कहे गए पिछले 100 फ़ोन एक्शन, नए पहले, और हर एक का नतीजा। सिर्फ़ इसी फ़ोन पर रखे जाते हैं, कभी upload नहीं होते, और sign out करने या दूसरे account के sign in करने पर मिट जाते हैं।",
+    ),
+    PHONE_SAFETY_HISTORY_EMPTY("Nothing yet.", "अभी कुछ नहीं।"),
+    PHONE_SAFETY_HISTORY_CLEAR("Clear history", "इतिहास मिटाएँ"),
+    PHONE_SAFETY_HISTORY_CLEAR_TITLE("Clear this history?", "यह इतिहास मिटाएँ?"),
+    PHONE_SAFETY_HISTORY_CLEAR_BODY(
+        "The list of phone actions on this phone is deleted. Nothing else changes.",
+        "इस फ़ोन पर फ़ोन एक्शन की सूची मिट जाएगी। और कुछ नहीं बदलेगा।",
+    ),
+    PHONE_SAFETY_READ_FAILED(
+        "This phone's safety setting couldn't be read, so phone actions don't run until it can. Try again.",
+        "इस फ़ोन की सुरक्षा setting पढ़ी नहीं जा सकी, इसलिए जब तक यह पढ़ी न जाए, फ़ोन एक्शन नहीं चलेंगे। फिर कोशिश करें।",
+    ),
+    PHONE_SAFETY_HISTORY_READ_FAILED("The history on this phone couldn't be read.", "इस फ़ोन पर रखा इतिहास पढ़ा नहीं जा सका।"),
+    PHONE_SAFETY_SAVE_FAILED("The change was not saved. Try again.", "बदलाव सहेजा नहीं गया। फिर कोशिश करें।"),
+    PHONE_SAFETY_OUTCOME_DONE("Done", "हो गया"),
+    PHONE_SAFETY_OUTCOME_YOUR_TURN("Finish in the app", "app में पूरा करें"),
+    PHONE_SAFETY_OUTCOME_DECLINED("You said no", "आपने मना किया"),
+    PHONE_SAFETY_OUTCOME_REFUSED("Refused for safety", "सुरक्षा के लिए मना किया"),
+    PHONE_SAFETY_OUTCOME_PAUSED("Paused", "रुका हुआ"),
+    PHONE_SAFETY_OUTCOME_NEEDS_ACCESS("Needs access", "access चाहिए"),
+    PHONE_SAFETY_OUTCOME_FAILED("Didn't work", "नहीं हुआ"),
 
     // ---- Memory (Settings > Memory and Work > Memory) -------------------------------------
     MEMORY_TITLE("Memory", "मेमोरी"),

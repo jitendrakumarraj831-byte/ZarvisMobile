@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhonelinkLock
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
@@ -73,6 +74,7 @@ import com.zarvismobile.domain.presentation.UiString
 private enum class SettingsPage(val title: UiString, val subtitle: UiString, val icon: ImageVector) {
     Account(UiString.SETTINGS_PAGE_ACCOUNT, UiString.SETTINGS_SUB_ACCOUNT, Icons.Filled.AccountCircle),
     Permissions(UiString.SETTINGS_PAGE_PERMISSIONS, UiString.SETTINGS_SUB_PERMISSIONS, Icons.Filled.AdminPanelSettings),
+    PhoneSafety(UiString.SETTINGS_PAGE_PHONE_SAFETY, UiString.SETTINGS_SUB_PHONE_SAFETY, Icons.Filled.PhonelinkLock),
     Voice(UiString.SETTINGS_PAGE_VOICE, UiString.SETTINGS_SUB_VOICE, Icons.AutoMirrored.Filled.VolumeUp),
     Language(UiString.SETTINGS_PAGE_LANGUAGE, UiString.SETTINGS_SUB_LANGUAGE, Icons.Filled.Language),
     Appearance(UiString.SETTINGS_PAGE_APPEARANCE, UiString.SETTINGS_SUB_APPEARANCE, Icons.Filled.DarkMode),
@@ -118,6 +120,9 @@ fun SettingsScreen(
             )
         }
         SettingsPage.Permissions -> PermissionCenterScreen(onBack = goBack)
+        SettingsPage.PhoneSafety -> SettingsSubPage(selected, goBack) {
+            PhoneSafetyContent()
+        }
         SettingsPage.Voice -> SettingsSubPage(selected, goBack) {
             ReadOnlyCard(tr(UiString.VOICE_INPUT_TITLE), tr(UiString.VOICE_INPUT_BODY), ZarvisAccentCyan)
             GlassSurface(Modifier.fillMaxWidth()) {
@@ -305,7 +310,7 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
 /** Each Settings page wears its own jewel (board A15), so the long list is easy to scan. */
 private fun jewelFor(page: SettingsPage): Jewel = when (page) {
     SettingsPage.Account, SettingsPage.Ai -> Jewel.AMETHYST
-    SettingsPage.Permissions, SettingsPage.Security -> Jewel.SAPPHIRE
+    SettingsPage.Permissions, SettingsPage.Security, SettingsPage.PhoneSafety -> Jewel.SAPPHIRE
     SettingsPage.Voice, SettingsPage.Memory -> Jewel.ORCHID
     SettingsPage.Language, SettingsPage.Data, SettingsPage.Developer -> Jewel.EMERALD
     SettingsPage.Appearance, SettingsPage.Notifications -> Jewel.GOLD
