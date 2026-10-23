@@ -5,13 +5,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -21,8 +25,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +38,7 @@ import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
+import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.QueenErrorCard
 import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.i18n.tr
@@ -68,8 +75,8 @@ fun MemoryScreen(onBack: () -> Unit) {
 
 /**
  * What ZARVIS remembers, read from the server each time this is shown: the on/off switch, personal memory, project memory and
- * the conversation limit. Items can be deleted one at a time or, for personal memory, all at once; both ask first.
- * Adding memory is done on the website.
+ * the conversation limit. The user can add a personal item, pause or resume any item, and delete items one at a time or, for
+ * personal memory, all at once; deleting asks first. Nothing is ever added by ZARVIS itself.
  */
 @Composable
 fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
@@ -113,11 +120,17 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            AddMemoryCard(busy = state.busy, added = state.added, onSave = { viewModel.add(it) })
             if (overview.personal.isEmpty()) {
                 ReadOnlyCard(tr(UiString.MEMORY_PERSONAL_EMPTY), tr(UiString.MEMORY_PERSONAL_EMPTY_BODY), ZarvisAccentCyan)
             } else {
                 overview.personal.forEach { note ->
-                    MemoryItemCard(note, enabled = !state.busy, onDelete = { pendingDelete = note })
+                    MemoryItemCard(
+                        note,
+                        enabled = !state.busy,
+                        onUseChange = { viewModel.setItemEnabled(note.id, it) },
+                        onDelete = { pendingDelete = note },
+                    )
                 }
                 ZarvisDestructiveButton(
                     text = tr(UiString.MEMORY_FORGET_ALL),
@@ -138,7 +151,12 @@ fun MemoryContent(viewModel: MemoryViewModel = hiltViewModel()) {
                 overview.projects.forEach { project ->
                     Text(project.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     project.items.forEach { note ->
-                        MemoryItemCard(note, enabled = !state.busy, onDelete = { pendingDelete = note })
+                        MemoryItemCard(
+                            note,
+                            enabled = !state.busy,
+                            onUseChange = { viewModel.setItemEnabled(note.id, it) },
+                            onDelete = { pendingDelete = note },
+                        )
                     }
                 }
             }
@@ -181,8 +199,41 @@ private fun SectionTitle(text: String) {
     com.zarvismobile.core.ui.components.SectionKicker(text = text, modifier = Modifier.padding(top = 8.dp))
 }
 
+/** One personal item, typed by the user. What was typed is cleared only once the server has saved it, so a failed save keeps it. */
 @Composable
-private fun MemoryItemCard(note: MemoryNoteDto, enabled: Boolean, onDelete: () -> Unit) {
+private fun AddMemoryCard(busy: Boolean, added: Boolean, onSave: (String) -> Unit) {
+    var draft by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(added) { if (added) draft = "" }
+    val tooLong = draft.trim().length > MemoryViewModel.MAX_MEMORY_CHARS
+    GlassSurface(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(tr(UiString.MEMORY_ADD_TITLE), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                enabled = !busy,
+                placeholder = { Text(tr(UiString.MEMORY_ADD_HINT)) },
+                isError = tooLong,
+                supportingText = if (tooLong) {
+                    { Text(trf(UiString.MEMORY_ADD_TOO_LONG, MemoryViewModel.MAX_MEMORY_CHARS)) }
+                } else {
+                    null
+                },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ZarvisPrimaryButton(
+                text = tr(UiString.MEMORY_ADD_SAVE),
+                enabled = !busy && draft.isNotBlank() && !tooLong,
+                onClick = { onSave(draft) },
+            )
+            if (added) Text(tr(UiString.MEMORY_ADDED), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun MemoryItemCard(note: MemoryNoteDto, enabled: Boolean, onUseChange: (Boolean) -> Unit, onDelete: () -> Unit) {
     GlassSurface(Modifier.fillMaxWidth()) {
         Text(note.content, style = MaterialTheme.typography.bodyMedium)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -195,6 +246,20 @@ private fun MemoryItemCard(note: MemoryNoteDto, enabled: Boolean, onDelete: () -
             TextButton(onClick = onDelete, enabled = enabled, modifier = Modifier.semantics { contentDescription = description }) {
                 Text(tr(UiString.MEMORY_DELETE_ITEM))
             }
+        }
+        // Pausing keeps the item saved; ZARVIS only stops using it in replies. Each switch names its item for a screen reader.
+        val useDescription = trf(UiString.MEMORY_ITEM_USE_NAMED, note.content.take(60))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .toggleable(value = note.enabled, enabled = enabled, role = Role.Switch, onValueChange = onUseChange)
+                .semantics { contentDescription = useDescription },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(tr(UiString.MEMORY_ITEM_USE), style = MaterialTheme.typography.bodyMedium)
+            Switch(checked = note.enabled, onCheckedChange = null, enabled = enabled)
         }
     }
 }

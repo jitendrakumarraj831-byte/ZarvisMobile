@@ -17,6 +17,13 @@ interface SpeechToTextEngine {
 data class TranscriptUpdate(val text: String, val isFinal: Boolean)
 
 /**
+ * Listening ended without a transcript. [code] is Android's `SpeechRecognizer.ERROR_*` code; `null` when this phone has no speech
+ * recognition service at all. The chat turns it into words (domain `SpeechErrors`); the code itself is never shown.
+ */
+class SpeechRecognitionFailure(val code: Int?) :
+    Exception(if (code == null) "Speech recognition is not available on this device" else "Speech recognition stopped with Android error $code")
+
+/**
  * Platform seam for text-to-speech. [speak] suspends until playback finishes (or throws), and
  * calls [onPlaybackStarted] only once audio is actually playing — so the UI can show
  * "Speaking" truthfully instead of while the audio is still being synthesized.

@@ -2,15 +2,19 @@ package com.zarvismobile.feature.developer
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zarvismobile.data.remote.ApiErrorBodies
 import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeRequest
 import com.zarvismobile.data.remote.dto.RepoStructureDto
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 data class DeveloperUiState(
     val repoUrl: String = "",
@@ -47,20 +51,32 @@ class DeveloperViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isAnalyzing = true, error = null, result = null, summary = null)
             try {
                 val response = api.analyzeRepo(DeveloperAnalyzeRequest(repoUrl))
-                val result = response.result
-                if (response.kind == "success" && result != null) {
+                val structure = response.result?.output?.structure
+                if (response.kind == "success" && structure != null) {
                     _uiState.value = _uiState.value.copy(
                         isAnalyzing = false,
-                        result = result.output.structure,
-                        summary = result.summary,
+                        result = structure,
+                        summary = response.result?.summary ?: response.structured?.userSafeMessage,
                     )
                 } else {
-                    // Never fake success — the pipeline reported a non-success outcome (e.g. an
-                    // entitlement or permission denial). See MASTER_SPEC.md Product Principle #4.
-                    _uiState.value = _uiState.value.copy(isAnalyzing = false, error = "Analysis was not completed (${response.kind}).")
+                    // Never fake success — the pipeline reported a non-success outcome (a missing or private repository, a denial). Its own
+                    // plain-language words are shown; the outcome name only when the server sent none. See MASTER_SPEC.md Product Principle #4.
+                    val said = response.structured?.userSafeMessage ?: response.result?.userMessage
+                    _uiState.value = _uiState.value.copy(
+                        isAnalyzing = false,
+                        error = said?.let { "Analysis was not completed: $it" } ?: "Analysis was not completed (${response.kind}).",
+                    )
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: HttpException) {
+                // The server's reason (`{error}`), never the exception's own text ("HTTP 400 ").
+                val said = ApiErrorBodies.codeOf(runCatching { e.response()?.errorBody()?.string() }.getOrNull())
+                _uiState.value = _uiState.value.copy(isAnalyzing = false, error = said ?: "ZARVIS couldn't analyze that repository (the server answered ${e.code()}).")
+            } catch (e: IOException) {
+                _uiState.value = _uiState.value.copy(isAnalyzing = false, error = "Couldn't reach ZARVIS, so nothing was analyzed. Check your connection and try again.")
             } catch (t: Throwable) {
-                _uiState.value = _uiState.value.copy(isAnalyzing = false, error = t.message ?: "Couldn't analyze that repository.")
+                _uiState.value = _uiState.value.copy(isAnalyzing = false, error = "Couldn't read ZARVIS's answer, so nothing is shown. Please try again.")
             }
         }
     }

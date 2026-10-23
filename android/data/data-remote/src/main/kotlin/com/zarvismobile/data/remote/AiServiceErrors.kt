@@ -42,8 +42,18 @@ object ApiErrorBodies {
 
     /** `error`, else `code`; null when the body is empty or not that JSON (a proxy's HTML page, for instance). */
     fun codeOf(body: String?): String? {
-        if (body.isNullOrBlank()) return null
-        val parsed = runCatching { json.decodeFromString(ApiErrorResponse.serializer(), body) }.getOrNull() ?: return null
+        val parsed = parse(body) ?: return null
         return parsed.error ?: parsed.code
+    }
+
+    /** The machine-readable `code` alone (`turn_in_progress`, `invalid_request`, …); null when there is none. */
+    fun code(body: String?): String? = parse(body)?.code
+
+    /** The server's own `retryable` answer, when the body carries one. */
+    fun retryable(body: String?): Boolean? = parse(body)?.retryable
+
+    private fun parse(body: String?): ApiErrorResponse? {
+        if (body.isNullOrBlank()) return null
+        return runCatching { json.decodeFromString(ApiErrorResponse.serializer(), body) }.getOrNull()
     }
 }

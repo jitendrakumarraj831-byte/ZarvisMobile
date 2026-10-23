@@ -86,6 +86,20 @@ describe("the phone actions catalogue", () => {
     expect(DEVICE_ACTIONS.find((action) => action.id === "app.search")!.inputSchema.requiredFields).toEqual(["query"]);
   });
 
+  it("says what the photo and document actions really do on the phone, so the planner never promises to read what it cannot", () => {
+    // android/domain/.../DeviceCapabilitySkills.kt: taking or picking shows a preview or the file's details only; only
+    // describe_photo sends the picture to be understood.
+    const description = (id: string) => DEVICE_ACTIONS.find((action) => action.id === id)!.description;
+    for (const id of ["camera.capture_photo", "photos.pick_photo", "files.pick_document"]) {
+      expect(description(id), id).not.toMatch(/attach it to this chat|use in this chat|read in this chat/);
+      expect(description(id), id).toMatch(/not (saved, )?upload|does not read or upload/);
+    }
+    expect(description("camera.capture_photo")).toContain("describe-photo action");
+    expect(description("photos.pick_photo")).toContain("describe-photo action");
+    expect(description("files.pick_document")).toContain("cannot summarize");
+    expect(description("photos.describe_photo")).toContain("sent to ZARVIS's server to be described and is not stored");
+  });
+
   it("lets every phone action carry the rest of a multi-step request, outside its input", () => {
     for (const tool of deviceActionTools(["phone.open_app", "screen.tap"])) {
       expect(tool.inputSchema.properties).toHaveProperty("then", "string");

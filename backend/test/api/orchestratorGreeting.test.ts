@@ -72,6 +72,26 @@ describe("orchestrator conversational greetings", () => {
     expect(second.body.toolCalls).toEqual([]);
     expect(second.body.message).toBe("Hi! 👋 I'm ZARVIS. How can I help you today?");
   });
+  it("greets in the language of the greeting, not only the app's: Hindi or Hinglish gets Hindi even with an English app", async () => {
+    const token = await signupAndGetToken();
+    const greet = async (utterance: string, locale: string) => {
+      const res = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`).send({ utterance, locale });
+      expect(res.status).toBe(200);
+      expect(res.body.toolCalls).toEqual([]);
+      return res.body.message as string;
+    };
+    const hindi = "नमस्ते! 👋 मैं ZARVIS हूँ। मैं आपकी कैसे मदद कर सकता हूँ?";
+    const english = "Hi! 👋 I'm ZARVIS. How can I help you today?";
+
+    expect(await greet("नमस्ते", "en")).toBe(hindi);
+    expect(await greet("Namaste ZARVIS!", "en")).toBe(hindi);
+    expect(await greet("namaskar", "en-US")).toBe(hindi);
+    // A greeting that is no particular language follows the app language, as before.
+    expect(await greet("Hi", "en")).toBe(english);
+    expect(await greet("hello", "hi")).toBe(hindi);
+    expect(await greet("Hey Jarvis", "en")).toBe(english);
+  });
+
   it("does not repeat repository analysis for a vague follow-up", async () => {
     const token = await signupAndGetToken();
 

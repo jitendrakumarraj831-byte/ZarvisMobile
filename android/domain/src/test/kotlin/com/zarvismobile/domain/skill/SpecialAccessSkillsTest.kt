@@ -204,6 +204,32 @@ class SpecialAccessSkillsTest {
     }
 
     @Test
+    fun `risky buttons on a phone set to Hindi, or written in Hinglish, are refused before anything is tapped`() = runTest {
+        val screen = FakeScreen()
+        val skill = SpecialAccessSkills.tapOnScreen(screen)
+        val confirm = FakeConfirmationPort(true)
+        suspend fun run(label: String) =
+            pipeline(skill, setOf(PermissionType.ACCESSIBILITY_SERVICE), confirm).execute(ToolCall(skillId = skill.id, input = SkillInput(mapOf("label" to label))), context)
+
+        listOf(
+            "भुगतान करें", "अभी खरीदें", "ख़रीदें", "ऑर्डर करें", "पैसे भेजें", "पे करें", "सब्सक्राइब करें",
+            "हटाएँ", "हटाएं", "डिलीट करें", "मिटाएँ", "अनइंस्टॉल करें", "रीसेट करें",
+            "अनुमति दें", "इजाज़त दें", "इंस्टॉल करें", "पुष्टि करें", "स्वीकार करें", "मैं सहमत हूँ",
+            "साइन इन करें", "लॉग इन करें", "पासवर्ड डालें", "अनलॉक करें",
+            "Bhugtan karo", "Abhi kharido", "Paise bhejo", "Hatao",
+        ).forEach {
+            assertEquals("blocked_label", assertIs<ToolExecutionOutcome.ExecutionFailed>(run(it)).result.reason, it)
+        }
+        // Refused at the label, before the screen is even looked at and before any confirmation is asked.
+        assertTrue(screen.performed.isEmpty())
+        assertNull(confirm.lastRequest)
+
+        // Ordinary Hindi buttons are still tapped (after the usual confirmation).
+        listOf("आगे", "ठीक है", "वापस", "अगला").forEach { assertIs<ToolExecutionOutcome.Success>(run(it), it) }
+        assertEquals(listOf("tap:आगे@com.example.notes", "tap:ठीक है@com.example.notes", "tap:वापस@com.example.notes", "tap:अगला@com.example.notes"), screen.performed)
+    }
+
+    @Test
     fun `assistant setup succeeds only when Android reports the role held`() = runTest {
         val held = SpecialAccessSkills.assistantSetup { true }
         val outcome = pipeline(held, setOf(PermissionType.ASSISTANT_ROLE), FakeConfirmationPort(false)).execute(ToolCall(skillId = held.id, input = SkillInput()), context)

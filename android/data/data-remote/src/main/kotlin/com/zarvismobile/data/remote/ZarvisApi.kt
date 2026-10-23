@@ -4,6 +4,7 @@ import com.zarvismobile.data.remote.dto.AuthTokensResponse
 import com.zarvismobile.data.remote.dto.ConfirmationResolutionResponse
 import com.zarvismobile.data.remote.dto.ConversationMessagesResponse
 import com.zarvismobile.data.remote.dto.IdentityResponse
+import com.zarvismobile.data.remote.dto.CreateNoteRequest
 import com.zarvismobile.data.remote.dto.CreateTaskRequest
 import com.zarvismobile.data.remote.dto.DeveloperAnalyzeRequest
 import com.zarvismobile.data.remote.dto.DeviceActionResultRequest
@@ -13,6 +14,7 @@ import com.zarvismobile.data.remote.dto.DocumentExtractResponse
 import com.zarvismobile.data.remote.dto.EntitlementSnapshotResponse
 import com.zarvismobile.data.remote.dto.LoginRequest
 import com.zarvismobile.data.remote.dto.MemoryForgetResponse
+import com.zarvismobile.data.remote.dto.MemoryNoteDto
 import com.zarvismobile.data.remote.dto.MemoryOverviewResponse
 import com.zarvismobile.data.remote.dto.MemorySettingsRequest
 import com.zarvismobile.data.remote.dto.MemorySettingsResponse
@@ -24,6 +26,7 @@ import com.zarvismobile.data.remote.dto.SkillsResponse
 import com.zarvismobile.data.remote.dto.TaskDto
 import com.zarvismobile.data.remote.dto.TasksResponse
 import com.zarvismobile.data.remote.dto.TtsSynthesizeRequest
+import com.zarvismobile.data.remote.dto.UpdateNoteRequest
 import com.zarvismobile.data.remote.dto.UsageChargeRequest
 import com.zarvismobile.data.remote.dto.UsageChargeResponse
 import okhttp3.MultipartBody
@@ -33,6 +36,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Part
@@ -134,6 +138,17 @@ interface ZarvisApi {
     /** Deletes one note, personal or in a project. The server answers 204. */
     @DELETE("api/v1/notes/{id}")
     suspend fun deleteNote(@Path("id") id: String)
+
+    /**
+     * Saves one item the user typed into their personal memory (backend/src/api/routes/notes.ts, `kind: "memory"`, no project). The
+     * server answers 201 with the saved note; 400 for empty or over-long text, 409 `limit_reached` when the account holds 500 notes.
+     */
+    @POST("api/v1/notes")
+    suspend fun createNote(@Body request: CreateNoteRequest): MemoryNoteDto
+
+    /** Pauses or resumes one memory item: a paused item stays saved but is not given to the model. Answers with the updated note. */
+    @PATCH("api/v1/notes/{id}")
+    suspend fun updateNote(@Path("id") id: String, @Body request: UpdateNoteRequest): MemoryNoteDto
 
     @POST("api/v1/developer/analyze")
     suspend fun analyzeRepo(@Body request: DeveloperAnalyzeRequest): DeveloperAnalyzeResponse

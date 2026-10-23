@@ -81,7 +81,10 @@ enum class UiString(val en: String, val hi: String) {
     WORK_TASKS_TITLE("Tasks", "कार्य"),
     WORK_TASKS_BODY("Your tasks with their real status.", "आपके कार्य, उनकी असली स्थिति के साथ।"),
     WORK_MEMORY_TITLE("Memory", "मेमोरी"),
-    WORK_MEMORY_BODY("What ZARVIS has saved about you. View it and delete what you don't want kept.", "ZARVIS ने आपके बारे में जो सहेजा है। उसे देखें और जो नहीं रखना चाहते उसे हटाएँ।"),
+    WORK_MEMORY_BODY(
+        "What you saved for ZARVIS to remember about you. Add to it, pause items, and delete what you don't want kept.",
+        "आपने ZARVIS के याद रखने के लिए अपने बारे में जो सहेजा है। उसमें जोड़ें, आइटम रोकें, और जो नहीं रखना चाहते उसे हटाएँ।",
+    ),
     WORK_USAGE_TITLE("Usage & metrics", "उपयोग और मेट्रिक्स"),
     WORK_USAGE_BODY("Response times measured on this phone, and your task log.", "इस फ़ोन पर नापे गए जवाब के समय, और आपका कार्य लॉग।"),
     WORK_PLANS_TITLE("Plans & credits", "प्लान और क्रेडिट"),
@@ -209,6 +212,55 @@ enum class UiString(val en: String, val hi: String) {
     CHAT_CONTINUE("Continue", "जारी रखें"),
     CHAT_DISMISS("Dismiss", "हटाएँ"),
 
+    // Why a message got no answer (TurnFailures): each says only what is known to have happened.
+    CHAT_FAIL_OFFLINE(
+        "I couldn't reach ZARVIS, so nothing was done. Check your connection and try again.",
+        "ZARVIS तक पहुँच नहीं हो सकी, इसलिए कुछ नहीं हुआ। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+    ),
+    CHAT_FAIL_INTERRUPTED(
+        "The connection dropped while ZARVIS was working on this, so part of it may have run. Try again: it is sent under the same id, so ZARVIS can reuse what already finished.",
+        "ZARVIS इस पर काम कर रहा था तभी कनेक्शन टूट गया, इसलिए इसका कुछ हिस्सा हो चुका हो सकता है। फिर कोशिश करें: यह उसी पहचान के साथ भेजा जाएगा, ताकि जो पूरा हो चुका है उसे ZARVIS दोबारा इस्तेमाल कर सके।",
+    ),
+    CHAT_FAIL_SERVER(
+        "ZARVIS ran into a problem on its side and couldn't finish this. Please try again.",
+        "ZARVIS की तरफ़ कोई समस्या आई और यह पूरा नहीं हो सका। कृपया फिर कोशिश करें।",
+    ),
+    CHAT_FAIL_BUSY(
+        "ZARVIS is still working on this same message. Wait a moment, then try again.",
+        "ZARVIS अभी इसी संदेश पर काम कर रहा है। थोड़ा रुकें, फिर कोशिश करें।",
+    ),
+    CHAT_FAIL_REJECTED(
+        "ZARVIS couldn't accept this request as it is, so nothing was done. Try rephrasing it.",
+        "ZARVIS इस अनुरोध को इस रूप में स्वीकार नहीं कर सका, इसलिए कुछ नहीं हुआ। इसे दूसरे शब्दों में लिखकर देखें।",
+    ),
+    CHAT_FAIL_SESSION("Your session has ended. Sign in again to continue.", "आपका सत्र समाप्त हो गया है। जारी रखने के लिए फिर से साइन इन करें।"),
+    CHAT_FAIL_UNEXPECTED(
+        "Something went wrong in the app, so this was not finished. Please try again.",
+        "ऐप में कुछ गड़बड़ हुई, इसलिए यह पूरा नहीं हुआ। कृपया फिर कोशिश करें।",
+    ),
+    CHAT_RETRY_NAMED("Try again: %s", "फिर कोशिश करें: %s"),
+
+    // Voice input (SpeechErrors) and the spoken reply.
+    VOICE_NOT_HEARD("I didn't catch that. Tap the mic and speak again, or type.", "मैं सुन नहीं पाया। माइक दबाकर फिर से बोलें, या लिखें।"),
+    VOICE_NETWORK(
+        "Voice input couldn't reach the phone's speech service. Check your connection, or type instead.",
+        "बोलकर लिखना फ़ोन की स्पीच सेवा तक नहीं पहुँच सका। कनेक्शन जाँचें, या लिखकर भेजें।",
+    ),
+    VOICE_AUDIO("The microphone couldn't record. Try again, or type instead.", "माइक्रोफ़ोन रिकॉर्ड नहीं कर सका। फिर कोशिश करें, या लिखकर भेजें।"),
+    VOICE_BUSY("The phone's speech service is busy. Wait a moment and try again.", "फ़ोन की स्पीच सेवा अभी व्यस्त है। थोड़ा रुककर फिर कोशिश करें।"),
+    VOICE_PERMISSION_OFF(
+        "Microphone access is off, so voice input can't start. You can type instead.",
+        "माइक्रोफ़ोन की अनुमति बंद है, इसलिए बोलकर लिखना शुरू नहीं हो सकता। आप लिखकर भेज सकते हैं।",
+    ),
+    VOICE_LANGUAGE(
+        "The phone's speech service can't listen in this language. Change the app language in Settings, or type instead.",
+        "फ़ोन की स्पीच सेवा इस भाषा में नहीं सुन सकती। सेटिंग्स में ऐप की भाषा बदलें, या लिखकर भेजें।",
+    ),
+    VOICE_UNAVAILABLE("Voice input isn't available on this phone. You can type instead.", "इस फ़ोन पर बोलकर लिखना उपलब्ध नहीं है। आप लिखकर भेज सकते हैं।"),
+    VOICE_FAILED("Voice input stopped unexpectedly. Try again, or type instead.", "बोलकर लिखना अचानक रुक गया। फिर कोशिश करें, या लिखकर भेजें।"),
+    VOICE_DECLINED("Voice input stays off. You can type instead.", "बोलकर लिखना बंद रहेगा। आप लिखकर भेज सकते हैं।"),
+    VOICE_PLAYBACK_FAILED("Voice playback failed — the reply is shown as text.", "आवाज़ में जवाब नहीं चल सका — जवाब लिखा हुआ दिख रहा है।"),
+
     // ---- Capabilities ---------------------------------------------------------------------
     CAPABILITIES_TITLE("Capabilities", "क्षमताएँ"),
     CAPABILITIES_KICKER("AI AGENT HUB", "AI एजेंट हब"),
@@ -256,12 +308,12 @@ enum class UiString(val en: String, val hi: String) {
     LANGUAGE_HINDI_SUB("Menus and labels, voice input and read-aloud", "मेन्यू और लेबल, बोलकर लिखना और ज़ोर से पढ़ना"),
     LANGUAGE_SCOPE_TITLE("What Hindi changes today", "आज हिंदी में क्या बदलता है"),
     LANGUAGE_SCOPE_BODY(
-        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, the Settings list, Appearance, Voice and this page, the sign-out and delete-account questions, and the welcome pages. It also sets the language for voice input and read-aloud. " +
+        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, the Settings list, Appearance, Voice and this page, the sign-out and delete-account questions, and the welcome pages, and Chat's own messages about failed requests and voice input. It also sets the language for voice input and read-aloud. " +
             "It does not decide the language of your conversation: ZARVIS answers in the language you write or speak in, and uses this setting only when that is not clear, such as a plain \"hi\". " +
-            "Error messages, longer explanations, Permissions & Device Access, Plans, Developer Agent and the other Settings pages (AI, Notifications, Privacy, Data, Rules & Protection) are still in English.",
-        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, सेटिंग्स की सूची, दिखावट, वॉइस और यह पन्ना, साइन आउट और खाता हटाने के सवाल, तथा स्वागत पन्नों के मेन्यू, शीर्षक और बटन हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
+            "Error messages outside Chat, longer explanations, Permissions & Device Access, Plans, Developer Agent and the other Settings pages (AI, Notifications, Privacy, Data, Rules & Protection) are still in English.",
+        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, सेटिंग्स की सूची, दिखावट, वॉइस और यह पन्ना, साइन आउट और खाता हटाने के सवाल, स्वागत पन्नों के मेन्यू, शीर्षक और बटन, तथा चैट में अधूरे अनुरोधों और बोलकर लिखने के संदेश हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
             "यह आपकी बातचीत की भाषा तय नहीं करता: ZARVIS उसी भाषा में जवाब देता है जिसमें आप लिखते या बोलते हैं, और यह सेटिंग तभी काम आती है जब भाषा साफ़ न हो, जैसे सिर्फ़ \"hi\"। " +
-            "त्रुटि संदेश, लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और सेटिंग्स के बाकी पन्ने (AI, सूचनाएँ, गोपनीयता, डेटा, नियम और सुरक्षा) अभी अंग्रेज़ी में हैं।",
+            "चैट के बाहर के त्रुटि संदेश, लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और सेटिंग्स के बाकी पन्ने (AI, सूचनाएँ, गोपनीयता, डेटा, नियम और सुरक्षा) अभी अंग्रेज़ी में हैं।",
     ),
 
     // ---- Memory (Settings > Memory and Work > Memory) -------------------------------------
@@ -272,7 +324,10 @@ enum class UiString(val en: String, val hi: String) {
     MEMORY_PERSONAL("Personal memory", "निजी मेमोरी"),
     MEMORY_PERSONAL_HINT("Facts and preferences you chose to save. At most the newest %d active items are given to ZARVIS.", "आपकी चुनी हुई बातें और पसंद। ZARVIS को ज़्यादा से ज़्यादा सबसे नए %d चालू आइटम दिए जाते हैं।"),
     MEMORY_PERSONAL_EMPTY("Nothing saved", "कुछ नहीं सहेजा"),
-    MEMORY_PERSONAL_EMPTY_BODY("ZARVIS has no personal memory of you. Items you save on the website show up here.", "ZARVIS के पास आपकी कोई निजी मेमोरी नहीं है। वेबसाइट पर आप जो सहेजेंगे, वह यहाँ दिखेगा।"),
+    MEMORY_PERSONAL_EMPTY_BODY(
+        "ZARVIS has no personal memory of you. Add something above; items you save on the website show up here too.",
+        "ZARVIS के पास आपकी कोई निजी मेमोरी नहीं है। ऊपर कुछ जोड़ें; वेबसाइट पर सहेजी बातें भी यहाँ दिखती हैं।",
+    ),
     MEMORY_PROJECT("Project memory", "प्रोजेक्ट मेमोरी"),
     MEMORY_PROJECT_HINT("Kept inside each project on the website and used only in that project's chats. You can delete items here.", "वेबसाइट पर हर प्रोजेक्ट के अंदर रखी जाती है और सिर्फ़ उसी प्रोजेक्ट की चैट में इस्तेमाल होती है। आइटम यहाँ हटा सकते हैं।"),
     MEMORY_PROJECT_EMPTY("No project memory", "कोई प्रोजेक्ट मेमोरी नहीं"),
@@ -294,6 +349,13 @@ enum class UiString(val en: String, val hi: String) {
     MEMORY_LOAD_ERROR("Couldn't load your memory", "आपकी मेमोरी लोड नहीं हो सकी"),
     MEMORY_ACTION_ERROR("That didn't work. Check your connection and try again.", "यह नहीं हो सका। कनेक्शन जाँचें और फिर कोशिश करें।"),
     MEMORY_FORGOT("Items forgotten: %d", "भूले गए आइटम: %d"),
+    MEMORY_ADD_TITLE("Add to memory", "मेमोरी में जोड़ें"),
+    MEMORY_ADD_HINT("Something ZARVIS should remember about you, e.g. I'm vegetarian", "कुछ जो ZARVIS आपके बारे में याद रखे, जैसे मैं शाकाहारी हूँ"),
+    MEMORY_ADD_SAVE("Save to memory", "मेमोरी में सहेजें"),
+    MEMORY_ADD_TOO_LONG("A memory can be at most %d characters.", "एक मेमोरी में ज़्यादा से ज़्यादा %d अक्षर हो सकते हैं।"),
+    MEMORY_ADDED("Saved to your personal memory.", "आपकी निजी मेमोरी में सहेज लिया।"),
+    MEMORY_ITEM_USE("Use in replies", "जवाबों में इस्तेमाल करें"),
+    MEMORY_ITEM_USE_NAMED("Use in replies: %s", "जवाबों में इस्तेमाल करें: %s"),
 
     // ---- Welcome pages --------------------------------------------------------------------
     ONBOARDING_1_TITLE("Meet ZARVIS", "ZARVIS से मिलिए"),

@@ -113,30 +113,43 @@ export const DEVICE_ACTIONS: readonly DeviceActionDefinition[] = [
     route: "API_AVAILABLE",
     mockHints: ["where am i", "my location", "meri location"],
   },
+  // The next four say exactly what the phone does with the picture or file (android/domain/.../DeviceCapabilitySkills.kt):
+  // only describe_photo sends anything to be understood. A description that promised more made the planner answer "summarize
+  // this PDF" with a picker that then only showed the file's name.
   {
     id: "camera.capture_photo",
-    description: "On this phone: open the camera to take a photo now and attach it to this chat (\"take a photo\", \"selfie lo\").",
+    description:
+      "On this phone: open the camera so the user can take a photo now (\"take a photo\", \"selfie lo\"). The phone shows " +
+      "only a small preview: the photo is not saved, uploaded or described, so you never see it. To say what is in a photo, " +
+      "use the describe-photo action instead.",
     inputSchema: { requiredFields: [] },
     route: "SYSTEM_FLOW_AVAILABLE",
     mockHints: ["take a photo", "take a picture", "selfie", "photo khincho"],
   },
   {
     id: "photos.pick_photo",
-    description: "On this phone: let the user pick one photo to use in this chat.",
+    description:
+      "On this phone: let the user pick one photo from the gallery. The phone shows its name and size only; the photo is not " +
+      "uploaded or described. When the user wants to know what is in a photo, use the describe-photo action instead.",
     inputSchema: { requiredFields: [] },
     route: "SYSTEM_FLOW_AVAILABLE",
     mockHints: ["pick a photo", "choose a photo"],
   },
   {
     id: "photos.describe_photo",
-    description: "On this phone: let the user pick a photo, then describe what is in it.",
+    description:
+      "On this phone: let the user pick a photo, then describe what is in it (\"is photo mein kya hai\", \"describe this " +
+      "picture\"). The picked photo is sent to ZARVIS's server to be described and is not stored.",
     inputSchema: { requiredFields: [] },
     route: "SYSTEM_FLOW_AVAILABLE",
     mockHints: ["describe a photo", "describe this photo"],
   },
   {
     id: "files.pick_document",
-    description: "On this phone: let the user pick one document to read in this chat.",
+    description:
+      "On this phone: let the user pick one document. The phone shows the file's name, type and size only: it does not read " +
+      "or upload the document, so you cannot summarize or answer questions about it from here. To have a document read, the " +
+      "user attaches it in ZARVIS on the web; say so instead of offering this action for reading.",
     inputSchema: { requiredFields: [] },
     route: "SYSTEM_FLOW_AVAILABLE",
     mockHints: ["pick a file", "pick a document", "choose a file"],

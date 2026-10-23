@@ -1,6 +1,7 @@
 package com.zarvismobile.feature.settings
 
 import com.zarvismobile.data.remote.ZarvisApi
+import com.zarvismobile.data.remote.dto.CreateNoteRequest
 import com.zarvismobile.data.remote.dto.MemoryForgetResponse
 import com.zarvismobile.data.remote.dto.MemoryLimitsDto
 import com.zarvismobile.data.remote.dto.MemoryNoteDto
@@ -8,6 +9,7 @@ import com.zarvismobile.data.remote.dto.MemoryOverviewResponse
 import com.zarvismobile.data.remote.dto.MemoryProjectDto
 import com.zarvismobile.data.remote.dto.MemorySettingsRequest
 import com.zarvismobile.data.remote.dto.MemorySettingsResponse
+import com.zarvismobile.data.remote.dto.UpdateNoteRequest
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -179,5 +181,88 @@ class MemoryViewModelTest {
         assertTrue(vm.uiState.value.loadFailed)
         assertFalse(vm.uiState.value.actionFailed)
         assertEquals(listOf("I live in Pune"), vm.uiState.value.overview?.personal?.map { it.content })
+    }
+
+    @Test
+    fun addingSavesTheTrimmedTextAsPersonalMemoryThenReadsTheMemoryAgain() {
+        var items = listOf(note("n1", "I live in Pune"))
+        val server = Server { name, args ->
+            when (name) {
+                "getMemory" -> overview(items)
+                "createNote" -> (args[0] as CreateNoteRequest).let { request ->
+                    note("n2", request.content).also { items = items + it }
+                }
+                else -> error("unexpected $name")
+            }
+        }
+        val vm = MemoryViewModel(server.api)
+        vm.refresh()
+        server.calls.clear()
+
+        assertTrue(vm.add("  I am vegetarian  "))
+
+        assertEquals(listOf("createNote(CreateNoteRequest(kind=memory, content=I am vegetarian))", "getMemory()"), server.calls)
+        assertEquals(listOf("I live in Pune", "I am vegetarian"), vm.uiState.value.overview?.personal?.map { it.content })
+        assertTrue(vm.uiState.value.added)
+        assertFalse(vm.uiState.value.busy)
+    }
+
+    @Test
+    fun emptyOrOverLongTextIsNotSent() {
+        val server = Server { name, _ -> if (name == "getMemory") overview(emptyList()) else error("unexpected $name") }
+        val vm = MemoryViewModel(server.api)
+        vm.refresh()
+        server.calls.clear()
+
+        assertFalse(vm.add("   "))
+        assertFalse(vm.add("x".repeat(MemoryViewModel.MAX_MEMORY_CHARS + 1)))
+        assertTrue("nothing went to the server", server.calls.isEmpty())
+        assertFalse(vm.uiState.value.added)
+    }
+
+    @Test
+    fun aRefusedAddSaysSoAndIsNotShownAsSaved() {
+        val server = Server { name, _ ->
+            when (name) {
+                "getMemory" -> overview(listOf(note("n1", "I live in Pune")))
+                "createNote" -> throw IllegalStateException("409 limit_reached")
+                else -> error("unexpected $name")
+            }
+        }
+        val vm = MemoryViewModel(server.api)
+        vm.refresh()
+
+        vm.add("one more")
+
+        assertTrue(vm.uiState.value.actionFailed)
+        assertFalse(vm.uiState.value.added)
+        assertEquals(listOf("I live in Pune"), vm.uiState.value.overview?.personal?.map { it.content })
+    }
+
+    @Test
+    fun pausingOneItemPatchesThatItemOnlyAndShowsItPaused() {
+        var items = listOf(note("n1", "I live in Pune"), note("n2", "Prefers Hindi"))
+        val server = Server { name, args ->
+            when (name) {
+                "getMemory" -> overview(items)
+                "updateNote" -> {
+                    val id = args[0] as String
+                    val enabled = (args[1] as UpdateNoteRequest).enabled
+                    items = items.map { if (it.id == id) it.copy(enabled = enabled) else it }
+                    items.single { it.id == id }
+                }
+                else -> error("unexpected $name")
+            }
+        }
+        val vm = MemoryViewModel(server.api)
+        vm.refresh()
+        server.calls.clear()
+
+        vm.setItemEnabled("n2", false)
+
+        assertEquals(listOf("updateNote(n2, UpdateNoteRequest(enabled=false))", "getMemory()"), server.calls)
+        assertEquals(listOf(true, false), vm.uiState.value.overview?.personal?.map { it.enabled })
+        // Memory as a whole stays on: only that one item is not used.
+        assertEquals(true, vm.uiState.value.overview?.enabled)
     }
 }

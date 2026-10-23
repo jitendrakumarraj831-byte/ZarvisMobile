@@ -117,6 +117,45 @@ class SessionRepositoryTest {
     }
 
     @Test
+    fun `signing in to another account forgets what this device kept for the previous one, and only then`() = runTest {
+        signedIn() // acct-1
+        var forgotten = 0
+        val repo = SessionRepository(ApiClientFactory.create(store, server.url("/").toString()), store) { forgotten++ }
+
+        // A wrong password changes nothing: the previous account's reminders stay.
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":"Invalid email or password","code":"invalid_credentials"}"""))
+        // (OkHttp's authenticator tries to renew the current session on any 401; the server is down for that, so nothing changes.)
+        server.enqueue(MockResponse().setResponseCode(502))
+        runCatching { repo.signIn("other@b.co", "wrong-password") }
+        assertEquals(0, forgotten)
+        assertEquals("acct-1", store.getString(TokenStorageKeys.ACCOUNT_ID))
+
+        server.enqueue(MockResponse().setBody("""{"accessToken":"a2","refreshToken":"r2","accountId":"acct-2","isGuest":false,"email":"other@b.co"}"""))
+        repo.signIn("other@b.co", "password-123")
+        assertEquals(1, forgotten)
+        assertEquals(SessionState.Active("acct-2", isGuest = false, email = "other@b.co"), repo.state.value)
+
+        // Signing in again to the account the device already has keeps what it holds for it.
+        server.enqueue(MockResponse().setBody("""{"accessToken":"a3","refreshToken":"r3","accountId":"acct-2","isGuest":false,"email":"other@b.co"}"""))
+        repo.signIn("other@b.co", "password-123")
+        assertEquals(1, forgotten)
+    }
+
+    @Test
+    fun `a new guest after the session ended forgets the old account's device data, the very first guest has nothing to forget`() = runTest {
+        var forgotten = 0
+        server.enqueue(MockResponse().setBody("""{"accessToken":"a","refreshToken":"r","accountId":"guest-1","isGuest":true}"""))
+        val repo = SessionRepository(ApiClientFactory.create(store, server.url("/").toString()), store) { forgotten++ }
+        repo.ensureSession()
+        assertEquals(0, forgotten)
+
+        store.putString(TokenStorageKeys.SESSION_EXPIRED, "session_revoked")
+        server.enqueue(MockResponse().setBody("""{"accessToken":"a2","refreshToken":"r2","accountId":"guest-2","isGuest":true}"""))
+        assertEquals("guest-2", repo.startGuestSession())
+        assertEquals(1, forgotten)
+    }
+
+    @Test
     fun `signing out and deleting the account forget what this device kept for that account`() = runTest {
         signedIn()
         server.enqueue(MockResponse().setResponseCode(204))
