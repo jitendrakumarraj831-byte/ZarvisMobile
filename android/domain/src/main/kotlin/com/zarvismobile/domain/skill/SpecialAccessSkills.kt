@@ -396,6 +396,33 @@ object SpecialAccessSkills {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * The same buttons on a phone set to Hindi, and their usual Hinglish spellings. Devanagari has no `\b` word boundary in Java's
+     * regex (its vowel signs are not word characters), so these are matched as parts of the label: a longer word that contains one
+     * ("हटाकर") is refused too, which only ever refuses more.
+     */
+    private val BLOCKED_TAP_WORDS_HI = listOf(
+        // pay, payment, buy, order, transfer, send money, subscribe
+        "भुगतान", "पेमेंट", "पे करें", "पे करो", "खरीद", "ख़रीद", "ऑर्डर", "आर्डर", "चेकआउट", "ट्रांसफ़र", "ट्रांसफर", "पैसे भेज", "राशि भेज",
+        "सब्सक्राइब", "सदस्यता",
+        // delete, remove, uninstall, erase, reset, format
+        "हटा", "डिलीट", "मिटा", "अनइंस्टॉल", "रीसेट", "फ़ॉर्मैट", "फॉर्मेट",
+        // allow, grant, install, confirm, accept, agree
+        "अनुमति", "इजाज़त", "इजाजत", "इंस्टॉल", "इंस्टाल", "पुष्टि", "कन्फ़र्म", "कन्फर्म", "स्वीकार", "सहमत", "मंज़ूर", "मंजूर",
+        // sign in, log in, password, unlock
+        "साइन इन", "लॉग इन", "लॉगिन", "पासवर्ड", "अनलॉक",
+    )
+    private val BLOCKED_TAP_LABELS_HINGLISH = Regex(
+        """\b(bhugtan|kharido|kharid|paise bhejo|paisa bhejo|hatao|mitao|sweekar|svikar|anumati|ijazat|pushti)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** A button ZARVIS never taps for the user, in English, Hindi or Hinglish: paying, buying, deleting, signing in, granting access or accepting terms. */
+    internal fun isBlockedTapLabel(label: String): Boolean =
+        BLOCKED_TAP_LABELS.containsMatchIn(label) ||
+            BLOCKED_TAP_LABELS_HINGLISH.containsMatchIn(label) ||
+            BLOCKED_TAP_WORDS_HI.any { label.contains(it) }
+
     fun tapOnScreen(screen: ScreenAccessPort) = skill(
         id = "screen.tap",
         name = "Tap on screen",
@@ -408,7 +435,7 @@ object SpecialAccessSkills {
         required = setOf("label"),
         preparer = SkillPreparer { input, _ ->
             val label = (input.values["label"] as String).trim()
-            if (BLOCKED_TAP_LABELS.containsMatchIn(label)) {
+            if (isBlockedTapLabel(label)) {
                 return@SkillPreparer PreparedAction.Failed(
                     SkillResult.Failure(
                         "blocked_label",
