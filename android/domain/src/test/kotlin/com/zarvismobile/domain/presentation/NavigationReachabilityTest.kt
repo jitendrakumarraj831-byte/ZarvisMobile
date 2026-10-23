@@ -20,8 +20,11 @@ class NavigationReachabilityTest {
     private fun tabsAndStart(): Set<String> =
         Regex("""ZarvisNavItem\(Routes\.(\w+)""").findAll(source).map { it.groupValues[1] }.toSet() + setOf("HOME", "ONBOARDING")
 
+    /** A call that opens a screen: navigate(...), or openFrom(entry, ...), NavGraph's guard that navigates only from the screen in front. */
+    private fun opens(line: String): Boolean = "navigate(" in line || "openFrom(" in line
+
     private fun isNavigatedTo(name: String): Boolean =
-        source.lines().any { line -> ("navigate(" in line && "Routes.$name" in line) || Regex("""->\s*Routes\.$name\b""").containsMatchIn(line) }
+        source.lines().any { line -> (opens(line) && "Routes.$name" in line) || Regex("""->\s*Routes\.$name\b""").containsMatchIn(line) }
 
     @Test
     fun `the routes and the bottom tabs could be read`() {
@@ -35,7 +38,7 @@ class NavigationReachabilityTest {
         val notScreens = setOf("CONVERSATION_ARG_INITIAL_TEXT", "FEATURE_ARG", "FEATURE")
         val unreachable = routes().keys.filter { it !in notScreens && it !in tabsAndStart() && !isNavigatedTo(it) }
         assertEquals(emptyList(), unreachable, "registered but nothing navigates to: $unreachable")
-        assertTrue("navigate(\"feature/" in source, "nothing opens a feature page")
+        assertTrue(source.lines().any { opens(it) && "\"feature/" in it }, "nothing opens a feature page")
     }
 
     @Test

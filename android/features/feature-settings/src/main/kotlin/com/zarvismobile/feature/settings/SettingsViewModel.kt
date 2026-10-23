@@ -93,6 +93,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             sessionRepository.signOut()
             activeConversation.startNew()
+            startFreshGuest()
             onDone()
         }
     }
@@ -104,6 +105,7 @@ class SettingsViewModel @Inject constructor(
                 api.deleteAccount()
                 sessionRepository.clearLocal()
                 activeConversation.startNew()
+                startFreshGuest()
                 _deleteAccountStatus.value = DeleteAccountStatus.IDLE
                 onDeleted()
             } catch (t: CancellationException) {
@@ -111,6 +113,21 @@ class SettingsViewModel @Inject constructor(
             } catch (t: Throwable) {
                 _deleteAccountStatus.value = DeleteAccountStatus.FAILED
             }
+        }
+    }
+
+    /**
+     * The app starts a guest session as it does on first start, so Home (where the user lands next) is not loaded with no session: its
+     * first request was refused and the user was shown "Your session has ended" right after choosing to sign out. Offline, Home shows
+     * its own retry instead.
+     */
+    private suspend fun startFreshGuest() {
+        try {
+            sessionRepository.ensureSession()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            Unit
         }
     }
 

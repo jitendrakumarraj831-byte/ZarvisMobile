@@ -93,6 +93,21 @@ enum class ConversationDeletion {
 }
 
 /** The turn stream reported an error after it had started; [body] is the error event's JSON. */
+/**
+ * On-device skills whose result is the user's private data (the screen, notifications, screen time, location, a contact's number).
+ * They tell the user nothing is uploaded, so their result text is never sent to the server: not in a device-result report, and not
+ * to the server's voice (ConversationViewModel does not speak it aloud).
+ */
+val PRIVATE_RESULT_SKILLS: Set<String> = setOf(
+    "screen.read",
+    "notifications.read_recent",
+    "usage.screen_time",
+    "location.current",
+    "phone.find_contact",
+)
+
+private const val PRIVATE_RESULT_NOTE = "The result was shown on the phone only; it was not shared."
+
 private class TurnStreamFailedException(val body: String) : Exception("The turn stream reported an error")
 
 /** Re-issued confirmations (action changed after approval) the user is asked about per turn. */
@@ -299,6 +314,13 @@ class AndroidOrchestrator(
             )
             val resolution = try {
                 if (approved) api.approveConfirmation(pending.id) else api.declineConfirmation(pending.id)
+            } catch (e: java.io.IOException) {
+                // The approval may have reached the server, and run, before the connection dropped: "nothing was done" could be false.
+                if (!approved) throw e
+                return outcome(
+                    "The connection dropped after you approved, so I can't tell whether it ran. Check the conversation before asking again.",
+                    ToolResult(false, ToolResultStatus.FAILED, null, pending.skillId, "Approval result unknown.", false, null),
+                )
             } catch (e: retrofit2.HttpException) {
                 if (e.code() == 409) {
                     // A retried approve: the first one already ran the action exactly once.
@@ -435,7 +457,8 @@ class AndroidOrchestrator(
             toolCallId = action.toolCallId,
             skillId = action.skillId,
             status = (done.result?.status ?: ToolResultStatus.FAILED).name,
-            message = done.message,
+            // What these skills read stays on the phone, as they promise ("Nothing is uploaded"): the server records only the outcome.
+            message = if (action.skillId in PRIVATE_RESULT_SKILLS) PRIVATE_RESULT_NOTE else done.message,
             continueWith = continueWith,
             step = continueWith?.let { step },
             deviceActions = continueWith?.let { deviceActionIds() },

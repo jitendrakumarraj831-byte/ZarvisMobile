@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.agents.AndroidOrchestrator
 import com.zarvismobile.agents.ConversationDeletion
+import com.zarvismobile.agents.PRIVATE_RESULT_SKILLS
 import com.zarvismobile.agents.TurnProgress
 import com.zarvismobile.core.common.metrics.TurnMetricsStore
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
@@ -48,6 +49,8 @@ data class ConversationTurn(
     val assistantText: String?,
     /** Structured status of the tool action behind this reply, when there was one. */
     val status: ToolResultStatus? = null,
+    /** The request was stopped (a newer message, the microphone) before its reply came: the bubble says so instead of staying empty. */
+    val stopped: Boolean = false,
 )
 
 /** What the reply on its way is waiting for, shown live in its bubble. Each is a stage the turn really reached. */
@@ -109,6 +112,9 @@ class ConversationViewModel @Inject constructor(
 
     // Which turn's live progress is shown; set by each new turn.
     @Volatile private var currentTurn: Any? = null
+
+    // The microphone session, so a cancel ends it without sending what was heard so far.
+    private var listenJob: Job? = null
 
     // Set once the first restore has finished, so the first resume does not ask the server for the same history twice.
     // (Declared before `init`: the coroutine started there may run right away, and a later initializer would reset it.)
@@ -267,6 +273,7 @@ class ConversationViewModel @Inject constructor(
 
     fun startNewConversation() {
         turnJob?.cancel()
+        listenJob?.cancel()
         // Gone from this screen at once, before anything is written; every other screen drops it when it sees the new conversation.
         _uiState.update { ConversationUiState() }
         viewModelScope.launch {
@@ -277,9 +284,10 @@ class ConversationViewModel @Inject constructor(
 
     fun startListening() {
         if (_uiState.value.voiceState == VoiceState.LISTENING) return
-        turnJob?.cancel()
+        stopTurnInFlight()
         ttsEngine.stop()
-        viewModelScope.launch {
+        listenJob?.cancel()
+        listenJob = viewModelScope.launch {
             // Microphone goes through the same permission intelligence as every capability.
             when (val result = access.ensure(capabilities.get(CapabilityId.MICROPHONE))) {
                 AccessResult.Granted -> Unit
@@ -314,7 +322,9 @@ class ConversationViewModel @Inject constructor(
     }
 
     fun cancelListening() {
-        sttEngine.stop()
+        // Not sttEngine.stop(): Android's stopListening() recognizes what was heard so far, and that half sentence was then sent as a
+        // request. Cancelling the collection closes and destroys the recognizer, so nothing is sent.
+        listenJob?.cancel()
         if (_uiState.value.voiceState == VoiceState.LISTENING) {
             _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
         }
@@ -323,7 +333,7 @@ class ConversationViewModel @Inject constructor(
     private fun runTurn(utterance: String) {
         // One turn at a time: a new request (typed, voice, resume) supersedes the one in flight
         // instead of running beside it and writing its reply into the wrong bubble.
-        turnJob?.cancel()
+        stopTurnInFlight()
         ttsEngine.stop()
         val token = Any()
         currentTurn = token
@@ -393,7 +403,9 @@ class ConversationViewModel @Inject constructor(
                     )
                 }
                 if (succeeded) delay(SUCCESS_FLASH_MS)
-                if (preferences.autoSpeak.first()) {
+                // A private on-device result (the screen, notifications, location…) is not sent to the server's voice: it stays on the phone.
+                val keepOnPhone = outcome.result?.skillId in PRIVATE_RESULT_SKILLS
+                if (preferences.autoSpeak.first() && !keepOnPhone) {
                     try {
                         ttsEngine.speak(outcome.message, locale = locale) {
                             _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
@@ -418,6 +430,21 @@ class ConversationViewModel @Inject constructor(
                 slow.cancel()
                 TurnMetricsStore.record("conversation", durationMs = 0L, success = false)
                 failTurn(utterance, "I couldn't reach ZARVIS, so nothing was done. Check your connection and try again.")
+            }
+        }
+    }
+
+    /** Cancels the turn in flight; its question, still without a reply, is marked as stopped rather than left empty for good. */
+    private fun stopTurnInFlight() {
+        val inFlight = turnJob?.isActive == true
+        turnJob?.cancel()
+        if (!inFlight) return
+        _uiState.update { state ->
+            val last = state.turns.lastOrNull()
+            if (last == null || last.assistantText != null) {
+                state.copy(progress = null)
+            } else {
+                state.copy(turns = state.turns.dropLast(1) + last.copy(stopped = true), progress = null)
             }
         }
     }

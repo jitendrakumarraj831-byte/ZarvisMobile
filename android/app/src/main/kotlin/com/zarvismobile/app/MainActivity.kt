@@ -197,7 +197,7 @@ private fun StartupError(message: String, onRetry: () -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 QueenCrown(width = 72.dp)
                 Text(text = message, style = MaterialTheme.typography.bodyLarge)
-                ZarvisPrimaryButton(text = "Retry", onClick = onRetry)
+                ZarvisPrimaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = onRetry)
             }
         }
     }

@@ -14,6 +14,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -53,12 +56,17 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.AiOrb
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.GlowColorsFor
+import com.zarvismobile.core.ui.components.GoldText
+import com.zarvismobile.core.ui.components.QueenBackButton
+import com.zarvismobile.core.ui.components.QueenCrown
+import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
@@ -70,6 +78,7 @@ import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
+import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
 import com.zarvismobile.core.ui.theme.ZarvisGold
@@ -154,18 +163,24 @@ fun ConversationScreen(
             // The header is always there: "New chat" used to exist only on a chat opened from Home, so the Chat tab could never start fresh.
             // Back is shown only when there is somewhere to go back to (the Chat tab is a tab, and the system Back button leaves it).
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.sm),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md, vertical = ZarvisSpacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
             ) {
-                if (onBack != null) TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
-                Text(
-                    tr(UiString.CHAT_TITLE),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.weight(1f).padding(start = if (onBack == null) ZarvisSpacing.sm else 0.dp).semantics { heading() },
-                )
+                if (onBack != null) QueenBackButton(label = tr(UiString.COMMON_BACK), onClick = onBack)
+                // The title shares the row only on the Chat tab (no Back); with Back it sits on its own line below.
+                if (onBack == null) {
+                    // titleMedium: it shares a 360dp row with New chat and Delete.
+                    GoldText(
+                        text = tr(UiString.CHAT_TITLE),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                        modifier = Modifier.weight(1f).semantics { heading() },
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
                 // Always enabled: after a failed restore the screen can look empty while the server still holds the conversation, and the user must be able to leave it.
-                TextButton(onClick = viewModel::startNewConversation) { Text(tr(UiString.CHAT_NEW)) }
+                ZarvisChip(label = tr(UiString.CHAT_NEW), onClick = viewModel::startNewConversation, icon = ZarvisIcons.Plus)
                 // Offered only once there is something to delete, and not while a reply is on its way or a delete is already out.
                 if (uiState.turns.isNotEmpty()) {
                     val idle = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.SUCCESS || uiState.voiceState == VoiceState.ERROR
@@ -173,6 +188,14 @@ fun ConversationScreen(
                         Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
                     }
                 }
+            }
+            // With Back the title gets its own line, hidden while typing so the messages keep the room.
+            if (onBack != null && !keyboardOpen) {
+                GoldText(
+                    text = tr(UiString.CHAT_TITLE),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                    modifier = Modifier.padding(horizontal = ZarvisSpacing.lg).semantics { heading() },
+                )
             }
             uiState.deleteOutcome?.let { outcome ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
@@ -212,6 +235,11 @@ fun ConversationScreen(
                 contentPadding = PaddingValues(ZarvisSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
             ) {
+                if (uiState.turns.isEmpty()) {
+                    item {
+                        EmptyChat(onSuggestion = viewModel::submitInitialText)
+                    }
+                }
                 itemsIndexed(uiState.turns) { index, turn ->
                     // The newest request's reply, while it is on its way, shows what the turn is really doing.
                     val pending = if (index == uiState.turns.lastIndex && turn.assistantText == null) uiState.progress else null
@@ -293,6 +321,52 @@ private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?) {
             }
         } else if (pending != null) {
             PendingReply(pending, Modifier.align(Alignment.Start))
+        } else if (turn.stopped) {
+            Text(
+                text = tr(UiString.CHAT_STOPPED),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.End).padding(end = ZarvisSpacing.sm),
+            )
+        }
+    }
+}
+
+/** A chat with nothing in it yet: the crown, what ZARVIS can do, and three requests to start with (each sends itself). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EmptyChat(onSuggestion: (String) -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = ZarvisSpacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+    ) {
+        QueenCrown(width = 72.dp)
+        GoldText(
+            text = tr(UiString.CHAT_EMPTY_TITLE),
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = tr(UiString.CHAT_EMPTY_BODY),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = ZarvisSpacing.md),
+        )
+        FlowRow(
+            modifier = Modifier.padding(top = ZarvisSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+        ) {
+            listOf(
+                UiString.CHAT_SUGGEST_CAMERA to ZarvisIcons.Camera,
+                UiString.CHAT_SUGGEST_REMINDER to ZarvisIcons.Bell,
+                UiString.CHAT_SUGGEST_WRITE to ZarvisIcons.Pen,
+            ).forEach { (suggestion, icon) ->
+                val text = tr(suggestion)
+                ZarvisChip(label = text, onClick = { onSuggestion(text) }, icon = icon)
+            }
         }
     }
 }

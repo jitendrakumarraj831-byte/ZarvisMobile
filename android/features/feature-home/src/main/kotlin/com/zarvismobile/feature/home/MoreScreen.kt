@@ -1,7 +1,15 @@
 package com.zarvismobile.feature.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,22 +18,31 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.Jewel
+import com.zarvismobile.core.ui.components.JewelIcon
+import com.zarvismobile.core.ui.components.QueenPageHeader
+import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
-import com.zarvismobile.core.ui.components.ZarvisCard
+import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.domain.presentation.StatusLabels
 import com.zarvismobile.domain.presentation.UiString
@@ -56,13 +73,15 @@ fun MoreScreen(
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
             item {
-                Text(tr(UiString.WORK_TITLE), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-                Text(
-                    tr(UiString.WORK_INTRO),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                QueenPageHeader(
+                    title = tr(UiString.WORK_TITLE),
+                    subtitle = tr(UiString.WORK_INTRO),
+                    icon = ZarvisIcons.Briefcase,
+                    jewel = Jewel.GOLD,
+                    kicker = "ZARVIS",
                 )
             }
+            item { SectionKicker(text = tr(UiString.WORK_ON_THIS_PHONE), modifier = Modifier.padding(start = ZarvisSpacing.xs, top = ZarvisSpacing.xs)) }
             items(WorkCatalog.onThisPhone, key = { it.id }) { item ->
                 WorkCard(
                     item = item,
@@ -74,9 +93,7 @@ fun MoreScreen(
                     },
                 )
             }
-            item {
-                Text(tr(UiString.WORK_ON_THE_WEBSITE), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            }
+            item { SectionKicker(text = tr(UiString.WORK_ON_THE_WEBSITE), modifier = Modifier.padding(start = ZarvisSpacing.xs, top = ZarvisSpacing.sm)) }
             items(WorkCatalog.websiteOnly, key = { it.id }) { item ->
                 WorkCard(item = item, summary = null, onOpen = null)
             }
@@ -84,25 +101,70 @@ fun MoreScreen(
     }
 }
 
+/** Each card wears its own jewel and icon, so the list reads at a glance (the title still says what it is). */
+private fun lookFor(item: WorkItem): Pair<ImageVector, Jewel> = when (item.id) {
+    "tasks" -> ZarvisIcons.Task to Jewel.SAPPHIRE
+    "memory" -> ZarvisIcons.Memory to Jewel.ORCHID
+    "usage" -> ZarvisIcons.Chart to Jewel.EMERALD
+    "plans" -> ZarvisIcons.Plan to Jewel.GOLD
+    "developer" -> ZarvisIcons.Code to Jewel.AMETHYST
+    "phone" -> ZarvisIcons.Phone to Jewel.RUBY
+    "research" -> ZarvisIcons.Search to Jewel.SAPPHIRE
+    "creative" -> ZarvisIcons.Pen to Jewel.ORCHID
+    "business" -> ZarvisIcons.Briefcase to Jewel.GOLD
+    "files" -> ZarvisIcons.File to Jewel.EMERALD
+    "settings" -> ZarvisIcons.Settings to Jewel.AMETHYST
+    "agents" -> ZarvisIcons.Brain to Jewel.AMETHYST
+    else -> ZarvisIcons.Globe to Jewel.SAPPHIRE
+}
+
 @Composable
 private fun WorkCard(item: WorkItem, summary: String?, onOpen: (() -> Unit)?) {
-    ZarvisCard(modifier = Modifier.fillMaxWidth()) {
+    val (icon, jewel) = lookFor(item)
+    // A website-only card is quieter: it has nothing to open here.
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        tint = if (onOpen != null) GlassColors.surfaceTint else GlassColors.surfaceTint.copy(alpha = GlassColors.surfaceTint.alpha * 0.6f),
+        contentPadding = 16.dp,
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(tr(item.title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            StatusBadge(label = tr(item.availability.label), tone = item.availability.tone)
+            JewelIcon(icon, jewel, size = 48.dp)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(tr(item.title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                StatusBadge(label = tr(item.availability.label), tone = item.availability.tone)
+            }
         }
-        Text(tr(item.body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            tr(item.body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 10.dp),
+        )
         if (summary != null) {
-            Text(summary, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            // The live number, as a small gold-dotted line.
+            Row(
+                modifier = Modifier.padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(7.dp).background(ZarvisAccents.gold, CircleShape))
+                Text(summary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
         }
         if (onOpen != null) {
+            Spacer(Modifier.size(12.dp))
             // Every card says "Open": a screen reader needs to hear which one.
             val description = trf(UiString.COMMON_OPEN_NAMED, tr(item.title))
-            TextButton(onClick = onOpen, modifier = Modifier.semantics { contentDescription = description }) { Text(tr(UiString.COMMON_OPEN)) }
+            ZarvisPrimaryButton(
+                text = tr(UiString.COMMON_OPEN),
+                onClick = onOpen,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
+            )
         }
     }
 }

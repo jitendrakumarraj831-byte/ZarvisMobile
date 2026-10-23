@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,9 +59,11 @@ import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.components.Jewel
 import com.zarvismobile.core.ui.components.JewelIcon
+import com.zarvismobile.core.ui.components.QueenPageHeader
+import com.zarvismobile.core.ui.components.ZarvisChip
+import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
-import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentPink
 import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
@@ -94,9 +97,10 @@ fun SettingsScreen(
     val deleteStatus by viewModel.deleteAccountStatus.collectAsState()
     val session by viewModel.session.collectAsState()
     val accountForm by viewModel.accountForm.collectAsState()
-    var page by remember { mutableStateOf<SettingsPage?>(null) }
-    var showDeleteConfirmation by remember { mutableStateOf(false) }
-    var showClearConfirmation by remember { mutableStateOf(false) }
+    // Saveable, so turning the phone keeps the page and an open "Delete your account?" question.
+    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
 
     val goBack: () -> Unit = { page = null }
     // System Back on a settings page returns to the settings list, like the on-screen back arrow.
@@ -254,16 +258,28 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                TextButton(onClick = onBack) { Text(tr(UiString.COMMON_BACK)) }
-                Text(tr(UiString.COMMON_SETTINGS), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { heading() })
-                Text(tr(UiString.SETTINGS_INTRO), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            item {
-                GlassSurface(Modifier.fillMaxWidth(), tint = GlassColors.surfaceTintElevated) {
-                    Text(tr(UiString.SETTINGS_CURRENT_SETUP), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(trf(UiString.SETTINGS_LANGUAGE_LINE, if (locale == "hi") "हिंदी" else "English"))
-                    Text(trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_QUEEN_LIGHT)))
-                }
+                // The current language and look sit in the header as chips that open their pages.
+                QueenPageHeader(
+                    title = tr(UiString.COMMON_SETTINGS),
+                    subtitle = tr(UiString.SETTINGS_INTRO),
+                    icon = ZarvisIcons.Settings,
+                    jewel = Jewel.AMETHYST,
+                    kicker = "ZARVIS",
+                    onBack = onBack,
+                    backLabel = tr(UiString.COMMON_BACK),
+                    actions = {
+                        ZarvisChip(
+                            label = trf(UiString.SETTINGS_LANGUAGE_LINE, if (locale == "hi") "हिंदी" else "English"),
+                            onClick = { onOpen(SettingsPage.Language) },
+                            icon = ZarvisIcons.Lang,
+                        )
+                        ZarvisChip(
+                            label = trf(UiString.SETTINGS_APPEARANCE_LINE, tr(if (darkTheme) UiString.SETTINGS_DARK else UiString.SETTINGS_QUEEN_LIGHT)),
+                            onClick = { onOpen(SettingsPage.Appearance) },
+                            icon = ZarvisIcons.Palette,
+                        )
+                    },
+                )
             }
             items(SettingsPage.values().toList(), key = { it.name }) { entry ->
                 GlassSurface(Modifier.fillMaxWidth(), onClick = { onOpen(entry) }) {
@@ -303,13 +319,15 @@ private fun SettingsSubPage(page: SettingsPage, onBack: () -> Unit, content: @Co
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onBack) { Text("‹ " + tr(UiString.COMMON_BACK)) }
-                Column {
-                    Text(tr(page.title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.semantics { heading() })
-                    Text(tr(UiString.SETTINGS_SUBPAGE_KICKER), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            QueenPageHeader(
+                title = tr(page.title),
+                subtitle = tr(page.subtitle),
+                icon = page.icon,
+                jewel = jewelFor(page),
+                kicker = tr(UiString.SETTINGS_SUBPAGE_KICKER),
+                onBack = onBack,
+                backLabel = tr(UiString.COMMON_BACK),
+            )
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
         }
     }

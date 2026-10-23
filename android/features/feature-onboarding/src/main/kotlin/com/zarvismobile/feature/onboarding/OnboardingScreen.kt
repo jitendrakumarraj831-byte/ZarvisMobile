@@ -1,5 +1,6 @@
 package com.zarvismobile.feature.onboarding
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,8 @@ fun OnboardingScreen(
     }
 
     val page = OnboardingPages.all[uiState.pageIndex]
+    // System Back steps back a page, like the on-screen Back, instead of closing the app from the middle of the welcome.
+    BackHandler(enabled = uiState.pageIndex > 0, onBack = viewModel::previous)
 
     ZarvisBackground {
         Column(

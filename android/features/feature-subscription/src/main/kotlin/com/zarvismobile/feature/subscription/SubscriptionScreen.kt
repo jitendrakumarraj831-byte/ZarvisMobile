@@ -2,78 +2,112 @@ package com.zarvismobile.feature.subscription
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
-import com.zarvismobile.core.ui.components.ZarvisBackground
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.GoldText
+import com.zarvismobile.core.ui.components.Jewel
+import com.zarvismobile.core.ui.components.JewelIcon
+import com.zarvismobile.core.ui.components.QueenCrown
+import com.zarvismobile.core.ui.components.QueenErrorCard
+import com.zarvismobile.core.ui.components.QueenPageHeader
+import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.components.SkeletonList
-import com.zarvismobile.core.ui.theme.GlassColors
-import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.core.ui.components.StatusBadge
+import com.zarvismobile.core.ui.components.ZarvisBackground
+import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.i18n.trf
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisGold
+import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.core.ui.theme.zarvisActionBrush
+import com.zarvismobile.core.ui.theme.zarvisAuroraBrush
+import com.zarvismobile.data.remote.dto.EntitlementSnapshotResponse
+import com.zarvismobile.domain.presentation.StatusLabels
+import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private data class PlanTier(
-    val name: String,
-    val tagline: String,
-    val features: List<String>,
+    val code: String,
+    val tagline: UiString,
+    val features: List<UiString>,
+    val icon: ImageVector,
+    val jewel: Jewel,
     val highlighted: Boolean,
 )
 
 private val FREE_TIER = PlanTier(
-    name = "FREE",
-    tagline = "Get started with zero commitment.",
-    features = listOf(
-        "LOW-risk, low-cost skills only",
-        "Voice + text, English/Hindi/Hinglish",
-        "Standard response speed",
-    ),
+    code = "FREE",
+    tagline = UiString.PLANS_FREE_TAGLINE,
+    features = listOf(UiString.PLANS_FREE_1, UiString.PLANS_FREE_2, UiString.PLANS_FREE_3),
+    icon = ZarvisIcons.Bolt,
+    jewel = Jewel.AMETHYST,
     highlighted = false,
 )
 
 private val PRO_TIER = PlanTier(
-    name = "PRO",
-    tagline = "Full access across every shipped skill.",
-    features = listOf(
-        "Every skill ZARVIS ships, at every risk tier",
-        "Higher usage/credit ceiling",
-        "Priority orchestrator queueing",
-    ),
+    code = "PRO",
+    tagline = UiString.PLANS_PRO_TAGLINE,
+    features = listOf(UiString.PLANS_PRO_1, UiString.PLANS_PRO_2, UiString.PLANS_PRO_3),
+    icon = ZarvisIcons.Sparkle,
+    jewel = Jewel.GOLD,
     highlighted = true,
 )
 
-/** Plans & Quotas — MASTER_SPEC.md §19-21 (Subscription/Trial/Usage), Free vs Pro comparison. */
+/**
+ * Plans & Quotas — MASTER_SPEC.md §19-21 (Subscription/Trial/Usage), in the Queen layout: the crowned current-plan card with the
+ * credits left, then Free and Pro side by side in words. Nothing can be bought here yet, and the page says so.
+ */
 @Composable
 fun SubscriptionScreen(onBack: (() -> Unit)? = null, viewModel: SubscriptionViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
-    var billedYearly by remember { mutableStateOf(false) }
+    var billedYearly by rememberSaveable { mutableStateOf(false) }
+    // Read each time the page is shown, so credits spent in Chat (or a plan changed on the website) show up on return.
+    LifecycleResumeEffect(Unit) {
+        viewModel.refresh()
+        onPauseOrDispose { }
+    }
 
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -82,29 +116,24 @@ fun SubscriptionScreen(onBack: (() -> Unit)? = null, viewModel: SubscriptionView
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
             item {
-                if (onBack != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = onBack) { Text("Back") }
-                    }
-                }
-                Text(text = "Plans & Quotas", style = MaterialTheme.typography.headlineMedium)
+                QueenPageHeader(
+                    title = tr(UiString.COMMON_PLANS_QUOTAS),
+                    subtitle = tr(UiString.PLANS_SUBTITLE),
+                    icon = ZarvisIcons.Plan,
+                    jewel = Jewel.GOLD,
+                    kicker = "ZARVIS",
+                    onBack = onBack,
+                    backLabel = tr(UiString.COMMON_BACK),
+                )
             }
 
-            if (uiState.isLoading) {
-                item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 2) }
-            }
-            uiState.error?.let { error ->
-                item { Text(text = error, color = MaterialTheme.colorScheme.error) }
-            }
-
-            uiState.entitlement?.let { entitlement ->
-                item {
-                    GlassPanel(modifier = Modifier.fillMaxWidth()) {
-                        Text(text = "Current plan: ${entitlement.plan}", style = MaterialTheme.typography.titleMedium)
-                        Text(text = "${entitlement.creditBalance} credits remaining")
-                        entitlement.trialExpiresAt?.let { Text(text = "Trial ends: $it") }
-                    }
+            val entitlement = uiState.entitlement
+            when {
+                entitlement != null -> item { CurrentPlanCard(entitlement) }
+                uiState.failed -> item {
+                    QueenErrorCard(message = tr(UiString.PLANS_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh)
                 }
+                uiState.isLoading -> item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 1) }
             }
 
             item {
@@ -113,32 +142,33 @@ fun SubscriptionScreen(onBack: (() -> Unit)? = null, viewModel: SubscriptionView
                 }
             }
 
+            item { PlanCard(plan = FREE_TIER, isCurrent = entitlement?.plan == FREE_TIER.code) }
             item {
-                PlanComparisonCard(
-                    plan = FREE_TIER,
-                    isCurrent = uiState.entitlement?.plan == "FREE",
-                )
-            }
-
-            item {
-                PlanComparisonCard(
+                PlanCard(
                     plan = PRO_TIER,
-                    isCurrent = uiState.entitlement?.plan == "PRO",
-                    billingNote = if (billedYearly) "Billed yearly · pricing coming soon" else "Billed monthly · pricing coming soon",
+                    isCurrent = entitlement?.plan == PRO_TIER.code,
+                    billingNote = tr(if (billedYearly) UiString.PLANS_BILLED_YEARLY else UiString.PLANS_BILLED_MONTHLY),
                 )
             }
 
             item {
-                GlassPanel(modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "Upgrading", style = MaterialTheme.typography.titleMedium)
+                GlassSurface(modifier = Modifier.fillMaxWidth(), contentPadding = 18.dp) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        JewelIcon(ZarvisIcons.Card, Jewel.SAPPHIRE)
+                        Text(tr(UiString.PLANS_UPGRADE_TITLE), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                    }
                     Text(
-                        text = "Live purchases via Google Play Billing are not enabled in this build " +
-                            "(no Play Console listing exists for this repository yet — see MASTER_SPEC.md §32). " +
-                            "The billing verification endpoint is implemented and ready to wire up.",
+                        text = tr(UiString.PLANS_UPGRADE_BODY),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = ZarvisSpacing.sm),
                     )
-                    ZarvisSecondaryButton(text = "Upgrade (coming soon)", onClick = {}, enabled = false)
+                    ZarvisSecondaryButton(
+                        text = tr(UiString.PLANS_UPGRADE_BUTTON),
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth().padding(top = ZarvisSpacing.sm),
+                    )
                 }
             }
 
@@ -147,76 +177,127 @@ fun SubscriptionScreen(onBack: (() -> Unit)? = null, viewModel: SubscriptionView
     }
 }
 
+/** The plan the account is on: the crown, the plan in gold lettering, the credits left large, and when a trial ends. */
 @Composable
-private fun GlassPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+private fun CurrentPlanCard(entitlement: EntitlementSnapshotResponse) {
+    val locale = LocalAppLocale.current
+    val shape = RoundedCornerShape(26.dp)
     Column(
-        modifier = modifier
-            .background(color = GlassColors.surfaceTint, shape = RoundedCornerShape(24.dp))
-            .border(width = 1.dp, color = GlassColors.border, shape = RoundedCornerShape(24.dp))
-            .padding(ZarvisSpacing.md),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(GlassColors.surfaceTintElevated, shape)
+            .background(Brush.linearGradient(listOf(ZarvisGold.copy(alpha = 0.18f), Color.Transparent)), shape)
+            .border(1.5.dp, zarvisAuroraBrush(), shape)
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
-        content = content,
-    )
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            QueenCrown(width = 60.dp)
+            Column(modifier = Modifier.weight(1f)) {
+                SectionKicker(text = tr(UiString.PLANS_CURRENT))
+                GoldText(
+                    text = StatusLabels.humanize(entitlement.plan),
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+            Text(
+                text = entitlement.creditBalance.toString(),
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.ExtraBold),
+            )
+            Text(
+                text = tr(UiString.PLANS_CREDITS_LEFT),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
+        entitlement.trialExpiresAt?.let { ends ->
+            StatusBadge(label = trf(UiString.PLANS_TRIAL_ENDS, readableDate(ends, locale)), tone = StatusTone.WAITING)
+        }
+    }
 }
 
+/** Monthly / Yearly as two tabs; the chosen one wears the action gradient (white on it is at least 4.5:1). */
 @Composable
 private fun BillingToggle(yearly: Boolean, onToggle: (Boolean) -> Unit) {
     Row(
         modifier = Modifier
             .background(color = GlassColors.surfaceTintElevated, shape = RoundedCornerShape(50))
-            .border(width = 1.dp, color = GlassColors.border, shape = RoundedCornerShape(50))
-            .padding(4.dp),
+            .border(width = 1.dp, color = ZarvisAccents.gold.copy(alpha = 0.35f), shape = RoundedCornerShape(50))
+            .padding(4.dp)
+            .selectableGroup(),
     ) {
-        BillingToggleOption(label = "Monthly", selected = !yearly, onClick = { onToggle(false) })
-        BillingToggleOption(label = "Yearly", selected = yearly, onClick = { onToggle(true) })
+        BillingToggleOption(label = tr(UiString.PLANS_MONTHLY), selected = !yearly, onClick = { onToggle(false) })
+        BillingToggleOption(label = tr(UiString.PLANS_YEARLY), selected = yearly, onClick = { onToggle(true) })
     }
 }
 
 @Composable
 private fun BillingToggleOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    // The theme's primary, not the bright cyan: that is 1.7:1 as text on the light page.
-    val backgroundColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent
-    val foregroundColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    val shape = RoundedCornerShape(50)
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(backgroundColor)
-            .clickable(onClick = onClick)
-            .padding(horizontal = ZarvisSpacing.md, vertical = ZarvisSpacing.sm),
+            .heightIn(min = 44.dp)
+            .clip(shape)
+            .then(if (selected) Modifier.background(zarvisActionBrush(), shape) else Modifier)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 22.dp, vertical = 11.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, style = MaterialTheme.typography.labelLarge, color = foregroundColor)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
+/** One plan: its jewel and name, what it is for, a jewel tick before each thing it includes. Pro is edged with the jewels. */
 @Composable
-private fun PlanComparisonCard(plan: PlanTier, isCurrent: Boolean, billingNote: String? = null) {
-    val borderColor = if (plan.highlighted) MaterialTheme.colorScheme.primary else GlassColors.border
-    val borderWidth = if (plan.highlighted) 1.5.dp else 1.dp
-    val nameColor = if (plan.highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-
+private fun PlanCard(plan: PlanTier, isCurrent: Boolean, billingNote: String? = null) {
+    val shape = RoundedCornerShape(24.dp)
+    val edge = if (plan.highlighted) {
+        Modifier.border(width = 1.5.dp, brush = zarvisAuroraBrush(), shape = shape)
+    } else {
+        Modifier.border(width = 1.dp, color = GlassColors.border, shape = shape)
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(color = GlassColors.surfaceTint, shape = RoundedCornerShape(24.dp))
-            .border(width = borderWidth, color = borderColor, shape = RoundedCornerShape(24.dp))
-            .padding(ZarvisSpacing.md),
+            .background(color = GlassColors.surfaceTint, shape = shape)
+            .then(edge)
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(text = plan.name, style = MaterialTheme.typography.titleLarge, color = nameColor)
-            if (isCurrent) {
-                Text(text = "Current plan", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else if (plan.highlighted) {
-                Text(text = "Recommended", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            JewelIcon(plan.icon, plan.jewel, size = 48.dp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = StatusLabels.humanize(plan.code), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                Text(text = tr(plan.tagline), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Text(text = plan.tagline, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        when {
+            isCurrent -> StatusBadge(label = tr(UiString.PLANS_YOUR_PLAN), tone = StatusTone.SUCCESS)
+            plan.highlighted -> StatusBadge(label = tr(UiString.PLANS_RECOMMENDED), tone = StatusTone.WAITING)
+        }
         billingNote?.let {
             Text(text = it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         plan.features.forEach { feature ->
-            Text(text = "✓  $feature", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                JewelIcon(ZarvisIcons.Check, Jewel.EMERALD, size = 24.dp)
+                Text(text = tr(feature), style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }
+
+/** The server's ISO time as a date in the app's language ("29 Oct 2026"); the raw text if it cannot be read. */
+private fun readableDate(iso: String, locale: String): String = runCatching {
+    val tag = if (locale.startsWith("hi")) "hi-IN" else "en-IN"
+    DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag(tag))
+        .format(OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()))
+}.getOrDefault(iso)

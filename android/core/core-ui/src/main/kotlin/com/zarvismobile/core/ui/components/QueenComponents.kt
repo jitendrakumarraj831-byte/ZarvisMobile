@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalTextApi::class)
+@file:OptIn(ExperimentalTextApi::class, ExperimentalLayoutApi::class)
 
 package com.zarvismobile.core.ui.components
 
@@ -12,9 +12,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +34,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
@@ -44,6 +50,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -51,10 +58,12 @@ import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.LocalZarvisExtras
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisActionBlue
@@ -67,6 +76,7 @@ import com.zarvismobile.core.ui.theme.ZarvisGoldPale
 import com.zarvismobile.core.ui.theme.ZarvisOrchid
 import com.zarvismobile.core.ui.theme.ZarvisRose
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.core.ui.theme.zarvisAuroraBrush
 import com.zarvismobile.core.ui.theme.zarvisReduceMotion
 
 /*
@@ -339,4 +349,115 @@ fun GoldDivider(modifier: Modifier = Modifier, indent: Dp = 66.dp) {
             .height(1.dp)
             .background(ZarvisAccents.gold.copy(alpha = 0.16f)),
     )
+}
+
+// ---- Page header --------------------------------------------------------------------------------
+
+/** Back, as a glass pill with an arrow and the word: a 48dp target that says what it does. */
+@Composable
+fun QueenBackButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(GlassColors.surfaceTintElevated, shape)
+            .border(1.dp, ZarvisAccents.gold.copy(alpha = 0.35f), shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(start = 10.dp, end = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(imageVector = ZarvisIcons.Left, contentDescription = null, tint = ZarvisAccents.gold, modifier = Modifier.size(20.dp))
+        Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
+ * The top of a page (board A15): Back when there is somewhere to go back to, then a glass hero card washed with the page's
+ * [jewel], with its jewel icon, a gold [kicker], the title in gold lettering (the page's heading for TalkBack), one line on what
+ * the page is for, and [actions] (chips, small buttons) wrapping under it.
+ */
+@Composable
+fun QueenPageHeader(
+    title: String,
+    subtitle: String?,
+    icon: ImageVector,
+    jewel: Jewel,
+    modifier: Modifier = Modifier,
+    kicker: String? = null,
+    onBack: (() -> Unit)? = null,
+    backLabel: String = "Back",
+    actions: (@Composable () -> Unit)? = null,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+        if (onBack != null) QueenBackButton(label = backLabel, onClick = onBack)
+        val shape = RoundedCornerShape(26.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(GlassColors.surfaceTint, shape)
+                .background(
+                    Brush.linearGradient(listOf(jewel.bottom.copy(alpha = 0.22f), Color.Transparent, ZarvisGold.copy(alpha = 0.10f))),
+                    shape,
+                )
+                .border(
+                    1.dp,
+                    Brush.linearGradient(listOf(ZarvisAccents.gold.copy(alpha = 0.55f), jewel.bottom.copy(alpha = 0.35f), GlassColors.border)),
+                    shape,
+                )
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                JewelIcon(icon, jewel, size = 56.dp)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (kicker != null) SectionKicker(text = kicker, isHeading = false)
+                    GoldText(
+                        text = title,
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                        modifier = Modifier.semantics { heading() },
+                    )
+                }
+            }
+            if (subtitle != null) {
+                Text(text = subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (actions != null) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+                ) { actions() }
+            }
+        }
+    }
+}
+
+// ---- Numbers ------------------------------------------------------------------------------------
+
+/** One number on a glass tile: its jewel icon, the value large (one line, so "1.2 s" never wraps), and what it counts. */
+@Composable
+fun QueenStatTile(value: String, label: String, icon: ImageVector, jewel: Jewel, modifier: Modifier = Modifier) {
+    GlassSurface(modifier = modifier, contentPadding = 14.dp) {
+        JewelIcon(icon, jewel, size = 32.dp)
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+    }
+}
+
+/** A thin meter filled with the Queen jewels up to [fraction] (0..1). Decoration: the number it shows is always written next to it. */
+@Composable
+fun GoldMeter(fraction: Float, modifier: Modifier = Modifier, height: Dp = 8.dp) {
+    val filled = fraction.coerceIn(0f, 1f)
+    val shape = RoundedCornerShape(50)
+    Box(modifier = modifier.fillMaxWidth().height(height).background(ZarvisAccents.gold.copy(alpha = 0.16f), shape)) {
+        if (filled > 0f) Box(Modifier.fillMaxWidth(filled).fillMaxHeight().background(zarvisAuroraBrush(), shape))
+    }
 }

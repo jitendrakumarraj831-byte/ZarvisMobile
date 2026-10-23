@@ -6,9 +6,11 @@ import com.zarvismobile.data.remote.ZarvisApi
 import com.zarvismobile.data.remote.dto.TaskDto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class TasksUiState(
@@ -18,6 +20,8 @@ data class TasksUiState(
     val error: String? = null,
     /** A Pause or Cancel was refused or never arrived; the list shown is still the last good one. */
     val actionFailed: Boolean = false,
+    /** Tasks with a Pause or Cancel on its way: their buttons are off, so a second tap cannot send it twice (and get a false 409 error). */
+    val busy: Set<String> = emptySet(),
 )
 
 /** Backs the Task Engine's client view: list, pause and cancel. No executor exists yet, so nothing starts a task. */
@@ -32,11 +36,14 @@ class TasksViewModel @Inject constructor(
     /** Reads the list. The screen calls this every time it is shown (the tab outlives a visit elsewhere), so the list is never an old one. */
     fun refresh() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null, actionFailed = false)
+            _uiState.update { it.copy(isLoading = true, error = null, actionFailed = false) }
             try {
-                _uiState.value = TasksUiState(tasks = api.getTasks().tasks, isLoading = false)
+                val tasks = api.getTasks().tasks
+                _uiState.update { it.copy(tasks = tasks, isLoading = false, error = null) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (t: Throwable) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = t.message ?: "Couldn't load tasks.")
+                _uiState.update { it.copy(isLoading = false, error = t.message ?: "Couldn't load tasks.") }
             }
         }
     }
@@ -45,12 +52,18 @@ class TasksViewModel @Inject constructor(
     fun cancel(taskId: String) = transition(taskId, "cancel")
 
     private fun transition(taskId: String, action: String) {
+        if (taskId in _uiState.value.busy) return
+        _uiState.update { it.copy(busy = it.busy + taskId, actionFailed = false) }
         viewModelScope.launch {
             try {
                 api.transitionTask(taskId, action)
                 refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (t: Throwable) {
-                _uiState.value = _uiState.value.copy(actionFailed = true)
+                _uiState.update { it.copy(actionFailed = true) }
+            } finally {
+                _uiState.update { it.copy(busy = it.busy - taskId) }
             }
         }
     }
