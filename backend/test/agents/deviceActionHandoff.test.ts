@@ -257,8 +257,8 @@ describe("POST /api/v1/orchestrator/turn and /device-result", () => {
     const { server, auth } = await app();
     const first = await request(server).post("/api/v1/orchestrator/turn").set("Authorization", auth).send({ utterance: "show me my gallery", deviceActions: PHONE });
     const done = await report(server, auth, {
-      conversationId: first.body.conversationId, toolCallId: "t-1", skillId: "phone.open_app", status: "COMPLETED", message: "Opening Photos.",
-      continueWith: "nothing left", step: 1, deviceActions: PHONE,
+      conversationId: first.body.conversationId, toolCallId: first.body.deviceAction.toolCallId, skillId: "phone.open_app", status: "COMPLETED",
+      message: "Opening Photos.", continueWith: "nothing left", step: 1, deviceActions: PHONE,
     });
     expect(done.body.next.deviceAction).toBeUndefined();
     expect(done.body.next.message).toBe("That's done on your phone.");
@@ -269,28 +269,35 @@ describe("POST /api/v1/orchestrator/turn and /device-result", () => {
   it("never continues after a declined or failed step, nor past the step limit, nor in someone else's conversation", async () => {
     const { server, auth } = await app();
     const other = await app();
-    const first = await request(server).post("/api/v1/orchestrator/turn").set("Authorization", auth).send({ utterance: "show me my gallery", deviceActions: PHONE });
-    const body = {
-      conversationId: first.body.conversationId, toolCallId: "t-1", skillId: "phone.open_app", status: "COMPLETED", message: "Opening Photos.",
-      continueWith: "open settings", step: 1, deviceActions: PHONE,
-    };
+    // Each report is the one report of its own handoff.
+    async function handedOver() {
+      const turnRes = await request(server).post("/api/v1/orchestrator/turn").set("Authorization", auth).send({ utterance: "show me my gallery", deviceActions: PHONE });
+      return {
+        conversationId: turnRes.body.conversationId, toolCallId: turnRes.body.deviceAction.toolCallId, skillId: "phone.open_app", status: "COMPLETED",
+        message: "Opening Photos.", continueWith: "open settings", step: 1, deviceActions: PHONE,
+      };
+    }
     for (const status of ["DENIED", "FAILED", "PERMISSION_REQUIRED"]) {
-      const res = await report(server, auth, { ...body, status, message: "Nothing was done." });
+      const res = await report(server, auth, { ...(await handedOver()), status, message: "Nothing was done." });
       expect(res.body.recorded).toBe(true);
       expect(res.body.next).toBeUndefined();
       expect(res.body.stopped).toBeTruthy();
     }
-    const limit = await report(server, auth, { ...body, step: MAX_PHONE_STEPS });
+    const limit = await report(server, auth, { ...(await handedOver()), step: MAX_PHONE_STEPS });
     expect(limit.body.next).toBeUndefined();
     expect(limit.body.stopped).toContain(String(MAX_PHONE_STEPS));
-    expect((await report(other.server, other.auth, body)).status).toBe(404);
+    expect((await report(other.server, other.auth, await handedOver())).status).toBe(404);
   });
 
   it("records a result only in the caller's own conversation, for a known action, with a real status and text", async () => {
     const { server, auth } = await app();
     const other = await app();
     const turnRes = await request(server).post("/api/v1/orchestrator/turn").set("Authorization", auth).send({ utterance: "open wifi settings", deviceActions: PHONE });
-    const body = { conversationId: turnRes.body.conversationId, toolCallId: "t-1", skillId: "device.open_settings", status: "USER_ACTION_REQUIRED", message: "I opened Wi-Fi settings." };
+    expect(turnRes.body.deviceAction).toMatchObject({ skillId: "device.open_settings" });
+    const body = {
+      conversationId: turnRes.body.conversationId, toolCallId: turnRes.body.deviceAction.toolCallId, skillId: "device.open_settings",
+      status: "USER_ACTION_REQUIRED", message: "I opened Wi-Fi settings.",
+    };
 
     const otherAccount = await request(other.server).post("/api/v1/orchestrator/device-result").set("Authorization", other.auth).send(body);
     expect(otherAccount.status).toBe(404);

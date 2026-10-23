@@ -201,6 +201,27 @@ export type TurnClaim =
 export const TURN_RECORD_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * A phone action the planner handed to the client (TurnResult.deviceAction): the phone may report its result once, into the
+ * conversation it was handed to, for the action it was handed (POST /orchestrator/device-result). Nothing else is accepted as a
+ * phone result, so a report can neither invent an action nor be repeated to add replies.
+ */
+export interface DeviceHandoffRecord {
+  toolCallId: string;
+  accountId: string;
+  conversationId: string;
+  skillId: string;
+  issuedAt: Date;
+  /** When its one report was accepted. */
+  reportedAt?: Date;
+}
+
+/** What a phone report found: its handoff (now marked reported), one already reported, or none that matches. */
+export type DeviceReportClaim = "claimed" | "already_reported" | "unknown";
+
+/** How long a handed-over phone action may still be reported: as long as the turn that handed it can be replayed. */
+export const DEVICE_HANDOFF_RETENTION_MS = TURN_RECORD_RETENTION_MS;
+
+/**
  * Storage boundary. Two implementations ship against this interface: InMemoryStore
  * (local dev/tests only — its state does not survive a process restart or serverless cold
  * start) and PostgresStore (used automatically once POSTGRES_URL/DATABASE_URL is set — see
@@ -329,6 +350,20 @@ export interface Store {
    * before `staleBefore` (its request died) can be claimed again, like a `failed` one.
    */
   claimTurn(accountId: string, clientTurnId: string, fingerprint: string, now: Date, staleBefore: Date): Promise<TurnClaim>;
+
+  /** Records a phone action handed to the client. The same toolCallId recorded again (a replayed turn) changes nothing. */
+  recordDeviceHandoff(handoff: DeviceHandoffRecord): Promise<void>;
+  /**
+   * Atomically accepts the one report of a handoff: "claimed" (and marks it reported) only for the account's own handoff with this
+   * toolCallId, conversation and skill, issued at or after `issuedAfter` and not reported before; "already_reported" when that
+   * handoff's report was accepted earlier; "unknown" otherwise.
+   */
+  claimDeviceReport(
+    accountId: string,
+    report: { toolCallId: string; conversationId: string; skillId: string },
+    now: Date,
+    issuedAfter: Date,
+  ): Promise<DeviceReportClaim>;
   updateTurn(
     accountId: string,
     clientTurnId: string,

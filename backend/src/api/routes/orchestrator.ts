@@ -147,7 +147,9 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
   /**
    * The result of a phone action the client ran for a `deviceAction` turn, recorded as the assistant's reply so the
    * conversation (and the next turn's context) says what really happened on the phone. Only into the caller's own
-   * conversation, only for a known phone action, and only the client's plain-language result text.
+   * conversation, only for the phone action the planner handed over in it (its toolCallId and skillId), only once
+   * (a repeat is 409 `device_result_already_recorded`, anything never handed over is 404 `unknown_device_action`),
+   * and only the client's plain-language result text.
    */
   const deviceResultLimit = rateLimit({ name: "device-result", windowMs: 60 * 1000, max: 60, keyBy: "account" });
   router.post(
@@ -170,10 +172,21 @@ export function orchestratorRouter(orchestrator: Orchestrator): Router {
       }
       const recorded = await orchestrator.recordDeviceResult(req.auth!.accountId, {
         conversationId: conversationId.trim(),
+        toolCallId: toolCallId.trim(),
+        skillId,
         message: message.trim().slice(0, 2000),
       });
-      if (!recorded) {
+      if (recorded === "conversation_not_found") {
         res.status(404).json({ error: "Conversation not found.", code: "conversation_not_found" });
+        return;
+      }
+      // A report is accepted only for a phone action handed over in this conversation, and only once: nothing is recorded or planned.
+      if (recorded === "unknown_handoff") {
+        res.status(404).json({ error: "No such phone action was handed to this conversation.", code: "unknown_device_action" });
+        return;
+      }
+      if (recorded === "already_reported") {
+        res.status(409).json({ error: "This phone action's result was already recorded.", code: "device_result_already_recorded" });
         return;
       }
       logger.info("Phone action result recorded", { toolCallId: toolCallId.slice(0, 100), skillId, status });
