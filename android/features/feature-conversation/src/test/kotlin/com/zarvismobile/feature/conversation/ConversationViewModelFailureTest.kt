@@ -25,6 +25,7 @@ import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 import java.lang.reflect.Proxy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -105,10 +106,17 @@ class ConversationViewModelFailureTest {
         "event: done\ndata: " + """{"message":"$message","toolCalls":[],"conversationId":"chat-1"}""" + "\n\n",
     )
 
+    private val silent = object : TextToSpeechEngine {
+        override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) = Unit
+        override fun stop() = Unit
+    }
+
     private fun screen(
         vararg replies: MockResponse,
         language: String = "en",
         listening: Flow<TranscriptUpdate> = flowOf(),
+        autoSpeak: Boolean = false,
+        voice: TextToSpeechEngine = silent,
     ): ConversationViewModel {
         backend = Backend(replies.toList())
         server = MockWebServer().also { it.dispatcher = backend; it.start() }
@@ -145,13 +153,10 @@ class ConversationViewModelFailureTest {
                 override fun listen(locale: String): Flow<TranscriptUpdate> = listening
                 override fun stop() = Unit
             },
-            ttsEngine = object : TextToSpeechEngine {
-                override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) = Unit
-                override fun stop() = Unit
-            },
+            ttsEngine = voice,
             preferences = object : ChatPreferences {
                 override val locale: Flow<String> = flowOf(language)
-                override val autoSpeak: Flow<Boolean> = flowOf(false)
+                override val autoSpeak: Flow<Boolean> = flowOf(autoSpeak)
             },
             // The microphone is allowed: Android reports it granted (the real permission flow has its own tests).
             access = AccessCoordinator({ AccessState.GRANTED }, unused(), unused(), unused()),
@@ -267,5 +272,55 @@ class ConversationViewModelFailureTest {
         assertEquals(VoiceState.ERROR, vm.uiState.value.voiceState)
         assertEquals(UiString.VOICE_NETWORK.hi, vm.uiState.value.error)
         assertFalse(vm.uiState.value.error!!.contains("code"))
+    }
+
+    /** A voice that plays until it is stopped, like the real engine: speak() returns when stop() ends the playback. */
+    private class HeldVoice : TextToSpeechEngine {
+        @Volatile private var playing: CompletableDeferred<Unit>? = null
+        @Volatile var stopsWhilePlaying = 0
+        @Volatile var allStops = 0
+        override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
+            val playback = CompletableDeferred<Unit>().also { playing = it }
+            onPlaybackStarted()
+            playback.await()
+        }
+        override fun stop() {
+            allStops++
+            // ZARVIS also calls stop() before each new request, when nothing is playing: only a stop that ends playback counts here.
+            val playback = playing ?: return
+            playing = null
+            stopsWhilePlaying++
+            playback.complete(Unit)
+        }
+    }
+
+    @Test
+    fun stopEndsAReplyBeingReadAloudAndKeepsItsText() {
+        val voice = HeldVoice()
+        val vm = screen(done("Opening WhatsApp."), autoSpeak = true, voice = voice)
+        vm.submitInitialText("open whatsapp")
+        waitFor("the reply to be read aloud") { vm.uiState.value.voiceState == VoiceState.SPEAKING }
+
+        vm.stopSpeaking()
+
+        waitFor("speaking to end") { vm.uiState.value.voiceState == VoiceState.IDLE }
+        assertEquals(1, voice.stopsWhilePlaying)
+        assertEquals("Opening WhatsApp.", vm.lastReply()?.assistantText)
+        assertNull("stopping is not an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun stopDoesNothingWhenNothingIsBeingReadAloud() {
+        val voice = HeldVoice()
+        val vm = screen(done("Hello."), voice = voice)
+        vm.submitInitialText("hi")
+        vm.answered("hi")
+        waitFor("the screen to be idle") { vm.uiState.value.voiceState == VoiceState.IDLE }
+        val before = voice.allStops
+
+        vm.stopSpeaking()
+
+        assertEquals("the voice is not touched", before, voice.allStops)
+        assertEquals(VoiceState.IDLE, vm.uiState.value.voiceState)
     }
 }

@@ -82,8 +82,14 @@ class UiStringTest {
         }
         // Voice input and read-aloud do follow the app language (ConversationViewModel passes hi-IN or en-US), and the page says so.
         assertTrue("voice input and read-aloud" in en, en)
-        // What is still English is named.
-        assertTrue("Error messages" in en && "Permissions & Device Access" in en && "Plans" in en && "Developer Agent" in en, en)
+        // What is still English is named, after "Hindi switches" has named what is translated (Plans and Developer Agent moved to UiString).
+        val stillEnglish = en.substringAfter("Error messages")
+        assertTrue("Error messages" in en && "Permissions & Device Access" in stillEnglish, en)
+        val translated = en.substringBefore("It does not decide")
+        for (page in listOf("Skills", "Plans", "Developer Agent")) {
+            assertTrue(page in translated, "$page is named as translated")
+            assertFalse(page in stillEnglish, "$page is no longer English")
+        }
     }
 
     @Test

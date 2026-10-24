@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -69,8 +71,8 @@ import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisActionBlue
 import com.zarvismobile.core.ui.theme.ZarvisActionPink
 import com.zarvismobile.core.ui.theme.ZarvisActionViolet
-import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
 import com.zarvismobile.core.ui.theme.ZarvisFontFamily
+import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.core.ui.theme.ZarvisGold
 import com.zarvismobile.core.ui.theme.ZarvisGoldPale
 import com.zarvismobile.core.ui.theme.ZarvisOrchid
@@ -193,14 +195,14 @@ fun GoldText(text: String, style: TextStyle, modifier: Modifier = Modifier, text
 // ---- Section label ------------------------------------------------------------------------------
 
 /**
- * The small gold label over a section ("RECENT TASKS"): Orbitron, uppercase, widely spaced, and (unless [isHeading] is false, for a
- * tagline) a heading for TalkBack. Hindi has
- * no capitals and must not be letter-spaced (it breaks the joined letters), so Hindi text keeps Sora at a readable size.
+ * The small gold label over a section ("RECENT TASKS"): Sora 12/16, uppercase, spaced, and (unless [isHeading] is false, for a
+ * tagline) a heading for TalkBack. Hindi has no capitals and must not be letter-spaced (it breaks the joined letters), so Hindi
+ * text stays unspaced at a readable size.
  */
 @Composable
 fun SectionKicker(text: String, modifier: Modifier = Modifier, isHeading: Boolean = true) {
     val latin = text.all { it.code < 0x0900 }
-    val style = if (latin) ZarvisDisplayStyles.kicker else TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 18.sp)
+    val style = if (latin) ZarvisProStyles.sectionLabel else TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 18.sp)
     Text(
         text = if (latin) text.uppercase() else text,
         style = style,
@@ -319,23 +321,42 @@ fun QueenEmptyState(
     }
 }
 
-/** Something failed to load: a ruby card that says what failed in plain words, with a Try again button. */
+/** Something failed to load: a card with a rose edge that says what failed in plain words, with Try again right there. */
 @Composable
 fun QueenErrorCard(message: String, retryLabel: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(22.dp)
+    val shape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(ZarvisRose.copy(alpha = 0.10f), shape)
-            .border(1.dp, ZarvisRose.copy(alpha = 0.5f), shape)
+            .background(GlassColors.surfaceTint, shape)
+            .border(1.dp, ZarvisAccents.danger.copy(alpha = 0.45f), shape)
             .padding(ZarvisSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
-            JewelIcon(ZarvisIcons.Alert, Jewel.RUBY)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+            Icon(imageVector = ZarvisIcons.Alert, contentDescription = null, tint = ZarvisAccents.danger, modifier = Modifier.padding(top = 1.dp).size(20.dp))
             Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         }
-        ZarvisSecondaryButton(text = retryLabel, onClick = onRetry)
+        QueenOutlineAction(label = retryLabel, icon = ZarvisIcons.Refresh, onClick = onRetry)
+    }
+}
+
+/** A small outlined gold pill with an icon: Try again, Choose apps, See all. */
+@Composable
+fun QueenOutlineAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .border(1.dp, ZarvisAccents.gold.copy(alpha = 0.55f), shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (icon != null) Icon(imageVector = icon, contentDescription = null, tint = ZarvisAccents.gold, modifier = Modifier.size(16.dp))
+        Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = ZarvisAccents.gold)
     }
 }
 
@@ -353,100 +374,177 @@ fun GoldDivider(modifier: Modifier = Modifier, indent: Dp = 66.dp) {
 
 // ---- Page header --------------------------------------------------------------------------------
 
-/** Back, as a glass pill with an arrow and the word: a 48dp target that says what it does. */
+/** Back: a 48dp round button with an arrow. TalkBack reads [label] ("Back"). */
 @Composable
 fun QueenBackButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(50)
-    Row(
+    Box(
         modifier = modifier
-            .heightIn(min = 48.dp)
-            .clip(shape)
-            .background(GlassColors.surfaceTintElevated, shape)
-            .border(1.dp, ZarvisAccents.gold.copy(alpha = 0.35f), shape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(start = 10.dp, end = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), CircleShape)
+            .clickable(role = Role.Button, onClickLabel = null, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(imageVector = ZarvisIcons.Left, contentDescription = null, tint = ZarvisAccents.gold, modifier = Modifier.size(20.dp))
-        Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Icon(imageVector = ZarvisIcons.Left, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
     }
 }
 
 /**
- * The top of a page (board A15): Back when there is somewhere to go back to, then a glass hero card washed with the page's
- * [jewel], with its jewel icon, a gold [kicker], the title in gold lettering (the page's heading for TalkBack), one line on what
- * the page is for, and [actions] (chips, small buttons) wrapping under it.
+ * The top of every page (Queen Pro): Back (when there is somewhere to go back to) next to the title, one line on what the page is
+ * for, then the page's [actions] (chips, small buttons) wrapping under it. A tab's own page has no Back and a larger title (28/34);
+ * a page opened from somewhere has Back and the app-bar title (22/28). The title is the page's heading for TalkBack.
  */
 @Composable
 fun QueenPageHeader(
     title: String,
     subtitle: String?,
-    icon: ImageVector,
-    jewel: Jewel,
     modifier: Modifier = Modifier,
-    kicker: String? = null,
     onBack: (() -> Unit)? = null,
     backLabel: String = "Back",
     actions: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-        if (onBack != null) QueenBackButton(label = backLabel, onClick = onBack)
-        val shape = RoundedCornerShape(26.dp)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(GlassColors.surfaceTint, shape)
-                .background(
-                    Brush.linearGradient(listOf(jewel.bottom.copy(alpha = 0.22f), Color.Transparent, ZarvisGold.copy(alpha = 0.10f))),
-                    shape,
-                )
-                .border(
-                    1.dp,
-                    Brush.linearGradient(listOf(ZarvisAccents.gold.copy(alpha = 0.55f), jewel.bottom.copy(alpha = 0.35f), GlassColors.border)),
-                    shape,
-                )
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                JewelIcon(icon, jewel, size = 56.dp)
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (kicker != null) SectionKicker(text = kicker, isHeading = false)
-                    GoldText(
-                        text = title,
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        modifier = Modifier.semantics { heading() },
-                    )
-                }
-            }
-            if (subtitle != null) {
-                Text(text = subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (actions != null) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
-                    verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
-                ) { actions() }
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) QueenBackButton(label = backLabel, onClick = onBack, modifier = Modifier.padding(end = ZarvisSpacing.xs))
+            Text(
+                text = title,
+                style = if (onBack != null) ZarvisProStyles.barTitle else ZarvisProStyles.pageTitle,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f).semantics { heading() },
+            )
+        }
+        if (subtitle != null) {
+            Text(text = subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (actions != null) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+            ) { actions() }
         }
     }
 }
 
+// ---- Sections, cards and rows (Queen Pro) --------------------------------------------------------
+
+/**
+ * A group on a page: the gold [title] (a heading), an optional one-line [hint] under it, then [content] (usually a [QueenListCard]).
+ */
+@Composable
+fun QueenSection(title: String, modifier: Modifier = Modifier, hint: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+        SectionKicker(text = title, modifier = Modifier.padding(top = ZarvisSpacing.sm))
+        if (hint != null) {
+            Text(text = hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        content()
+    }
+}
+
+/** One card holding a list of [QueenRow]s, separated by hairlines ([QueenRowDivider]). No inner padding: the rows bring their own. */
+@Composable
+fun QueenListCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(GlassColors.surfaceTint, shape)
+            .border(1.dp, GlassColors.border, shape),
+        content = content,
+    )
+}
+
+/** The hairline between two rows of a [QueenListCard]. */
+@Composable
+fun QueenRowDivider(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(1.dp).background(GlassColors.border.copy(alpha = 0.7f)))
+}
+
+/** A 36dp rounded tile with an icon in [tint] on a 12% wash of it. Decoration next to a label, so it has no words of its own. */
+@Composable
+fun QueenIconTile(icon: ImageVector, tint: Color, modifier: Modifier = Modifier, size: Dp = 36.dp) {
+    Box(
+        modifier = modifier.size(size).background(tint.copy(alpha = 0.12f), RoundedCornerShape(size * 0.28f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.56f))
+    }
+}
+
+/**
+ * One row (Queen Pro): an optional icon tile, the [title] and one line of [detail], then [trailing] on the right (a switch, a chip,
+ * a button). At least 64dp tall. With [onClick] the whole row is one button and shows a chevron after [trailing].
+ */
+@Composable
+fun QueenRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    detail: String? = null,
+    icon: ImageVector? = null,
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    below: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    val tap = if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier
+    Row(
+        modifier = modifier.fillMaxWidth().heightIn(min = 64.dp).then(tap).padding(horizontal = ZarvisSpacing.md, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) QueenIconTile(icon = icon, tint = iconTint)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(text = title, style = ZarvisProStyles.rowTitle, color = MaterialTheme.colorScheme.onSurface)
+            if (detail != null) {
+                Text(text = detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (below != null) below()
+        }
+        if (trailing != null) trailing()
+        if (onClick != null) {
+            Icon(imageVector = ZarvisIcons.Right, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** A short note in a soft gold (or [tint]) wash with an icon: what a setting means, a safety promise. */
+@Composable
+fun QueenNote(text: String, modifier: Modifier = Modifier, icon: ImageVector = ZarvisIcons.Shield, tint: Color = ZarvisAccents.gold, title: String? = null) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = modifier.fillMaxWidth().background(tint.copy(alpha = 0.08f), shape).padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.padding(top = 1.dp).size(18.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (title != null) Text(text = title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(text = text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Small print under a section (12/17 in the secondary text colour). */
+@Composable
+fun QueenFootnote(text: String, modifier: Modifier = Modifier) {
+    Text(text = text, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
+}
+
 // ---- Numbers ------------------------------------------------------------------------------------
 
-/** One number on a glass tile: its jewel icon, the value large (one line, so "1.2 s" never wraps), and what it counts. */
+/** One number on a card (Queen Pro): the value large (one line, so "1.2 s" never wraps) in [valueColor], and what it counts. */
 @Composable
-fun QueenStatTile(value: String, label: String, icon: ImageVector, jewel: Jewel, modifier: Modifier = Modifier) {
-    GlassSurface(modifier = modifier, contentPadding = 14.dp) {
-        JewelIcon(icon, jewel, size = 32.dp)
+fun QueenStatTile(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = Color.Unspecified) {
+    GlassSurface(modifier = modifier, contentPadding = 12.dp) {
         Text(
             text = value,
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = valueColor,
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 10.dp),
         )
         Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
     }

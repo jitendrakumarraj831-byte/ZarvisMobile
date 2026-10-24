@@ -39,8 +39,8 @@ import com.zarvismobile.domain.presentation.UiString
  * instant it's focused (§22 "Floating Command Bar with glowing neon border on focus") — driven purely by
  * [collectIsFocusedAsState], so it reacts the same frame as the keyboard opens with no perceptible delay.
  *
- * The focus ring is the theme's primary (4.4:1 or better on both pages; the old cyan was 1.7:1 on the light one), the field sits on a
- * glass fill, and the mic and send buttons are named in the app's language for TalkBack.
+ * The focus ring is the theme's primary (4.4:1 or better on both pages; the old cyan was 1.7:1 on the light one), the field sits on the
+ * raised card colour, and the mic and send buttons are named in the app's language for TalkBack.
  */
 @Composable
 fun ZarvisComposer(
@@ -51,6 +51,7 @@ fun ZarvisComposer(
     modifier: Modifier = Modifier,
     placeholder: String = "Type your task",
     enabled: Boolean = true,
+    showMic: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -83,8 +84,8 @@ fun ZarvisComposer(
             unfocusedContainerColor = fill,
             disabledContainerColor = fill,
             focusedBorderColor = accent,
-            // The gold edge of the Queen composer: 3.4:1 or more against the page in both themes, so the field is findable.
-            unfocusedBorderColor = ZarvisAccents.gold.copy(alpha = 0.7f),
+            // A quiet edge (Queen Pro), still 3:1 or more against the page in both themes, so the field is findable.
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
             unfocusedLeadingIconColor = ZarvisAccents.gold,
             cursorColor = accent,
             focusedLeadingIconColor = accent,
@@ -93,10 +94,15 @@ fun ZarvisComposer(
             unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
         placeholder = { Text(placeholder) },
-        leadingIcon = {
-            IconButton(onClick = onMicClick, enabled = enabled) {
-                Icon(imageVector = Icons.Filled.Mic, contentDescription = tr(UiString.A11Y_SPEAK))
+        // Chat shows its own orb next to the field as the microphone, so the field drops its mic there ([showMic] false).
+        leadingIcon = if (showMic) {
+            {
+                IconButton(onClick = onMicClick, enabled = enabled) {
+                    Icon(imageVector = Icons.Filled.Mic, contentDescription = tr(UiString.A11Y_SPEAK))
+                }
             }
+        } else {
+            null
         },
         trailingIcon = {
             val canSend = enabled && value.isNotBlank()

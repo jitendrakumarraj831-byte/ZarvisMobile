@@ -352,6 +352,14 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
+    /** Stops a reply being read aloud (the Stop button while Speaking). The reply stays on screen as text. */
+    fun stopSpeaking() {
+        if (_uiState.value.voiceState != VoiceState.SPEAKING) return
+        // The engine's speak() returns once its playback ends, and runTurn then sets IDLE; setting it here too keeps the button from lingering.
+        ttsEngine.stop()
+        _uiState.update { if (it.voiceState == VoiceState.SPEAKING) it.copy(voiceState = VoiceState.IDLE) else it }
+    }
+
     /**
      * Sends the last message again under the same id, after its reply was a failure that trying again can fix. The server answers a
      * turn it already finished from its stored result, and reuses the tool runs a failed attempt already completed.

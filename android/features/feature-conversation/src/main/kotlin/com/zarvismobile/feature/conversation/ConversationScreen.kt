@@ -33,7 +33,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,9 +63,10 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.AiOrb
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.GlowColorsFor
-import com.zarvismobile.core.ui.components.GoldText
 import com.zarvismobile.core.ui.components.QueenBackButton
+import com.zarvismobile.core.ui.components.QueenConfirmDialog
 import com.zarvismobile.core.ui.components.QueenCrown
+import com.zarvismobile.core.ui.components.QueenOutlineAction
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
@@ -134,16 +134,15 @@ fun ConversationScreen(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text(tr(UiString.CHAT_DELETE_TITLE)) },
-            text = { Text(tr(UiString.CHAT_DELETE_BODY)) },
-            confirmButton = {
-                TextButton(onClick = { confirmDelete = false; viewModel.deleteConversation() }) {
-                    Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
+        QueenConfirmDialog(
+            title = tr(UiString.CHAT_DELETE_TITLE),
+            body = tr(UiString.CHAT_DELETE_BODY),
+            confirmLabel = tr(UiString.COMMON_DELETE),
+            dismissLabel = tr(UiString.COMMON_CANCEL),
+            onConfirm = { confirmDelete = false; viewModel.deleteConversation() },
+            onDismiss = { confirmDelete = false },
+            destructive = true,
+            icon = ZarvisIcons.Trash,
         )
     }
 
@@ -171,12 +170,7 @@ fun ConversationScreen(
                 if (onBack != null) QueenBackButton(label = tr(UiString.COMMON_BACK), onClick = onBack)
                 // The title shares the row only on the Chat tab (no Back); with Back it sits on its own line below.
                 if (onBack == null) {
-                    // titleMedium: it shares a 360dp row with New chat and Delete.
-                    GoldText(
-                        text = tr(UiString.CHAT_TITLE),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                        modifier = Modifier.weight(1f).semantics { heading() },
-                    )
+                    ChatTitle(modifier = Modifier.weight(1f))
                 } else {
                     Spacer(Modifier.weight(1f))
                 }
@@ -192,11 +186,7 @@ fun ConversationScreen(
             }
             // With Back the title gets its own line, hidden while typing so the messages keep the room.
             if (onBack != null && !keyboardOpen) {
-                GoldText(
-                    text = tr(UiString.CHAT_TITLE),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                    modifier = Modifier.padding(horizontal = ZarvisSpacing.lg).semantics { heading() },
-                )
+                ChatTitle(modifier = Modifier.padding(horizontal = ZarvisSpacing.md))
             }
             uiState.deleteOutcome?.let { outcome ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
@@ -255,11 +245,17 @@ fun ConversationScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
             ) {
-                AnimatedVisibility(visible = uiState.voiceState != VoiceState.IDLE) {
-                    StatusPulseBadge(
-                        label = uiState.progress?.let { progressText(it) } ?: statusText(uiState.voiceState),
-                        glowColor = GlowColorsFor(uiState.voiceState),
-                    )
+                when (uiState.voiceState) {
+                    // Board 4: while the microphone is on, say so and offer a way out that sends nothing.
+                    VoiceState.LISTENING -> ListeningCard(onCancel = viewModel::cancelListening)
+                    // Only while audio really plays; Stop ends it and keeps the reply as text.
+                    VoiceState.SPEAKING -> SpeakingCard(onStop = viewModel::stopSpeaking)
+                    else -> AnimatedVisibility(visible = uiState.voiceState != VoiceState.IDLE) {
+                        StatusPulseBadge(
+                            label = uiState.progress?.let { progressText(it) } ?: statusText(uiState.voiceState),
+                            glowColor = GlowColorsFor(uiState.voiceState),
+                        )
+                    }
                 }
                 uiState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                 // Not an error (the microphone heard nothing): said quietly, and read out once.
@@ -271,28 +267,74 @@ fun ConversationScreen(
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     )
                 }
-                // While the keyboard is up the orb is only dead space between the messages and the keys (on a 640dp phone it left the messages
-                // under two lines); it comes back when the keyboard closes, and stays whenever it is showing a live state.
-                if (!keyboardOpen || uiState.voiceState != VoiceState.IDLE) {
-                    Box(contentAlignment = Alignment.Center) {
-                        AiOrb(
-                            state = uiState.voiceState,
-                            size = 72.dp,
-                            onClick = {
-                                if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening()
-                            },
-                        )
-                    }
+                // The field and, next to it, the orb: it is the microphone, and it shows what ZARVIS is doing.
+                val toggleMic = { if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening() }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+                    ZarvisComposer(
+                        value = uiState.composerText,
+                        onValueChange = viewModel::onComposerChange,
+                        onSubmit = viewModel::submitComposerText,
+                        onMicClick = toggleMic,
+                        placeholder = tr(UiString.CHAT_COMPOSER_HINT),
+                        enabled = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.LISTENING || uiState.voiceState == VoiceState.ERROR,
+                        showMic = false,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AiOrb(state = uiState.voiceState, size = 56.dp, onClick = toggleMic)
                 }
-                ZarvisComposer(
-                    value = uiState.composerText,
-                    onValueChange = viewModel::onComposerChange,
-                    onSubmit = viewModel::submitComposerText,
-                    onMicClick = { if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening() },
-                    placeholder = tr(UiString.CHAT_COMPOSER_HINT),
-                    enabled = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.LISTENING || uiState.voiceState == VoiceState.ERROR,
-                )
+                // Hidden while typing, so the messages keep the room.
+                if (!keyboardOpen) {
+                    Text(
+                        text = tr(UiString.CHAT_SAFETY_CAPTION),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
+        }
+    }
+}
+
+/** "Chat with ZARVIS" and, under it, that replies follow the language you write or speak in. The page's heading for TalkBack. */
+@Composable
+private fun ChatTitle(modifier: Modifier = Modifier) {
+    Column(modifier = modifier.semantics(mergeDescendants = true) { heading() }) {
+        Text(text = tr(UiString.CHAT_TITLE), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+        Text(text = tr(UiString.CHAT_LANGUAGE_CAPTION), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** The microphone is on: "Speak now", which languages work, and Cancel that throws away what was heard. Read out once. */
+@Composable
+private fun ListeningCard(onCancel: () -> Unit) {
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+        borderColor = ZarvisAccents.gold.copy(alpha = 0.45f),
+    ) {
+        Text(tr(UiString.VOICE_SPEAK_NOW), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            tr(UiString.VOICE_LISTENING_HINT),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        ZarvisSecondaryButton(text = tr(UiString.VOICE_CANCEL_SEND_NOTHING), onClick = onCancel, modifier = Modifier.padding(top = ZarvisSpacing.sm))
+    }
+}
+
+/** A reply is being read aloud: say so, with Stop. */
+@Composable
+private fun SpeakingCard(onStop: () -> Unit) {
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+            Text(
+                tr(UiString.CHAT_STATE_SPEAKING),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            QueenOutlineAction(label = tr(UiString.VOICE_STOP), onClick = onStop, icon = ZarvisIcons.Stop)
         }
     }
 }
@@ -361,10 +403,11 @@ private fun EmptyChat(onSuggestion: (String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
     ) {
         QueenCrown(width = 72.dp)
-        GoldText(
+        Text(
             text = tr(UiString.CHAT_EMPTY_TITLE),
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
             textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
         )
         Text(
             text = tr(UiString.CHAT_EMPTY_BODY),

@@ -77,4 +77,23 @@ class StatusLabelsTest {
         assertEquals(states.size, states.map { it.en }.toSet().size, "two task states share English words")
         assertEquals(states.size, states.map { it.hi }.toSet().size, "two task states share Hindi words")
     }
+
+    @Test
+    fun `tasks are grouped by who has to act next`() {
+        assertEquals(TaskGroup.NEEDS_YOU, StatusLabels.taskGroup("RUNNING", "CONFIRMATION_REQUIRED"))
+        assertEquals(TaskGroup.NEEDS_YOU, StatusLabels.taskGroup("RUNNING", "WAITING"))
+        assertEquals(TaskGroup.NEEDS_YOU, StatusLabels.taskGroup("RUNNING", "BLOCKED"))
+        assertEquals(TaskGroup.IN_PROGRESS, StatusLabels.taskGroup("PENDING"))
+        assertEquals(TaskGroup.IN_PROGRESS, StatusLabels.taskGroup("RUNNING", "VERIFYING"))
+        assertEquals(TaskGroup.IN_PROGRESS, StatusLabels.taskGroup("PAUSED"))
+        assertEquals(TaskGroup.FINISHED, StatusLabels.taskGroup("DONE"))
+        assertEquals(TaskGroup.FINISHED, StatusLabels.taskGroup("FAILED"))
+        assertEquals(TaskGroup.FINISHED, StatusLabels.taskGroup("CANCELLED"))
+    }
+
+    @Test
+    fun `a task in a state this client does not know is never filed as finished`() {
+        assertEquals(TaskGroup.IN_PROGRESS, StatusLabels.taskGroup("SOMETHING_NEW", "ALSO_NEW"))
+        for (status in TaskStatus.entries) StatusLabels.taskGroup(status.name) // every status the backend can send has a group
+    }
 }

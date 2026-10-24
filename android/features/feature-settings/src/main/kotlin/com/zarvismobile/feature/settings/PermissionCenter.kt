@@ -1,6 +1,7 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.zarvismobile.feature.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +52,17 @@ import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.capability.ConfirmationPolicy
 import com.zarvismobile.domain.entity.CapabilityStatus
 import com.zarvismobile.domain.entity.PermissionType
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import com.zarvismobile.core.ui.components.QueenPageHeader
+import com.zarvismobile.core.ui.components.SectionKicker
+import com.zarvismobile.core.ui.components.ZarvisGhostButton
+import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisProStyles
+import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.domain.access.AccessGroup
+import com.zarvismobile.domain.presentation.UiString
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -83,6 +94,9 @@ data class CapabilityRow(
 
     val granted: Boolean
         get() = definition.implementedOnAndroid && states.isNotEmpty() && states.values.all { it.satisfied() }
+
+    val group: AccessGroup
+        get() = AccessGroup.of(definition.implementedOnAndroid, states.values)
 }
 
 data class PermissionCenterState(
@@ -147,6 +161,11 @@ class PermissionCenterViewModel @Inject constructor(
     }
 }
 
+/**
+ * Permissions & Device Access (Queen Pro board 17): what Android reports right now for every capability, grouped into Allowed, Not on
+ * yet, No permission held and Not available here. Each card says the state in words, and offers Allow / Turn on, Turn off in Android
+ * Settings, and Learn more.
+ */
 @Composable
 fun PermissionCenterScreen(onBack: () -> Unit, viewModel: PermissionCenterViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
@@ -154,32 +173,38 @@ fun PermissionCenterScreen(onBack: () -> Unit, viewModel: PermissionCenterViewMo
         viewModel.refresh()
         onPauseOrDispose { }
     }
+    val groups = state.rows.groupBy { it.group }
     ZarvisBackground {
         LazyColumn(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
-            contentPadding = PaddingValues(18.dp),
+            contentPadding = PaddingValues(ZarvisSpacing.md),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                TextButton(onClick = onBack) { Text("‹ Back") }
-                Text("Permissions & Device Access", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "Android decides what ZARVIS may access; this page shows what Android reports right now. " +
+                QueenPageHeader(
+                    title = tr(UiString.SETTINGS_PAGE_PERMISSIONS),
+                    subtitle = "Android decides what ZARVIS may access; this page shows what Android reports right now. " +
                         "Allowing access never authorizes an action on its own — calls and other sensitive actions still ask you each time.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onBack = onBack,
+                    backLabel = tr(UiString.COMMON_BACK),
                 )
             }
             state.message?.let { message ->
                 item {
-                    GlassSurface(Modifier.fillMaxWidth()) {
+                    GlassSurface(Modifier.fillMaxWidth(), borderColor = ZarvisAccents.gold.copy(alpha = 0.35f)) {
                         Text(message, style = MaterialTheme.typography.bodyMedium)
                         TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
                     }
                 }
             }
-            items(state.rows, key = { it.definition.id.wireId }) { row ->
-                CapabilityCard(row, onAllow = { viewModel.allow(row.definition.id) }, onOpenSettings = { viewModel.openAndroidSettings(row.definition.id) })
+            AccessGroup.entries.forEach { group ->
+                val rows = groups[group].orEmpty()
+                if (rows.isNotEmpty()) {
+                    item(key = "group-${group.name}") { SectionKicker(text = group.label, modifier = Modifier.padding(top = ZarvisSpacing.sm)) }
+                    items(rows, key = { it.definition.id.wireId }) { row ->
+                        CapabilityCard(row, onAllow = { viewModel.allow(row.definition.id) }, onOpenSettings = { viewModel.openAndroidSettings(row.definition.id) })
+                    }
+                }
             }
         }
     }
@@ -190,43 +215,47 @@ private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettin
     val capability = row.definition
     var expanded by rememberSaveable(capability.id.wireId) { mutableStateOf(false) }
     GlassSurface(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(capability.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            RiskBadge(level = RiskBadgeLevel.valueOf(capability.risk.name))
-        }
-        Text(
-            "Android: ${statusLabel(capability.android.status)} · Web: ${statusLabel(capability.web.status)}",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            row.accessSummary,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.semantics { contentDescription = "${capability.name}: ${row.accessSummary}" },
-        )
-        if (capability.confirmation == ConfirmationPolicy.PER_ACTION) {
-            Text("Every action asks for your confirmation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-            if (row.needsAccess) {
-                ZarvisPrimaryButton(text = if (row.states.keys.any { it.specialAccess }) "Turn on" else "Allow", onClick = onAllow)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                Text(capability.name, style = ZarvisProStyles.rowTitle, modifier = Modifier.weight(1f))
+                RiskBadge(level = RiskBadgeLevel.valueOf(capability.risk.name))
             }
-            if (row.granted) ZarvisSecondaryButton(text = "Turn off in Android Settings", onClick = onOpenSettings)
-            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Less" else "Learn more") }
-        }
-        if (expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
-                Detail("Why", capability.rationale.why)
-                Detail("What data", capability.rationale.data)
-                Detail("What ZARVIS won't do automatically", capability.rationale.notAutomatic)
-                Detail("How to revoke", capability.rationale.revoke)
-                Detail("Data exposure", capability.dataExposure)
-                if (capability.supportedActions.isNotEmpty()) Detail("Supported", capability.supportedActions.joinToString("; "))
-                Detail("Not supported", capability.unsupportedActions.joinToString("; "))
-                Detail("If you say no", capability.denialBehavior + " " + capability.fallback)
-                Detail("Where to change it", capability.settingsDestination)
-                Detail("Android requirements", capability.androidRequirements)
-                Detail("Status on Android", capability.android.note)
+            Text(
+                row.accessSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (row.granted) ZarvisAccents.success else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.semantics { contentDescription = "${capability.name}: ${row.accessSummary}" },
+            )
+            Text(
+                "Android: ${statusLabel(capability.android.status)} · Web: ${statusLabel(capability.web.status)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (capability.confirmation == ConfirmationPolicy.PER_ACTION) {
+                Text("Every action asks for your confirmation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                if (row.needsAccess) {
+                    ZarvisPrimaryButton(text = if (row.states.keys.any { it.specialAccess }) "Turn on" else "Allow", onClick = onAllow)
+                }
+                if (row.granted) ZarvisSecondaryButton(text = "Turn off in Android Settings", onClick = onOpenSettings)
+                ZarvisGhostButton(text = if (expanded) "Less" else "Learn more", onClick = { expanded = !expanded })
+            }
+            if (expanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    Detail("Why", capability.rationale.why)
+                    Detail("What data", capability.rationale.data)
+                    Detail("What ZARVIS won't do automatically", capability.rationale.notAutomatic)
+                    Detail("How to revoke", capability.rationale.revoke)
+                    Detail("Data exposure", capability.dataExposure)
+                    if (capability.supportedActions.isNotEmpty()) Detail("Supported", capability.supportedActions.joinToString("; "))
+                    Detail("Not supported", capability.unsupportedActions.joinToString("; "))
+                    Detail("If you say no", capability.denialBehavior + " " + capability.fallback)
+                    Detail("Where to change it", capability.settingsDestination)
+                    Detail("Android requirements", capability.androidRequirements)
+                    Detail("Status on Android", capability.android.note)
+                }
             }
         }
     }
@@ -234,8 +263,8 @@ private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettin
 
 @Composable
 private fun Detail(label: String, body: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ZarvisAccents.gold)
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

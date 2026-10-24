@@ -3,6 +3,18 @@ package com.zarvismobile.domain.presentation
 /** How a status should look: the colour family a screen paints its badge in. */
 enum class StatusTone { ACTIVE, WAITING, SUCCESS, PROBLEM, NEUTRAL }
 
+/** The three groups of the Tasks list, in the order they are shown. */
+enum class TaskGroup(val label: UiString) {
+    /** Waiting on the person: an answer, a confirmation, or something that blocks it. */
+    NEEDS_YOU(UiString.TASKS_GROUP_NEEDS_YOU),
+
+    /** Not finished: queued, running, checking, paused, or a state this client does not know yet. */
+    IN_PROGRESS(UiString.TASKS_GROUP_IN_PROGRESS),
+
+    /** Ended, however it ended: completed, failed or cancelled. */
+    FINISHED(UiString.TASKS_GROUP_FINISHED),
+}
+
 /**
  * Plain-language names for the codes the backend sends (`PENDING`, `DONE`, `LOW`, ...). A screen must never
  * show a raw code. Wording and meaning follow the website (`web/workspace.js` LIFECYCLE_LABEL, `web/logic.js` riskLabel).
@@ -55,6 +67,13 @@ object StatusLabels {
         UiString.TASK_COMPLETED -> StatusTone.SUCCESS
         UiString.TASK_FAILED, UiString.TASK_BLOCKED -> StatusTone.PROBLEM
         else -> StatusTone.NEUTRAL
+    }
+
+    /** Which group of the Tasks list a task belongs to. A state this client has never seen is in progress, never hidden as finished. */
+    fun taskGroup(status: String, lifecycle: String? = null): TaskGroup = when (task(status, lifecycle)) {
+        UiString.TASK_WAITING, UiString.TASK_CONFIRMATION, UiString.TASK_BLOCKED -> TaskGroup.NEEDS_YOU
+        UiString.TASK_COMPLETED, UiString.TASK_FAILED, UiString.TASK_CANCELLED -> TaskGroup.FINISHED
+        else -> TaskGroup.IN_PROGRESS
     }
 
     fun risk(level: String): UiString? = RISK[level.uppercase()]

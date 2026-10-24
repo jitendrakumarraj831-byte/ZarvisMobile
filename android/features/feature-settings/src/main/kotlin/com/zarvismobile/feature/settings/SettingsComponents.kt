@@ -21,7 +21,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.components.GlassSurface
-import com.zarvismobile.core.ui.theme.readableAccent
+import com.zarvismobile.core.ui.theme.ZarvisProStyles
 
 // Small building blocks shared by the Settings pages and the Memory screen.
 
@@ -33,27 +33,27 @@ import com.zarvismobile.core.ui.theme.readableAccent
 internal fun SettingSwitchRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 64.dp)
             .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
             .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = ZarvisProStyles.rowTitle)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked = checked, onCheckedChange = null)
     }
 }
 
+/** A card that only explains: a title with a small dot in [accent], and the explanation under it. */
 @Composable
 internal fun ReadOnlyCard(title: String, body: String, accent: androidx.compose.ui.graphics.Color) {
-    // The accent edges the card and dots its title; the title itself uses the readable shade of it.
-    GlassSurface(Modifier.fillMaxWidth(), borderColor = accent.copy(alpha = 0.35f)) {
+    GlassSurface(Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(accent, CircleShape))
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = readableAccent(accent))
+            Text(title, style = ZarvisProStyles.rowTitle, fontWeight = FontWeight.Bold)
         }
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
     }
