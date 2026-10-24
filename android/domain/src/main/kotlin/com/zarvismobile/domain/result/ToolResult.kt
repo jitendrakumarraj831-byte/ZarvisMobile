@@ -39,6 +39,8 @@ object ToolResults {
                 ToolResult(false, ToolResultStatus.PERMISSION_REQUIRED, capabilityId, skillId, message, true, null)
             is ToolExecutionOutcome.ConfirmationDeclined ->
                 ToolResult(false, ToolResultStatus.DENIED, capabilityId, skillId, message, false, null)
+            is ToolExecutionOutcome.PolicyRefused ->
+                ToolResult(false, ToolResultStatus.DENIED, capabilityId, skillId, message, false, null)
             is ToolExecutionOutcome.EntitlementDenied ->
                 ToolResult(false, ToolResultStatus.DENIED, capabilityId, skillId, message, false, null)
             is ToolExecutionOutcome.SkillNotFound ->
@@ -74,6 +76,7 @@ object ToolResults {
             EntitlementDenialReason.OUT_OF_CREDITS -> "You're out of credits for this action right now."
         }
         is ToolExecutionOutcome.ConfirmationDeclined -> "You didn't confirm, so nothing was done."
+        is ToolExecutionOutcome.PolicyRefused -> outcome.userMessage
         is ToolExecutionOutcome.ExecutionFailed -> outcome.result.userMessage
         is ToolExecutionOutcome.VerificationFailed ->
             "Something went wrong while I was verifying the result, so I did not complete this action."

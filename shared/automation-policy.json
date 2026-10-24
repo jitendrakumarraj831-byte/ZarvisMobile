@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "_comment": "ZARVIS's phone-automation security policy: the one list of phone actions ZARVIS may run for you, and the rules each one runs under. Explained in AUTOMATION_SECURITY_POLICY.md. Android packages this file (domain/build.gradle.kts) and its ToolPipeline refuses any on-device action that is not listed here; the backend's tests check that every phone action the Brain may hand to the phone is listed with the same rules. Edit this file by hand and keep it strict: an action is added only together with its tests.",
+  "rules": {
+    "confirmationClasses": ["EXTERNAL_COMMUNICATION", "FINANCIAL", "DESTRUCTIVE", "SECURITY_SENSITIVE"],
+    "confirmationRisks": ["HIGH", "VERY_HIGH"],
+    "maxPhoneSteps": 5
+  },
+  "neverDoes": [
+    {
+      "en": "Send a message, email or post for you. A draft opens in the app and you press Send.",
+      "hi": "आपकी जगह message, email या post नहीं भेजता। Draft app में खुलता है और Send आप दबाते हैं।"
+    },
+    {
+      "en": "Pay, buy, transfer money or subscribe.",
+      "hi": "Payment, खरीदारी, पैसे भेजना या subscription नहीं करता।"
+    },
+    {
+      "en": "Read or tap inside banking, payment, trading, authenticator or password apps.",
+      "hi": "Banking, payment, trading, authenticator या password apps के अंदर न पढ़ता है, न tap करता है।"
+    },
+    {
+      "en": "Act inside Android Settings, permission or install screens, or give itself any access.",
+      "hi": "Android Settings, permission या install screens में कुछ नहीं करता, और खुद को कोई access नहीं देता।"
+    },
+    {
+      "en": "Read password, OTP or PIN fields.",
+      "hi": "Password, OTP या PIN fields नहीं पढ़ता।"
+    },
+    {
+      "en": "Tap buttons that pay, buy, delete, sign in, grant access or accept terms, in English, Hindi or Hinglish.",
+      "hi": "Pay, खरीदने, delete, sign in, अनुमति देने या शर्तें मानने वाले buttons tap नहीं करता, चाहे वे English, Hindi या Hinglish में हों।"
+    },
+    {
+      "en": "Act in the background or without you asking. There is no wake word.",
+      "hi": "Background में या आपके कहे बिना कुछ नहीं करता। कोई wake word नहीं है।"
+    },
+    {
+      "en": "Upload what it reads from your screen, notifications, screen time, location or contacts.",
+      "hi": "Screen, notifications, screen time, location या contacts से पढ़ी चीज़ें upload नहीं करता।"
+    }
+  ],
+  "actions": [
+    { "skillId": "phone.open_app", "capabilityId": null, "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "app.search", "capabilityId": null, "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "message.draft", "capabilityId": null, "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "phone.find_contact", "capabilityId": "contacts", "risk": "MEDIUM", "actionClass": "READ_ONLY", "confirm": false, "privateResult": true, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "phone.call", "capabilityId": "phone_call", "risk": "HIGH", "actionClass": "EXTERNAL_COMMUNICATION", "confirm": true, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "personal.reminder", "capabilityId": "alarms", "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "alarm.set", "capabilityId": "alarms", "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "calendar.create_event", "capabilityId": "calendar", "risk": "MEDIUM", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "device.open_settings", "capabilityId": null, "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "bluetooth.open_settings", "capabilityId": "bluetooth", "risk": "MEDIUM", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": false },
+    { "skillId": "location.current", "capabilityId": "location", "risk": "MEDIUM", "actionClass": "READ_ONLY", "confirm": false, "privateResult": true, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "camera.capture_photo", "capabilityId": "camera", "risk": "MEDIUM", "actionClass": "READ_ONLY", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "photos.pick_photo", "capabilityId": "photos", "risk": "MEDIUM", "actionClass": "READ_ONLY", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "photos.describe_photo", "capabilityId": "photos", "risk": "MEDIUM", "actionClass": "READ_ONLY", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "files.pick_document", "capabilityId": "files", "risk": "MEDIUM", "actionClass": "READ_ONLY", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "notifications.read_recent", "capabilityId": "notification_read", "risk": "HIGH", "actionClass": "READ_ONLY", "confirm": true, "privateResult": true, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "notifications.speak_on", "capabilityId": "notification_speak", "risk": "MEDIUM", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "notifications.speak_off", "capabilityId": "notification_speak", "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "usage.screen_time", "capabilityId": "usage_stats", "risk": "HIGH", "actionClass": "READ_ONLY", "confirm": true, "privateResult": true, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "device.global_action", "capabilityId": "accessibility", "risk": "VERY_HIGH", "actionClass": "SECURITY_SENSITIVE", "confirm": true, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "screen.read", "capabilityId": "screen_interaction", "risk": "VERY_HIGH", "actionClass": "SECURITY_SENSITIVE", "confirm": true, "privateResult": true, "actsInOtherApps": true, "brainHandoff": true },
+    { "skillId": "screen.tap", "capabilityId": "screen_interaction", "risk": "VERY_HIGH", "actionClass": "SECURITY_SENSITIVE", "confirm": true, "privateResult": false, "actsInOtherApps": true, "brainHandoff": true },
+    { "skillId": "assistant.setup", "capabilityId": "default_assistant", "risk": "MEDIUM", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true }
+  ]
+}

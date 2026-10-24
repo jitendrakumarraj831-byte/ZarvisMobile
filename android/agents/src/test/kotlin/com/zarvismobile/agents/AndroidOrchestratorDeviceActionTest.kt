@@ -9,6 +9,11 @@ import com.zarvismobile.domain.access.PendingActionStore
 import com.zarvismobile.domain.capability.CapabilityRegistry
 import com.zarvismobile.domain.conversation.ActiveConversation
 import com.zarvismobile.domain.entity.ToolResultStatus
+import com.zarvismobile.domain.policy.AutomationJournal
+import com.zarvismobile.domain.policy.AutomationOutcome
+import com.zarvismobile.domain.policy.AutomationPolicy
+import com.zarvismobile.domain.policy.AutomationRecord
+import com.zarvismobile.domain.policy.AutomationSwitch
 import com.zarvismobile.domain.port.PermissionPort
 import com.zarvismobile.domain.port.SystemClockPort
 import com.zarvismobile.domain.skill.AppLaunchResult
@@ -63,8 +68,19 @@ class AndroidOrchestratorDeviceActionTest {
         }
     }
 
+    /** The phone action safety setting and history, as Settings › Phone action safety keeps them. */
+    private class Safety : AutomationSwitch, AutomationJournal {
+        var paused = false
+        val history = mutableListOf<AutomationRecord>()
+        override suspend fun isPaused() = paused
+        override suspend fun record(entry: AutomationRecord) {
+            history += entry
+        }
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var launcher: RecordingLauncher
+    private val safety = Safety()
     private lateinit var active: ActiveConversation
     private lateinit var orchestrator: AndroidOrchestrator
 
@@ -84,7 +100,10 @@ class AndroidOrchestratorDeviceActionTest {
         orchestrator = AndroidOrchestrator(
             onDeviceRegistry = registry,
             // Opening an app needs no permission, plan or credits; anything else asked of these stand-ins fails the test.
-            onDevicePipeline = ToolPipeline(registry, PermissionPort { true }, OrchestratorFixture.unused(), OrchestratorFixture.unused(), confirmations, SystemClockPort),
+            onDevicePipeline = ToolPipeline(
+                registry, PermissionPort { true }, OrchestratorFixture.unused(), OrchestratorFixture.unused(), confirmations, SystemClockPort,
+                automationSwitch = safety, journal = safety,
+            ),
             api = api,
             confirmationPort = confirmations,
             capabilities = CapabilityRegistry(emptyList()),
@@ -299,5 +318,52 @@ class AndroidOrchestratorDeviceActionTest {
         assertEquals("Hello!", outcome.message)
         assertTrue(launcher.asked.isEmpty())
         assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun everyPhoneActionIsWrittenToThePhonesHistoryAndNothingElseIs() = runBlocking<Unit> {
+        server.enqueue(handoff("phone.open_app", """{"appName":"Gallery"}"""))
+        server.enqueue(recorded())
+        orchestrator.handleTurn("show me my gallery", "acct")
+        server.enqueue(streamed("""{"message":"Hello!","toolCalls":[],"conversationId":"c1"}"""))
+        orchestrator.handleTurn("hello there", "acct")
+
+        assertEquals(listOf("phone.open_app" to AutomationOutcome.DONE), safety.history.map { it.skillId to it.outcome })
+    }
+
+    @Test
+    fun whilePhoneActionsArePausedTheBrainIsOfferedNoneAndAnswersInWords() = runBlocking<Unit> {
+        safety.paused = true
+        server.enqueue(streamed("""{"message":"Open your gallery app from the home screen.","toolCalls":[],"conversationId":"c1"}"""))
+
+        val outcome = orchestrator.handleTurn("show me my gallery", "acct")
+
+        val turn = body(server.takeRequest(5, TimeUnit.SECONDS)!!)
+        assertNull("no phone action is offered while they are paused", turn["deviceActions"]?.takeUnless { it is kotlinx.serialization.json.JsonNull })
+        assertEquals("Open your gallery app from the home screen.", outcome.message)
+        assertTrue(launcher.asked.isEmpty())
+    }
+
+    @Test
+    fun aPhoneActionHandedOverWhilePausedIsNotRunAndIsReportedAsRefused() = runBlocking<Unit> {
+        // A server that hands over an action anyway (an older one, or one that did not see the empty list): the phone still refuses.
+        safety.paused = true
+        server.enqueue(handoff("phone.open_app", """{"appName":"Gallery"}"""))
+        server.enqueue(recorded())
+
+        val outcome = orchestrator.handleTurn("show me my gallery", "acct")
+
+        assertTrue("nothing was opened", launcher.asked.isEmpty())
+        assertEquals(ToolResultStatus.DENIED, outcome.result?.status)
+        assertTrue(outcome.message, "paused" in outcome.message)
+        server.takeRequest(5, TimeUnit.SECONDS)
+        val report = body(server.takeRequest(5, TimeUnit.SECONDS)!!)
+        assertEquals("DENIED", report["status"]!!.jsonPrimitive.content)
+        assertEquals(AutomationOutcome.PAUSED, safety.history.single().outcome)
+    }
+
+    @Test
+    fun theResultsThatNeverLeaveThePhoneAreTheOnesThePolicyMarksPrivate() {
+        assertEquals(AutomationPolicy.default.privateResultSkills, PRIVATE_RESULT_SKILLS)
     }
 }

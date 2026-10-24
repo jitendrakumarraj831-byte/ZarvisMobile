@@ -34,6 +34,12 @@ sealed interface ToolExecutionOutcome {
     data class PermissionDenied(val missing: List<PermissionType>) : ToolExecutionOutcome
     data class EntitlementDenied(val decision: EntitlementDecision.Denied) : ToolExecutionOutcome
     data class ConfirmationDeclined(val skillId: String) : ToolExecutionOutcome
+
+    /**
+     * The phone-automation safety policy (shared/automation-policy.json) did not let this on-device action run: it is not in the
+     * policy, phone actions are paused, or it would reach a sensitive app. [reason] is a stable code; [userMessage] says why.
+     */
+    data class PolicyRefused(val skillId: String, val reason: String, val userMessage: String) : ToolExecutionOutcome
     data class ExecutionFailed(val result: SkillResult.Failure) : ToolExecutionOutcome
     data class VerificationFailed(val skillId: String, val reason: String) : ToolExecutionOutcome
 }

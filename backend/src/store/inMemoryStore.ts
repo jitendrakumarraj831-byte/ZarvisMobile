@@ -8,7 +8,8 @@ import {
   InsufficientCreditsError,
   extendPlanExpiry, type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
   type ConversationMessage, type FulfillmentResult, type GitHubConnection, type PaymentOrder, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
-  type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS
+  type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS,
+  type DeviceHandoffRecord, type DeviceReportClaim, DEVICE_HANDOFF_RETENTION_MS
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -42,6 +43,7 @@ export class InMemoryStore implements Store {
   private readonly githubConnections = new Map<string, GitHubConnection>();
   /** Keyed by `${accountId}\u0000${clientTurnId}`. */
   private readonly turnRecords = new Map<string, TurnRecord>();
+  private readonly deviceHandoffs = new Map<string, DeviceHandoffRecord>();
   private readonly projects = new Map<string, Project>();
   private readonly notes = new Map<string, WorkspaceNote>();
   private readonly files = new Map<string, WorkspaceFile>();
@@ -227,6 +229,9 @@ export class InMemoryStore implements Store {
     for (const [key, record] of this.turnRecords) {
       if (record.accountId === accountId) this.turnRecords.delete(key);
     }
+    for (const [id, handoff] of this.deviceHandoffs) {
+      if (handoff.accountId === accountId) this.deviceHandoffs.delete(id);
+    }
     for (const [conversationId, conversation] of this.conversations) {
       if (conversation.accountId === accountId) {
         this.conversations.delete(conversationId);
@@ -351,6 +356,9 @@ export class InMemoryStore implements Store {
     for (const [key, record] of this.turnRecords) {
       if (record.accountId === accountId && record.conversationId === conversationId) this.turnRecords.delete(key);
     }
+    for (const [id, handoff] of this.deviceHandoffs) {
+      if (handoff.accountId === accountId && handoff.conversationId === conversationId) this.deviceHandoffs.delete(id);
+    }
     // Tool runs made in the chat go with it, except those that are part of a task's history, which only lose the link.
     for (const [id, execution] of this.executions) {
       if (execution.accountId !== accountId || execution.conversationId !== conversationId) continue;
@@ -420,6 +428,32 @@ export class InMemoryStore implements Store {
       return { kind: "claimed", previous };
     }
     return { kind: "in_progress" };
+  }
+
+  async recordDeviceHandoff(handoff: DeviceHandoffRecord): Promise<void> {
+    const expired = handoff.issuedAt.getTime() - DEVICE_HANDOFF_RETENTION_MS;
+    for (const [id, existing] of this.deviceHandoffs) {
+      if (existing.issuedAt.getTime() < expired) this.deviceHandoffs.delete(id);
+    }
+    if (!this.deviceHandoffs.has(handoff.toolCallId)) this.deviceHandoffs.set(handoff.toolCallId, { ...handoff });
+  }
+
+  async claimDeviceReport(
+    accountId: string,
+    report: { toolCallId: string; conversationId: string; skillId: string },
+    now: Date,
+    issuedAfter: Date,
+  ): Promise<DeviceReportClaim> {
+    const handoff = this.deviceHandoffs.get(report.toolCallId);
+    if (
+      !handoff || handoff.accountId !== accountId || handoff.conversationId !== report.conversationId ||
+      handoff.skillId !== report.skillId || handoff.issuedAt < issuedAfter
+    ) {
+      return "unknown";
+    }
+    if (handoff.reportedAt) return "already_reported";
+    handoff.reportedAt = now;
+    return "claimed";
   }
 
   async updateTurn(

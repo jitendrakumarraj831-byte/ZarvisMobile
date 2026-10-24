@@ -9,7 +9,8 @@ import {
   InsufficientCreditsError,
   extendPlanExpiry, type Account, type AuthSession, type ConfirmationRecord, type ConfirmationStatus, type Conversation,
   type ConversationMessage, type FulfillmentResult, type GitHubConnection, type PaymentOrder, type Store, type StoreHealth, type TrialRecord, type TurnClaim,
-  type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS
+  type TurnRecord, type TurnRecordStatus, type UsageEntry, type User, TURN_RECORD_RETENTION_MS,
+  type DeviceHandoffRecord, type DeviceReportClaim, DEVICE_HANDOFF_RETENTION_MS
 } from "./store.js";
 
 const TRIAL_DURATION_DAYS = 14;
@@ -168,6 +169,15 @@ const SCHEMA = `
     PRIMARY KEY (account_id, client_turn_id)
   );
   ALTER TABLE turn_records ADD COLUMN IF NOT EXISTS fingerprint TEXT;
+  CREATE TABLE IF NOT EXISTS device_handoffs (
+    tool_call_id TEXT PRIMARY KEY,
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    conversation_id UUID NOT NULL,
+    skill_id TEXT NOT NULL,
+    issued_at TIMESTAMPTZ NOT NULL,
+    reported_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS device_handoffs_account_idx ON device_handoffs (account_id, conversation_id);
   CREATE INDEX IF NOT EXISTS auth_sessions_account_idx ON auth_sessions (account_id);
   CREATE INDEX IF NOT EXISTS confirmations_account_idx ON confirmations (account_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS conversation_messages_conversation_created_idx
@@ -567,6 +577,7 @@ export class PostgresStore implements Store {
       await client.query("DELETE FROM workspace_files WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM tool_executions WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM turn_records WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM device_handoffs WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM conversations WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM accounts WHERE id = $1", [accountId]);
       await client.query("DELETE FROM users WHERE id = $1", [account.user_id]);
@@ -776,6 +787,37 @@ export class PostgresStore implements Store {
     return rows[0]?.status === "completed" ? { kind: "completed", record: toTurnRecord(rows[0]) } : { kind: "in_progress" };
   }
 
+  async recordDeviceHandoff(handoff: DeviceHandoffRecord): Promise<void> {
+    await this.query("DELETE FROM device_handoffs WHERE account_id = $1 AND issued_at < $2", [
+      handoff.accountId,
+      new Date(handoff.issuedAt.getTime() - DEVICE_HANDOFF_RETENTION_MS),
+    ]);
+    await this.query(
+      `INSERT INTO device_handoffs (tool_call_id, account_id, conversation_id, skill_id, issued_at)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tool_call_id) DO NOTHING`,
+      [handoff.toolCallId, handoff.accountId, handoff.conversationId, handoff.skillId, handoff.issuedAt],
+    );
+  }
+
+  async claimDeviceReport(
+    accountId: string,
+    report: { toolCallId: string; conversationId: string; skillId: string },
+    now: Date,
+    issuedAfter: Date,
+  ): Promise<DeviceReportClaim> {
+    if (!isUuid(report.conversationId)) return "unknown";
+    const match = "tool_call_id = $1 AND account_id = $2 AND conversation_id = $3 AND skill_id = $4 AND issued_at >= $5";
+    const params = [report.toolCallId, accountId, report.conversationId, report.skillId, issuedAfter];
+    // Only one of several concurrent reports finds reported_at still empty.
+    const claimed = await this.query(
+      `UPDATE device_handoffs SET reported_at = $6 WHERE ${match} AND reported_at IS NULL RETURNING tool_call_id`,
+      [...params, now],
+    );
+    if (claimed.rows.length > 0) return "claimed";
+    const { rows } = await this.query<{ reported_at: Date | null }>(`SELECT reported_at FROM device_handoffs WHERE ${match}`, params);
+    return rows[0]?.reported_at ? "already_reported" : "unknown";
+  }
+
   async updateTurn(
     accountId: string,
     clientTurnId: string,
@@ -833,6 +875,7 @@ export class PostgresStore implements Store {
       }
       // The stored result of a turn is the reply text, so a deleted chat must not keep it.
       await client.query("DELETE FROM turn_records WHERE account_id = $1 AND conversation_id = $2", [accountId, conversationId]);
+      await client.query("DELETE FROM device_handoffs WHERE account_id = $1 AND conversation_id = $2", [accountId, conversationId]);
       // Tool runs made in the chat go with it, except those that are part of a task's history, which only lose the link.
       await client.query("DELETE FROM tool_executions WHERE account_id = $1 AND conversation_id = $2 AND task_id IS NULL", [accountId, conversationId]);
       await client.query("UPDATE tool_executions SET conversation_id = NULL WHERE account_id = $1 AND conversation_id = $2", [accountId, conversationId]);

@@ -7,7 +7,7 @@ import { toStructuredResult, type StructuredToolResult } from "../tooling/toolRe
 import { explainOutcome } from "../tooling/explainOutcome.js";
 import { stableJson } from "../util/stableJson.js";
 import { previewInput } from "../tooling/executionRecord.js";
-import type { ConversationMessage as StoredConversationMessage, Store, TurnRecord } from "../store/store.js";
+import { DEVICE_HANDOFF_RETENTION_MS, type ConversationMessage as StoredConversationMessage, type Store, type TurnRecord } from "../store/store.js";
 import type { AICallMeta, AIProvider, ConversationMessage, ModelConfiguration } from "../ai/provider.js";
 import type { EntitlementPort } from "../tooling/ports.js";
 import type { SkillRegistry } from "../tooling/skillRegistry.js";
@@ -200,6 +200,9 @@ const TURN_ENDING_FAILURES = new Set(["ai_quota_exceeded", "ai_rate_limited"]);
  * The ToolPipeline remains the authoritative security boundary. The loop is deliberately
  * bounded so a bad model response can never create an unbounded server-side workflow.
  */
+/** What became of a phone's report (Orchestrator.recordDeviceResult). */
+export type DeviceResultRecording = "recorded" | "conversation_not_found" | "unknown_handoff" | "already_reported";
+
 export class Orchestrator {
   constructor(
     private readonly registry: SkillRegistry,
@@ -524,6 +527,14 @@ export class Orchestrator {
             input: sanitizeDeviceInput(action, call.input),
             ...(then ? { then } : {}),
           };
+          // Recorded first: the phone's report is accepted only for an action handed over here (recordDeviceResult).
+          await this.store.recordDeviceHandoff({
+            toolCallId: deviceAction.toolCallId,
+            accountId: request.accountId,
+            conversationId: activeConversation.id,
+            skillId: call.skillId,
+            issuedAt: new Date(),
+          });
           stats.toolCalls.push({ toolCallId: deviceAction.toolCallId, skillId: call.skillId, chargedCredits: 0 });
           onEvent({ type: "tool_started", skillId: call.skillId, toolCallId: deviceAction.toolCallId, inputPreview: previewInput(deviceAction.input) });
           logger.info("Phone action handed to the client", { turnId, skillId: call.skillId, toolCallId: deviceAction.toolCallId });
@@ -639,13 +650,26 @@ export class Orchestrator {
 
   /**
    * Records what the phone reported for a phone action it ran (TurnResult.deviceAction) as the assistant's reply in that
-   * conversation. Only the account's own conversation; false when it has no such conversation.
+   * conversation, once: only into the account's own conversation, only for an action handed over in it (same toolCallId and
+   * skill) within DEVICE_HANDOFF_RETENTION_MS, and only its first report. Anything else records nothing.
    */
-  async recordDeviceResult(accountId: string, report: { conversationId: string; message: string }): Promise<boolean> {
+  async recordDeviceResult(
+    accountId: string,
+    report: { conversationId: string; toolCallId: string; skillId: string; message: string },
+  ): Promise<DeviceResultRecording> {
     const conversation = await this.store.getConversation(accountId, report.conversationId);
-    if (!conversation) return false;
+    if (!conversation) return "conversation_not_found";
+    const now = new Date();
+    const claim = await this.store.claimDeviceReport(
+      accountId,
+      { toolCallId: report.toolCallId, conversationId: conversation.id, skillId: report.skillId },
+      now,
+      new Date(now.getTime() - DEVICE_HANDOFF_RETENTION_MS),
+    );
+    if (claim === "unknown") return "unknown_handoff";
+    if (claim === "already_reported") return "already_reported";
     await this.persistAssistantMessage(conversation.id, report.message);
-    return true;
+    return "recorded";
   }
 
   private async persistAssistantMessage(conversationId: string, message: string): Promise<void> {
