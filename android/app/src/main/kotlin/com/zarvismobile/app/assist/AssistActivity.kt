@@ -21,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,7 +31,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,6 +39,24 @@ import com.zarvismobile.app.ActivityBridge
 import com.zarvismobile.app.ConfirmationViewModel
 import com.zarvismobile.app.PermissionMonitorViewModel
 import com.zarvismobile.app.ZarvisSystemDialogs
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import com.zarvismobile.core.ui.components.AiOrb
+import com.zarvismobile.core.ui.components.QueenNote
+import com.zarvismobile.core.ui.components.QueenOutlineAction
+import com.zarvismobile.core.ui.components.ZarvisChip
+import com.zarvismobile.core.ui.components.ZarvisComposer
+import com.zarvismobile.core.ui.i18n.LocalAppLocale
+import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.core.ui.components.MarkdownText
 import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.theme.ZarvisTheme
@@ -64,10 +80,14 @@ class AssistActivity : ComponentActivity() {
         val viaAssistGesture = savedInstanceState == null && intent?.action == Intent.ACTION_ASSIST
         Log.i("ZarvisAssist", "ZARVIS_EVIDENCE default_assistant opened action=${intent?.action} autoListen=$viaAssistGesture")
         setContent {
-            // The overlay wears the appearance chosen in Settings: Queen Dark unless the person picked Queen Light.
-            val darkTheme by remember { AppPreferences(applicationContext).darkTheme }.collectAsState(initial = true)
-            ZarvisTheme(darkTheme = darkTheme) {
-                AssistPanel(autoListen = viaAssistGesture, onClose = ::finish)
+            // The overlay wears the appearance and the language chosen in Settings: Queen Dark unless the person picked Queen Light.
+            val preferences = remember { AppPreferences(applicationContext) }
+            val darkTheme by preferences.darkTheme.collectAsState(initial = true)
+            val locale by preferences.locale.collectAsState(initial = "en")
+            CompositionLocalProvider(LocalAppLocale provides locale) {
+                ZarvisTheme(darkTheme = darkTheme) {
+                    AssistPanel(autoListen = viaAssistGesture, onClose = ::finish)
+                }
             }
         }
     }
@@ -83,6 +103,11 @@ class AssistActivity : ComponentActivity() {
     }
 }
 
+/**
+ * The panel over the app in front (Queen Pro board 5): the orb and what ZARVIS is doing, the last exchange, three things to ask
+ * about this screen, the field with its microphone, and the safety promise for reading and tapping.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AssistPanel(
     autoListen: Boolean,
@@ -93,39 +118,44 @@ private fun AssistPanel(
 ) {
     val state by viewModel.uiState.collectAsState()
     LaunchedEffect(Unit) { if (autoListen) viewModel.startListening() }
+    val toggleMic = { if (state.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening() }
 
     Box(
         Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        val sheet = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         Surface(
             // Consume taps on the panel itself so they don't close it.
             modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
+                .border(1.dp, ZarvisAccents.gold.copy(alpha = 0.25f), sheet)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+            shape = sheet,
+            color = MaterialTheme.colorScheme.background,
             shadowElevation = 12.dp,
         ) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("ZARVIS", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    Modifier.align(Alignment.CenterHorizontally).size(width = 40.dp, height = 4.dp)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(2.dp)),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AiOrb(state = state.voiceState, size = 48.dp, onClick = toggleMic)
+                    Column(Modifier.weight(1f).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) {
+                        Text(statusLine(state.voiceState), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(tr(UiString.ASSIST_HINT), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    // "Close" in words: the emulator tests find the overlay by it.
                     TextButton(onClick = onClose) { Text("Close") }
                 }
-                Text(
-                    statusLine(state.voiceState),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.semantics { contentDescription = "Assistant status: ${statusLine(state.voiceState)}" },
-                )
-                Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.turns.takeLast(2).forEach { turn ->
                         Text(turn.userText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         // The reply as the Chat screen draws it (headings, lists, links and code formatted), not raw symbols.
                         val reply = turn.assistantText
                         // A request a newer one replaced says so, instead of "…" for good.
                         if (reply == null) {
-                            Text(if (turn.stopped) "Stopped before the reply arrived." else "…", style = MaterialTheme.typography.bodyMedium)
+                            Text(if (turn.stopped) tr(UiString.CHAT_STOPPED) else "…", style = MaterialTheme.typography.bodyMedium)
                         } else {
                             MarkdownText(text = reply, style = MaterialTheme.typography.bodyMedium)
                         }
@@ -134,33 +164,47 @@ private fun AssistPanel(
                     // Not an error (the microphone heard nothing).
                     state.hint?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 }
-                OutlinedTextField(
-                    value = state.composerText,
-                    onValueChange = viewModel::onComposerChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Ask ZARVIS about this screen, or anything") },
-                    singleLine = true,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = viewModel::startListening) { Text(if (state.voiceState == VoiceState.LISTENING) "Listening…" else "Speak") }
-                    TextButton(onClick = viewModel::submitComposerText, enabled = state.composerText.isNotBlank()) { Text("Send") }
-                    // The last request failed in a way sending it again can fix (same id: a finished turn is not run twice).
-                    val last = state.turns.lastOrNull()
-                    if (last != null && last.retryable && last.assistantText != null && state.progress == null) {
-                        TextButton(onClick = viewModel::retry) { Text("Try again") }
+                if (state.voiceState == VoiceState.SPEAKING) {
+                    QueenOutlineAction(label = tr(UiString.VOICE_STOP), onClick = viewModel::stopSpeaking, icon = ZarvisIcons.Stop)
+                }
+                // Requests about the app in front, sent as written: reading and tapping still ask first.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        UiString.ASSIST_READ_SCREEN to ZarvisIcons.Eye,
+                        UiString.ASSIST_GO_BACK to ZarvisIcons.Left,
+                        UiString.ASSIST_GO_HOME to ZarvisIcons.Home,
+                    ).forEach { (request, icon) ->
+                        val text = tr(request)
+                        ZarvisChip(label = text, icon = icon, onClick = { viewModel.submitInitialText(text) })
                     }
                 }
+                ZarvisComposer(
+                    value = state.composerText,
+                    onValueChange = viewModel::onComposerChange,
+                    onSubmit = viewModel::submitComposerText,
+                    onMicClick = toggleMic,
+                    placeholder = tr(UiString.ASSIST_COMPOSER_HINT),
+                )
+                // The last request failed in a way sending it again can fix (same id: a finished turn is not run twice).
+                val last = state.turns.lastOrNull()
+                if (last != null && last.retryable && last.assistantText != null && state.progress == null) {
+                    QueenOutlineAction(label = tr(UiString.COMMON_TRY_AGAIN), onClick = viewModel::retry, icon = ZarvisIcons.Refresh)
+                }
+                QueenNote(text = tr(UiString.ASSIST_SAFETY))
             }
         }
     }
     ZarvisSystemDialogs(permissionViewModel, confirmationViewModel)
 }
 
-private fun statusLine(state: VoiceState): String = when (state) {
-    VoiceState.LISTENING -> "Listening"
-    VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING -> "Working on it"
-    VoiceState.SPEAKING -> "Speaking"
-    VoiceState.SUCCESS -> "Done"
-    VoiceState.ERROR -> "Something went wrong"
-    VoiceState.IDLE -> "Ready"
-}
+@Composable
+private fun statusLine(state: VoiceState): String = tr(
+    when (state) {
+        VoiceState.LISTENING -> UiString.CHAT_STATE_LISTENING
+        VoiceState.UNDERSTANDING, VoiceState.PLANNING, VoiceState.EXECUTING -> UiString.CHAT_STATE_WORKING
+        VoiceState.SPEAKING -> UiString.CHAT_STATE_SPEAKING
+        VoiceState.SUCCESS -> UiString.CHAT_STATE_DONE
+        VoiceState.ERROR -> UiString.CHAT_STATE_ERROR
+        VoiceState.IDLE -> UiString.CHAT_STATE_IDLE
+    },
+)

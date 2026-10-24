@@ -56,17 +56,18 @@ object Routes {
     const val DEVELOPER = "developer"
     const val SUBSCRIPTION = "subscription"
     const val SETTINGS = "settings"
+    const val PHONE_SAFETY = "settings/phone-safety"
     const val FEATURE = "feature/{featureId}"
     const val FEATURE_ARG = "featureId"
 }
 
-/** The five tabs (blueprint §4), named in the app's language. Chat sits in the middle as the gold orb (ANDROID_QUEEN_DESIGN.md). */
+/** The five tabs (blueprint §4), named in the app's language. Five equal tabs, Chat in the middle (ANDROID_QUEEN_DESIGN.md, Queen Pro). */
 @Composable
 private fun bottomNavItems(): List<ZarvisNavItem> = listOf(
     // The website's icons (core-ui ZarvisIcons, generated from web/index.html), so the two apps share one icon language.
     ZarvisNavItem(Routes.HOME, tr(UiString.NAV_HOME), ZarvisIcons.Home),
     ZarvisNavItem(Routes.CAPABILITIES, tr(UiString.NAV_CAPABILITIES), ZarvisIcons.Grid),
-    ZarvisNavItem(Routes.CHAT, tr(UiString.NAV_CHAT), ZarvisIcons.Chat, prominent = true),
+    ZarvisNavItem(Routes.CHAT, tr(UiString.NAV_CHAT), ZarvisIcons.Chat),
     ZarvisNavItem(Routes.ACTIVITY, tr(UiString.NAV_TASKS), ZarvisIcons.Task),
     ZarvisNavItem(Routes.MORE, tr(UiString.NAV_WORK), ZarvisIcons.Folder),
 )
@@ -149,9 +150,8 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     },
                     onNavigateToTasks = { navController.openFrom(entry, Routes.ACTIVITY) },
                     onNavigateToSubscription = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
-                    onNavigateToDeveloper = { navController.openFrom(entry, Routes.DEVELOPER) },
                     onNavigateToSettings = { navController.openFrom(entry, Routes.SETTINGS) },
-                    onNavigateToCapabilities = { navController.openFrom(entry, Routes.CAPABILITIES) },
+                    onOpenPhoneSafety = { navController.openFrom(entry, Routes.PHONE_SAFETY) },
                     onOpenFeature = { featureId -> navController.openFrom(entry, "feature/$featureId") },
                     // The crowned orb and the composer's mic: Chat, listening at once (after ZARVIS's explanation and Android's permission).
                     onTalk = { navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=true") },
@@ -178,6 +178,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                 TasksScreen(
                     onOpenPlans = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
                     onOpenTasksFeature = { navController.openFrom(entry, "feature/tasks") },
+                    onOpenChat = { navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=false") },
                 )
             }
             composable(
@@ -192,6 +193,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                         navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=$encoded&submit=false&listen=$listen")
                     },
                     onOpenDeveloper = { navController.openFrom(entry, Routes.DEVELOPER) },
+                    onOpenPhoneSafety = { navController.openFrom(entry, Routes.PHONE_SAFETY) },
                 )
             }
             composable(Routes.METRICS) { MetricsScreen(onBack = { navController.popBackStack() }) }
@@ -199,6 +201,7 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                 TasksScreen(
                     onOpenPlans = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
                     onOpenTasksFeature = { navController.openFrom(entry, "feature/tasks") },
+                    onOpenChat = { navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=false") },
                     onBack = { navController.popBackStack() },
                 )
             }
@@ -240,6 +243,19 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                         }
                     },
                     onDeveloper = { navController.openFrom(entry, Routes.DEVELOPER) },
+                )
+            }
+            // Home's "Phone action safety" row opens that settings page directly; Back returns to Home.
+            composable(Routes.PHONE_SAFETY) { entry ->
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onSessionCleared = {
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(Routes.HOME) { inclusive = true }
+                        }
+                    },
+                    onDeveloper = { navController.openFrom(entry, Routes.DEVELOPER) },
+                    openPhoneSafety = true,
                 )
             }
         }

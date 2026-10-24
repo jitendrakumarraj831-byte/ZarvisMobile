@@ -15,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,15 +22,38 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.ZarvisGhostButton
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
-import com.zarvismobile.core.ui.components.QueenCrown
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import com.zarvismobile.core.ui.components.QueenListCard
+import com.zarvismobile.core.ui.components.QueenRow
+import com.zarvismobile.core.ui.components.QueenRowDivider
+import com.zarvismobile.core.ui.components.SectionKicker
+import com.zarvismobile.core.ui.i18n.trf
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisActionBlue
+import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
+import com.zarvismobile.core.ui.theme.ZarvisGold
+import com.zarvismobile.core.ui.theme.ZarvisGoldPale
+import com.zarvismobile.core.ui.theme.ZarvisMagenta
+import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.domain.presentation.UiString
 
 /**
@@ -59,37 +81,63 @@ fun OnboardingScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(ZarvisSpacing.xl),
+                .padding(horizontal = ZarvisSpacing.md, vertical = ZarvisSpacing.sm),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (uiState.pageIndex > 0) ZarvisGhostButton(text = tr(UiString.COMMON_BACK), onClick = viewModel::previous)
-                else Text("")
+                if (uiState.pageIndex > 0) {
+                    ZarvisGhostButton(text = tr(UiString.COMMON_BACK), onClick = viewModel::previous)
+                } else {
+                    Text(text = "ZARVIS", style = ZarvisDisplayStyles.brand, color = ZarvisAccents.gold)
+                }
+                Spacer(Modifier.weight(1f))
                 ZarvisGhostButton(text = tr(UiString.ONBOARDING_SKIP), onClick = viewModel::skip)
             }
 
-            // weight(fill = false) + verticalScroll: takes only the space it needs (preserving
-            // the original SpaceBetween look for today's short copy) but scrolls instead of
-            // clipping if a longer page or a larger accessibility font size ever needs more
-            // height than is available between the skip row and the page controls below.
+            // weight(fill = false) + verticalScroll: takes only the space it needs but scrolls instead of clipping if a longer page or a
+            // larger accessibility font size ever needs more height than is available between the top row and the page controls below.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.Start,
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = ZarvisSpacing.sm),
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
             ) {
-                QueenCrown(width = 64.dp)
-                Text(text = tr(page.title), style = MaterialTheme.typography.headlineLarge)
-                Text(text = tr(page.body), style = MaterialTheme.typography.bodyLarge)
+                WelcomeOrb()
+                SectionKicker(text = trf(UiString.ONBOARDING_PAGE_OF, uiState.pageIndex + 1, uiState.pageCount), isHeading = false)
+                Text(
+                    text = tr(page.title),
+                    style = ZarvisProStyles.pageTitle,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(
+                    text = tr(page.body),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                // The first page says the two promises up front; page 4 explains them.
+                if (uiState.pageIndex == 0) {
+                    Column(Modifier.fillMaxWidth().padding(top = ZarvisSpacing.sm), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+                        QueenListCard {
+                            QueenRow(title = tr(UiString.ONBOARDING_POINT_RISKY), icon = ZarvisIcons.Shield, iconTint = ZarvisAccents.gold)
+                            QueenRowDivider()
+                            QueenRow(title = tr(UiString.ONBOARDING_POINT_PERMISSIONS), icon = ZarvisIcons.Lock, iconTint = ZarvisAccents.gold)
+                        }
+                    }
+                }
             }
 
             Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.lg),
+                modifier = Modifier.padding(bottom = ZarvisSpacing.md),
             ) {
                 PageIndicator(count = uiState.pageCount, current = uiState.pageIndex)
                 ZarvisPrimaryButton(
@@ -102,19 +150,47 @@ fun OnboardingScreen(
     }
 }
 
+/** The welcome's orb: gold into magenta and purple with a gold edge. Decoration only (still, no words for TalkBack). */
+@Composable
+private fun WelcomeOrb() {
+    Box(
+        modifier = Modifier
+            .padding(top = ZarvisSpacing.md)
+            .size(140.dp)
+            .drawBehind {
+                drawCircle(
+                    Brush.radialGradient(
+                        0f to Color(0xFFFFF7D6),
+                        0.22f to ZarvisGold,
+                        0.58f to ZarvisMagenta,
+                        1f to ZarvisActionBlue,
+                        center = Offset(size.width * 0.35f, size.height * 0.3f),
+                        radius = size.width * 0.75f,
+                    ),
+                )
+            }
+            .border(2.dp, ZarvisGoldPale, CircleShape),
+    )
+}
+
+/** Where you are among the pages: a gold bar for this one, dots for the others. Read out as "Page 1 of 6". */
 @Composable
 private fun PageIndicator(count: Int, current: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
+    val description = trf(UiString.ONBOARDING_PAGE_OF, current + 1, count)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = description },
+    ) {
         repeat(count) { index ->
             val isActive = index == current
-            Surface(
+            Box(
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape),
-                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-            ) {
-                Box(modifier = Modifier.fillMaxSize())
-            }
+                    .size(width = if (isActive) 24.dp else 8.dp, height = 8.dp)
+                    .background(
+                        if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        RoundedCornerShape(4.dp),
+                    ),
+            )
         }
     }
 }

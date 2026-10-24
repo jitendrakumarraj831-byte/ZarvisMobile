@@ -6,10 +6,8 @@ import com.zarvismobile.domain.capability.FeatureState
 import com.zarvismobile.domain.capability.SharedFeatureCatalog
 import com.zarvismobile.domain.entity.CapabilityStatus
 
-/** A capability on a detail page with its state in this app, e.g. "Voice input: Partial — The phone's speech recognizer". */
-data class FeatureStatusLine(val name: String, val state: FeatureState) {
-    val text: String get() = "$name: ${statusLabel(state.status)}" + (state.note?.let { " — $it" } ?: "")
-}
+/** A capability on a detail page with its state in this app, e.g. Voice input, Partial, "The phone's speech recognizer". */
+data class FeatureStatusLine(val name: String, val state: FeatureState)
 
 data class PhoneAction(
     val title: String,
@@ -17,9 +15,7 @@ data class PhoneAction(
     val example: String,
     val permission: String,
     val state: FeatureState,
-) {
-    val availability: String get() = statusLabel(state.status) + (state.note?.let { " — $it" } ?: "")
-}
+)
 
 data class FeaturePage(
     val id: String,
@@ -39,10 +35,7 @@ data class FeaturePage(
     val prompt: String,
     val action: String,
     val phoneActions: List<PhoneAction> = emptyList(),
-) {
-    /** Every capability the page explains, with its state in this app: one line each. */
-    val availability: String get() = statuses.joinToString("\n") { it.text }
-}
+)
 
 /**
  * The product pages this app has, read from shared/feature-catalog.json: the same catalogue the website's Capabilities hub

@@ -31,14 +31,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.GlassSurface
-import com.zarvismobile.core.ui.components.Jewel
-import com.zarvismobile.core.ui.components.JewelIcon
 import com.zarvismobile.core.ui.components.QueenEmptyState
 import com.zarvismobile.core.ui.components.QueenErrorCard
 import com.zarvismobile.core.ui.components.QueenPageHeader
-import com.zarvismobile.core.ui.components.RiskBadge
-import com.zarvismobile.core.ui.components.RiskBadgeLevel
+import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.components.StatusBadge
+import com.zarvismobile.core.ui.components.toneColor
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
@@ -49,18 +47,19 @@ import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.TaskDto
 import com.zarvismobile.domain.presentation.StatusLabels
-import com.zarvismobile.domain.presentation.StatusTone
+import com.zarvismobile.domain.presentation.TaskGroup
 import com.zarvismobile.domain.presentation.UiString
 
 /**
- * Task list + lifecycle controls — MASTER_SPEC.md §18 (Task Engine). It is the Activity tab, and also Work > Tasks (then
- * [onBack] is set and the title is "Tasks"). It sits on the same aurora page and header as Work and Capabilities, and the list scrolls
- * as one column: the header, notices and cards all move together, so nothing is pinned above a short list on a small screen.
+ * Task list + lifecycle controls — MASTER_SPEC.md §18 (Task Engine), Queen Pro board 8. It is the Tasks tab, and also Work > Tasks
+ * (then [onBack] is set). Tasks are grouped by who has to act next (Needs you, In progress, Finished); each shows its real state and
+ * risk in words. The list scrolls as one column: the header, notices and cards all move together.
  */
 @Composable
 fun TasksScreen(
     onOpenPlans: () -> Unit = {},
     onOpenTasksFeature: () -> Unit = {},
+    onOpenChat: () -> Unit = {},
     onBack: (() -> Unit)? = null,
     viewModel: TasksViewModel = hiltViewModel(),
 ) {
@@ -69,20 +68,18 @@ fun TasksScreen(
         viewModel.refresh()
         onPauseOrDispose { }
     }
+    val groups = uiState.tasks.distinctBy { it.id }.groupBy { StatusLabels.taskGroup(it.status, it.lifecycle) }
 
     ZarvisBackground(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = PaddingValues(ZarvisSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
+            contentPadding = PaddingValues(horizontal = ZarvisSpacing.md, vertical = ZarvisSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 QueenPageHeader(
-                    title = tr(if (onBack != null) UiString.TASKS_TITLE_WORK else UiString.TASKS_TITLE),
+                    title = tr(UiString.TASKS_TITLE_WORK),
                     subtitle = tr(UiString.TASKS_SUBTITLE),
-                    icon = ZarvisIcons.Activity,
-                    jewel = Jewel.SAPPHIRE,
-                    kicker = "ZARVIS",
                     onBack = onBack,
                     backLabel = tr(UiString.COMMON_BACK),
                     actions = {
@@ -92,14 +89,20 @@ fun TasksScreen(
                 )
             }
 
-            // The four states of the list (ANDROID_QUEEN_DESIGN.md, board A22): a gold skeleton while loading, the crown when empty,
-            // a ruby card with Try again when it failed, and the tasks.
+            // The four states of the list: a gold skeleton while loading, the crown when empty, an error card with Try again, and the tasks.
             if (uiState.isLoading && uiState.tasks.isEmpty()) {
                 item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 4) }
             }
 
             if (uiState.tasks.isEmpty() && !uiState.isLoading && uiState.error == null) {
-                item { QueenEmptyState(title = tr(UiString.TASKS_EMPTY_TITLE), body = tr(UiString.TASKS_EMPTY)) }
+                item {
+                    QueenEmptyState(
+                        title = tr(UiString.TASKS_EMPTY_TITLE),
+                        body = tr(UiString.TASKS_EMPTY),
+                        actionLabel = tr(UiString.TASKS_OPEN_CHAT),
+                        onAction = onOpenChat,
+                    )
+                }
             }
 
             if (uiState.error != null) {
@@ -110,8 +113,14 @@ fun TasksScreen(
                 item { Text(text = tr(UiString.TASKS_ACTION_ERROR), color = MaterialTheme.colorScheme.error) }
             }
 
-            items(uiState.tasks.distinctBy { it.id }, key = { it.id }) { task ->
-                TaskRow(task = task, busy = task.id in uiState.busy, viewModel = viewModel)
+            TaskGroup.entries.forEach { group ->
+                val tasks = groups[group].orEmpty()
+                if (tasks.isNotEmpty()) {
+                    item(key = "group-${group.name}") { SectionKicker(text = tr(group.label), modifier = Modifier.padding(top = ZarvisSpacing.sm)) }
+                    items(tasks, key = { it.id }) { task ->
+                        TaskRow(task = task, busy = task.id in uiState.busy, viewModel = viewModel)
+                    }
+                }
             }
             item { Spacer(modifier = Modifier.size(ZarvisSpacing.xl)) }
         }
@@ -122,27 +131,26 @@ fun TasksScreen(
 private fun TaskRow(task: TaskDto, busy: Boolean, viewModel: TasksViewModel) {
     val locale = LocalAppLocale.current
     val tone = StatusLabels.taskTone(task.status, task.lifecycle)
-    val jewel = jewelFor(tone)
-    GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), contentPadding = 0.dp) {
-        // A jewel stripe down the left edge in the status's colour, so a long list reads at a glance (the badge says it in words).
+    GlassSurface(modifier = Modifier.fillMaxWidth(), contentPadding = 0.dp) {
+        // A stripe down the left edge in the status's colour, so a long list reads at a glance (the chip says it in words).
         Row(modifier = Modifier.height(IntrinsicSize.Min)) {
             Box(
                 Modifier
                     .padding(vertical = 14.dp)
                     .width(4.dp)
                     .fillMaxHeight()
-                    .background(jewel.bottom, RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)),
+                    .background(toneColor(tone), RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)),
             )
-            Column(modifier = Modifier.weight(1f).padding(16.dp), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    JewelIcon(ZarvisIcons.Task, jewel, size = 44.dp)
-                    Text(text = task.goal, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                }
+            Column(modifier = Modifier.weight(1f).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(text = task.goal, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 // Plain-language state and risk, never the raw codes (PENDING, LOW, ...).
                 Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
                     StatusBadge(label = StatusLabels.taskText(task.status, task.lifecycle, locale), tone = tone)
-                    val risk = RiskBadgeLevel.fromWire(task.riskLevel)
-                    if (risk != null) RiskBadge(level = risk) else Text(text = StatusLabels.riskText(task.riskLevel, locale), style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = StatusLabels.riskText(task.riskLevel, locale),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 // Nothing runs a task by itself, and this screen has no Run / Retry control (the website does: POST /tasks/:id/run),
                 // so it offers none: an old "Start" button used to show RUNNING while nothing ran.
@@ -161,13 +169,4 @@ private fun TaskRow(task: TaskDto, busy: Boolean, viewModel: TasksViewModel) {
             }
         }
     }
-}
-
-/** The jewel behind a task's icon follows its status (the badge still says it in words). */
-private fun jewelFor(tone: StatusTone): Jewel = when (tone) {
-    StatusTone.ACTIVE -> Jewel.SAPPHIRE
-    StatusTone.WAITING -> Jewel.GOLD
-    StatusTone.SUCCESS -> Jewel.EMERALD
-    StatusTone.PROBLEM -> Jewel.RUBY
-    StatusTone.NEUTRAL -> Jewel.AMETHYST
 }

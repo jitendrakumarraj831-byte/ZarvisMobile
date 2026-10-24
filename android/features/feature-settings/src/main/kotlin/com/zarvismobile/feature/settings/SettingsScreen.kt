@@ -15,11 +15,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -34,16 +32,13 @@ import androidx.compose.material.icons.filled.PhonelinkLock
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,8 +53,18 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
-import com.zarvismobile.core.ui.components.Jewel
-import com.zarvismobile.core.ui.components.JewelIcon
+import com.zarvismobile.core.ui.components.QueenConfirmDialog
+import com.zarvismobile.core.ui.components.QueenListCard
+import com.zarvismobile.core.ui.components.QueenRow
+import com.zarvismobile.core.ui.components.QueenRowDivider
+import com.zarvismobile.core.ui.components.QueenSection
+import com.zarvismobile.core.ui.theme.ZarvisProStyles
+import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.core.ui.theme.zarvisActionBrush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
 import com.zarvismobile.core.ui.components.QueenPageHeader
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.icons.ZarvisIcons
@@ -88,11 +93,16 @@ private enum class SettingsPage(val title: UiString, val subtitle: UiString, val
     Developer(UiString.SETTINGS_PAGE_DEVELOPER, UiString.SETTINGS_SUB_DEVELOPER, Icons.Filled.Code),
 }
 
+/**
+ * Settings: the list of pages, and each page. With [openPhoneSafety] it opens straight on Phone action safety (Home's row), and
+ * Back from that page leaves Settings instead of showing the list.
+ */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit = {},
     onSessionCleared: () -> Unit,
     onDeveloper: () -> Unit,
+    openPhoneSafety: Boolean = false,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -100,16 +110,17 @@ fun SettingsScreen(
     val session by viewModel.session.collectAsState()
     val accountForm by viewModel.accountForm.collectAsState()
     // Saveable, so turning the phone keeps the page and an open "Delete your account?" question.
-    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    val startPage = if (openPhoneSafety) SettingsPage.PhoneSafety else null
+    var page by rememberSaveable { mutableStateOf(startPage) }
     var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
 
-    val goBack: () -> Unit = { page = null }
-    // System Back on a settings page returns to the settings list, like the on-screen back arrow.
+    val goBack: () -> Unit = { if (startPage != null && page == startPage) onBack() else page = null }
+    // System Back on a settings page returns to the settings list, like the on-screen back arrow (or out, from the page it opened on).
     BackHandler(enabled = page != null, onBack = goBack)
 
     when (val selected = page) {
-        null -> SettingsHub(uiState.locale, uiState.darkTheme, onBack) { page = it }
+        null -> SettingsHub(uiState.locale, uiState.darkTheme, session, onBack) { page = it }
         SettingsPage.Account -> SettingsSubPage(selected, goBack) {
             AccountSection(
                 session = session,
@@ -215,61 +226,68 @@ fun SettingsScreen(
     }
 
     if (showDeleteConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirmation = false },
-            title = { Text(tr(UiString.DELETE_ACCOUNT_TITLE)) },
-            text = { Text(tr(UiString.DELETE_ACCOUNT_BODY)) },
-            confirmButton = {
-                TextButton(onClick = { showDeleteConfirmation = false; viewModel.deleteAccount(onDeleted = onSessionCleared) }) {
-                    Text(tr(UiString.COMMON_DELETE), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteConfirmation = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
+        QueenConfirmDialog(
+            title = tr(UiString.DELETE_ACCOUNT_TITLE),
+            body = tr(UiString.DELETE_ACCOUNT_BODY),
+            confirmLabel = tr(UiString.COMMON_DELETE),
+            dismissLabel = tr(UiString.COMMON_CANCEL),
+            onConfirm = { showDeleteConfirmation = false; viewModel.deleteAccount(onDeleted = onSessionCleared) },
+            onDismiss = { showDeleteConfirmation = false },
+            destructive = true,
+            icon = ZarvisIcons.Trash,
         )
     }
 
     if (showClearConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirmation = false },
-            title = { Text(tr(UiString.SIGN_OUT_TITLE)) },
-            text = {
-                Text(
-                    tr(
-                        if ((session as? com.zarvismobile.data.repository.SessionState.Active)?.isGuest != false) {
-                            UiString.SIGN_OUT_GUEST_BODY
-                        } else {
-                            UiString.SIGN_OUT_BODY
-                        },
-                    ),
-                )
+        QueenConfirmDialog(
+            title = tr(UiString.SIGN_OUT_TITLE),
+            body = tr(
+                if ((session as? com.zarvismobile.data.repository.SessionState.Active)?.isGuest != false) {
+                    UiString.SIGN_OUT_GUEST_BODY
+                } else {
+                    UiString.SIGN_OUT_BODY
+                },
+            ),
+            confirmLabel = tr(UiString.SIGN_OUT),
+            dismissLabel = tr(UiString.COMMON_CANCEL),
+            onConfirm = {
+                showClearConfirmation = false
+                viewModel.signOut(onSessionCleared)
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    showClearConfirmation = false
-                    viewModel.signOut(onSessionCleared)
-                }) { Text(tr(UiString.SIGN_OUT)) }
-            },
-            dismissButton = { TextButton(onClick = { showClearConfirmation = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
+            onDismiss = { showClearConfirmation = false },
+            icon = ZarvisIcons.User,
         )
     }
 }
 
+/** The three groups of the Settings list (Queen Pro board 15), in order. */
+private val SETTINGS_GROUPS: List<Pair<UiString, List<SettingsPage>>> = listOf(
+    UiString.SETTINGS_GROUP_YOU to listOf(SettingsPage.Account, SettingsPage.Language, SettingsPage.Appearance, SettingsPage.Voice, SettingsPage.Notifications),
+    UiString.SETTINGS_GROUP_SAFETY to listOf(
+        SettingsPage.PhoneSafety, SettingsPage.Permissions, SettingsPage.Memory, SettingsPage.Privacy, SettingsPage.Security, SettingsPage.Data, SettingsPage.Protection,
+    ),
+    UiString.SETTINGS_GROUP_ADVANCED to listOf(SettingsPage.Ai, SettingsPage.Developer),
+)
+
 @Composable
-private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, onOpen: (SettingsPage) -> Unit) {
+private fun SettingsHub(
+    locale: String,
+    darkTheme: Boolean,
+    session: com.zarvismobile.data.repository.SessionState,
+    onBack: () -> Unit,
+    onOpen: (SettingsPage) -> Unit,
+) {
     com.zarvismobile.core.ui.components.ZarvisBackground {
         LazyColumn(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
-            contentPadding = PaddingValues(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(ZarvisSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
             item {
                 // The current language and look sit in the header as chips that open their pages.
                 QueenPageHeader(
                     title = tr(UiString.COMMON_SETTINGS),
                     subtitle = tr(UiString.SETTINGS_INTRO),
-                    icon = ZarvisIcons.Settings,
-                    jewel = Jewel.AMETHYST,
-                    kicker = "ZARVIS",
                     onBack = onBack,
                     backLabel = tr(UiString.COMMON_BACK),
                     actions = {
@@ -286,19 +304,22 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
                     },
                 )
             }
-            items(SettingsPage.values().toList(), key = { it.name }) { entry ->
-                GlassSurface(Modifier.fillMaxWidth(), onClick = { onOpen(entry) }) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        JewelIcon(entry.icon, jewelFor(entry), size = 44.dp)
-                        Column(Modifier.weight(1f)) {
-                            Text(tr(entry.title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                tr(entry.subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            item { AccountCard(session = session, onOpen = { onOpen(SettingsPage.Account) }) }
+            SETTINGS_GROUPS.forEach { (title, pages) ->
+                item(key = title.name) {
+                    QueenSection(title = tr(title)) {
+                        QueenListCard {
+                            pages.forEachIndexed { index, entry ->
+                                if (index > 0) QueenRowDivider()
+                                QueenRow(
+                                    title = tr(entry.title),
+                                    detail = tr(entry.subtitle),
+                                    icon = entry.icon,
+                                    iconTint = if (entry == SettingsPage.PhoneSafety) ZarvisAccents.gold else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    onClick = { onOpen(entry) },
+                                )
+                            }
                         }
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = ZarvisAccents.gold)
                     }
                 }
             }
@@ -307,29 +328,46 @@ private fun SettingsHub(locale: String, darkTheme: Boolean, onBack: () -> Unit, 
     }
 }
 
-/** Each Settings page wears its own jewel (board A15), so the long list is easy to scan. */
-private fun jewelFor(page: SettingsPage): Jewel = when (page) {
-    SettingsPage.Account, SettingsPage.Ai -> Jewel.AMETHYST
-    SettingsPage.Permissions, SettingsPage.Security, SettingsPage.PhoneSafety -> Jewel.SAPPHIRE
-    SettingsPage.Voice, SettingsPage.Memory -> Jewel.ORCHID
-    SettingsPage.Language, SettingsPage.Data, SettingsPage.Developer -> Jewel.EMERALD
-    SettingsPage.Appearance, SettingsPage.Notifications -> Jewel.GOLD
-    SettingsPage.Privacy, SettingsPage.Protection -> Jewel.RUBY
+/** Who is signed in, on top of the list: a letter, the account line, and (for a guest) where to link an email. Opens Account. */
+@Composable
+private fun AccountCard(session: com.zarvismobile.data.repository.SessionState, onOpen: () -> Unit) {
+    val active = session as? com.zarvismobile.data.repository.SessionState.Active
+    val title = when (session) {
+        is com.zarvismobile.data.repository.SessionState.Active ->
+            if (session.isGuest) tr(UiString.ACCOUNT_GUEST) else trf(UiString.ACCOUNT_SIGNED_IN, session.email.orEmpty())
+        is com.zarvismobile.data.repository.SessionState.Expired -> tr(UiString.ACCOUNT_ENDED)
+        com.zarvismobile.data.repository.SessionState.None -> tr(UiString.ACCOUNT_NONE)
+    }
+    val initial = active?.email?.firstOrNull()?.uppercaseChar()?.toString() ?: "G"
+    GlassSurface(Modifier.fillMaxWidth(), onClick = onOpen) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(48.dp).background(zarvisActionBrush(), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(initial, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = ZarvisProStyles.rowTitle)
+                if (active?.isGuest == true) {
+                    Text(tr(UiString.ACCOUNT_GUEST_HINT), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Icon(ZarvisIcons.Right, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    }
 }
 
 @Composable
 private fun SettingsSubPage(page: SettingsPage, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     com.zarvismobile.core.ui.components.ZarvisBackground {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(18.dp),
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(ZarvisSpacing.md),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             QueenPageHeader(
                 title = tr(page.title),
                 subtitle = tr(page.subtitle),
-                icon = page.icon,
-                jewel = jewelFor(page),
-                kicker = tr(UiString.SETTINGS_SUBPAGE_KICKER),
                 onBack = onBack,
                 backLabel = tr(UiString.COMMON_BACK),
             )
