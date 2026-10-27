@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -25,8 +24,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.tooling.PendingConfirmation
 import com.zarvismobile.core.tooling.PendingRationale
-import com.zarvismobile.core.ui.components.Jewel
-import com.zarvismobile.core.ui.components.JewelIcon
+import com.zarvismobile.core.ui.components.QueenDialogShape
+import com.zarvismobile.core.ui.components.QueenIconTile
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
@@ -68,8 +67,8 @@ private fun RationaleDialog(pending: PendingRationale, registry: CapabilityRegis
         onDismissRequest = { pending.respond(RationaleChoice.NOT_NOW) },
         modifier = Modifier.border(1.dp, ZarvisAccents.gold.copy(alpha = 0.45f), QueenDialogShape),
         shape = QueenDialogShape,
-        icon = { JewelIcon(ZarvisIcons.Shield, Jewel.AMETHYST, size = 52.dp) },
-        title = { Text("Allow ${capability.name.lowercase()}?", fontWeight = FontWeight.ExtraBold) },
+        icon = { QueenIconTile(ZarvisIcons.Shield, ZarvisAccents.gold, size = 52.dp) },
+        title = { Text("Allow ${capability.name.lowercase()}?", fontWeight = FontWeight.Bold) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 RiskBadge(level = RiskBadgeLevel.valueOf(capability.risk.name))
@@ -101,8 +100,6 @@ private fun RationaleDialog(pending: PendingRationale, registry: CapabilityRegis
     )
 }
 
-/** Board A21: the dialogs are the plum surface with a gold edge, rounded like the sheets in the design. */
-private val QueenDialogShape = RoundedCornerShape(28.dp)
 
 private fun settingsNote(pending: PendingRationale, destination: String, context: Context): String? = when (pending.request.settingsReason) {
     null -> null
@@ -142,8 +139,8 @@ private fun RiskConfirmationDialog(pending: PendingConfirmation) {
         onDismissRequest = { pending.respond(false) },
         modifier = Modifier.border(1.dp, ZarvisAccents.gold.copy(alpha = 0.45f), QueenDialogShape),
         shape = QueenDialogShape,
-        icon = { JewelIcon(ZarvisIcons.Check, Jewel.GOLD, size = 52.dp) },
-        title = { Text("Confirm this action", fontWeight = FontWeight.ExtraBold) },
+        icon = { QueenIconTile(ZarvisIcons.Check, ZarvisAccents.gold, size = 52.dp) },
+        title = { Text("Confirm this action", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 RiskBadge(level = RiskBadgeLevel.valueOf(pending.request.riskLevel.name))

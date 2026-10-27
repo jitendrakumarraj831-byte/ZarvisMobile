@@ -19,15 +19,15 @@ import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
 /**
- * Premium glass surface shared by every feature page: a translucent tint and a hairline edge over the aurora page (white-ish in
- * light, periwinkle-ish in dark; see [GlassColors]). No blur and no shadow, so it draws as cheaply as a flat card.
+ * The card every feature page is built from (Queen Pro): a solid surface with a hairline edge and 16dp corners (white with a purple
+ * hairline in light, plum with a gold hairline in dark; see [GlassColors]). No blur and no shadow.
  *
  * With [onClick] the whole surface is one button: the press ripple is clipped to its rounded corners and it announces itself as a button.
  */
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape = RoundedCornerShape(16.dp),
     borderColor: Color = GlassColors.border,
     tint: Color = GlassColors.surfaceTint,
     contentPadding: Dp = ZarvisSpacing.md,

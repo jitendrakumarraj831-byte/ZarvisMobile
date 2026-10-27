@@ -5,7 +5,8 @@ jewel-like orb. **Queen Dark** is the default appearance and **Queen Light** (la
 Settings › Appearance. The website keeps Aurora Glass ([DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)) until it moves to Queen in its own change.
 
 The full design (all 22 Android boards, the navigation, the speed rules and the scan checklist) is on the design canvas
-<https://claude.ai/artifact/SG5heBSrDENnAK1Ja9vWGx>, page **Android · Queen (sab pages)**.
+<https://claude.ai/artifact/SG5heBSrDENnAK1Ja9vWGx>, page **Android · Queen (sab pages)**. Its quieter successor, **Queen Pro**
+(22 boards, page **Queen Pro · saaf, professional (sab features)**), is what the app draws since phase 4: see *Queen Pro* below.
 
 Product rules do not change with the look: no fake capability or state, status words say what is really happening, every visible
 string has Hindi, and text is at least 4.5:1 on whatever it is drawn on.
@@ -17,6 +18,7 @@ string has Hindi, and text is at least 4.5:1 on whatever it is drawn on.
 | 1 | The palette, Material colour roles, the animated page, the orb, the tab bar with Chat as the gold orb in the middle, Queen Dark as the default, the Settings wording | Done |
 | 2 | Sora/Orbitron type; the crown, gold lettering, gold section labels, jewel icons and badges; Home (A03); launch, welcome, start error, capability detail and Developer Agent on the Queen page; the Chat look (A04) and interrupted card; the gold skeleton, crown empty state and ruby error card (A22); Queen dialogs (A21); jewel Settings rows (A15); Lightweight mode | Done |
 | 3 | Live chat progress from the turn stream; the Queen page header (`QueenPageHeader`) on every inner page; jewel cards on Work, Capabilities and Tasks; Metrics tiles and meters; Plans with the crowned plan card, localized; the chat's welcome with three starters; five equal tabs | Done |
+| 4 | Queen Pro: one quiet page behind every inner screen, solid cards, one page structure (bar, intro, gold sections, rows), tinted status chips, pill buttons, a flat tab bar with five equal tabs, and the new controls listed under *Queen Pro* | Done |
 | Later | The items under *Not done yet* below | Open |
 
 Phase 1 changed no behaviour. Phase 2 changes one: the Home orb ("Tap to speak") and the composer's mic open Chat already listening,
@@ -71,21 +73,22 @@ at their strongest (the worst spot is 5.1:1 in light and 5.3:1 in dark), ink on 
 * With Android's "Remove animations" on (or an animator scale of 0) the sky is one still frame. Android sends no frames while the
   app is in the background, so it costs nothing there.
 
-Every screen draws the sky: Home, Chat, Capabilities, Work, Tasks, System Metrics, Plans & Quotas, Memory, Settings, Permissions, and
-(since Phase 2) launch, welcome, start error, session ended, a capability's detail page and Developer Agent.
+Since phase 4 (Queen Pro) only Home draws the sky (`ZarvisBackground(decorated = true)`). Every other page has the page colour with
+one still magenta glow at the top, so its text and controls are what you see.
 
 ## Type and shared pieces
 
-* **Type** (`Type.kt`): Sora for everything people read, Orbitron for the ZARVIS wordmark and the small gold section labels
-  (`ZarvisDisplayStyles`). Both are the upstream variable fonts, unmodified (OFL 1.1, see THIRD_PARTY_NOTICES.md). Neither has
+* **Type** (`Type.kt`): Sora for everything people read, Orbitron for the name ZARVIS only (`ZarvisDisplayStyles`); since phase 4 the
+  gold section labels are Sora 12/16 (`ZarvisProStyles.sectionLabel`). Both are the upstream variable fonts, unmodified (OFL 1.1, see THIRD_PARTY_NOTICES.md). Neither has
   Devanagari, so Hindi uses the phone's own Devanagari font, and a Hindi section label keeps Sora with no letter spacing.
 * **`QueenComponents.kt`**: `QueenCrown` (bobs gently), `GoldText` (gold in Queen Dark, royal ink in Queen Light, with a shine that
   passes every few seconds), `SectionKicker`, `JewelIcon` / `Jewel`, `SkeletonBlock` / `SkeletonList`, `QueenEmptyState`,
   `QueenErrorCard`, `GoldDivider`, and since phase 3 `QueenPageHeader` (Back pill, a glass hero card washed with the page's jewel,
   its jewel icon, a gold kicker, the title in gold lettering as the page heading, one line on what the page is for, and chips that
   wrap), `QueenBackButton`, `QueenStatTile` and `GoldMeter` (decoration: the number is always written next to it).
-* **Badges**: `StatusBadge` and `RiskBadge` are filled jewel pills with their own dark ink (sapphire running, gold waiting, emerald
-  done, ruby a problem), so they read the same on both pages.
+* **Badges**: since phase 4 `StatusBadge` and `RiskBadge` are tinted pills (`TintPill`): the theme's text-safe accent on a 14% wash of
+  itself (cyan running, gold waiting, green done, rose a problem); "Very high risk" is the one filled pill. PaletteContrastTest checks
+  every chip on its own tint, on the page and on a card, in both themes.
 * **Lightweight mode** (Settings › Appearance): the sky, the crown, the shine, the skeleton sweep and the orb hold still, exactly as with
   Android's "Remove animations" (`zarvisReduceMotion()` answers true for either).
 
@@ -100,10 +103,8 @@ are unchanged.
 
 Tab bar: **Home · Skills · Chat · Tasks · Work** (Hindi: होम · क्षमताएँ · चैट · कार्य · काम). The English tab says Skills because
 "Capabilities" did not fit five tabs on a 360dp phone: it pushed Work's label out to "…". The page keeps the title Capabilities, and
-every tab now gets an equal share of the bar. Chat is the gold orb in the middle (`ZarvisNavItem(prominent = true)`),
-with its label under it like every other tab, so it is still found by its text and still announces itself as a tab. The bar is a
-plum (light: white) pill with a jewel edge; the current tab sits on a gold-tinted pill with a bolder label, and the orb wears a ring
-while Chat is open. Screens opened from Work keep Work highlighted, and the bar hides while the keyboard is up (as before).
+every tab now gets an equal share of the bar. Since phase 4 the bar is flat across the bottom with a hairline on top, and the five
+tabs are equal (Chat is no longer an orb): the current tab's icon sits on a gold pill and its label turns gold and bolder. Screens opened from Work keep Work highlighted, and the bar hides while the keyboard is up (as before).
 
 Talk: the crowned orb on Home and the composer's mic open Chat already listening (`conversation?listen=true`). The middle tab stays
 **Chat**: opening Chat from the tab does not start the microphone.
@@ -145,3 +146,32 @@ Talk: the crowned orb on Home and the composer's mic open Chat already listening
 * Animation is transform, opacity or draw-phase only, at 60 fps; it stops with "Remove animations" (and in Lightweight mode, Phase 2).
 * Prefetch the next screen's data where the path is obvious (Home → Tasks, Chat).
 * Every list has its four states: loading, empty, error (with Try again) and offline.
+
+## Queen Pro (phase 4)
+
+The same Queen colours with less noise, so every page reads as one product. Approved on the design canvas (page **Queen Pro**).
+
+* **One page structure.** Back (a 48dp round button) next to the title (22/28; a tab's own page has no Back and 28/34), one line on
+  what the page is for, chips that wrap, then sections: a gold label (`QueenSection`) over a card of rows (`QueenListCard`,
+  `QueenRow`, `QueenRowDivider`). A row is an icon tile, a title, one line of detail and a control on the right (switch, chip, or a
+  chevron when the whole row opens something), at least 64dp tall.
+* **Surfaces.** Cards are solid (`#200A30` with a gold hairline in Queen Dark, white with a purple hairline in Queen Light), 16dp
+  corners. Buttons are pills: the action gradient for the one main action, an outline for the second, and an outline in the danger
+  colour for anything that deletes; the dialog that asks first (`QueenConfirmDialog`) has the filled danger pill.
+* **Notes and small print.** `QueenNote` (a soft tinted box with an icon) for what a setting means or a safety promise;
+  `QueenFootnote` for small print; `QueenOutlineAction` for a small gold action such as Try again or Stop.
+* **New controls** (each built on what the app already does):
+  * Chat: the orb sits next to the field as the microphone; while listening, a card says "Speak now" with **Cancel, send nothing**;
+    while a reply is read aloud, **Stop** ends it and keeps the text (`ConversationViewModel.stopSpeaking`).
+  * Assistant panel: **Read my screen**, **Go back** and **Go home** send those requests; reading and tapping still ask first.
+  * Skills: a search and four filters (All, On this phone, In Chat, Website only). Where a capability is used comes from
+    `shared/feature-catalog.json` (`SkillsCatalog`), never from the screen.
+  * Tasks: grouped into Needs you, In progress and Finished (`StatusLabels.taskGroup`); the tab's page is titled Tasks; an empty list
+    offers Open Chat.
+  * Home: Phone Agent and Phone action safety (with its live On / Paused) under "On this phone"; the safety row and the Phone Agent
+    page open Phone action safety directly.
+  * Work: "In the app" replaces "Available now", so a screen that exists is not read as tested on a phone.
+  * Memory: a character count under the field. Usage & metrics is the page's title. Developer Agent says Yes / No and follows the
+    app's language.
+  * Settings: the account on top and three groups (You · Safety & privacy · Advanced). Permissions & Device Access is grouped by what
+    Android reports (`AccessGroup`: Allowed, Not on yet, No permission held, Not available here).

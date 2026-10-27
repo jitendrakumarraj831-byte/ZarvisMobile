@@ -37,9 +37,10 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * The Queen page (ANDROID_QUEEN_DESIGN.md): a plum night with a magenta glow at the top, amethyst light on the right and gold
- * at the bottom, and over it slowly turning gold rays, falling glitter, rising bokeh and twinkling four-point stars. The light
- * theme is the same scene on lavender.
+ * The Queen page (ANDROID_QUEEN_DESIGN.md). Every page is a plum night (lavender in the light theme) with one soft magenta glow at
+ * the top. Queen Pro keeps the full scene for Home alone ([decorated]): amethyst light on the right and gold at the bottom, and over
+ * it slowly turning gold rays, falling glitter, rising bokeh and twinkling four-point stars. Inner pages stay quiet so their text
+ * and controls are what you see.
  *
  * Speed: the three glows are painted once per size or theme change. Everything that moves lives on its own layer behind the
  * content and runs off one clock that is read while drawing, so a frame repaints only that layer: no recomposition, no
@@ -50,18 +51,23 @@ import kotlin.random.Random
  * rays and a bokeh light overlap, every text colour keeps 4.5:1 (PaletteContrastTest stacks them to check).
  */
 @Composable
-fun ZarvisBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+fun ZarvisBackground(modifier: Modifier = Modifier, decorated: Boolean = false, content: @Composable BoxScope.() -> Unit) {
     val base = MaterialTheme.colorScheme.background
     val sky = if (LocalZarvisExtras.current.isDark) QueenSkyDark else QueenSkyLight
     Box(
         modifier = modifier.fillMaxSize().background(base).drawBehind {
             val reach = size.maxDimension
-            drawRect(Brush.radialGradient(listOf(sky.topGlow, Color.Transparent), Offset(size.width * .5f, 0f), reach * .62f))
-            drawRect(Brush.radialGradient(listOf(sky.sideGlow, Color.Transparent), Offset(size.width, size.height * .42f), reach * .5f))
-            drawRect(Brush.radialGradient(listOf(sky.bottomGlow, Color.Transparent), Offset(size.width * .5f, size.height * 1.04f), reach * .6f))
+            if (decorated) {
+                drawRect(Brush.radialGradient(listOf(sky.topGlow, Color.Transparent), Offset(size.width * .5f, 0f), reach * .62f))
+                drawRect(Brush.radialGradient(listOf(sky.sideGlow, Color.Transparent), Offset(size.width, size.height * .42f), reach * .5f))
+                drawRect(Brush.radialGradient(listOf(sky.bottomGlow, Color.Transparent), Offset(size.width * .5f, size.height * 1.04f), reach * .6f))
+            } else {
+                // One glow, centred above the top edge, that fades out before the first section.
+                drawRect(Brush.radialGradient(listOf(sky.topGlow, Color.Transparent), Offset(size.width * .5f, -size.width * .2f), size.width * .9f))
+            }
         },
     ) {
-        QueenSky(sky = sky, still = zarvisReduceMotion(), modifier = Modifier.matchParentSize())
+        if (decorated) QueenSky(sky = sky, still = zarvisReduceMotion(), modifier = Modifier.matchParentSize())
         content()
     }
 }

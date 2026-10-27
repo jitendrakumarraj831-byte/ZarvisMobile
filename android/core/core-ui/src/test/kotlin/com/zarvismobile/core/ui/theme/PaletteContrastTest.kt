@@ -116,4 +116,39 @@ class PaletteContrastTest {
         assertEquals(Color(0xFFFDE68A), ZarvisPrimaryDark)
         assertEquals(listOf(Color(0xFF7E22CE), Color(0xFFBE185D), Color(0xFFB45309)), listOf(ZarvisActionBlue, ZarvisActionViolet, ZarvisActionPink))
     }
+
+    /** A status or risk chip (TintPill): the accent as text on a 14% wash of itself, over the page and over a card. */
+    private fun assertChipsReadable(page: Color, card: Color, accents: Map<String, Color>) {
+        for ((label, accent) in accents) {
+            val wash = accent.copy(alpha = 0.14f)
+            assertReadable("$label chip", accent, mapOf("chip on page" to wash.compositeOver(page), "chip on card" to wash.compositeOver(card)))
+        }
+    }
+
+    @Test
+    fun `status and risk chips are readable on their own tint in both themes`() {
+        assertChipsReadable(
+            ZarvisSpaceBlack,
+            DarkExtras.glass.compositeOver(ZarvisSpaceBlack),
+            mapOf(
+                "active" to DarkExtras.accentCyan, "waiting" to DarkExtras.warning, "done" to DarkExtras.success, "problem" to DarkExtras.danger,
+                "violet" to DarkExtras.accentViolet, "pink" to DarkExtras.accentPink, "neutral" to ZarvisTextSecondaryDark,
+            ),
+        )
+        assertChipsReadable(
+            ZarvisSurfaceLight,
+            LightExtras.glass.compositeOver(ZarvisSurfaceLight),
+            mapOf(
+                "active" to LightExtras.accentCyan, "waiting" to LightExtras.warning, "done" to LightExtras.success, "problem" to LightExtras.danger,
+                "violet" to LightExtras.accentViolet, "pink" to LightExtras.accentPink, "neutral" to ZarvisTextSecondaryLight,
+            ),
+        )
+    }
+
+    @Test
+    fun `a field's quiet edge is still findable against the page`() {
+        // The composer and the search field use the theme's outline (WCAG 1.4.11 asks 3:1 for a control's edge).
+        assertReadable("dark outline", Color(0xFF9C7AB3), mapOf("page" to ZarvisSpaceBlack), minimum = 3f)
+        assertReadable("light outline", Color(0xFF7A6A99), mapOf("page" to ZarvisSurfaceLight), minimum = 3f)
+    }
 }

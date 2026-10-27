@@ -5,10 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,10 +27,21 @@ import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
-import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.domain.policy.AutomationRecord
 import com.zarvismobile.domain.presentation.UiString
 import java.time.ZoneId
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import com.zarvismobile.core.ui.components.QueenConfirmDialog
+import com.zarvismobile.core.ui.components.QueenListCard
+import com.zarvismobile.core.ui.components.QueenNote
+import com.zarvismobile.core.ui.components.QueenRow
+import com.zarvismobile.core.ui.components.QueenRowDivider
+import com.zarvismobile.core.ui.components.QueenSection
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -54,7 +63,7 @@ fun PhoneSafetyContent(viewModel: PhoneSafetyViewModel = hiltViewModel()) {
         if (paused == null) {
             if (!state.readFailed) SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 1)
         } else {
-            GlassSurface(Modifier.fillMaxWidth()) {
+            GlassSurface(Modifier.fillMaxWidth(), borderColor = ZarvisAccents.gold.copy(alpha = 0.30f)) {
                 SettingSwitchRow(
                     title = tr(UiString.PHONE_SAFETY_PAUSE_TITLE),
                     subtitle = tr(if (paused) UiString.PHONE_SAFETY_PAUSE_ON else UiString.PHONE_SAFETY_PAUSE_OFF),
@@ -67,38 +76,54 @@ fun PhoneSafetyContent(viewModel: PhoneSafetyViewModel = hiltViewModel()) {
             Text(tr(UiString.PHONE_SAFETY_SAVE_FAILED), color = MaterialTheme.colorScheme.error)
         }
 
-        SafetySectionTitle(tr(UiString.PHONE_SAFETY_NEVER_TITLE))
-        GlassSurface(Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                viewModel.neverDoes.forEach { promise ->
-                    Text("• " + promise.text(locale), style = MaterialTheme.typography.bodyMedium)
+        QueenSection(title = tr(UiString.PHONE_SAFETY_CONFIRM_TITLE)) {
+            QueenNote(text = tr(UiString.PHONE_SAFETY_CONFIRM_BODY), icon = ZarvisIcons.Check, tint = ZarvisAccents.cyan)
+        }
+
+        QueenSection(title = tr(UiString.PHONE_SAFETY_NEVER_TITLE)) {
+            QueenListCard {
+                viewModel.neverDoes.forEachIndexed { index, promise ->
+                    if (index > 0) QueenRowDivider()
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md, vertical = 11.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Icon(ZarvisIcons.X, contentDescription = null, tint = ZarvisAccents.danger, modifier = Modifier.padding(top = 1.dp).size(18.dp))
+                        Text(promise.text(locale), style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
         }
-        ReadOnlyCard(tr(UiString.PHONE_SAFETY_CONFIRM_TITLE), tr(UiString.PHONE_SAFETY_CONFIRM_BODY), ZarvisAccentCyan)
 
-        SafetySectionTitle(tr(UiString.PHONE_SAFETY_HISTORY_TITLE))
-        Text(tr(UiString.PHONE_SAFETY_HISTORY_BODY), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (state.historyReadFailed) {
-            Text(tr(UiString.PHONE_SAFETY_HISTORY_READ_FAILED), color = MaterialTheme.colorScheme.error)
-        }
-        if (state.history.isEmpty()) {
-            Text(tr(UiString.PHONE_SAFETY_HISTORY_EMPTY), style = MaterialTheme.typography.bodyMedium)
-        } else {
-            state.history.forEach { HistoryRow(it, locale) }
-            ZarvisDestructiveButton(text = tr(UiString.PHONE_SAFETY_HISTORY_CLEAR), onClick = { confirmClear = true })
+        QueenSection(title = tr(UiString.PHONE_SAFETY_HISTORY_TITLE), hint = tr(UiString.PHONE_SAFETY_HISTORY_BODY)) {
+            if (state.historyReadFailed) {
+                Text(tr(UiString.PHONE_SAFETY_HISTORY_READ_FAILED), color = MaterialTheme.colorScheme.error)
+            }
+            if (state.history.isEmpty()) {
+                QueenListCard { QueenRow(title = tr(UiString.PHONE_SAFETY_HISTORY_EMPTY), icon = ZarvisIcons.Clock) }
+            } else {
+                QueenListCard {
+                    state.history.forEachIndexed { index, entry ->
+                        if (index > 0) QueenRowDivider()
+                        HistoryRow(entry, locale)
+                    }
+                }
+                ZarvisDestructiveButton(text = tr(UiString.PHONE_SAFETY_HISTORY_CLEAR), onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth())
+            }
         }
     }
 
     if (confirmClear) {
-        AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            title = { Text(tr(UiString.PHONE_SAFETY_HISTORY_CLEAR_TITLE)) },
-            text = { Text(tr(UiString.PHONE_SAFETY_HISTORY_CLEAR_BODY)) },
-            confirmButton = {
-                TextButton(onClick = { confirmClear = false; viewModel.clearHistory() }) { Text(tr(UiString.PHONE_SAFETY_HISTORY_CLEAR)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(tr(UiString.COMMON_CANCEL)) } },
+        QueenConfirmDialog(
+            title = tr(UiString.PHONE_SAFETY_HISTORY_CLEAR_TITLE),
+            body = tr(UiString.PHONE_SAFETY_HISTORY_CLEAR_BODY),
+            confirmLabel = tr(UiString.PHONE_SAFETY_HISTORY_CLEAR),
+            dismissLabel = tr(UiString.COMMON_CANCEL),
+            onConfirm = { confirmClear = false; viewModel.clearHistory() },
+            onDismiss = { confirmClear = false },
+            destructive = true,
+            icon = ZarvisIcons.Trash,
         )
     }
 }
@@ -108,20 +133,21 @@ private fun HistoryRow(entry: AutomationRecord, locale: String) {
     val outcome = tr(entry.outcome.label())
     val time = HISTORY_TIME.withLocale(if (locale.startsWith("hi")) Locale("hi", "IN") else Locale.ENGLISH)
         .format(entry.at.atZone(ZoneId.systemDefault()))
-    GlassSurface(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = "$outcome. ${entry.action}. $time" }) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f)) {
-                Text(entry.action, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            StatusBadge(label = outcome, tone = entry.outcome.tone())
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 60.dp)
+            .semantics(mergeDescendants = true) { contentDescription = "$outcome. ${entry.action}. $time" }
+            .padding(horizontal = ZarvisSpacing.md, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(entry.action, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        StatusBadge(label = outcome, tone = entry.outcome.tone())
     }
-}
-
-@Composable
-private fun SafetySectionTitle(text: String) {
-    com.zarvismobile.core.ui.components.SectionKicker(text = text, modifier = Modifier.padding(top = 8.dp))
 }
 
 private val HISTORY_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM, h:mm a")

@@ -191,7 +191,7 @@
         },
         "android": {
           "status": "PARTIAL",
-          "note": "View, pause and delete here; add on the website"
+          "note": "Add, pause and delete here"
         }
       },
       {

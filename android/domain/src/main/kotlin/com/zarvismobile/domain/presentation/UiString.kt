@@ -29,11 +29,12 @@ enum class UiString(val en: String, val hi: String) {
     COMMON_REFRESH("Refresh", "ताज़ा करें"),
     COMMON_CANCEL("Cancel", "रद्द करें"),
     COMMON_DELETE("Delete", "हटाएँ"),
-    COMMON_OPEN("Open", "खोलें"),
     COMMON_LOADING("Loading…", "लोड हो रहा है…"),
     COMMON_SELECTED("Selected", "चुना गया"),
     COMMON_SETTINGS("Settings", "सेटिंग्स"),
     COMMON_OK("OK", "ठीक है"),
+    COMMON_YES("Yes", "हाँ"),
+    COMMON_NO("No", "नहीं"),
     COMMON_OPEN_NAMED("Open %s", "%s खोलें"),
     COMMON_PLANS_QUOTAS("Plans & quotas", "प्लान और कोटा"),
 
@@ -48,22 +49,17 @@ enum class UiString(val en: String, val hi: String) {
     HOME_CAT_AUTOMATION("Automation", "ऑटोमेशन"),
     HOME_CAT_RESEARCH("Research", "रिसर्च"),
     HOME_CAPABILITIES_TITLE("What can you do?", "आप क्या कर सकते हैं?"),
-    HOME_CAPABILITIES_BODY("See every skill ZARVIS currently has, grouped by category.", "ZARVIS की सभी मौजूदा स्किल श्रेणी के अनुसार देखें।"),
-    HOME_BROWSE_SKILLS("Browse skills (%d)", "स्किल देखें (%d)"),
-    HOME_SUBSCRIPTION("Subscription", "सब्सक्रिप्शन"),
     HOME_PLAN_LINE("Plan: %s · credits left: %d", "प्लान: %s · बचे क्रेडिट: %d"),
-    HOME_MANAGE_SUBSCRIPTION("Manage subscription", "सब्सक्रिप्शन देखें"),
     HOME_RECENT_TASKS("Recent Tasks", "हाल के कार्य"),
     HOME_SEE_ALL("See all", "सभी देखें"),
-    HOME_NO_TASKS("No tasks yet — ask ZARVIS to do something to get started.", "अभी कोई कार्य नहीं — शुरू करने के लिए ZARVIS से कुछ करने को कहें।"),
     HOME_PHONE_AGENT("Phone Agent", "फ़ोन एजेंट"),
-    HOME_PHONE_AGENT_BODY(
-        "Open apps, find contacts, confirmed calls, reminders, pickers, camera, location, and settings shortcuts on this phone.",
-        "इस फ़ोन पर ऐप खोलें, संपर्क ढूँढें, पुष्टि के बाद कॉल करें, रिमाइंडर, पिकर, कैमरा, लोकेशन और सेटिंग शॉर्टकट इस्तेमाल करें।",
-    ),
-    HOME_OPEN_PHONE_AGENT("Open Phone Agent", "फ़ोन एजेंट खोलें"),
-    HOME_VOICE_ASSISTANT("Voice Assistant", "वॉइस असिस्टेंट"),
-    HOME_DEVELOPER_AGENT("Developer Agent", "डेवलपर एजेंट"),
+    HOME_HEADLINE("What should we do?", "आज क्या करें?"),
+    HOME_TRY("Try", "आज़माएँ"),
+    HOME_PHONE_AGENT_SHORT("Apps, contacts, confirmed calls, reminders", "ऐप, संपर्क, पुष्टि के बाद कॉल, रिमाइंडर"),
+    HOME_PHONE_SAFETY_SHORT("Pause all, rules, what ZARVIS did", "रोकें, नियम, ZARVIS ने क्या किया"),
+    HOME_PHONE_ACTIONS_ON("On", "चालू"),
+    HOME_NO_TASKS_HINT("Ask ZARVIS to do something to get started.", "शुरू करने के लिए ZARVIS से कुछ करने को कहें।"),
+    HOME_PLAN("Plan", "प्लान"),
     HOME_ERROR("Couldn't load your skills, plan and tasks. Check your connection and try again.", "आपकी स्किल, प्लान और कार्य लोड नहीं हो सके। कनेक्शन जाँचें और फिर कोशिश करें।"),
 
     // ---- Work -----------------------------------------------------------------------------
@@ -74,7 +70,7 @@ enum class UiString(val en: String, val hi: String) {
     ),
     WORK_ON_THE_WEBSITE("On the website", "वेबसाइट पर"),
     WORK_ON_THIS_PHONE("On this phone", "इस फ़ोन पर"),
-    WORK_AVAILABILITY_AVAILABLE("Available now", "अभी उपलब्ध"),
+    WORK_AVAILABILITY_AVAILABLE("In the app", "ऐप में"),
     WORK_AVAILABILITY_ANDROID("Android only", "सिर्फ़ Android पर"),
     WORK_AVAILABILITY_CHAT("Works in Chat", "चैट में चलता है"),
     WORK_AVAILABILITY_WEBSITE("Website only", "सिर्फ़ वेबसाइट पर"),
@@ -116,12 +112,15 @@ enum class UiString(val en: String, val hi: String) {
     WORK_SUMMARY_UNAVAILABLE("Couldn't load", "लोड नहीं हो सका"),
 
     // ---- Tasks (the Activity tab and Work > Tasks) -----------------------------------------
-    TASKS_TITLE("Activity", "गतिविधि"),
     TASKS_TITLE_WORK("Tasks", "कार्य"),
     TASKS_SUBTITLE(
         "A task shows its real status. Nothing runs by itself, and this phone can't start a step yet; use the website for that.",
         "कार्य अपनी असली स्थिति दिखाता है। कुछ भी अपने-आप नहीं चलता, और यह फ़ोन अभी कोई चरण शुरू नहीं कर सकता; इसके लिए वेबसाइट इस्तेमाल करें।",
     ),
+    TASKS_GROUP_NEEDS_YOU("Needs you", "आपकी ज़रूरत है"),
+    TASKS_GROUP_IN_PROGRESS("In progress", "चल रहे"),
+    TASKS_GROUP_FINISHED("Finished", "पूरे हुए"),
+    TASKS_OPEN_CHAT("Open Chat", "चैट खोलें"),
     TASKS_ABOUT("About tasks", "कार्यों के बारे में"),
     TASKS_EMPTY_TITLE("No tasks yet", "अभी कोई कार्य नहीं"),
     TASKS_EMPTY("Ask ZARVIS to create a workflow, then control it here.", "ZARVIS से वर्कफ़्लो बनवाएँ, फिर उसे यहाँ संभालें।"),
@@ -150,8 +149,23 @@ enum class UiString(val en: String, val hi: String) {
     RISK_HIGH("High risk", "ज़्यादा जोखिम"),
     RISK_VERY_HIGH("Very high risk", "बहुत ज़्यादा जोखिम"),
 
+    // ---- Developer Agent -------------------------------------------------------------------
+    DEV_INTRO(
+        "Read-only repository analysis. Write access (code changes, pull requests) is planned but not enabled in this build.",
+        "सिर्फ़-पढ़ने वाला रिपॉज़िटरी विश्लेषण। लिखने की अनुमति (कोड बदलाव, pull request) योजना में है, पर इस बिल्ड में चालू नहीं है।",
+    ),
+    DEV_READ_ONLY("Read-only", "सिर्फ़ पढ़ना"),
+    DEV_REPO_URL("Repository URL", "रिपॉज़िटरी URL"),
+    DEV_ANALYZE("Analyze", "विश्लेषण करें"),
+    DEV_RESULT("Result", "नतीजा"),
+    DEV_PRIMARY_LANGUAGE("Primary language", "मुख्य भाषा"),
+    DEV_BUILD_SYSTEM("Build system", "बिल्ड सिस्टम"),
+    DEV_HAS_TESTS("Has tests", "टेस्ट हैं"),
+    DEV_HAS_CI("Has CI", "CI है"),
+    DEV_TOP_FOLDERS("Top-level folders", "ऊपरी फ़ोल्डर"),
+
     // ---- Usage & metrics ------------------------------------------------------------------
-    METRICS_TITLE("System Metrics", "सिस्टम मेट्रिक्स"),
+    METRICS_TITLE("Usage & metrics", "उपयोग और मेट्रिक्स"),
     METRICS_SUBTITLE("Latency measured live on this device, and your current task log.", "इस डिवाइस पर लाइव नापा गया जवाब का समय, और आपका मौजूदा कार्य लॉग।"),
     METRICS_AVG_LATENCY("Avg Latency", "औसत समय"),
     METRICS_TURNS("Turns Logged", "दर्ज बातचीत"),
@@ -174,6 +188,27 @@ enum class UiString(val en: String, val hi: String) {
     CHAT_DELETE_FAILED(
         "Couldn't delete this chat. Check your connection and try again.",
         "यह चैट हटाई नहीं जा सकी। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+    ),
+    CHAT_LANGUAGE_CAPTION("Replies in your language · English, हिंदी, Hinglish", "आपकी भाषा में जवाब · English, हिंदी, Hinglish"),
+    CHAT_SAFETY_CAPTION(
+        "Risky actions ask first · screen, contacts and location results stay on the phone",
+        "जोखिम वाले काम पहले पूछते हैं · स्क्रीन, संपर्क और लोकेशन के नतीजे फ़ोन पर ही रहते हैं",
+    ),
+    VOICE_SPEAK_NOW("Speak now", "अब बोलें"),
+    VOICE_LISTENING_HINT(
+        "English, हिंदी or Hinglish. The microphone is on only while this shows.",
+        "English, हिंदी या Hinglish। माइक्रोफ़ोन सिर्फ़ तभी चालू है जब यह दिख रहा हो।",
+    ),
+    VOICE_CANCEL_SEND_NOTHING("Cancel, send nothing", "रद्द करें, कुछ न भेजें"),
+    VOICE_STOP("Stop", "बंद करें"),
+    ASSIST_HINT("Say what to do in this app", "इस ऐप में क्या करना है, बोलें"),
+    ASSIST_COMPOSER_HINT("Ask ZARVIS about this screen, or anything", "इस स्क्रीन के बारे में या कुछ भी पूछें"),
+    ASSIST_READ_SCREEN("Read my screen", "मेरी स्क्रीन पढ़ो"),
+    ASSIST_GO_BACK("Go back", "पीछे जाओ"),
+    ASSIST_GO_HOME("Go home", "होम पर जाओ"),
+    ASSIST_SAFETY(
+        "Reading or tapping is confirmed every time. Banking, payment and password apps, and Android's settings screens, are never read or tapped.",
+        "स्क्रीन पढ़ने या टैप करने से पहले हर बार पूछा जाता है। बैंक, पेमेंट और पासवर्ड ऐप, और Android की सेटिंग स्क्रीन कभी नहीं पढ़ी या टैप की जातीं।",
     ),
     CHAT_COMPOSER_HINT("Type your task", "अपना काम लिखें"),
     CHAT_STATE_IDLE("Tap the orb or type to start", "शुरू करने के लिए ऑर्ब दबाएँ या लिखें"),
@@ -262,10 +297,23 @@ enum class UiString(val en: String, val hi: String) {
     VOICE_PLAYBACK_FAILED("Voice playback failed — the reply is shown as text.", "आवाज़ में जवाब नहीं चल सका — जवाब लिखा हुआ दिख रहा है।"),
 
     // ---- Capabilities ---------------------------------------------------------------------
-    CAPABILITIES_TITLE("Capabilities", "क्षमताएँ"),
-    CAPABILITIES_KICKER("AI AGENT HUB", "AI एजेंट हब"),
-    CAPABILITIES_INTRO("Everything ZARVIS can do right now, grouped by category.", "ZARVIS अभी जो कुछ कर सकता है, श्रेणी के अनुसार।"),
-    CAPABILITIES_BROWSE_BY_PRODUCT("Browse by product", "प्रोडक्ट के अनुसार देखें"),
+    CAPABILITIES_TITLE("Skills", "क्षमताएँ"),
+    CAPABILITIES_INTRO(
+        "Everything ZARVIS can do right now, grouped by category. Each one says how far it works on this phone.",
+        "ZARVIS अभी जो कुछ कर सकता है, श्रेणी के अनुसार। हर एक बताता है कि वह इस फ़ोन पर कितना काम करता है।",
+    ),
+    SKILLS_SEARCH("Search skills", "स्किल खोजें"),
+    SKILLS_FILTER_ALL("All", "सभी"),
+    SKILLS_FILTER_CHAT("In Chat", "चैट में"),
+    SKILLS_NO_MATCH("Nothing matches “%s”.", "“%s” से कुछ मेल नहीं खाता।"),
+    SKILLS_STATUS_WORKING("Working", "चालू"),
+    SKILLS_STATUS_PARTIAL("Partial", "आंशिक"),
+    SKILLS_STATUS_PLANNED("Planned", "योजना में"),
+    SKILLS_STATUS_UNSUPPORTED("Not supported", "समर्थित नहीं"),
+    SKILLS_PARTIAL_NOTE(
+        "Partial: it works in the app but has not yet been verified on a real phone. Nothing is marked Working until it has been.",
+        "आंशिक: ऐप में काम करता है, पर अभी असली फ़ोन पर जाँचा नहीं गया। जाँच होने तक कुछ भी चालू नहीं दिखाया जाता।",
+    ),
     CAPABILITIES_SKILLS_NOW("Skills available right now", "अभी उपलब्ध स्किल"),
     CAPABILITIES_RUN("Run Agent", "एजेंट चलाएँ"),
     CAPABILITIES_ERROR("Couldn't load the skill list. Check your connection and try again.", "स्किल की सूची लोड नहीं हो सकी। कनेक्शन जाँचें और फिर कोशिश करें।"),
@@ -305,17 +353,24 @@ enum class UiString(val en: String, val hi: String) {
     SETTINGS_SUB_PHONE_SAFETY("Pause phone actions, see what ZARVIS did on this phone", "फ़ोन एक्शन रोकें, देखें ZARVIS ने इस फ़ोन पर क्या किया"),
     SETTINGS_SUB_PROTECTION("What this build actually enforces", "यह बिल्ड असल में क्या लागू करता है"),
     SETTINGS_SUB_DEVELOPER("Repository analysis", "रिपॉज़िटरी विश्लेषण"),
-    SETTINGS_SUBPAGE_KICKER("ZARVIS settings", "ZARVIS सेटिंग्स"),
+    SETTINGS_GROUP_YOU("You", "आप"),
+    SETTINGS_GROUP_SAFETY("Safety & privacy", "सुरक्षा और गोपनीयता"),
+    SETTINGS_GROUP_ADVANCED("Advanced", "उन्नत"),
+    ACCOUNT_GUEST("Guest account on this phone", "इस फ़ोन पर गेस्ट खाता"),
+    ACCOUNT_GUEST_HINT("No email linked · link one in Account", "कोई ईमेल नहीं जुड़ा · खाता में जोड़ें"),
+    ACCOUNT_SIGNED_IN("Signed in as %s", "%s से साइन इन"),
+    ACCOUNT_ENDED("Your session ended. Sign in to continue.", "आपका सेशन खत्म हो गया। जारी रखने के लिए साइन इन करें।"),
+    ACCOUNT_NONE("Not signed in", "साइन इन नहीं"),
     LANGUAGE_ENGLISH_SUB("Menus and labels, voice input and read-aloud", "मेन्यू और लेबल, बोलकर लिखना और ज़ोर से पढ़ना"),
     LANGUAGE_HINDI_SUB("Menus and labels, voice input and read-aloud", "मेन्यू और लेबल, बोलकर लिखना और ज़ोर से पढ़ना"),
     LANGUAGE_SCOPE_TITLE("What Hindi changes today", "आज हिंदी में क्या बदलता है"),
     LANGUAGE_SCOPE_BODY(
-        "Hindi switches the menus, titles and buttons on Home, Chat, Work, Tasks, Memory, Phone action safety, the Settings list, Appearance, Voice and this page, the sign-out and delete-account questions, and the welcome pages, and Chat's own messages about failed requests and voice input. It also sets the language for voice input and read-aloud. " +
+        "Hindi switches the menus, titles and buttons on Home, Chat, Skills, Work, Tasks, Memory, Plans, Developer Agent, Phone action safety, the assistant panel, the Settings list, Appearance, Voice and this page, the sign-out and delete-account questions, and the welcome pages, and Chat's own messages about failed requests and voice input. It also sets the language for voice input and read-aloud. " +
             "It does not decide the language of your conversation: ZARVIS answers in the language you write or speak in, and uses this setting only when that is not clear, such as a plain \"hi\". " +
-            "Error messages outside Chat, longer explanations, Permissions & Device Access, Plans, Developer Agent and the other Settings pages (AI, Notifications, Privacy, Data, Rules & Protection) are still in English.",
-        "हिंदी चुनने पर होम, चैट, काम, कार्य, मेमोरी, फ़ोन एक्शन सुरक्षा, सेटिंग्स की सूची, दिखावट, वॉइस और यह पन्ना, साइन आउट और खाता हटाने के सवाल, स्वागत पन्नों के मेन्यू, शीर्षक और बटन, तथा चैट में अधूरे अनुरोधों और बोलकर लिखने के संदेश हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
+            "Error messages outside Chat, longer explanations, the descriptions of skills and features, Permissions & Device Access and the other Settings pages (AI, Notifications, Privacy, Data, Rules & Protection) are still in English.",
+        "हिंदी चुनने पर होम, चैट, क्षमताएँ, काम, कार्य, मेमोरी, प्लान, डेवलपर एजेंट, फ़ोन एक्शन सुरक्षा, असिस्टेंट पैनल, सेटिंग्स की सूची, दिखावट, वॉइस और यह पन्ना, साइन आउट और खाता हटाने के सवाल, स्वागत पन्नों के मेन्यू, शीर्षक और बटन, तथा चैट में अधूरे अनुरोधों और बोलकर लिखने के संदेश हिंदी में हो जाते हैं। साथ ही बोलकर लिखने और ज़ोर से पढ़ने की भाषा भी हिंदी हो जाती है। " +
             "यह आपकी बातचीत की भाषा तय नहीं करता: ZARVIS उसी भाषा में जवाब देता है जिसमें आप लिखते या बोलते हैं, और यह सेटिंग तभी काम आती है जब भाषा साफ़ न हो, जैसे सिर्फ़ \"hi\"। " +
-            "चैट के बाहर के त्रुटि संदेश, लंबे विवरण, अनुमतियाँ और डिवाइस एक्सेस, प्लान, डेवलपर एजेंट और सेटिंग्स के बाकी पन्ने (AI, सूचनाएँ, गोपनीयता, डेटा, नियम और सुरक्षा) अभी अंग्रेज़ी में हैं।",
+            "चैट के बाहर के त्रुटि संदेश, लंबे विवरण, स्किल और फ़ीचर के विवरण, अनुमतियाँ और डिवाइस एक्सेस और सेटिंग्स के बाकी पन्ने (AI, सूचनाएँ, गोपनीयता, डेटा, नियम और सुरक्षा) अभी अंग्रेज़ी में हैं।",
     ),
 
     // ---- Phone action safety (Settings > Phone action safety; shared/automation-policy.json) -----
@@ -377,7 +432,6 @@ enum class UiString(val en: String, val hi: String) {
     MEMORY_PROJECT_EMPTY("No project memory", "कोई प्रोजेक्ट मेमोरी नहीं"),
     MEMORY_USED("Used in replies", "जवाबों में इस्तेमाल"),
     MEMORY_ITEM_PAUSED("Paused", "रुका हुआ"),
-    MEMORY_DELETE_ITEM("Delete this item", "यह आइटम हटाएँ"),
     MEMORY_DELETE_ITEM_NAMED("Delete: %s", "हटाएँ: %s"),
     MEMORY_FORGET_ALL("Forget all personal memory", "सारी निजी मेमोरी भूल जाएँ"),
     MEMORY_FORGET_TITLE("Forget all personal memory?", "सारी निजी मेमोरी भूल जाएँ?"),
@@ -396,9 +450,9 @@ enum class UiString(val en: String, val hi: String) {
     MEMORY_ADD_TITLE("Add to memory", "मेमोरी में जोड़ें"),
     MEMORY_ADD_HINT("Something ZARVIS should remember about you, e.g. I'm vegetarian", "कुछ जो ZARVIS आपके बारे में याद रखे, जैसे मैं शाकाहारी हूँ"),
     MEMORY_ADD_SAVE("Save to memory", "मेमोरी में सहेजें"),
+    MEMORY_ADD_COUNT("%d / %d", "%d / %d अक्षर"),
     MEMORY_ADD_TOO_LONG("A memory can be at most %d characters.", "एक मेमोरी में ज़्यादा से ज़्यादा %d अक्षर हो सकते हैं।"),
     MEMORY_ADDED("Saved to your personal memory.", "आपकी निजी मेमोरी में सहेज लिया।"),
-    MEMORY_ITEM_USE("Use in replies", "जवाबों में इस्तेमाल करें"),
     MEMORY_ITEM_USE_NAMED("Use in replies: %s", "जवाबों में इस्तेमाल करें: %s"),
 
     // ---- Welcome pages --------------------------------------------------------------------
@@ -432,6 +486,9 @@ enum class UiString(val en: String, val hi: String) {
         "Your trial unlocks a taste of everything ZARVIS can do. Upgrade any time for more.",
         "आपका ट्रायल ZARVIS की हर चीज़ की झलक देता है। और चाहिए तो कभी भी अपग्रेड करें।",
     ),
+    ONBOARDING_PAGE_OF("Page %d of %d", "पेज %d / %d"),
+    ONBOARDING_POINT_RISKY("Anything risky asks you first", "जोखिम वाला हर काम पहले पूछता है"),
+    ONBOARDING_POINT_PERMISSIONS("Permissions only when needed", "अनुमति सिर्फ़ ज़रूरत पड़ने पर"),
     ONBOARDING_SKIP("Skip", "छोड़ें"),
     ONBOARDING_NEXT("Next", "आगे"),
     ONBOARDING_START("Get started", "शुरू करें"),
@@ -455,12 +512,12 @@ enum class UiString(val en: String, val hi: String) {
     APPEARANCE_DEFAULT_NOTE("Queen Dark is the default appearance.", "क्वीन डार्क डिफ़ॉल्ट दिखावट है।"),
     APPEARANCE_MOTION_TITLE("Animations", "एनिमेशन"),
     APPEARANCE_MOTION_BODY(
-        "The background's gold rays, glitter and stars move slowly, and the glowing orb moves while ZARVIS is listening, working or speaking. Everything stands still when Lightweight mode or Android's \"Remove animations\" is on.",
-        "पृष्ठभूमि की सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं, और चमकता ऑर्ब तब हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो। हल्का मोड या Android में “एनिमेशन हटाएँ” चालू होने पर सब कुछ स्थिर रहता है।",
+        "On Home, the background's gold rays, glitter and stars move slowly; the other pages keep a still background. The glowing orb moves while ZARVIS is listening, working or speaking. Everything stands still when Lightweight mode or Android's \"Remove animations\" is on.",
+        "होम पर पृष्ठभूमि की सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं; बाकी पेजों की पृष्ठभूमि स्थिर रहती है। चमकता ऑर्ब तब हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो। हल्का मोड या Android में “एनिमेशन हटाएँ” चालू होने पर सब कुछ स्थिर रहता है।",
     ),
     APPEARANCE_LITE_TITLE("Lightweight mode", "हल्का मोड"),
     APPEARANCE_LITE_ON("The background and the orb hold still", "पृष्ठभूमि और ऑर्ब स्थिर रहते हैं"),
-    APPEARANCE_LITE_OFF("Gold rays, glitter and stars move slowly", "सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं"),
+    APPEARANCE_LITE_OFF("On Home, gold rays, glitter and stars move slowly", "होम पर सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं"),
 
     // ---- Settings > Voice -----------------------------------------------------------------
     VOICE_INPUT_TITLE("Voice input", "वॉइस इनपुट"),

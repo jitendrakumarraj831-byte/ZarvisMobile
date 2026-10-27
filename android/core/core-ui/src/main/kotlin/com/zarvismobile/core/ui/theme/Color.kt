@@ -86,7 +86,9 @@ object GlowColors {
  * Everything that has to change with the theme and is not part of Material's colour scheme: the glass surfaces, their edges, and
  * text-safe accents. Provided by [ZarvisTheme]; read it through [GlassColors], [ZarvisAccents] or [LocalZarvisExtras].
  *
- * Glass is a translucent tint over the page: a white veil in light, a plum veil with a gold hairline in dark.
+ * Queen Pro (ANDROID_QUEEN_DESIGN.md): a card is a solid surface with a hairline edge (white with a purple hairline in light, plum
+ * with a gold hairline in dark), so what scrolls behind it never changes how its text reads. The `glass` names are kept from the
+ * translucent look they replaced.
  */
 @Immutable
 class ZarvisExtras(
@@ -107,8 +109,8 @@ class ZarvisExtras(
 
 val LightExtras = ZarvisExtras(
     isDark = false,
-    glass = Color.White.copy(alpha = 0.78f),
-    glassElevated = Color.White.copy(alpha = 0.94f),
+    glass = ZarvisSurfaceLightElevated,
+    glassElevated = ZarvisSurfaceLightElevated,
     glassBorder = Color(0x2E7E22CE),
     glassBorderStrong = Color(0x4D7E22CE),
     glassHighlight = Color.White.copy(alpha = 0.9f),
@@ -123,10 +125,10 @@ val LightExtras = ZarvisExtras(
 
 val DarkExtras = ZarvisExtras(
     isDark = true,
-    glass = Color(0xFF3A1650).copy(alpha = 0.72f),
-    glassElevated = Color(0xFF2E1042).copy(alpha = 0.88f),
-    glassBorder = ZarvisWarningDark.copy(alpha = 0.22f), // the gold hairline
-    glassBorderStrong = ZarvisWarningDark.copy(alpha = 0.40f),
+    glass = ZarvisSurfaceDark,
+    glassElevated = ZarvisSurfaceDarkElevated,
+    glassBorder = ZarvisPrimaryDark.copy(alpha = 0.14f), // the gold hairline
+    glassBorderStrong = ZarvisPrimaryDark.copy(alpha = 0.30f),
     glassHighlight = Color.White.copy(alpha = 0.06f),
     accentCyan = Color(0xFF67E8F9),
     accentViolet = Color(0xFFE9D5FF),
@@ -139,7 +141,7 @@ val DarkExtras = ZarvisExtras(
 
 val LocalZarvisExtras = staticCompositionLocalOf { DarkExtras }
 
-/** Glass surface colours for the current theme (they were constants; the same names now follow light and dark). */
+/** Card surface colours for the current theme (they were constants; the same names now follow light and dark). */
 object GlassColors {
     val surfaceTint: Color @Composable @ReadOnlyComposable get() = LocalZarvisExtras.current.glass
     val surfaceTintElevated: Color @Composable @ReadOnlyComposable get() = LocalZarvisExtras.current.glassElevated

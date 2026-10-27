@@ -1,7 +1,14 @@
 package com.zarvismobile.core.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.domain.presentation.UiString
 
@@ -22,13 +29,25 @@ enum class RiskBadgeLevel(val label: String, val uiString: UiString) {
     }
 }
 
-/** Colour is never the only signal (the level is spelled out). A jewel pill with its own dark ink (see [StatusBadge]), so it reads on both pages. */
+/**
+ * Colour is never the only signal (the level is spelled out). A tinted pill like [StatusBadge]: green low, gold medium, rose high.
+ * Very high is the one filled pill, in the danger colour with its own ink, so it stands apart from high at a glance.
+ */
 @Composable
 fun RiskBadge(level: RiskBadgeLevel, modifier: Modifier = Modifier) {
-    val jewel = when (level) {
-        RiskBadgeLevel.LOW -> Jewel.EMERALD
-        RiskBadgeLevel.MEDIUM -> Jewel.GOLD
-        RiskBadgeLevel.HIGH, RiskBadgeLevel.VERY_HIGH -> Jewel.RUBY
+    when (level) {
+        RiskBadgeLevel.LOW -> JewelPill(label = tr(level.uiString), jewel = Jewel.EMERALD, modifier = modifier)
+        RiskBadgeLevel.MEDIUM -> JewelPill(label = tr(level.uiString), jewel = Jewel.GOLD, modifier = modifier)
+        RiskBadgeLevel.HIGH -> JewelPill(label = tr(level.uiString), jewel = Jewel.RUBY, modifier = modifier)
+        RiskBadgeLevel.VERY_HIGH -> Text(
+            text = tr(level.uiString),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onError,
+            maxLines = 1,
+            modifier = modifier
+                .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
+                .padding(horizontal = 10.dp, vertical = 3.dp),
+        )
     }
-    JewelPill(label = tr(level.uiString), jewel = jewel, modifier = modifier)
 }
