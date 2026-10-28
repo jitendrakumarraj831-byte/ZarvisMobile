@@ -236,7 +236,18 @@ fun ConversationScreen(
                     val pending = if (index == uiState.turns.lastIndex && turn.assistantText == null) uiState.progress else null
                     // Only the newest exchange, only after a failure that sending it again can fix, and not while anything is on its way.
                     val canRetry = index == uiState.turns.lastIndex && turn.retryable && turn.assistantText != null && uiState.progress == null
-                    TurnBubble(turn, pending, onRetry = if (canRetry) viewModel::retry else null)
+                    val hasReply = !turn.assistantText.isNullOrBlank()
+                    // Only the reply being read aloud says Stop; any other reply's button reads that one instead (one voice at a time).
+                    val readingThis = hasReply && uiState.readingReply == turn.assistantText
+                    TurnBubble(
+                        turn,
+                        pending,
+                        onRetry = if (canRetry) viewModel::retry else null,
+                        onReadAloud = if (hasReply) {
+                            { if (readingThis) viewModel.stopSpeaking() else viewModel.speakReply(turn.assistantText.orEmpty()) }
+                        } else null,
+                        isReadingReply = readingThis,
+                    )
                 }
             }
 
@@ -340,7 +351,13 @@ private fun SpeakingCard(onStop: () -> Unit) {
 }
 
 @Composable
-private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?, onRetry: (() -> Unit)? = null) {
+private fun TurnBubble(
+    turn: ConversationTurn,
+    pending: ChatProgress?,
+    onRetry: (() -> Unit)? = null,
+    onReadAloud: (() -> Unit)? = null,
+    isReadingReply: Boolean = false,
+) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
         // An answer with no question (a conversation that began with one) shows no empty bubble.
         if (turn.userText.isNotEmpty()) {
@@ -371,6 +388,14 @@ private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?, onRetry: 
                     contentPadding = 14.dp,
                 ) {
                     MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
+                }
+                if (onReadAloud != null) {
+                    // The visible words, in the app's language, are what TalkBack reads (tr() is composable: read here, not in a
+                    // semantics block).
+                    val readAloudLabel = tr(if (isReadingReply) UiString.VOICE_STOP else UiString.VOICE_READ_ALOUD)
+                    TextButton(onClick = onReadAloud) {
+                        Text(readAloudLabel, color = ZarvisAccents.gold, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 // Sends the same message again under the same id: a turn the server already finished is shown from its stored result.
                 if (onRetry != null) {

@@ -200,6 +200,7 @@ enum class UiString(val en: String, val hi: String) {
         "English, हिंदी या Hinglish। माइक्रोफ़ोन सिर्फ़ तभी चालू है जब यह दिख रहा हो।",
     ),
     VOICE_CANCEL_SEND_NOTHING("Cancel, send nothing", "रद्द करें, कुछ न भेजें"),
+    VOICE_READ_ALOUD("Read aloud", "जोर से पढ़ें"),
     VOICE_STOP("Stop", "बंद करें"),
     ASSIST_HINT("Say what to do in this app", "इस ऐप में क्या करना है, बोलें"),
     ASSIST_COMPOSER_HINT("Ask ZARVIS about this screen, or anything", "इस स्क्रीन के बारे में या कुछ भी पूछें"),

@@ -58,6 +58,10 @@ jobs:
       - name: Unit-test the orchestrator's conversation handling
         run: ./gradlew :agents:testDebugUnitTest --stacktrace --console=plain
 
+      # Chat reply playback and the Read Aloud controls share the conversation state machine.
+      - name: Unit-test conversation and reply playback state
+        run: ./gradlew :features:feature-conversation:testDebugUnitTest --stacktrace --console=plain
+
       # The dev API host is machine-specific and auto-detected from the build machine's LAN
       # address (see app/build.gradle.kts). A CI runner's address is meaningless to anyone
       # downloading the artifact, so pin it here: the uploaded APK is deterministic and

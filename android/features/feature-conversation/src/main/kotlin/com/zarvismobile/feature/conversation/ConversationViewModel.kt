@@ -28,6 +28,7 @@ import com.zarvismobile.domain.presentation.OwnReply
 import com.zarvismobile.domain.presentation.Reconciled
 import com.zarvismobile.domain.presentation.ServerConversation
 import com.zarvismobile.domain.presentation.SpeechErrors
+import com.zarvismobile.domain.presentation.SpeechLocale
 import com.zarvismobile.domain.presentation.TurnFailures
 import com.zarvismobile.domain.presentation.TurnText
 import com.zarvismobile.domain.presentation.UiString
@@ -66,6 +67,11 @@ data class ConversationTurn(
     val clientTurnId: String? = null,
     /** The reply is a failure that sending the same message again can fix: the bubble offers Try again. */
     val retryable: Boolean = false,
+    /**
+     * The reply is a private on-device result (PRIVATE_RESULT_SKILLS: the screen, notifications, a location…). It never leaves the
+     * phone, so Read aloud reads it with the phone's own voice only, never the server's.
+     */
+    val onPhoneOnly: Boolean = false,
 )
 
 /** What the reply on its way is waiting for, shown live in its bubble. Each is a stage the turn really reached. */
@@ -86,6 +92,11 @@ sealed interface ChatProgress {
 
 data class ConversationUiState(
     val voiceState: VoiceState = VoiceState.IDLE,
+    /**
+     * The reply being read aloud (Read aloud, or a reply read automatically), from the moment its voice is asked for until it ends:
+     * that reply's button says Stop. Null when nothing is.
+     */
+    val readingReply: String? = null,
     /** Live progress of the turn in flight, null when none is. */
     val progress: ChatProgress? = null,
     val composerText: String = "",
@@ -127,6 +138,12 @@ class ConversationViewModel @Inject constructor(
     // The in-flight turn, so tapping the orb interrupts it cleanly (network call or playback).
     private var turnJob: Job? = null
 
+    // This screen's one voice: the reply being read aloud (Read aloud, or automatically after a turn), from the request for its audio to
+    // the end of playback. Stop, another reply, a new message, the microphone, a New chat or a deleted chat end exactly that one, and only
+    // its own ending puts the screen back. Volatile: the phone's own voice reports that it started from a binder thread.
+    private var speechJob: Job? = null
+    @Volatile private var speechToken: Any? = null
+
     // Which turn's live progress is shown; set by each new turn.
     @Volatile private var currentTurn: Any? = null
 
@@ -165,11 +182,13 @@ class ConversationViewModel @Inject constructor(
 
     private fun onActiveConversation(active: ConversationStamp) {
         if (!ConversationSync.leftConversation(shown, active)) return
-        // A turn still on its way belongs to the conversation that was left: it must not land in this one.
+        // A turn still on its way belongs to the conversation that was left: it must not land in this one. Nor may one of its replies
+        // still be read aloud (or start speaking once its audio arrives).
         turnJob?.cancel()
+        endSpeech()
         shown = active
         // The recovery card and notice are about the app being closed, not about this conversation: they stay.
-        _uiState.update { it.copy(turns = emptyList(), voiceState = VoiceState.IDLE, error = null) }
+        _uiState.update { it.copy(turns = emptyList(), voiceState = VoiceState.IDLE, readingReply = null, error = null) }
         // Another screen may already be talking in the new chat: show what the server holds for it.
         if (active.id != null) viewModelScope.launch { reconcileWithServer() }
     }
@@ -280,6 +299,8 @@ class ConversationViewModel @Inject constructor(
             }
             val left = orchestrator.conversation.current()
             if ((shown?.epoch ?: -1L) < left.epoch) shown = left
+            // A deleted chat is not read aloud any further.
+            endSpeech()
             _uiState.update { ConversationUiState(deleteOutcome = if (deletion == ConversationDeletion.DELETED) ChatDeleteOutcome.DELETED else null) }
         }
     }
@@ -291,6 +312,9 @@ class ConversationViewModel @Inject constructor(
     fun startNewConversation() {
         turnJob?.cancel()
         listenJob?.cancel()
+        // A reply being read aloud ends too, also one whose audio is still being made: it must not speak into the new chat.
+        endSpeech()
+        ttsEngine.stop()
         // Gone from this screen at once, before anything is written; every other screen drops it when it sees the new conversation.
         _uiState.update { ConversationUiState() }
         viewModelScope.launch {
@@ -302,6 +326,8 @@ class ConversationViewModel @Inject constructor(
     fun startListening() {
         if (_uiState.value.voiceState == VoiceState.LISTENING) return
         stopTurnInFlight()
+        // The microphone must not hear a reply being read aloud, nor one whose audio arrives while it listens.
+        endSpeech()
         ttsEngine.stop()
         listenJob?.cancel()
         listenJob = viewModelScope.launch {
@@ -352,12 +378,68 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    /** Stops a reply being read aloud (the Stop button while Speaking). The reply stays on screen as text. */
+    /**
+     * Reads a reply already on screen aloud. Nothing is sent to the AI: only the voice is asked for, for this text. A private on-device
+     * result shown here is read by the phone's own voice, so it stays on the phone.
+     */
+    fun speakReply(text: String) {
+        if (text.isBlank()) return
+        readAloud(text, onPhoneOnly = _uiState.value.turns.any { it.onPhoneOnly && it.assistantText == text })
+    }
+
+    /**
+     * Stops the reply being read aloud (Stop, or the reply's own button), also while its audio is still being made: the request for it
+     * is cancelled, so it never starts speaking later. The reply stays on screen as text.
+     */
     fun stopSpeaking() {
-        if (_uiState.value.voiceState != VoiceState.SPEAKING) return
-        // The engine's speak() returns once its playback ends, and runTurn then sets IDLE; setting it here too keeps the button from lingering.
+        val wasReading = endSpeech()
+        if (!wasReading && _uiState.value.voiceState != VoiceState.SPEAKING) return
+        // The engine is shared by every screen: what it is playing for this screen ends now too.
         ttsEngine.stop()
-        _uiState.update { if (it.voiceState == VoiceState.SPEAKING) it.copy(voiceState = VoiceState.IDLE) else it }
+        _uiState.update { it.afterSpeech() }
+    }
+
+    /**
+     * Reads [text] aloud with this screen's one voice, whether Read aloud asked for it or a reply is read automatically. Whatever this
+     * screen was reading, or still waiting to get audio for, ends first: two replies are never read over each other.
+     */
+    private fun readAloud(text: String, onPhoneOnly: Boolean = false) {
+        endSpeech()
+        val token = Any()
+        speechToken = token
+        // A voice failure from an earlier try is gone once the voice is asked again; any other error stays.
+        _uiState.update { it.copy(readingReply = text, error = it.error?.takeIf { error -> error !in VOICE_FAILED }) }
+        speechJob = viewModelScope.launch {
+            val language = runCatching { appLocale() }.getOrDefault("en")
+            try {
+                ttsEngine.speak(text, locale = SpeechLocale.forReply(text, language), onPhoneOnly = onPhoneOnly) {
+                    // Only while this is still the reply being read: a late "started" from a voice already stopped must not bring
+                    // Speaking back.
+                    if (speechToken === token) _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // Neither the server's voice nor the phone's could read it: the reply stays on screen as text, and the screen says so.
+                if (speechToken === token) _uiState.update { it.copy(error = UiString.VOICE_PLAYBACK_FAILED.text(language)) }
+            } finally {
+                if (speechToken === token) {
+                    speechToken = null
+                    speechJob = null
+                    _uiState.update { it.afterSpeech() }
+                }
+            }
+        }
+    }
+
+    /** Ends this screen's reply being read aloud, or still waiting for its audio, and puts the screen back. False when there was none. */
+    private fun endSpeech(): Boolean {
+        if (speechToken == null) return false
+        speechToken = null
+        speechJob?.cancel()
+        speechJob = null
+        _uiState.update { it.afterSpeech() }
+        return true
     }
 
     /**
@@ -378,6 +460,8 @@ class ConversationViewModel @Inject constructor(
         // One turn at a time: a new request (typed, voice, resume) supersedes the one in flight
         // instead of running beside it and writing its reply into the wrong bubble.
         stopTurnInFlight()
+        // A new message also ends a reply being read aloud, or still waiting for its audio: it must not speak over the new turn.
+        endSpeech()
         ttsEngine.stop()
         val token = Any()
         currentTurn = token
@@ -441,30 +525,35 @@ class ConversationViewModel @Inject constructor(
                     is OwnReply.Fresh -> reply.stamp
                     OwnReply.Discard -> shown
                 } ?: shown
+                // A private on-device result (the screen, notifications, location…) is not sent to the server's voice: it stays on the phone.
+                val keepOnPhone = outcome.result?.skillId in PRIVATE_RESULT_SKILLS
                 _uiState.update { state ->
-                    val answered = ConversationTurn(utterance, outcome.message, outcome.result?.status, clientTurnId = clientTurnId, retryable = outcome.retryable)
+                    val answered = ConversationTurn(
+                        utterance,
+                        outcome.message,
+                        outcome.result?.status,
+                        clientTurnId = clientTurnId,
+                        retryable = outcome.retryable,
+                        onPhoneOnly = keepOnPhone,
+                    )
                     state.copy(
                         turns = if (reply is OwnReply.Fresh) listOf(answered) else replaceLastAssistantReply(state.turns, answered),
-                        voiceState = if (succeeded) VoiceState.SUCCESS else VoiceState.IDLE,
+                        voiceState = when {
+                            // An earlier reply the user asked to hear while this one was on its way is still being read: it stays so.
+                            state.voiceState == VoiceState.SPEAKING -> VoiceState.SPEAKING
+                            succeeded -> VoiceState.SUCCESS
+                            else -> VoiceState.IDLE
+                        },
                         progress = null,
                     )
                 }
                 if (succeeded) delay(SUCCESS_FLASH_MS)
-                // A private on-device result (the screen, notifications, location…) is not sent to the server's voice: it stays on the phone.
-                val keepOnPhone = outcome.result?.skillId in PRIVATE_RESULT_SKILLS
-                if (preferences.autoSpeak.first() && !keepOnPhone) {
-                    try {
-                        ttsEngine.speak(outcome.message, locale = locale) {
-                            _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
-                        }
-                        _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Throwable) {
-                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = UiString.VOICE_PLAYBACK_FAILED.text(language)) }
-                    }
+                // Spoken replies use the same voice as Read aloud (one at a time, stopped the same way). A reply the user chose to hear
+                // while this one was arriving (Read aloud during the Done flash) is not cut off and restarted by it.
+                if (speechToken == null && preferences.autoSpeak.first() && !keepOnPhone) {
+                    readAloud(outcome.message)
                 } else {
-                    _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                    _uiState.update { if (it.voiceState == VoiceState.SPEAKING) it else it.copy(voiceState = VoiceState.IDLE) }
                 }
             } catch (t: CancellationException) {
                 // Stopped (the microphone, New chat): its progress goes. A newer turn has already taken currentTurn and shows its own.
@@ -530,3 +619,18 @@ class ConversationViewModel @Inject constructor(
 }
 
 private fun turnsOf(texts: List<TurnText>): List<ConversationTurn> = texts.map { ConversationTurn(it.user, it.assistant) }
+
+/** "Couldn't play the reply" in both languages: cleared when the voice is asked again. */
+private val VOICE_FAILED = setOf(UiString.VOICE_PLAYBACK_FAILED.en, UiString.VOICE_PLAYBACK_FAILED.hi)
+
+/**
+ * The screen once a reply is no longer being read aloud: Speaking, and the Done flash that came before it, give way to what the screen is
+ * doing now (a request still on its way, or nothing). Listening, an error, or work in progress are left as they are.
+ */
+private fun ConversationUiState.afterSpeech(): ConversationUiState = copy(
+    readingReply = null,
+    voiceState = when (voiceState) {
+        VoiceState.SPEAKING, VoiceState.SUCCESS -> if (progress != null) VoiceState.UNDERSTANDING else VoiceState.IDLE
+        else -> voiceState
+    },
+)

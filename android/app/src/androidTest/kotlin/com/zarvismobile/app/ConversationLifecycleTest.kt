@@ -1,10 +1,12 @@
 package com.zarvismobile.app
 
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -46,12 +48,16 @@ class ConversationLifecycleTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             val skip = hasText("Skip")
             val chip = hasText("Creative")
+            // Home is a lazy list, and the category chips sit below its first screen: a lazy list only composes what is near the screen,
+            // so the chip does not exist until the list is scrolled to it (as SettingsUiTest does for its rows).
+            val home = hasScrollToIndexAction()
             compose.waitUntil(20_000) {
                 compose.onAllNodes(skip).fetchSemanticsNodes().isNotEmpty() ||
-                    compose.onAllNodes(chip).fetchSemanticsNodes().isNotEmpty()
+                    compose.onAllNodes(home).fetchSemanticsNodes().isNotEmpty()
             }
             if (compose.onAllNodes(skip).fetchSemanticsNodes().isNotEmpty()) compose.onAllNodes(skip).onFirst().performClick()
-            compose.waitUntil(20_000) { compose.onAllNodes(chip).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(20_000) { compose.onAllNodes(home).fetchSemanticsNodes().isNotEmpty() }
+            compose.onAllNodes(home).onFirst().performScrollToNode(chip)
             // Bring the chip fully on screen first: on a small screen it can sit partly under the tab bar, where a tap lands on the bar.
             compose.onAllNodes(chip).onFirst().performScrollTo().performClick()
 

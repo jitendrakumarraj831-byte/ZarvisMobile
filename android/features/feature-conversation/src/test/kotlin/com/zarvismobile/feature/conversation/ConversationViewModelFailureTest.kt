@@ -107,7 +107,7 @@ class ConversationViewModelFailureTest {
     )
 
     private val silent = object : TextToSpeechEngine {
-        override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) = Unit
+        override suspend fun speak(text: String, locale: String, onPhoneOnly: Boolean, onPlaybackStarted: () -> Unit) = Unit
         override fun stop() = Unit
     }
 
@@ -279,7 +279,7 @@ class ConversationViewModelFailureTest {
         @Volatile private var playing: CompletableDeferred<Unit>? = null
         @Volatile var stopsWhilePlaying = 0
         @Volatile var allStops = 0
-        override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
+        override suspend fun speak(text: String, locale: String, onPhoneOnly: Boolean, onPlaybackStarted: () -> Unit) {
             val playback = CompletableDeferred<Unit>().also { playing = it }
             onPlaybackStarted()
             playback.await()

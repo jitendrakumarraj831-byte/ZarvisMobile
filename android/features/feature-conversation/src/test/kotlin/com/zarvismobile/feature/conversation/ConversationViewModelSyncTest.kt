@@ -127,6 +127,7 @@ class ConversationViewModelSyncTest {
     private lateinit var active: ActiveConversation
     private lateinit var orchestrator: AndroidOrchestrator
     private lateinit var session: SessionRepository
+    private val spokenReplies = mutableListOf<Pair<String, String>>()
 
     @Before
     fun start() {
@@ -173,7 +174,10 @@ class ConversationViewModelSyncTest {
             override fun stop() = Unit
         },
         ttsEngine = object : TextToSpeechEngine {
-            override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) = Unit
+            override suspend fun speak(text: String, locale: String, onPhoneOnly: Boolean, onPlaybackStarted: () -> Unit) {
+                spokenReplies.add(text to locale)
+                onPlaybackStarted()
+            }
             override fun stop() = Unit
         },
         preferences = object : ChatPreferences {
@@ -202,6 +206,19 @@ class ConversationViewModelSyncTest {
         waitFor("the screen to be at rest") { uiState.value.voiceState == VoiceState.IDLE }
     }
 
+    @Test
+    fun readAloudSpeaksAnExistingReplyWithoutSubmittingAnotherAiTurn() {
+        val chatTab = screen()
+        chatTab.say("read me")
+        val turnCountBeforeReadAloud = backend.turnRequests.size
+
+        chatTab.speakReply("answer to read me")
+        waitFor("Read Aloud to finish") { chatTab.uiState.value.readingReply == null }
+
+        assertEquals(turnCountBeforeReadAloud, backend.turnRequests.size)
+        assertEquals(listOf("answer to read me" to "en-US"), spokenReplies)
+        assertEquals(VoiceState.IDLE, chatTab.uiState.value.voiceState)
+    }
     @Test
     fun itsOwnFirstAnswerGivesTheChatAnIdAndDoesNotResetTheScreen() {
         val chatTab = screen()

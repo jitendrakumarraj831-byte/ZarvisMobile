@@ -27,8 +27,14 @@ class SpeechRecognitionFailure(val code: Int?) :
  * Platform seam for text-to-speech. [speak] suspends until playback finishes (or throws), and
  * calls [onPlaybackStarted] only once audio is actually playing — so the UI can show
  * "Speaking" truthfully instead of while the audio is still being synthesized.
+ *
+ * [onPhoneOnly]: the text is the user's private data (the screen, notifications, a location…) and must not leave the phone, so only
+ * the phone's own voice may read it, never the server's. [locale] is a BCP 47 tag the phone's own voice reads in.
+ *
+ * One voice at a time: a newer [speak] or a [stop] ends what is playing (that [speak] then returns), and a request still waiting for
+ * its audio never starts playing afterwards.
  */
 interface TextToSpeechEngine {
-    suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit = {})
+    suspend fun speak(text: String, locale: String, onPhoneOnly: Boolean = false, onPlaybackStarted: () -> Unit = {})
     fun stop()
 }
