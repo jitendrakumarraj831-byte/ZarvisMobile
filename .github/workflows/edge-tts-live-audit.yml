@@ -42,7 +42,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.deployment_status.state == 'success' && github.event.deployment_status.environment != 'Production')
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 does not support Ubuntu 26.04 yet; keep Chromium installation reproducible.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       # The script from the deployed commit, so the checks match the code under test.
