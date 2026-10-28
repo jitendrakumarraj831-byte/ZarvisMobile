@@ -151,9 +151,11 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
                     onNavigateToTasks = { navController.openFrom(entry, Routes.ACTIVITY) },
                     onNavigateToSubscription = { navController.openFrom(entry, Routes.SUBSCRIPTION) },
                     onNavigateToSettings = { navController.openFrom(entry, Routes.SETTINGS) },
+                    // Quick actions › All skills: the Skills tab, opened the way "See all" opens Tasks (the tab is highlighted, Back returns Home).
+                    onOpenSkills = { navController.openFrom(entry, Routes.CAPABILITIES) },
                     onOpenPhoneSafety = { navController.openFrom(entry, Routes.PHONE_SAFETY) },
                     onOpenFeature = { featureId -> navController.openFrom(entry, "feature/$featureId") },
-                    // The crowned orb and the composer's mic: Chat, listening at once (after ZARVIS's explanation and Android's permission).
+                    // The orb and the composer's mic: Chat, listening at once (after ZARVIS's explanation and Android's permission).
                     onTalk = { navController.openFrom(entry, "${Routes.CONVERSATION}?${Routes.CONVERSATION_ARG_INITIAL_TEXT}=&submit=false&listen=true") },
                 )
             }

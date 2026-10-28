@@ -56,8 +56,8 @@ import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.icons.ZarvisIcons
-import com.zarvismobile.core.ui.theme.ZarvisGoldPale
-import com.zarvismobile.core.ui.theme.ZarvisInkOnGold
+import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.SkillDto
 import com.zarvismobile.domain.capability.SharedFeatureCatalog
@@ -154,6 +154,7 @@ fun CapabilitiesScreen(
     }
 }
 
+/** The search: the same raised glass pill as the Ask ZARVIS field, with the search icon in the theme's primary. */
 @Composable
 private fun SkillSearch(query: String, onQueryChange: (String) -> Unit) {
     OutlinedTextField(
@@ -165,14 +166,18 @@ private fun SkillSearch(query: String, onQueryChange: (String) -> Unit) {
         placeholder = { Text(tr(UiString.SKILLS_SEARCH)) },
         leadingIcon = { Icon(imageVector = ZarvisIcons.Search, contentDescription = null) },
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            focusedContainerColor = GlassColors.surfaceTintElevated,
+            unfocusedContainerColor = GlassColors.surfaceTintElevated,
             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            focusedLeadingIconColor = ZarvisAccents.primary,
+            unfocusedLeadingIconColor = ZarvisAccents.primary,
+            focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
     )
 }
 
-/** The four filters as one row of pills; the chosen one is gold. One choice at a time, read out as radio buttons. */
+/** The four filters as one row of pills; the chosen one is filled with the theme's primary. One choice at a time, read out as radio buttons. */
 @Composable
 private fun SkillFilters(selected: SkillFilter, onSelect: (SkillFilter) -> Unit) {
     Row(
@@ -186,13 +191,13 @@ private fun SkillFilters(selected: SkillFilter, onSelect: (SkillFilter) -> Unit)
                 text = tr(option.label),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
-                color = if (isSelected) ZarvisInkOnGold else MaterialTheme.colorScheme.onSurface,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .heightIn(min = 44.dp)
                     .clip(shape)
                     .then(
                         if (isSelected) {
-                            Modifier.background(ZarvisGoldPale, shape)
+                            Modifier.background(MaterialTheme.colorScheme.primary, shape)
                         } else {
                             Modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
                         },

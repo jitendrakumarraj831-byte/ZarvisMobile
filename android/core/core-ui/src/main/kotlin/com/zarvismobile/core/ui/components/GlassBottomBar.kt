@@ -1,6 +1,7 @@
 package com.zarvismobile.core.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,29 +24,47 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.LocalZarvisExtras
+import com.zarvismobile.core.ui.theme.ZarvisAccentBlue
+import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
 
 /** One tab. */
 data class ZarvisNavItem(val route: String, val label: String, val icon: ImageVector)
 
 /**
- * The tab bar (Queen Pro): a flat bar across the bottom with a hairline on top and five equal tabs. The current tab's icon sits on a
- * gold pill and its label turns gold and bolder, so the state is never carried by colour alone; the others use the secondary text
- * colour (4.5:1 or more). Every tab is one 56dp-tall button that announces itself as a selected or unselected tab.
+ * The tab bar (Queen Pro): a flat bar across the bottom with five equal tabs and a hairline on top that glows violet and blue in its
+ * middle. The current tab's icon sits on a violet → blue pill and its label turns the theme's primary and bolder, so the state is
+ * never carried by colour alone; the others use the secondary text colour (4.5:1 or more). Every tab is one 56dp-tall button that
+ * announces itself as a selected or unselected tab.
  */
 @Composable
 fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
     val hairline = GlassColors.border
+    val dark = LocalZarvisExtras.current.isDark
+    val edgeGlow = Brush.horizontalGradient(
+        listOf(Color.Transparent, ZarvisAccentViolet.copy(alpha = if (dark) 0.7f else 0.45f), ZarvisAccentBlue.copy(alpha = if (dark) 0.7f else 0.45f), Color.Transparent),
+    )
+    val pillBrush = Brush.horizontalGradient(
+        listOf(ZarvisAccentViolet.copy(alpha = if (dark) 0.34f else 0.16f), ZarvisAccentBlue.copy(alpha = if (dark) 0.30f else 0.14f)),
+    )
     Box(
         modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .drawBehind { drawRect(hairline, size = size.copy(height = 1.dp.toPx())) }
+            .drawBehind {
+                val line = size.copy(height = 1.dp.toPx())
+                drawRect(hairline, size = line)
+                drawRect(edgeGlow, size = line)
+            }
             .navigationBarsPadding(),
     ) {
         Row(
@@ -59,10 +78,7 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
                     if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     label = "nav-tint",
                 )
-                val pill by animateColorAsState(
-                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.primary.copy(alpha = 0f),
-                    label = "nav-pill",
-                )
+                val pill by animateFloatAsState(if (isSelected) 1f else 0f, label = "nav-pill")
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -75,7 +91,11 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
                         .padding(horizontal = 2.dp, vertical = 4.dp),
                 ) {
                     Box(
-                        modifier = Modifier.size(width = 56.dp, height = 30.dp).background(pill, RoundedCornerShape(50)),
+                        modifier = Modifier
+                            .size(width = 56.dp, height = 30.dp)
+                            .drawBehind {
+                                if (pill > 0f) drawRoundRect(pillBrush, cornerRadius = CornerRadius(size.height / 2f), alpha = pill)
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(imageVector = item.icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = tint)

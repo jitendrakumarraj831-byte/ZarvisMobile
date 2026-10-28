@@ -65,9 +65,9 @@ private fun RationaleDialog(pending: PendingRationale, registry: CapabilityRegis
     var learnMore by rememberSaveable(pending.request.capabilityId) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { pending.respond(RationaleChoice.NOT_NOW) },
-        modifier = Modifier.border(1.dp, ZarvisAccents.gold.copy(alpha = 0.45f), QueenDialogShape),
+        modifier = Modifier.border(1.dp, ZarvisAccents.primary.copy(alpha = 0.45f), QueenDialogShape),
         shape = QueenDialogShape,
-        icon = { QueenIconTile(ZarvisIcons.Shield, ZarvisAccents.gold, size = 52.dp) },
+        icon = { QueenIconTile(ZarvisIcons.Shield, ZarvisAccents.primary, size = 52.dp) },
         title = { Text("Allow ${capability.name.lowercase()}?", fontWeight = FontWeight.Bold) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -123,11 +123,11 @@ private fun restrictedSettingsMayApply(pending: PendingRationale, context: Conte
     return installer != "com.android.vending"
 }
 
-/** One part of the explanation: a gold label (in its own words: the emulator tests find it by its exact text) and the plain sentence. */
+/** One part of the explanation: a label in the theme's primary (in its own words: the emulator tests find it by its exact text) and the plain sentence. */
 @Composable
 private fun Section(title: String, body: String) {
     Column {
-        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold, color = ZarvisAccents.gold)
+        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold, color = ZarvisAccents.primary)
         Text(body, style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -137,9 +137,9 @@ private fun Section(title: String, body: String) {
 private fun RiskConfirmationDialog(pending: PendingConfirmation) {
     AlertDialog(
         onDismissRequest = { pending.respond(false) },
-        modifier = Modifier.border(1.dp, ZarvisAccents.gold.copy(alpha = 0.45f), QueenDialogShape),
+        modifier = Modifier.border(1.dp, ZarvisAccents.primary.copy(alpha = 0.45f), QueenDialogShape),
         shape = QueenDialogShape,
-        icon = { QueenIconTile(ZarvisIcons.Check, ZarvisAccents.gold, size = 52.dp) },
+        icon = { QueenIconTile(ZarvisIcons.Check, ZarvisAccents.primary, size = 52.dp) },
         title = { Text("Confirm this action", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

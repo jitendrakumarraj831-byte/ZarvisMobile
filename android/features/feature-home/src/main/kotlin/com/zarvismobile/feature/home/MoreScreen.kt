@@ -131,7 +131,7 @@ private fun WorkRow(item: WorkItem, summary: String?, onOpen: (() -> Unit)?) {
         modifier = if (onOpen != null) Modifier.semantics { contentDescription = description } else Modifier,
         trailing = { StatusBadge(label = tr(item.availability.label), tone = item.availability.tone) },
         below = summary?.let { line ->
-            { Text(line, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ZarvisAccents.gold) }
+            { Text(line, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ZarvisAccents.primary) }
         },
     )
 }

@@ -13,20 +13,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 /*
- * Colour roles for the Queen theme (see Color.kt). The container and outline roles are set on purpose: Material's dialogs, switches
+ * Colour roles for the Queen theme (see Color.kt): Queen Night (navy, periwinkle, violet and blue light) and Queen Light. The container and outline roles are set on purpose: Material's dialogs, switches
  * and chips read them, and their built-in purple defaults would otherwise be the one off-brand thing on screen.
  */
 private val DarkColors = darkColorScheme(
     primary = ZarvisPrimaryDark,
-    onPrimary = ZarvisInkOnGold,
-    primaryContainer = Color(0xFF5B2A12),
-    onPrimaryContainer = Color(0xFFFFF1C7),
-    secondary = Color(0xFFE9D5FF),
-    onSecondary = Color(0xFF2E1065),
-    secondaryContainer = Color(0xFF4C1D95),
-    onSecondaryContainer = Color(0xFFF3E8FF),
-    tertiary = Color(0xFFF9A8D4),
-    onTertiary = Color(0xFF500724),
+    onPrimary = ZarvisInkOnPrimaryDark,
+    primaryContainer = Color(0xFF27305F),
+    onPrimaryContainer = Color(0xFFE0E7FF),
+    secondary = ZarvisNightLavender,
+    onSecondary = Color(0xFF1E1240),
+    secondaryContainer = Color(0xFF3B2A7A),
+    onSecondaryContainer = Color(0xFFEDE9FE),
+    tertiary = Color(0xFF93C5FD),
+    onTertiary = Color(0xFF0B1E3F),
     background = ZarvisSpaceBlack,
     onBackground = ZarvisTextPrimaryDark,
     surface = ZarvisSurfaceDark,
@@ -34,15 +34,15 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = ZarvisSurfaceDarkElevated,
     onSurfaceVariant = ZarvisTextSecondaryDark,
     surfaceContainerLowest = ZarvisSpaceBlack,
-    surfaceContainerLow = Color(0xFF1A0727),
+    surfaceContainerLow = Color(0xFF0B0E20),
     surfaceContainer = ZarvisSurfaceDark,
     surfaceContainerHigh = ZarvisSurfaceDarkElevated,
     surfaceContainerHighest = ZarvisSurfaceDarkHighest,
-    outline = Color(0xFF9C7AB3),
+    outline = Color(0xFF7C86B8),
     outlineVariant = ZarvisBorderDark,
     error = ZarvisErrorDark,
     onError = Color(0xFF4C0519),
-    errorContainer = Color(0xFF5A1426),
+    errorContainer = Color(0xFF4A1426),
     onErrorContainer = Color(0xFFFFD9DF),
 )
 
@@ -51,11 +51,11 @@ private val LightColors = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFF3E8FF),
     onPrimaryContainer = Color(0xFF3B0764),
-    secondary = ZarvisActionViolet,
+    secondary = ZarvisActionMid,
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFFCE7F3),
     onSecondaryContainer = Color(0xFF500724),
-    tertiary = ZarvisActionPink,
+    tertiary = ZarvisActionEnd,
     onTertiary = Color.White,
     background = ZarvisSurfaceLight,
     onBackground = ZarvisTextPrimaryLight,
@@ -107,12 +107,12 @@ fun zarvisReduceMotion(): Boolean {
     return runCatching { Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false)
 }
 
-/** Decoration only (rings, edges, progress, the orb): gold → orchid → amethyst → rose, the Queen jewels. Never under text. */
+/** Decoration only (rings, edges, progress meters, the tab indicator): lavender → violet → blue, the night's lights. Never under text. */
 fun zarvisAuroraBrush() = Brush.linearGradient(
-    colors = listOf(ZarvisGold, ZarvisOrchid, ZarvisAmethyst, ZarvisRose),
+    colors = listOf(ZarvisNightLavender, ZarvisAccentViolet, ZarvisAccentBlue, ZarvisNightSky),
 )
 
-/** The fill under white text and icons (primary buttons, the sent message): royal purple → rose → amber, at least 4.5:1 with white. */
+/** The fill under white text and icons (primary buttons, the sent message): violet → indigo → blue, at least 4.5:1 with white. */
 fun zarvisActionBrush() = Brush.linearGradient(
-    colors = listOf(ZarvisActionBlue, ZarvisActionViolet, ZarvisActionPink),
+    colors = listOf(ZarvisActionStart, ZarvisActionMid, ZarvisActionEnd),
 )

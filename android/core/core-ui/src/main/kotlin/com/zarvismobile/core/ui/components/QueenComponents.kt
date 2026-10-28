@@ -68,13 +68,15 @@ import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.LocalZarvisExtras
 import com.zarvismobile.core.ui.theme.ZarvisAccents
-import com.zarvismobile.core.ui.theme.ZarvisActionBlue
-import com.zarvismobile.core.ui.theme.ZarvisActionPink
-import com.zarvismobile.core.ui.theme.ZarvisActionViolet
+import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
+import com.zarvismobile.core.ui.theme.ZarvisActionEnd
+import com.zarvismobile.core.ui.theme.ZarvisActionMid
+import com.zarvismobile.core.ui.theme.ZarvisActionStart
 import com.zarvismobile.core.ui.theme.ZarvisFontFamily
 import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.core.ui.theme.ZarvisGold
 import com.zarvismobile.core.ui.theme.ZarvisGoldPale
+import com.zarvismobile.core.ui.theme.ZarvisNightLavender
 import com.zarvismobile.core.ui.theme.ZarvisOrchid
 import com.zarvismobile.core.ui.theme.ZarvisRose
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
@@ -82,7 +84,7 @@ import com.zarvismobile.core.ui.theme.zarvisAuroraBrush
 import com.zarvismobile.core.ui.theme.zarvisReduceMotion
 
 /*
- * The Queen theme's shared pieces (ANDROID_QUEEN_DESIGN.md): the crown, gold lettering, the small gold section label, jewel icon
+ * The Queen theme's shared pieces (ANDROID_QUEEN_DESIGN.md): the crown, gold lettering, the small section label, jewel icon
  * tiles, the loading skeleton, and the empty and error states. Everything that moves reads its animation while drawing (or in its
  * layer), never while composing, and holds still when animations are off or Lightweight mode is on.
  */
@@ -147,7 +149,7 @@ private val CrownLine = Color(0xFFFFF7D6)
 // ---- Gold lettering -----------------------------------------------------------------------------
 
 /**
- * Text filled with gold (Queen Dark) or with the royal purple → rose → amber ink (Queen Light, where gold would be unreadable), with
+ * Text filled with gold (Queen Night) or with the violet → indigo → blue ink (Queen Light, where gold would be unreadable), with
  * a soft shine passing over it every few seconds. Every colour in both fills is at least 4.5:1 on its page.
  */
 @Composable
@@ -156,7 +158,7 @@ fun GoldText(text: String, style: TextStyle, modifier: Modifier = Modifier, text
     val fill = if (dark) {
         listOf(ZarvisGoldPale, ZarvisGold, Color(0xFFFFF7D6), ZarvisOrchid, ZarvisGoldPale)
     } else {
-        listOf(ZarvisActionBlue, ZarvisActionViolet, ZarvisActionPink)
+        listOf(ZarvisActionStart, ZarvisActionMid, ZarvisActionEnd)
     }
     val still = zarvisReduceMotion()
     val shine: State<Float>? = if (still) {
@@ -195,8 +197,8 @@ fun GoldText(text: String, style: TextStyle, modifier: Modifier = Modifier, text
 // ---- Section label ------------------------------------------------------------------------------
 
 /**
- * The small gold label over a section ("RECENT TASKS"): Sora 12/16, uppercase, spaced, and (unless [isHeading] is false, for a
- * tagline) a heading for TalkBack. Hindi has no capitals and must not be letter-spaced (it breaks the joined letters), so Hindi
+ * The small label over a section ("RECENT TASKS"): Sora 12/16, uppercase, spaced, in the theme's primary (periwinkle at night, royal
+ * purple by day), and (unless [isHeading] is false, for a tagline) a heading for TalkBack. Hindi has no capitals and must not be letter-spaced (it breaks the joined letters), so Hindi
  * text stays unspaced at a readable size.
  */
 @Composable
@@ -206,7 +208,7 @@ fun SectionKicker(text: String, modifier: Modifier = Modifier, isHeading: Boolea
     Text(
         text = if (latin) text.uppercase() else text,
         style = style,
-        color = ZarvisAccents.gold,
+        color = ZarvisAccents.primary,
         modifier = if (isHeading) modifier.semantics { heading() } else modifier,
     )
 }
@@ -238,12 +240,12 @@ fun JewelIcon(icon: ImageVector, jewel: Jewel, modifier: Modifier = Modifier, si
 
 // ---- Loading skeleton ---------------------------------------------------------------------------
 
-/** One grey-gold placeholder block with a gold shimmer sweeping across it while content loads. */
+/** One placeholder block with a soft lavender shimmer sweeping across it while content loads. */
 @Composable
 fun SkeletonBlock(modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(12.dp)) {
     val dark = LocalZarvisExtras.current.isDark
-    val base = if (dark) Color.White.copy(alpha = 0.07f) else ZarvisActionBlue.copy(alpha = 0.07f)
-    val band = if (dark) ZarvisGoldPale.copy(alpha = 0.22f) else ZarvisGold.copy(alpha = 0.28f)
+    val base = if (dark) Color.White.copy(alpha = 0.07f) else ZarvisActionStart.copy(alpha = 0.07f)
+    val band = if (dark) ZarvisNightLavender.copy(alpha = 0.2f) else ZarvisAccentViolet.copy(alpha = 0.16f)
     val still = zarvisReduceMotion()
     val sweep: State<Float>? = if (still) {
         null
@@ -292,7 +294,7 @@ fun SkeletonList(loadingLabel: String, modifier: Modifier = Modifier, rows: Int 
 
 // ---- Empty and error states ---------------------------------------------------------------------
 
-/** An empty list: the crown, what is missing, and (when there is one) the one thing to do about it. */
+/** An empty list: the still ZARVIS orb, what is missing, and (when there is one) the one thing to do about it. */
 @Composable
 fun QueenEmptyState(
     title: String,
@@ -306,7 +308,7 @@ fun QueenEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
     ) {
-        QueenCrown(width = 96.dp)
+        AiOrb(state = VoiceState.IDLE, onClick = null, size = 88.dp)
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
@@ -341,7 +343,7 @@ fun QueenErrorCard(message: String, retryLabel: String, onRetry: () -> Unit, mod
     }
 }
 
-/** A small outlined gold pill with an icon: Try again, Choose apps, See all. */
+/** A small outlined pill in the theme's primary, with an icon: Try again, Choose apps, Read aloud, Stop. */
 @Composable
 fun QueenOutlineAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
     val shape = RoundedCornerShape(50)
@@ -349,14 +351,14 @@ fun QueenOutlineAction(label: String, onClick: () -> Unit, modifier: Modifier = 
         modifier = modifier
             .heightIn(min = 48.dp)
             .clip(shape)
-            .border(1.dp, ZarvisAccents.gold.copy(alpha = 0.55f), shape)
+            .border(1.dp, ZarvisAccents.primary.copy(alpha = 0.55f), shape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (icon != null) Icon(imageVector = icon, contentDescription = null, tint = ZarvisAccents.gold, modifier = Modifier.size(16.dp))
-        Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = ZarvisAccents.gold)
+        if (icon != null) Icon(imageVector = icon, contentDescription = null, tint = ZarvisAccents.primary, modifier = Modifier.size(16.dp))
+        Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = ZarvisAccents.primary)
     }
 }
 
@@ -429,7 +431,7 @@ fun QueenPageHeader(
 // ---- Sections, cards and rows (Queen Pro) --------------------------------------------------------
 
 /**
- * A group on a page: the gold [title] (a heading), an optional one-line [hint] under it, then [content] (usually a [QueenListCard]).
+ * A group on a page: the [title] label (a heading), an optional one-line [hint] under it, then [content] (usually a [QueenListCard]).
  */
 @Composable
 fun QueenSection(title: String, modifier: Modifier = Modifier, hint: String? = null, content: @Composable ColumnScope.() -> Unit) {
@@ -450,7 +452,7 @@ fun QueenListCard(modifier: Modifier = Modifier, content: @Composable ColumnScop
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(GlassColors.surfaceTint, shape)
+            .glassFill(GlassColors.surfaceTint, GlassColors.highlight, shape)
             .border(1.dp, GlassColors.border, shape),
         content = content,
     )
@@ -509,9 +511,9 @@ fun QueenRow(
     }
 }
 
-/** A short note in a soft gold (or [tint]) wash with an icon: what a setting means, a safety promise. */
+/** A short note in a soft wash of the theme's primary (or [tint]) with an icon: what a setting means, a safety promise. */
 @Composable
-fun QueenNote(text: String, modifier: Modifier = Modifier, icon: ImageVector = ZarvisIcons.Shield, tint: Color = ZarvisAccents.gold, title: String? = null) {
+fun QueenNote(text: String, modifier: Modifier = Modifier, icon: ImageVector = ZarvisIcons.Shield, tint: Color = ZarvisAccents.primary, title: String? = null) {
     val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = modifier.fillMaxWidth().background(tint.copy(alpha = 0.08f), shape).padding(12.dp),
@@ -550,12 +552,12 @@ fun QueenStatTile(value: String, label: String, modifier: Modifier = Modifier, v
     }
 }
 
-/** A thin meter filled with the Queen jewels up to [fraction] (0..1). Decoration: the number it shows is always written next to it. */
+/** A thin meter filled with the night's lights up to [fraction] (0..1). Decoration: the number it shows is always written next to it. */
 @Composable
 fun GoldMeter(fraction: Float, modifier: Modifier = Modifier, height: Dp = 8.dp) {
     val filled = fraction.coerceIn(0f, 1f)
     val shape = RoundedCornerShape(50)
-    Box(modifier = modifier.fillMaxWidth().height(height).background(ZarvisAccents.gold.copy(alpha = 0.16f), shape)) {
+    Box(modifier = modifier.fillMaxWidth().height(height).background(ZarvisAccents.primary.copy(alpha = 0.16f), shape)) {
         if (filled > 0f) Box(Modifier.fillMaxWidth(filled).fillMaxHeight().background(zarvisAuroraBrush(), shape))
     }
 }

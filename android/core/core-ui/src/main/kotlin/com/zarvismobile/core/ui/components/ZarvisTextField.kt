@@ -49,7 +49,7 @@ fun ZarvisComposer(
     onSubmit: () -> Unit,
     onMicClick: () -> Unit,
     modifier: Modifier = Modifier,
-    placeholder: String = "Type your task",
+    placeholder: String = "Ask ZARVIS anything…",
     enabled: Boolean = true,
     showMic: Boolean = true,
 ) {
@@ -86,7 +86,7 @@ fun ZarvisComposer(
             focusedBorderColor = accent,
             // A quiet edge (Queen Pro), still 3:1 or more against the page in both themes, so the field is findable.
             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-            unfocusedLeadingIconColor = ZarvisAccents.gold,
+            unfocusedLeadingIconColor = ZarvisAccents.primary,
             cursorColor = accent,
             focusedLeadingIconColor = accent,
             focusedTrailingIconColor = accent,

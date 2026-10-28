@@ -1,8 +1,10 @@
 # ZARVIS Android: the Queen theme
 
-The Android app's look: a deep plum night with gold, rose and amethyst light, slowly turning gold rays, falling glitter and a crowned,
-jewel-like orb. **Queen Dark** is the default appearance and **Queen Light** (lavender) is the same theme for daylight, chosen in
-Settings › Appearance. The website keeps Aurora Glass ([DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)) until it moves to Queen in its own change.
+The Android app's look: since phase 5, **Queen Night**, a navy-black night lit violet and blue, with glass cards, a glowing lit-glass
+orb and the ZARVIS gold kept for the brand (the wordmark, the plan and its credits). It began as a deep plum night with gold, rose and
+amethyst light, turning gold rays, falling glitter and a crowned orb (phases 1–4). **Queen Night** is the default appearance and
+**Queen Light** (lavender) is the same theme for daylight, chosen in Settings › Appearance. The website keeps Aurora Glass
+([DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)) until it moves to Queen in its own change.
 
 The full design (all 22 Android boards, the navigation, the speed rules and the scan checklist) is on the design canvas
 <https://claude.ai/artifact/SG5heBSrDENnAK1Ja9vWGx>, page **Android · Queen (sab pages)**. Its quieter successor, **Queen Pro**
@@ -19,6 +21,7 @@ string has Hindi, and text is at least 4.5:1 on whatever it is drawn on.
 | 2 | Sora/Orbitron type; the crown, gold lettering, gold section labels, jewel icons and badges; Home (A03); launch, welcome, start error, capability detail and Developer Agent on the Queen page; the Chat look (A04) and interrupted card; the gold skeleton, crown empty state and ruby error card (A22); Queen dialogs (A21); jewel Settings rows (A15); Lightweight mode | Done |
 | 3 | Live chat progress from the turn stream; the Queen page header (`QueenPageHeader`) on every inner page; jewel cards on Work, Capabilities and Tasks; Metrics tiles and meters; Plans with the crowned plan card, localized; the chat's welcome with three starters; five equal tabs | Done |
 | 4 | Queen Pro: one quiet page behind every inner screen, solid cards, one page structure (bar, intro, gold sections, rows), tinted status chips, pill buttons, a flat tab bar with five equal tabs, and the new controls listed under *Queen Pro* | Done |
+| 5 | Queen Night: the navy page with violet and blue light, periwinkle primary, violet → indigo → blue action gradient, glass sheen on cards, the lit-glass orb, the calmer night sky, Home's new hierarchy (orb hero, Ask ZARVIS, quick actions) and the Chat refinements listed under *Queen Night* | Done |
 | Later | The items under *Not done yet* below | Open |
 
 Phase 1 changed no behaviour. Phase 2 changes one: the Home orb ("Tap to speak") and the composer's mic open Chat already listening,
@@ -40,33 +43,38 @@ actions.
 
 ## Palette (`core-ui/.../theme/Color.kt`)
 
-| Role | Queen Dark | Queen Light |
+| Role | Queen Night (phase 5) | Queen Light |
 | --- | --- | --- |
-| Page (`background`) | `#14041F` plum night | `#FBF4FF` lavender |
-| Surface / variant / highest | `#200A30` / `#2A0F3D` / `#36154D` | `#FFFFFF` / `#F8F0FF` / `#F4E9FD` |
-| Text / secondary text | `#FFF7FB` / `#ECD3F5` | `#1A0B3B` / `#4C3D75` |
-| Primary (selected tab, focus, links) | gold `#FDE68A`, ink `#2A0A36` on it | royal purple `#7E22CE`, white on it |
+| Page (`background`) | `#070A18` navy-black night | `#FBF4FF` lavender |
+| Surface / variant / highest | `#0F1329` / `#161B38` / `#1F2548` | `#FFFFFF` / `#F8F0FF` / `#F4E9FD` |
+| Text / secondary text | `#F4F6FF` / `#C5CBEA` | `#1A0B3B` / `#4C3D75` |
+| Primary (selected tab, focus, links, section labels, small actions) | periwinkle `#A5B4FC`, navy ink `#0A0F2E` on it | royal purple `#7E22CE`, white on it |
 | Error / warning / success | `#FDA4AF` / `#FCD34D` / `#86EFAC` | `#B42318` / `#92400E` / `#065F46` |
-| Text accents (`ZarvisAccents`) | cyan `#67E8F9`, violet `#E9D5FF`, pink `#F9A8D4`, gold `#FDE68A` | cyan `#155E75`, violet `#6D28D9`, pink `#9D174D`, gold `#92400E` |
-| Glass card | `#3A1650` at 72% with a gold hairline | white at 78% with a purple hairline |
+| Text accents (`ZarvisAccents`) | cyan `#67E8F9`, violet `#DDD6FE`, pink `#F9A8D4`, gold `#FDE68A`, primary `#A5B4FC` | cyan `#155E75`, violet `#6D28D9`, pink `#9D174D`, gold `#92400E`, primary `#7E22CE` |
+| Glass card | `#0F1329` with a periwinkle hairline (16%) and a white sheen (5%) over its top half | white with a purple hairline |
 
-Jewels (decoration only, never words on the light page): gold `#FBBF24`, pale gold `#FDE68A`, amber `#F59E0B`, rose `#FB7185`,
-orchid `#F472B6`, amethyst `#C084FC`, magenta `#D946EF`.
+**Two jobs, two colours.** The primary marks what you can act on and where you are; gold marks ZARVIS itself: the wordmark, the
+"ZARVIS" label over a reply, the plan and its credits. Nothing else is gold.
 
-The action gradient under white text (primary buttons, the sent message) is royal purple `#7E22CE` → rose `#BE185D` → amber
-`#B45309`: white is 6.98, 6.04 and 5.02 to 1 on its stops. `zarvisAuroraBrush()` is the jewel gradient (gold → orchid → amethyst
-→ rose) for rings, edges and progress.
+Night lights (decoration only, never words on the light page): violet `#8B5CF6`, blue `#3B82F6`, indigo `#6366F1`, sky `#60A5FA`,
+lavender `#C4B5FD`, ice `#E0E7FF`. The Queen jewels (gold `#FBBF24`, pale gold `#FDE68A`, amber, rose, orchid, amethyst, magenta)
+remain for the gold lettering and the crown.
 
-`PaletteContrastTest` checks every text colour on every surface in both themes, including the page's glows, rays and bokeh stacked
-at their strongest (the worst spot is 5.1:1 in light and 5.3:1 in dark), ink on every gold, and white on the action gradient. CI runs it.
+The action gradient under white text (primary buttons, the sent message, the quick actions' icons) is violet `#7C3AED` → indigo
+`#4F46E5` → blue `#2563EB`: white is 5.70, 6.29 and 5.17 to 1 on its stops. `zarvisAuroraBrush()` is the night's lights (lavender →
+violet → blue → sky) for rings, edges and progress meters.
+
+`PaletteContrastTest` checks every text colour on every surface in both themes, including the page's glows and nebula lights stacked
+at their strongest (the worst spot is 6.6:1 for the night primary and 5.0:1 in light) and a card's sheen, navy ink on the night
+primary, ink on every gold, and white on the action gradient. CI runs it.
 
 ## The page (`ZarvisBackground`)
 
-* Three still glows over the page colour: magenta at the top, amethyst on the right, gold at the bottom. They are painted once per
+* Three still glows over the page colour: violet at the top, blue on the right, indigo at the bottom left. They are painted once per
   size or theme change.
-* On its own layer behind the content: 20 gold rays turning once a minute from the top centre, 18 pieces of glitter (diamonds and
-  dots) falling and swaying, 5 large bokeh lights rising, and 7 four-point stars twinkling. One 60-second clock drives all of them,
-  and every motion repeats a whole number of times per cycle, so the loop has no seam.
+* On its own layer behind the content (since phase 5, a calmer night): 4 large nebula lights drifting slowly upwards, 22 specks of
+  starlight shimmering in place, and 6 four-point stars twinkling. The gold rays and the falling glitter are gone. One 60-second
+  clock drives all of them, and every motion repeats a whole number of times per cycle, so the loop has no seam.
 * Speed: the clock is read while drawing, so a frame repaints only that layer; nothing recomposes or re-lays out and the screen's
   own text and cards are not redrawn. The glitter, stars and bokeh are fixed lists (fixed seeds), so every screen shows the same
   sky and switching tabs does not reshuffle it.
@@ -74,7 +82,7 @@ at their strongest (the worst spot is 5.1:1 in light and 5.3:1 in dark), ink on 
   app is in the background, so it costs nothing there.
 
 Since phase 4 (Queen Pro) only Home draws the sky (`ZarvisBackground(decorated = true)`). Every other page has the page colour with
-one still magenta glow at the top, so its text and controls are what you see.
+one still violet glow at the top, so its text and controls are what you see.
 
 ## Type and shared pieces
 
@@ -94,17 +102,22 @@ one still magenta glow at the top, so its text and controls are what you see.
 
 ## The orb (`AiOrb`)
 
-The state colours are the Queen jewels: idle gold → amethyst, listening orchid → gold, understanding and planning amethyst → orchid,
-working gold, speaking amethyst → gold, done green, error rose. Over the turning sweep: a white-hot plasma core, a gold rim and a
-ring of 48 gold ticks that turns the other way. It still moves only while listening, working or speaking, and its TalkBack words
-are unchanged.
+Since phase 5 a lit glass sphere: a halo in the state's colour, the sphere lit from the top left into deep navy, a luminous arc of
+energy turning inside it, a white-hot core, a glass rim with a glint, a fine HUD ring of 48 lavender ticks turning the other way, and
+an orbit with one bright satellite. State colours: idle violet → blue, listening cyan → blue (with two ripples leaving the sphere),
+understanding and planning violet → indigo, working sky → indigo, speaking lavender → violet, done green, error rose. Each state
+also has its own motion (pulse, glow and turn speeds). It moves while listening, working or speaking; while idle it holds still,
+except Home's hero orb (`idleMotion = true`), which breathes slowly (a 3.2 s glow, a 24 s turn). Everything stops with "Remove
+animations" or Lightweight mode. A press squeezes it slightly (layer scale only). Its TalkBack words are unchanged; without
+`onClick` it is decoration (the empty chat, empty lists, the welcome pages, the launch screen) and says nothing.
 
 ## Navigation
 
 Tab bar: **Home · Skills · Chat · Tasks · Work** (Hindi: होम · क्षमताएँ · चैट · कार्य · काम). The English tab says Skills because
 "Capabilities" did not fit five tabs on a 360dp phone: it pushed Work's label out to "…". The page keeps the title Capabilities, and
 every tab now gets an equal share of the bar. Since phase 4 the bar is flat across the bottom with a hairline on top, and the five
-tabs are equal (Chat is no longer an orb): the current tab's icon sits on a gold pill and its label turns gold and bolder. Screens opened from Work keep Work highlighted, and the bar hides while the keyboard is up (as before).
+tabs are equal (Chat is no longer an orb). Since phase 5 the hairline glows violet and blue in its middle, and the current tab's
+icon sits on a violet → blue pill while its label turns the primary and bolder. Screens opened from Work keep Work highlighted, and the bar hides while the keyboard is up (as before).
 
 Talk: the crowned orb on Home and the composer's mic open Chat already listening (`conversation?listen=true`). The middle tab stays
 **Chat**: opening Chat from the tab does not start the microphone.
@@ -175,3 +188,28 @@ The same Queen colours with less noise, so every page reads as one product. Appr
     app's language.
   * Settings: the account on top and three groups (You · Safety & privacy · Advanced). Permissions & Device Access is grouped by what
     Android reports (`AccessGroup`: Allowed, Not on yet, No permission held, Not available here).
+
+## Queen Night (phase 5)
+
+The reference for this phase was a futuristic assistant on a black/navy page with purple-blue light, a glowing orb and glass cards.
+It refines Queen Pro rather than replacing it: the same components, page structure, tabs and features, retuned.
+
+* **Home: the first screen in the order it is used.** The gold wordmark with "AI ASSISTANT" under it and Settings (a glass round
+  button); "What should we do?" and one line on what ZARVIS does; the orb as the hero (176dp, breathing slowly), "Tap to speak"; the
+  Ask ZARVIS field (its mic opens Chat listening, like the orb); then **Quick actions**, four to a row (two side by side when the
+  phone is narrower than 340dp or its text is set above 115%, so no label is cut): the seven categories, each sending its request to
+  Chat as its chip did (TalkBack reads the exact request as the tile's action), and **All skills**, which opens the Skills tab. Below
+  the first screen: the error card when loading failed (next to what failed, no longer at the bottom), Recent tasks with See all, On
+  this phone (Phone Agent, Phone action safety with its live On / Paused), and the plan.
+* **Removed from Home, still in the app.** The three "Try" requests (Open the camera, the water reminder, the birthday wish) were a
+  second, smaller copy of the categories; they stay where they help most, on the empty Chat. "What can you do?" is now Quick actions.
+* **Ask ZARVIS.** The field says "Ask ZARVIS anything…" on Home and in Chat (`CHAT_COMPOSER_HINT`).
+* **Chat.** ZARVIS's avatar (a small lit sphere) next to the title and over each reply; Delete is a 48dp trash button named "Delete",
+  still asking first; Read aloud / Stop and Try again are outlined pills with icons; listening is a cyan-edged card with a mic, a reply
+  being read aloud a card with a sound wave and Stop; the orb by the field is 64dp; the empty chat shows the still orb instead of
+  the crown; the pending reply's dots and edge are in the primary.
+* **Everywhere.** Section labels, small actions, chips, dialogs' edges, the selected Skills filter and the launch progress line use
+  the primary; empty lists, the launch screen, the start error (in its error colours) and the welcome pages show the orb.
+* **Tests that hold the shape.** `ConversationLifecycleTest` scrolls Home's lazy list to the "Creative" tile; `SettingsUiTest` opens
+  Settings by its content description; `ChatSyncTest` taps the tabs by their words, so nothing on Home is a clickable "Chat" or
+  "Home". `PaletteContrastTest` holds the new values.

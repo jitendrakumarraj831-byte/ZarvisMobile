@@ -128,7 +128,7 @@ private fun AssistPanel(
         Surface(
             // Consume taps on the panel itself so they don't close it.
             modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
-                .border(1.dp, ZarvisAccents.gold.copy(alpha = 0.25f), sheet)
+                .border(1.dp, ZarvisAccents.primary.copy(alpha = 0.25f), sheet)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
             shape = sheet,
             color = MaterialTheme.colorScheme.background,

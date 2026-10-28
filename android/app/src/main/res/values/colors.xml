@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The window behind Compose before its first frame: the Queen Dark page (the default appearance), so nothing flashes first. -->
-    <color name="zarvis_window_background">#14041F</color>
+    <!-- The window behind Compose before its first frame: the Queen Night page (the default appearance), so nothing flashes first. -->
+    <color name="zarvis_window_background">#070A18</color>
 </resources>

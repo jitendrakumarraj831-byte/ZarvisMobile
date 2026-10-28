@@ -10,8 +10,8 @@ import org.junit.Test
 /**
  * The Android twin of web/tests/contrast.test.js: every text colour of the palette is at least 4.5:1 on every surface it is drawn on,
  * in light and dark, and white is at least 4.5:1 on every stop of the action gradient. Translucent glass is blended over the page
- * first, so the number is the one a reader sees. The Queen page's glows, rays and bokeh are stacked over the page the same way, at
- * their strongest, because text sits directly on them.
+ * first, so the number is the one a reader sees. The night page's glows and nebula lights are stacked over the page the same way,
+ * at their strongest, because text sits directly on them, and a card's top-lit sheen is laid over the card.
  */
 class PaletteContrastTest {
     private fun ratio(a: Color, b: Color): Float {
@@ -27,10 +27,10 @@ class PaletteContrastTest {
         assertTrue(failures.joinToString("; "), failures.isEmpty())
     }
 
-    /** The page under each glow, with the rays and every bokeh colour on top: the brightest (or darkest) spots text can land on. */
+    /** The page under each glow, with every nebula light on top: the brightest (or darkest) spots text can land on. */
     private fun decoratedPage(page: Color, sky: QueenSkyColors): Map<String, Color> {
         val spots = mapOf(
-            "top glow + rays" to sky.ray.compositeOver(sky.topGlow.compositeOver(page)),
+            "top glow" to sky.topGlow.compositeOver(page),
             "side glow" to sky.sideGlow.compositeOver(page),
             "bottom glow" to sky.bottomGlow.compositeOver(page),
         )
@@ -43,6 +43,7 @@ class PaletteContrastTest {
         "surface variant" to ZarvisSurfaceLightVariant,
         "surface highest" to ZarvisSurfaceLightHighest,
         "glass card" to LightExtras.glass.compositeOver(ZarvisSurfaceLight),
+        "glass card sheen" to LightExtras.glassHighlight.compositeOver(LightExtras.glass.compositeOver(ZarvisSurfaceLight)),
     )
 
     private val darkSurfaces = decoratedPage(ZarvisSpaceBlack, QueenSkyDark) + mapOf(
@@ -52,6 +53,8 @@ class PaletteContrastTest {
         "surface highest" to ZarvisSurfaceDarkHighest,
         "glass card" to DarkExtras.glass.compositeOver(ZarvisSpaceBlack),
         "raised glass" to DarkExtras.glassElevated.compositeOver(ZarvisSpaceBlack),
+        "glass card sheen" to DarkExtras.glassHighlight.compositeOver(DarkExtras.glass.compositeOver(ZarvisSpaceBlack)),
+        "raised glass sheen" to DarkExtras.glassHighlight.compositeOver(DarkExtras.glassElevated.compositeOver(ZarvisSpaceBlack)),
     )
 
     @Test
@@ -67,6 +70,7 @@ class PaletteContrastTest {
             "violet accent" to LightExtras.accentViolet,
             "pink accent" to LightExtras.accentPink,
             "gold accent" to LightExtras.accentGold,
+            "primary accent" to LightExtras.accentPrimary,
         ).forEach { (label, colour) -> assertReadable(label, colour, lightSurfaces) }
     }
 
@@ -83,22 +87,29 @@ class PaletteContrastTest {
             "violet accent" to DarkExtras.accentViolet,
             "pink accent" to DarkExtras.accentPink,
             "gold accent" to DarkExtras.accentGold,
+            "primary accent" to DarkExtras.accentPrimary,
         ).forEach { (label, colour) -> assertReadable(label, colour, darkSurfaces) }
     }
 
     @Test
     fun `white is readable on every stop of the action gradient`() {
-        listOf(ZarvisActionBlue, ZarvisActionViolet, ZarvisActionPink).forEachIndexed { index, stop ->
+        listOf(ZarvisActionStart, ZarvisActionMid, ZarvisActionEnd).forEachIndexed { index, stop ->
             assertReadable("white", Color.White, mapOf("action gradient stop $index" to stop))
         }
     }
 
     @Test
     fun `dark ink is readable on every gold`() {
-        // The dark theme's buttons (gold primary) and the middle tab's orb.
-        listOf(ZarvisGoldPale, ZarvisGold, ZarvisAmber, ZarvisPrimaryDark).forEachIndexed { index, gold ->
+        // Anything filled with the brand gold (the plan chip on Plans).
+        listOf(ZarvisGoldPale, ZarvisGold, ZarvisAmber).forEachIndexed { index, gold ->
             assertReadable("ink on gold", ZarvisInkOnGold, mapOf("gold $index" to gold))
         }
+    }
+
+    @Test
+    fun `navy ink is readable on the night primary`() {
+        // A filled pill in the dark theme's primary (the selected Skills filter, Material's filled buttons and switches).
+        assertReadable("ink on primary", ZarvisInkOnPrimaryDark, mapOf("night primary" to ZarvisPrimaryDark))
     }
 
     @Test
@@ -109,12 +120,13 @@ class PaletteContrastTest {
 
     @Test
     fun `the palette is the Queen theme's`() {
-        // ANDROID_QUEEN_DESIGN.md lists the values; the website keeps Aurora Glass until it moves in its own change.
+        // ANDROID_QUEEN_DESIGN.md lists the values (Queen Night since phase 5); the website keeps Aurora Glass until it moves in its own change.
         assertEquals(Color(0xFFFBF4FF), ZarvisSurfaceLight)
-        assertEquals(Color(0xFF14041F), ZarvisSpaceBlack)
+        assertEquals(Color(0xFF070A18), ZarvisSpaceBlack)
         assertEquals(Color(0xFF7E22CE), ZarvisAccentIndigoLight)
-        assertEquals(Color(0xFFFDE68A), ZarvisPrimaryDark)
-        assertEquals(listOf(Color(0xFF7E22CE), Color(0xFFBE185D), Color(0xFFB45309)), listOf(ZarvisActionBlue, ZarvisActionViolet, ZarvisActionPink))
+        assertEquals(Color(0xFFA5B4FC), ZarvisPrimaryDark)
+        assertEquals(Color(0xFFFDE68A), DarkExtras.accentGold)
+        assertEquals(listOf(Color(0xFF7C3AED), Color(0xFF4F46E5), Color(0xFF2563EB)), listOf(ZarvisActionStart, ZarvisActionMid, ZarvisActionEnd))
     }
 
     /** A status or risk chip (TintPill): the accent as text on a 14% wash of itself, over the page and over a card. */
@@ -133,6 +145,7 @@ class PaletteContrastTest {
             mapOf(
                 "active" to DarkExtras.accentCyan, "waiting" to DarkExtras.warning, "done" to DarkExtras.success, "problem" to DarkExtras.danger,
                 "violet" to DarkExtras.accentViolet, "pink" to DarkExtras.accentPink, "neutral" to ZarvisTextSecondaryDark,
+                "primary" to DarkExtras.accentPrimary,
             ),
         )
         assertChipsReadable(
@@ -141,6 +154,7 @@ class PaletteContrastTest {
             mapOf(
                 "active" to LightExtras.accentCyan, "waiting" to LightExtras.warning, "done" to LightExtras.success, "problem" to LightExtras.danger,
                 "violet" to LightExtras.accentViolet, "pink" to LightExtras.accentPink, "neutral" to ZarvisTextSecondaryLight,
+                "primary" to LightExtras.accentPrimary,
             ),
         )
     }
@@ -148,7 +162,7 @@ class PaletteContrastTest {
     @Test
     fun `a field's quiet edge is still findable against the page`() {
         // The composer and the search field use the theme's outline (WCAG 1.4.11 asks 3:1 for a control's edge).
-        assertReadable("dark outline", Color(0xFF9C7AB3), mapOf("page" to ZarvisSpaceBlack), minimum = 3f)
+        assertReadable("dark outline", Color(0xFF7C86B8), mapOf("page" to ZarvisSpaceBlack, "card" to ZarvisSurfaceDark), minimum = 3f)
         assertReadable("light outline", Color(0xFF7A6A99), mapOf("page" to ZarvisSurfaceLight), minimum = 3f)
     }
 }
