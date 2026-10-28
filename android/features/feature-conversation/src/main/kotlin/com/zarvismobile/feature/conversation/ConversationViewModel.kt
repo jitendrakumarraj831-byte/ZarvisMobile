@@ -86,6 +86,8 @@ sealed interface ChatProgress {
 
 data class ConversationUiState(
     val voiceState: VoiceState = VoiceState.IDLE,
+    /** True while a Read Aloud request is synthesizing or playing. */
+    val readingReply: Boolean = false,
     /** Live progress of the turn in flight, null when none is. */
     val progress: ChatProgress? = null,
     val composerText: String = "",
@@ -126,6 +128,8 @@ class ConversationViewModel @Inject constructor(
 
     // The in-flight turn, so tapping the orb interrupts it cleanly (network call or playback).
     private var turnJob: Job? = null
+    private var replySpeechJob: Job? = null
+    private var replySpeechToken: Any? = null
 
     // Which turn's live progress is shown; set by each new turn.
     @Volatile private var currentTurn: Any? = null
@@ -167,9 +171,13 @@ class ConversationViewModel @Inject constructor(
         if (!ConversationSync.leftConversation(shown, active)) return
         // A turn still on its way belongs to the conversation that was left: it must not land in this one.
         turnJob?.cancel()
+        replySpeechToken = null
+        replySpeechJob?.cancel()
+        replySpeechJob = null
+        ttsEngine.stop()
         shown = active
         // The recovery card and notice are about the app being closed, not about this conversation: they stay.
-        _uiState.update { it.copy(turns = emptyList(), voiceState = VoiceState.IDLE, error = null) }
+        _uiState.update { it.copy(turns = emptyList(), voiceState = VoiceState.IDLE, readingReply = false, error = null) }
         // Another screen may already be talking in the new chat: show what the server holds for it.
         if (active.id != null) viewModelScope.launch { reconcileWithServer() }
     }
@@ -302,7 +310,11 @@ class ConversationViewModel @Inject constructor(
     fun startListening() {
         if (_uiState.value.voiceState == VoiceState.LISTENING) return
         stopTurnInFlight()
+        replySpeechToken = null
+        replySpeechJob?.cancel()
+        replySpeechJob = null
         ttsEngine.stop()
+        _uiState.update { if (it.readingReply) it.copy(readingReply = false) else it }
         listenJob?.cancel()
         listenJob = viewModelScope.launch {
             // Microphone goes through the same permission intelligence as every capability.
@@ -352,12 +364,59 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    /** Stops a reply being read aloud (the Stop button while Speaking). The reply stays on screen as text. */
+    /** Read an existing assistant reply aloud without sending another AI request. */
+    fun speakReply(text: String) {
+        if (text.isBlank()) return
+        stopSpeaking()
+        val token = Any()
+        replySpeechToken = token
+        _uiState.update { it.copy(readingReply = true, error = null) }
+        replySpeechJob = viewModelScope.launch {
+            val language = runCatching { appLocale() }.getOrDefault("en")
+            val locale = if (language == "hi") "hi-IN" else "en-US"
+            try {
+                ttsEngine.speak(text, locale = locale) {
+                    _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                _uiState.update { it.copy(error = UiString.VOICE_PLAYBACK_FAILED.text(language)) }
+            } finally {
+                if (replySpeechToken === token) {
+                    replySpeechToken = null
+                    replySpeechJob = null
+                    _uiState.update {
+                        it.copy(
+                            readingReply = false,
+                            voiceState = if (it.voiceState == VoiceState.SPEAKING) VoiceState.IDLE else it.voiceState,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** Stops manual or automatic speech, including synthesis that has not produced its first audio yet. */
     fun stopSpeaking() {
-        if (_uiState.value.voiceState != VoiceState.SPEAKING) return
-        // The engine's speak() returns once its playback ends, and runTurn then sets IDLE; setting it here too keeps the button from lingering.
+        val state = _uiState.value
+        val manualJob = replySpeechToken != null
+        if (!state.readingReply && state.voiceState != VoiceState.SPEAKING) return
+        if (manualJob) {
+            replySpeechToken = null
+            replySpeechJob?.cancel()
+            replySpeechJob = null
+        } else {
+            // Automatic speech runs inside the turn coroutine. Cancelling it also cancels a pending HTTP audio request.
+            turnJob?.cancel()
+        }
         ttsEngine.stop()
-        _uiState.update { if (it.voiceState == VoiceState.SPEAKING) it.copy(voiceState = VoiceState.IDLE) else it }
+        _uiState.update {
+            it.copy(
+                readingReply = false,
+                voiceState = if (it.voiceState == VoiceState.SPEAKING) VoiceState.IDLE else it.voiceState,
+            )
+        }
     }
 
     /**
@@ -453,18 +512,20 @@ class ConversationViewModel @Inject constructor(
                 // A private on-device result (the screen, notifications, location…) is not sent to the server's voice: it stays on the phone.
                 val keepOnPhone = outcome.result?.skillId in PRIVATE_RESULT_SKILLS
                 if (preferences.autoSpeak.first() && !keepOnPhone) {
+                    _uiState.update { it.copy(readingReply = true) }
                     try {
                         ttsEngine.speak(outcome.message, locale = locale) {
                             _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
                         }
-                        _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, readingReply = false) }
                     } catch (cancelled: CancellationException) {
+                        _uiState.update { it.copy(readingReply = false) }
                         throw cancelled
                     } catch (_: Throwable) {
-                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = UiString.VOICE_PLAYBACK_FAILED.text(language)) }
+                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, readingReply = false, error = UiString.VOICE_PLAYBACK_FAILED.text(language)) }
                     }
                 } else {
-                    _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                    _uiState.update { it.copy(voiceState = VoiceState.IDLE, readingReply = false) }
                 }
             } catch (t: CancellationException) {
                 // Stopped (the microphone, New chat): its progress goes. A newer turn has already taken currentTurn and shows its own.
