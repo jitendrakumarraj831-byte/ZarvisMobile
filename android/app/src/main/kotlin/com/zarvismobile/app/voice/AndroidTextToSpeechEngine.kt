@@ -32,11 +32,12 @@ class AndroidTextToSpeechEngine(
 ) : TextToSpeechEngine {
     private val appContext = context.applicationContext
     @Volatile private var active: Playback? = null
+    @Volatile private var activeDeviceTts: TextToSpeech? = null
 
     override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
         if (text.isBlank()) return
         try {
-            playGemini(text, preferences.ttsVoice.first(), onPlaybackStarted)
+            playCloudVoice(text, preferences.ttsVoice.first(), onPlaybackStarted)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (cloudFailure: Exception) {
@@ -53,7 +54,7 @@ class AndroidTextToSpeechEngine(
         }
     }
 
-    private suspend fun playGemini(text: String, voice: String, onPlaybackStarted: () -> Unit) {
+    private suspend fun playCloudVoice(text: String, voice: String, onPlaybackStarted: () -> Unit) {
         val response = api.synthesizeSpeech(TtsSynthesizeRequest(text, voice))
         if (!response.isSuccessful) {
             response.errorBody()?.close()
@@ -99,14 +100,16 @@ class AndroidTextToSpeechEngine(
         suspendCancellableCoroutine<Unit> { continuation ->
             var engine: TextToSpeech? = null
             val completed = AtomicBoolean(false)
+            val releaseRequested = AtomicBoolean(false)
             val released = AtomicBoolean(false)
 
             fun releaseEngine() {
+                releaseRequested.set(true)
+                val tts = engine ?: return
                 if (!released.compareAndSet(false, true)) return
-                engine?.let { tts ->
-                    runCatching { tts.stop() }
-                    runCatching { tts.shutdown() }
-                }
+                if (activeDeviceTts === tts) activeDeviceTts = null
+                runCatching { tts.stop() }
+                runCatching { tts.shutdown() }
                 engine = null
             }
 
@@ -154,6 +157,10 @@ class AndroidTextToSpeechEngine(
                 val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "zarvis-" + UUID.randomUUID())
                 if (result == TextToSpeech.ERROR) complete(IOException("On-device speech could not start"))
             })
+            // TTS initialization is asynchronous, but cancellation can happen before the engine
+            // object is assigned. Honor a release requested by that early cancellation.
+            engine?.let { activeDeviceTts = it }
+            if (releaseRequested.get()) releaseEngine()
         }
 
     private fun finish(playback: Playback, error: Throwable? = null) {
@@ -167,6 +174,7 @@ class AndroidTextToSpeechEngine(
      */
     override fun stop() {
         active?.let { finish(it) }
+        activeDeviceTts?.let { runCatching { it.stop() } }
     }
 }
 
