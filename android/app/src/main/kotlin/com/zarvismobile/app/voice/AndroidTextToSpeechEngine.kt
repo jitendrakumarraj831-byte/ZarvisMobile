@@ -88,9 +88,13 @@ class AndroidTextToSpeechEngine(
                 true
             }
             player.setOnPreparedListener { prepared ->
+                if (!continuation.isActive || active !== playback) {
+                    finish(playback)
+                    return@setOnPreparedListener
+                }
                 try {
                     prepared.start()
-                    onPlaybackStarted()
+                    if (continuation.isActive) onPlaybackStarted()
                 } catch (e: Exception) {
                     finish(playback, e)
                 }
@@ -151,7 +155,9 @@ class AndroidTextToSpeechEngine(
                 }
 
                 tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) { onPlaybackStarted() }
+                    override fun onStart(utteranceId: String?) {
+                        if (continuation.isActive && !completed.get()) onPlaybackStarted()
+                    }
                     override fun onDone(utteranceId: String?) { complete() }
                     override fun onError(utteranceId: String?) {
                         complete(IOException("On-device speech playback failed"))
