@@ -153,9 +153,9 @@ interface ZarvisApi {
     @POST("api/v1/developer/analyze")
     suspend fun analyzeRepo(@Body request: DeveloperAnalyzeRequest): DeveloperAnalyzeResponse
 
-    // Response<ResponseBody>, not a thrown exception on non-2xx: a 503 here (no
-    // GEMINI_API_KEY configured server-side, see backend/src/api/routes/tts.ts) is an
-    // expected, honestly-reported outcome the caller falls back from, not an error to catch.
+    // Response<ResponseBody>, not a thrown exception on non-2xx: a 503 (or other non-2xx)
+    // is an honestly-reported server voice failure. AndroidTextToSpeechEngine then tries the
+    // phone's installed TTS engine and surfaces an error only if that fallback also fails.
     @Streaming
     @POST("api/v1/tts/synthesize")
     suspend fun synthesizeSpeech(@Body request: TtsSynthesizeRequest): Response<ResponseBody>
