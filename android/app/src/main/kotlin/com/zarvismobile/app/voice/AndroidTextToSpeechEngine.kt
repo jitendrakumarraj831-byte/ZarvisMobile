@@ -22,8 +22,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * The ZARVIS voice via the backend (POST /api/v1/tts/synthesize, which returns a playable WAV).
- * If synthesis or playback fails the caller keeps the reply on screen as text — there is no
- * silent switch to a different voice engine.
+ * Cloud audio is primary. If it fails before producing sound, the phone's installed Android TTS is
+ * tried as a fallback; if both fail, the caller keeps the reply on screen as text.
  */
 class AndroidTextToSpeechEngine(
     context: Context,
@@ -147,27 +147,32 @@ class AndroidTextToSpeechEngine(
                     complete(IOException("On-device speech engine is unavailable"))
                     return@OnInitListener
                 }
-                val requestedLocale = Locale.forLanguageTag(locale.ifBlank { "en-US" })
-                val languageStatus = tts.setLanguage(requestedLocale)
-                if (languageStatus < TextToSpeech.LANG_AVAILABLE) {
-                    complete(IOException("On-device speech does not support " + requestedLocale.toLanguageTag()))
-                    return@OnInitListener
-                }
+                try {
+                    val requestedLocale = Locale.forLanguageTag(locale.ifBlank { "en-US" })
+                    val languageStatus = tts.setLanguage(requestedLocale)
+                    if (languageStatus < TextToSpeech.LANG_AVAILABLE) {
+                        complete(IOException("On-device speech does not support " + requestedLocale.toLanguageTag()))
+                        return@OnInitListener
+                    }
 
-                tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        if (continuation.isActive && !completed.get()) onPlaybackStarted()
-                    }
-                    override fun onDone(utteranceId: String?) { complete() }
-                    override fun onError(utteranceId: String?) {
-                        complete(IOException("On-device speech playback failed"))
-                    }
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        complete(IOException("On-device speech playback failed (code=$errorCode)"))
-                    }
-                })
-                val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "zarvis-" + UUID.randomUUID())
-                if (result == TextToSpeech.ERROR) complete(IOException("On-device speech could not start"))
+                    tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            if (continuation.isActive && !completed.get()) onPlaybackStarted()
+                        }
+                        override fun onDone(utteranceId: String?) { complete() }
+                        override fun onStop(utteranceId: String?, interrupted: Boolean) { complete() }
+                        override fun onError(utteranceId: String?) {
+                            complete(IOException("On-device speech playback failed"))
+                        }
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            complete(IOException("On-device speech playback failed (code=$errorCode)"))
+                        }
+                    })
+                    val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "zarvis-" + UUID.randomUUID())
+                    if (result == TextToSpeech.ERROR) complete(IOException("On-device speech could not start"))
+                } catch (error: Exception) {
+                    complete(error)
+                }
             })
             // TTS initialization is asynchronous, but cancellation can happen before the engine
             // object is assigned. Honor a release requested by that early cancellation.
