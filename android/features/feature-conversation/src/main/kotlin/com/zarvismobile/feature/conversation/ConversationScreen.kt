@@ -237,20 +237,16 @@ fun ConversationScreen(
                     // Only the newest exchange, only after a failure that sending it again can fix, and not while anything is on its way.
                     val canRetry = index == uiState.turns.lastIndex && turn.retryable && turn.assistantText != null && uiState.progress == null
                     val hasReply = !turn.assistantText.isNullOrBlank()
+                    // Only the reply being read aloud says Stop; any other reply's button reads that one instead (one voice at a time).
+                    val readingThis = hasReply && uiState.readingReply == turn.assistantText
                     TurnBubble(
                         turn,
                         pending,
                         onRetry = if (canRetry) viewModel::retry else null,
                         onReadAloud = if (hasReply) {
-                            {
-                                if (uiState.readingReply || uiState.voiceState == VoiceState.SPEAKING) {
-                                    viewModel.stopSpeaking()
-                                } else {
-                                    viewModel.speakReply(turn.assistantText.orEmpty())
-                                }
-                            }
+                            { if (readingThis) viewModel.stopSpeaking() else viewModel.speakReply(turn.assistantText.orEmpty()) }
                         } else null,
-                        isReadingReply = uiState.readingReply || uiState.voiceState == VoiceState.SPEAKING,
+                        isReadingReply = readingThis,
                     )
                 }
             }
@@ -394,17 +390,11 @@ private fun TurnBubble(
                     MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
                 }
                 if (onReadAloud != null) {
-                    TextButton(
-                        onClick = onReadAloud,
-                        modifier = Modifier.semantics {
-                            contentDescription = tr(if (isReadingReply) UiString.VOICE_STOP else UiString.VOICE_READ_ALOUD)
-                        },
-                    ) {
-                        Text(
-                            tr(if (isReadingReply) UiString.VOICE_STOP else UiString.VOICE_READ_ALOUD),
-                            color = ZarvisAccents.gold,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                    // The visible words, in the app's language, are what TalkBack reads (tr() is composable: read here, not in a
+                    // semantics block).
+                    val readAloudLabel = tr(if (isReadingReply) UiString.VOICE_STOP else UiString.VOICE_READ_ALOUD)
+                    TextButton(onClick = onReadAloud) {
+                        Text(readAloudLabel, color = ZarvisAccents.gold, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 // Sends the same message again under the same id: a turn the server already finished is shown from its stored result.

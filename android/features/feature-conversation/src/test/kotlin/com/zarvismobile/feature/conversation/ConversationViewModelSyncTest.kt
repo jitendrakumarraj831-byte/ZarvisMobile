@@ -174,7 +174,7 @@ class ConversationViewModelSyncTest {
             override fun stop() = Unit
         },
         ttsEngine = object : TextToSpeechEngine {
-            override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
+            override suspend fun speak(text: String, locale: String, onPhoneOnly: Boolean, onPlaybackStarted: () -> Unit) {
                 spokenReplies.add(text to locale)
                 onPlaybackStarted()
             }
@@ -213,7 +213,7 @@ class ConversationViewModelSyncTest {
         val turnCountBeforeReadAloud = backend.turnRequests.size
 
         chatTab.speakReply("answer to read me")
-        waitFor("Read Aloud to finish") { !chatTab.uiState.value.readingReply }
+        waitFor("Read Aloud to finish") { chatTab.uiState.value.readingReply == null }
 
         assertEquals(turnCountBeforeReadAloud, backend.turnRequests.size)
         assertEquals(listOf("answer to read me" to "en-US"), spokenReplies)

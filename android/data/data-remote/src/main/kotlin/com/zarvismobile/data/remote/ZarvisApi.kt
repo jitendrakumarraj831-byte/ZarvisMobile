@@ -156,7 +156,9 @@ interface ZarvisApi {
     // Response<ResponseBody>, not a thrown exception on non-2xx: a 503 (or other non-2xx)
     // is an honestly-reported server voice failure. AndroidTextToSpeechEngine then tries the
     // phone's installed TTS engine and surfaces an error only if that fallback also fails.
-    @Streaming
+    // Not @Streaming: Retrofit reads the whole WAV on OkHttp's thread before returning, so
+    // cancelling the call (Stop, a timeout) also ends a body still arriving, and the caller
+    // never reads the socket on the main thread.
     @POST("api/v1/tts/synthesize")
     suspend fun synthesizeSpeech(@Body request: TtsSynthesizeRequest): Response<ResponseBody>
 
