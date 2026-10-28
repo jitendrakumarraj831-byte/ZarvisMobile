@@ -299,6 +299,11 @@ class ConversationViewModel @Inject constructor(
     fun startNewConversation() {
         turnJob?.cancel()
         listenJob?.cancel()
+        // Cancel manual Read Aloud too: its cloud synthesis may still be pending and must not speak into the new chat.
+        replySpeechToken = null
+        replySpeechJob?.cancel()
+        replySpeechJob = null
+        ttsEngine.stop()
         // Gone from this screen at once, before anything is written; every other screen drops it when it sees the new conversation.
         _uiState.update { ConversationUiState() }
         viewModelScope.launch {
@@ -437,6 +442,11 @@ class ConversationViewModel @Inject constructor(
         // One turn at a time: a new request (typed, voice, resume) supersedes the one in flight
         // instead of running beside it and writing its reply into the wrong bubble.
         stopTurnInFlight()
+        // A new typed/voice turn supersedes manual Read Aloud, including an unfinished cloud synthesis request.
+        replySpeechToken = null
+        replySpeechJob?.cancel()
+        replySpeechJob = null
+        _uiState.update { if (it.readingReply) it.copy(readingReply = false) else it }
         ttsEngine.stop()
         val token = Any()
         currentTurn = token
