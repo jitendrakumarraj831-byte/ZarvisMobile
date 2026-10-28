@@ -3,6 +3,8 @@ package com.zarvismobile.app.voice
 import android.content.Context
 import android.media.MediaDataSource
 import android.media.MediaPlayer
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
 import com.zarvismobile.data.local.prefs.AppPreferences
 import com.zarvismobile.data.remote.ZarvisApi
@@ -12,6 +14,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
@@ -24,11 +30,27 @@ class AndroidTextToSpeechEngine(
     private val api: ZarvisApi,
     private val preferences: AppPreferences,
 ) : TextToSpeechEngine {
+    private val appContext = context.applicationContext
     @Volatile private var active: Playback? = null
 
     override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
         if (text.isBlank()) return
-        playGemini(text, preferences.ttsVoice.first(), onPlaybackStarted)
+        try {
+            playGemini(text, preferences.ttsVoice.first(), onPlaybackStarted)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (cloudFailure: Exception) {
+            // The server voice remains primary. Use Android's installed TTS only if cloud audio fails.
+            try {
+                playOnDevice(text, locale, onPlaybackStarted)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (deviceFailure: Exception) {
+                throw IOException("Cloud voice and on-device speech both failed", deviceFailure).also {
+                    it.addSuppressed(cloudFailure)
+                }
+            }
+        }
     }
 
     private suspend fun playGemini(text: String, voice: String, onPlaybackStarted: () -> Unit) {
@@ -54,17 +76,85 @@ class AndroidTextToSpeechEngine(
         try {
             player.setDataSource(ByteArrayMediaDataSource(bytes))
             player.setOnCompletionListener { finish(playback) }
-            player.setOnErrorListener { _, _, _ ->
-                finish(playback, IOException("Audio playback failed"))
+            player.setOnErrorListener { _, what, extra ->
+                finish(playback, IOException("Audio playback failed (what=$what, extra=$extra)"))
                 true
             }
-            player.prepare()
-            player.start()
-            onPlaybackStarted()
-        } catch (e: IOException) {
+            player.setOnPreparedListener { prepared ->
+                try {
+                    prepared.start()
+                    onPlaybackStarted()
+                } catch (e: Exception) {
+                    finish(playback, e)
+                }
+            }
+            player.prepareAsync()
+        } catch (e: Exception) {
             finish(playback, e)
         }
     }
+
+    /** On-device fallback, using the app's selected language when the cloud voice is unavailable. */
+    private suspend fun playOnDevice(text: String, locale: String, onPlaybackStarted: () -> Unit) =
+        suspendCancellableCoroutine<Unit> { continuation ->
+            var engine: TextToSpeech? = null
+            val completed = AtomicBoolean(false)
+            val released = AtomicBoolean(false)
+
+            fun releaseEngine() {
+                if (!released.compareAndSet(false, true)) return
+                engine?.let { tts ->
+                    runCatching { tts.stop() }
+                    runCatching { tts.shutdown() }
+                }
+                engine = null
+            }
+
+            fun complete(error: Throwable? = null) {
+                if (!completed.compareAndSet(false, true)) return
+                if (continuation.isActive) {
+                    continuation.resumeWith(if (error == null) Result.success(Unit) else Result.failure(error))
+                }
+                releaseEngine()
+            }
+
+            continuation.invokeOnCancellation { releaseEngine() }
+            engine = TextToSpeech(appContext, TextToSpeech.OnInitListener { status ->
+                if (!continuation.isActive || completed.get()) {
+                    releaseEngine()
+                    return@OnInitListener
+                }
+                if (status != TextToSpeech.SUCCESS) {
+                    complete(IOException("On-device speech engine failed to initialize"))
+                    return@OnInitListener
+                }
+
+                val tts = engine
+                if (tts == null) {
+                    complete(IOException("On-device speech engine is unavailable"))
+                    return@OnInitListener
+                }
+                val requestedLocale = Locale.forLanguageTag(locale.ifBlank { "en-US" })
+                val languageStatus = tts.setLanguage(requestedLocale)
+                if (languageStatus < TextToSpeech.LANG_AVAILABLE) {
+                    complete(IOException("On-device speech does not support " + requestedLocale.toLanguageTag()))
+                    return@OnInitListener
+                }
+
+                tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) { onPlaybackStarted() }
+                    override fun onDone(utteranceId: String?) { complete() }
+                    override fun onError(utteranceId: String?) {
+                        complete(IOException("On-device speech playback failed"))
+                    }
+                    override fun onError(utteranceId: String?, errorCode: Int) {
+                        complete(IOException("On-device speech playback failed (code=$errorCode)"))
+                    }
+                })
+                val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "zarvis-" + UUID.randomUUID())
+                if (result == TextToSpeech.ERROR) complete(IOException("On-device speech could not start"))
+            })
+        }
 
     private fun finish(playback: Playback, error: Throwable? = null) {
         if (active === playback) active = null
@@ -90,7 +180,7 @@ private class Playback(private val player: MediaPlayer, private val done: Cancel
             ended = true
         }
         runCatching { player.stop() }
-        player.release()
+        runCatching { player.release() }
         if (done.isActive) done.resumeWith(if (error == null) Result.success(Unit) else Result.failure(error))
     }
 }
