@@ -87,7 +87,9 @@ jobs:
 
   web-e2e:
     # Real browser (Chromium) against the real backend + Postgres, with a local GitHub API stub.
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 does not support the ubuntu-latest image after it advances to Ubuntu 26.04.
+    # Pin this browser runner to Ubuntu 24.04 so Chromium installation remains supported.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
