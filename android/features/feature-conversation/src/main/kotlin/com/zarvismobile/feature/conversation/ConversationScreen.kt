@@ -397,7 +397,7 @@ private fun TurnBubble(
                     TextButton(
                         onClick = onReadAloud,
                         modifier = Modifier.semantics {
-                            contentDescription = if (isReadingReply) "Stop reading reply aloud" else "Read reply aloud"
+                            contentDescription = tr(if (isReadingReply) UiString.VOICE_STOP else UiString.VOICE_READ_ALOUD)
                         },
                     ) {
                         Text(
