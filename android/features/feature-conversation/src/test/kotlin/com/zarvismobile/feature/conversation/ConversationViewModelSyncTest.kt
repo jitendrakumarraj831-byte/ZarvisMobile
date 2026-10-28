@@ -175,7 +175,7 @@ class ConversationViewModelSyncTest {
         },
         ttsEngine = object : TextToSpeechEngine {
             override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
-                spokenReplies += text to locale
+                spokenReplies.add(text to locale)
                 onPlaybackStarted()
             }
             override fun stop() = Unit
