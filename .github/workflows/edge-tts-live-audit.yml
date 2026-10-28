@@ -14,42 +14,46 @@ name: Edge TTS live audit (browser)
 # API side and prints a VOICE SUMMARY; this adds the browser side. Both write their results to the
 # run's summary page. Previews only: the production site is checked by preview-smoke.yml.
 #
+# It runs as the `audit` job of preview-smoke.yml, after that run's API checks, never as a run of its
+# own. Both check the same deployment's voice, whose fallback (Gemini) has a small quota per key, so
+# they take turns in one concurrency group. As two separate runs of one deployment they replaced each
+# other there: GitHub keeps one waiting run per group, so whenever an earlier deployment's run was
+# still going, one of the two was cancelled before it began (this audit, on the PR's newest commits).
+# One run per deployment, holding both, cannot lose half of itself. To audit a URL by hand, run
+# preview-smoke.yml ("Run workflow") with that URL: it runs both.
+#
 # The deployment may sit behind Vercel Deployment Protection: set the repository secret
 # VERCEL_AUTOMATION_BYPASS_SECRET (see preview-smoke.yml). The bypass header is sent only to the
 # deployment's own origin. Each scenario uses a guest account that is deleted afterwards.
 on:
-  deployment_status:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       url:
         description: "Deployment URL to audit (https://…vercel.app)"
+        type: string
         required: true
-
-# The voice checks of this workflow and of the other live one (edge-tts-live-audit.yml and
-# preview-smoke.yml) are started by the same deployment event and both speak to the same deployment. When
-# Edge's voice is not accepted there, the fallback voice (Gemini) speaks, and its speech quota is small and
-# per key: two runs at once spend it twice as fast and each reports the other's exhaustion. They take turns.
-# (A newer run may replace one that is still waiting; the newer commit's run follows.)
-concurrency:
-  group: live-voice-quota
-  cancel-in-progress: false
+      sha:
+        description: "The deployed commit: its web/e2e/tts-audit.cjs is the one run"
+        type: string
+        required: true
+    secrets:
+      VERCEL_AUTOMATION_BYPASS_SECRET:
+        required: false
 
 permissions:
   contents: read
 
 jobs:
   audit:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.deployment_status.state == 'success' && github.event.deployment_status.environment != 'Production')
-    # Playwright 1.56.1 does not support Ubuntu 26.04 yet; keep Chromium installation reproducible.
+    # Playwright 1.56.1 cannot install Chromium on Ubuntu 26.04, which ubuntu-latest now is ("ERROR: Playwright does not support
+    # chromium on ubuntu26.04-x64"): pinned to the newest image it supports.
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       # The script from the deployed commit, so the checks match the code under test.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.deployment.sha || github.sha }}
+          ref: ${{ inputs.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -62,7 +66,7 @@ jobs:
 
       - name: Audit spoken replies in a real browser
         env:
-          ZARVIS_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          ZARVIS_URL: ${{ inputs.url }}
           BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           # Only if the deployment sets TTS_EN_VOICE / TTS_HI_VOICE / TTS_HINGLISH_VOICE (see preview-smoke.yml).
           EXPECT_EN_VOICE: ${{ vars.EXPECT_EN_VOICE }}

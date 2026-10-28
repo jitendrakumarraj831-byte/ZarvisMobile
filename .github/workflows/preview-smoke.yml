@@ -16,11 +16,12 @@ on:
         description: "Deployment URL to test (https://…vercel.app)"
         required: true
 
-# The voice checks of this workflow and of the other live one (edge-tts-live-audit.yml and
-# preview-smoke.yml) are started by the same deployment event and both speak to the same deployment. When
-# Edge's voice is not accepted there, the fallback voice (Gemini) speaks, and its speech quota is small and
-# per key: two runs at once spend it twice as fast and each reports the other's exhaustion. They take turns.
-# (A newer run may replace one that is still waiting; the newer commit's run follows.)
+# Both voice checks of a deployment, these API checks and the browser audit (the `audit` job below,
+# edge-tts-live-audit.yml), speak to the same deployment. When Edge's voice is not accepted there, the
+# fallback voice (Gemini) speaks, and its speech quota is small and per key: two runs at once spend it twice as
+# fast and each reports the other's exhaustion. So runs take turns, and each holds both checks of its
+# deployment one after the other. (A newer run may replace one that is still waiting: the newer commit's run
+# follows, with both its checks.)
 concurrency:
   group: live-voice-quota
   cancel-in-progress: false
@@ -57,3 +58,20 @@ jobs:
           EXPECT_HI_VOICE: ${{ vars.EXPECT_HI_VOICE }}
           EXPECT_HINGLISH_VOICE: ${{ vars.EXPECT_HINGLISH_VOICE }}
         run: node scripts/live-smoke.mjs
+
+  # The spoken reply in a real browser (see edge-tts-live-audit.yml), after the API checks above and in the
+  # same run, so the two never replace each other while waiting their turn. Previews only, and also when the
+  # API checks failed: they are separate findings.
+  audit:
+    needs: smoke
+    if: >-
+      !cancelled() && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.deployment_status.state == 'success' && github.event.deployment_status.environment != 'Production')
+      )
+    uses: ./.github/workflows/edge-tts-live-audit.yml
+    with:
+      url: ${{ github.event.inputs.url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+      sha: ${{ github.event.deployment.sha || github.sha }}
+    secrets:
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
