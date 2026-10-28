@@ -36,12 +36,18 @@ class AndroidTextToSpeechEngine(
 
     override suspend fun speak(text: String, locale: String, onPlaybackStarted: () -> Unit) {
         if (text.isBlank()) return
+        val cloudPlaybackStarted = AtomicBoolean(false)
         try {
-            playCloudVoice(text, preferences.ttsVoice.first(), onPlaybackStarted)
+            playCloudVoice(text, preferences.ttsVoice.first()) {
+                cloudPlaybackStarted.set(true)
+                onPlaybackStarted()
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (cloudFailure: Exception) {
-            // The server voice remains primary. Use Android's installed TTS only if cloud audio fails.
+            // Do not restart from the beginning if the cloud player already emitted audio.
+            if (cloudPlaybackStarted.get()) throw cloudFailure
+            // The server voice remains primary. Use Android's installed TTS only if cloud audio fails before playback.
             try {
                 playOnDevice(text, locale, onPlaybackStarted)
             } catch (cancelled: CancellationException) {
