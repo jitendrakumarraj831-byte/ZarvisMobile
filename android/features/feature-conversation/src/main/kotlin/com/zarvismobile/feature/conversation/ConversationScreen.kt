@@ -236,7 +236,22 @@ fun ConversationScreen(
                     val pending = if (index == uiState.turns.lastIndex && turn.assistantText == null) uiState.progress else null
                     // Only the newest exchange, only after a failure that sending it again can fix, and not while anything is on its way.
                     val canRetry = index == uiState.turns.lastIndex && turn.retryable && turn.assistantText != null && uiState.progress == null
-                    TurnBubble(turn, pending, onRetry = if (canRetry) viewModel::retry else null)
+                    val hasReply = !turn.assistantText.isNullOrBlank()
+                    TurnBubble(
+                        turn,
+                        pending,
+                        onRetry = if (canRetry) viewModel::retry else null,
+                        onReadAloud = if (hasReply) {
+                            {
+                                if (uiState.readingReply || uiState.voiceState == VoiceState.SPEAKING) {
+                                    viewModel.stopSpeaking()
+                                } else {
+                                    viewModel.speakReply(turn.assistantText.orEmpty())
+                                }
+                            }
+                        } else null,
+                        isReadingReply = uiState.readingReply || uiState.voiceState == VoiceState.SPEAKING,
+                    )
                 }
             }
 
@@ -340,7 +355,13 @@ private fun SpeakingCard(onStop: () -> Unit) {
 }
 
 @Composable
-private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?, onRetry: (() -> Unit)? = null) {
+private fun TurnBubble(
+    turn: ConversationTurn,
+    pending: ChatProgress?,
+    onRetry: (() -> Unit)? = null,
+    onReadAloud: (() -> Unit)? = null,
+    isReadingReply: Boolean = false,
+) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
         // An answer with no question (a conversation that began with one) shows no empty bubble.
         if (turn.userText.isNotEmpty()) {
@@ -371,6 +392,20 @@ private fun TurnBubble(turn: ConversationTurn, pending: ChatProgress?, onRetry: 
                     contentPadding = 14.dp,
                 ) {
                     MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
+                }
+                if (onReadAloud != null) {
+                    TextButton(
+                        onClick = onReadAloud,
+                        modifier = Modifier.semantics {
+                            contentDescription = if (isReadingReply) "Stop reading reply aloud" else "Read reply aloud"
+                        },
+                    ) {
+                        Text(
+                            tr(if (isReadingReply) UiString.VOICE_STOP else UiString.VOICE_READ_ALOUD),
+                            color = ZarvisAccents.gold,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
                 // Sends the same message again under the same id: a turn the server already finished is shown from its stored result.
                 if (onRetry != null) {
