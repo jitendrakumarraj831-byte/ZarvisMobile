@@ -2,6 +2,9 @@ package com.zarvismobile.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,9 +17,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.QueenExpandableRow
 import com.zarvismobile.core.ui.components.QueenListCard
 import com.zarvismobile.core.ui.components.QueenPageHeader
 import com.zarvismobile.core.ui.components.QueenRow
@@ -37,9 +46,10 @@ import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
 
 /**
- * A product page (Queen Pro board 7 for the Phone Agent): what it is and how far each part works on this phone, things to say, then
- * what it does, how, what it can do (the Phone Agent's actions, each with what it needs), how to start, permissions and limits, and
- * one button that starts it. The Phone Agent's page also links to Phone action safety.
+ * A product page (Queen Pro board 7 for the Phone Agent): what it is and how far each part works on this phone, the one button that
+ * starts it, things to say, what it can do (the Phone Agent's actions, each with what it needs), then the longer explanation (what it
+ * does, why, how, how to start, permissions and limits) in rows that open in place, so the page is not a wall of text. The Phone
+ * Agent's page also links to Phone action safety.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -88,6 +98,19 @@ fun FeatureDetailScreen(
                 }
             }
 
+            // Right under its status, so starting it never needs a scroll to the bottom of the page.
+            ZarvisPrimaryButton(
+                text = feature.cta,
+                onClick = {
+                    when (feature.action) {
+                        "developer" -> onOpenDeveloper()
+                        "voice" -> onStartChat("", true)
+                        else -> onStartChat(feature.prompt, false)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
             if (feature.examples.isNotEmpty()) {
                 QueenSection(title = "Try saying") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
@@ -116,28 +139,33 @@ fun FeatureDetailScreen(
                 QueenSection(title = "What it can do") { Bullets(feature.canDo) }
             }
 
-            QueenSection(title = "What it does") { Body(feature.what) }
-            QueenSection(title = "Why it is useful") { Body(feature.why) }
-            QueenSection(title = "How it works") {
-                feature.how.forEachIndexed { index, step -> Body("${index + 1}. $step") }
-            }
-            QueenSection(title = "How to start") { Body(feature.start) }
-            QueenSection(title = "Permissions") { Body(feature.permissions) }
-            QueenSection(title = "Limitations") { Bullets(feature.limits) }
-
-            ZarvisPrimaryButton(
-                text = feature.cta,
-                onClick = {
-                    when (feature.action) {
-                        "developer" -> onOpenDeveloper()
-                        "voice" -> onStartChat("", true)
-                        else -> onStartChat(feature.prompt, false)
+            QueenSection(title = "About it") {
+                QueenListCard {
+                    AboutRow("What it does", ZarvisIcons.Sparkle, startOpen = true) { Body(feature.what) }
+                    QueenRowDivider()
+                    AboutRow("Why it is useful", ZarvisIcons.Star) { Body(feature.why) }
+                    QueenRowDivider()
+                    AboutRow("How it works", ZarvisIcons.List) {
+                        feature.how.forEachIndexed { index, step -> Body("${index + 1}. $step") }
                     }
-                },
-                modifier = Modifier.fillMaxWidth().padding(top = ZarvisSpacing.sm),
-            )
+                    QueenRowDivider()
+                    AboutRow("How to start", ZarvisIcons.Bolt) { Body(feature.start) }
+                    QueenRowDivider()
+                    AboutRow("Permissions", ZarvisIcons.Shield) { Body(feature.permissions) }
+                    QueenRowDivider()
+                    AboutRow("Limitations", ZarvisIcons.Alert) { Bullets(feature.limits) }
+                }
+            }
+            Spacer(Modifier.height(ZarvisSpacing.md))
         }
     }
+}
+
+/** One part of the longer explanation, closed until tapped (except [startOpen]); whether it is open survives turning the phone. */
+@Composable
+private fun AboutRow(title: String, icon: ImageVector, startOpen: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var open by rememberSaveable(title) { mutableStateOf(startOpen) }
+    QueenExpandableRow(title = title, expanded = open, onToggle = { open = !open }, icon = icon, iconTint = ZarvisAccents.primary, content = content)
 }
 
 @Composable

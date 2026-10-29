@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.QueenInlineError
 import com.zarvismobile.core.ui.components.QueenListCard
 import com.zarvismobile.core.ui.components.QueenPageHeader
 import com.zarvismobile.core.ui.components.QueenRowDivider
@@ -54,9 +55,8 @@ import com.zarvismobile.domain.presentation.UiString
 fun DeveloperScreen(onBack: (() -> Unit)? = null, viewModel: DeveloperViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Full-screen destination (no Scaffold bottomBar, MASTER_SPEC.md §23): claims the
-    // gesture-nav-bar inset itself, and imePadding() keeps the repo-URL field/button above
-    // the keyboard instead of the keyboard covering them.
+    // navigationBarsPadding() claims the gesture-nav-bar inset when no tab bar has (the graph marks the tab bar's space as taken),
+    // and imePadding() keeps the repo-URL field/button above the keyboard instead of the keyboard covering them.
     ZarvisBackground {
         Column(
             modifier = Modifier
@@ -90,14 +90,20 @@ fun DeveloperScreen(onBack: (() -> Unit)? = null, viewModel: DeveloperViewModel 
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                     )
-                    ZarvisPrimaryButton(text = tr(UiString.DEV_ANALYZE), onClick = viewModel::analyze, modifier = Modifier.fillMaxWidth(), enabled = !uiState.isAnalyzing)
+                    // The button says what is happening while the analysis runs (and is off, so it cannot be sent twice).
+                    ZarvisPrimaryButton(
+                        text = tr(if (uiState.isAnalyzing) UiString.DEV_ANALYZING else UiString.DEV_ANALYZE),
+                        onClick = viewModel::analyze,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isAnalyzing,
+                    )
                     if (uiState.isAnalyzing) {
                         SkeletonBlock(Modifier.fillMaxWidth().height(12.dp))
                     }
                 }
             }
 
-            uiState.error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+            uiState.error?.let { QueenInlineError(text = it) }
 
             uiState.result?.let { structure ->
                 QueenSection(title = tr(UiString.DEV_RESULT)) {

@@ -37,6 +37,10 @@ enum class UiString(val en: String, val hi: String) {
     COMMON_NO("No", "नहीं"),
     COMMON_OPEN_NAMED("Open %s", "%s खोलें"),
     COMMON_PLANS_QUOTAS("Plans & quotas", "प्लान और कोटा"),
+    COMMON_SHOW_MORE("Show more", "और दिखाएँ"),
+    COMMON_SHOW_LESS("Show less", "कम दिखाएँ"),
+    COMMON_EXPANDED("Expanded", "खुला हुआ"),
+    COMMON_COLLAPSED("Collapsed", "बंद"),
 
     // ---- Home -----------------------------------------------------------------------------
     HOME_TAGLINE("AI ASSISTANT", "AI असिस्टेंट"),
@@ -159,6 +163,7 @@ enum class UiString(val en: String, val hi: String) {
     DEV_READ_ONLY("Read-only", "सिर्फ़ पढ़ना"),
     DEV_REPO_URL("Repository URL", "रिपॉज़िटरी URL"),
     DEV_ANALYZE("Analyze", "विश्लेषण करें"),
+    DEV_ANALYZING("Analyzing…", "विश्लेषण हो रहा है…"),
     DEV_RESULT("Result", "नतीजा"),
     DEV_PRIMARY_LANGUAGE("Primary language", "मुख्य भाषा"),
     DEV_BUILD_SYSTEM("Build system", "बिल्ड सिस्टम"),
@@ -175,6 +180,7 @@ enum class UiString(val en: String, val hi: String) {
     METRICS_LIVE_LATENCY("Live API Latency", "लाइव जवाब का समय"),
     METRICS_NO_TURNS("No turns yet this session — ask ZARVIS something in Chat and it shows up here instantly.", "इस सेशन में अभी कोई बातचीत नहीं — चैट में ZARVIS से कुछ पूछें, वह यहाँ तुरंत दिखेगा।"),
     METRICS_TASK_LOG("Task Log", "कार्य लॉग"),
+    METRICS_NO_TASKS("No tasks yet — tasks ZARVIS creates for you show up here with their status.", "अभी कोई कार्य नहीं — ZARVIS आपके लिए जो कार्य बनाता है, वे अपनी स्थिति के साथ यहाँ दिखते हैं।"),
     METRICS_TASKS_ERROR("Couldn't load the task log.", "कार्य लॉग लोड नहीं हो सका।"),
     METRICS_SLOWEST("Slowest", "सबसे धीमा"),
 

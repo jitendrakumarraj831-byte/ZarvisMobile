@@ -142,11 +142,9 @@ fun CapabilitiesScreen(
 
             if (groups.isEmpty() && runnable.isEmpty() && query.isNotBlank()) {
                 item {
-                    Text(
-                        text = trf(UiString.SKILLS_NO_MATCH, query.trim()),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    QueenListCard {
+                        QueenRow(title = trf(UiString.SKILLS_NO_MATCH, query.trim()), icon = ZarvisIcons.Search, iconTint = ZarvisAccents.primary)
+                    }
                 }
             }
             item { QueenFootnote(text = tr(UiString.SKILLS_PARTIAL_NOTE)) }

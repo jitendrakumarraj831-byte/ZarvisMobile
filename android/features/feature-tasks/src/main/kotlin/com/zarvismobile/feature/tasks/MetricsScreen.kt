@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.Color
 import com.zarvismobile.core.ui.components.QueenListCard
+import com.zarvismobile.core.ui.components.QueenRow
 import com.zarvismobile.core.ui.components.QueenRowDivider
 import com.zarvismobile.core.ui.components.GoldMeter
 import com.zarvismobile.core.ui.components.QueenPageHeader
@@ -43,6 +44,7 @@ import com.zarvismobile.core.ui.components.QueenErrorCard
 import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.TaskDto
@@ -119,13 +121,7 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
             item { SectionKicker(text = tr(UiString.METRICS_LIVE_LATENCY), modifier = Modifier.padding(start = ZarvisSpacing.xs, top = ZarvisSpacing.xs)) }
 
             if (latencyLog.isEmpty()) {
-                item {
-                    Text(
-                        text = tr(UiString.METRICS_NO_TURNS),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                item { QueenListCard { QueenRow(title = tr(UiString.METRICS_NO_TURNS), icon = ZarvisIcons.Chart, iconTint = ZarvisAccents.primary) } }
             } else {
                 // Each bar is the turn's time against the slowest one shown, so a slow reply stands out at a glance.
                 val slowest = latencyLog.maxOf { it.durationMs }.coerceAtLeast(1L)
@@ -154,6 +150,10 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
                         statusCounts.forEach { (label, count) -> ZarvisChip(label = "$label · $count", onClick = null) }
                     }
                 }
+            }
+            // Read and empty: say so, instead of a heading with nothing under it.
+            if (uiState.tasks.isEmpty() && !uiState.isLoading && uiState.error == null) {
+                item { QueenListCard { QueenRow(title = tr(UiString.METRICS_NO_TASKS), icon = ZarvisIcons.Task, iconTint = ZarvisAccents.primary) } }
             }
             if (uiState.tasks.isNotEmpty()) {
                 item {
