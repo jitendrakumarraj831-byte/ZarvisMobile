@@ -196,18 +196,25 @@ It refines Queen Pro rather than replacing it: the same components, page structu
 
 * **Home: the first screen in the order it is used.** The gold wordmark with "AI ASSISTANT" under it and Settings (a glass round
   button); "What should we do?" and one line on what ZARVIS does; the orb as the hero (176dp, breathing slowly), "Tap to speak"; the
-  Ask ZARVIS field (its mic opens Chat listening, like the orb); then **Quick actions**, four to a row (two side by side when the
-  phone is narrower than 340dp or its text is set above 115%, so no label is cut): the seven categories, each sending its request to
-  Chat as its chip did (TalkBack reads the exact request as the tile's action), and **All skills**, which opens the Skills tab. Below
+  Ask ZARVIS field (its mic opens Chat listening, like the orb); then **Quick actions**, four to a row when every label fits its tile
+  (the widest, "Automation", is 68dp in Sora at 11sp, scaled by the phone's font size), otherwise two side by side, so no label is
+  ever cut inside a word: the seven categories, each sending its request to Chat as its chip did (TalkBack reads the exact request
+  as the tile's action), and **All skills**, which opens the Skills tab. The orb is 152dp so that on a 360 × 720dp phone the first
+  row of quick actions ends above the tab bar (checked on the emulator's screenshots). Below
   the first screen: the error card when loading failed (next to what failed, no longer at the bottom), Recent tasks with See all, On
   this phone (Phone Agent, Phone action safety with its live On / Paused), and the plan.
 * **Removed from Home, still in the app.** The three "Try" requests (Open the camera, the water reminder, the birthday wish) were a
   second, smaller copy of the categories; they stay where they help most, on the empty Chat. "What can you do?" is now Quick actions.
-* **Ask ZARVIS.** The field says "Ask ZARVIS anything…" on Home and in Chat (`CHAT_COMPOSER_HINT`).
-* **Chat.** ZARVIS's avatar (a small lit sphere) next to the title and over each reply; Delete is a 48dp trash button named "Delete",
+* **Ask ZARVIS.** The field says "Ask ZARVIS anything…" on Home and in Chat (`CHAT_COMPOSER_HINT`); the hint is one line at 14sp,
+  so the empty field stays one line tall next to Chat's orb.
+* **Chat.** New chat and Delete on the top row; under them, on its own line (hidden while typing), ZARVIS's avatar (a small lit
+  sphere) with the title and the language line, so the title never shares 95dp with the buttons; the avatar is over each reply
+  too; Delete is a 48dp trash button named "Delete",
   still asking first; Read aloud / Stop and Try again are outlined pills with icons; listening is a cyan-edged card with a mic, a reply
   being read aloud a card with a sound wave and Stop; the orb by the field is 64dp; the empty chat shows the still orb instead of
   the crown; the pending reply's dots and edge are in the primary.
+* **Work.** Each row's "In the app" / "Website only" badge sits under its description, with the live number beside it, instead of
+  on the right, where it left the description about 100dp and six lines.
 * **Everywhere.** Section labels, small actions, chips, dialogs' edges, the selected Skills filter and the launch progress line use
   the primary; empty lists, the launch screen, the start error (in its error colours) and the welcome pages show the orb.
 * **Tests that hold the shape.** `ConversationLifecycleTest` scrolls Home's lazy list to the "Creative" tile; `SettingsUiTest` opens

@@ -1,6 +1,9 @@
 package com.zarvismobile.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,12 +15,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.QueenListCard
@@ -117,6 +122,11 @@ private fun lookFor(item: WorkItem): Pair<ImageVector, Color> = when (item.id) {
     else -> ZarvisIcons.Globe to ZarvisAccents.warning
 }
 
+/**
+ * One destination: its icon, title and what it is, with where it works (the badge) and its live number under them. The badge sits
+ * under the text rather than beside it: beside it, on a 360dp phone, the description had about 100dp and ran to six lines.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkRow(item: WorkItem, summary: String?, onOpen: (() -> Unit)?) {
     val (icon, tint) = lookFor(item)
@@ -129,9 +139,28 @@ private fun WorkRow(item: WorkItem, summary: String?, onOpen: (() -> Unit)?) {
         iconTint = tint,
         onClick = onOpen,
         modifier = if (onOpen != null) Modifier.semantics { contentDescription = description } else Modifier,
-        trailing = { StatusBadge(label = tr(item.availability.label), tone = item.availability.tone) },
-        below = summary?.let { line ->
-            { Text(line, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ZarvisAccents.primary) }
+        below = {
+            // Wraps when a long summary (or Hindi) does not fit next to the badge.
+            FlowRow(
+                modifier = Modifier.padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                StatusBadge(
+                    label = tr(item.availability.label),
+                    tone = item.availability.tone,
+                    modifier = Modifier.align(Alignment.CenterVertically),
+                )
+                if (summary != null) {
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = ZarvisAccents.primary,
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                    )
+                }
+            }
         },
     )
 }
