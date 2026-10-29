@@ -66,6 +66,7 @@ import com.zarvismobile.domain.presentation.SkillFilter
 import com.zarvismobile.domain.presentation.SkillPlace
 import com.zarvismobile.domain.presentation.SkillRow
 import com.zarvismobile.domain.presentation.SkillsCatalog
+import com.zarvismobile.domain.presentation.StatusLabels
 import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
 
@@ -221,13 +222,12 @@ private fun CapabilityRow(row: SkillRow, onOpen: (() -> Unit)?) {
             if (row.place == SkillPlace.WEBSITE_ONLY) {
                 StatusBadge(label = tr(UiString.WORK_AVAILABILITY_WEBSITE), tone = StatusTone.WAITING)
             } else {
-                val (label, tone) = when (capability.android.status) {
-                    CapabilityStatus.WORKING -> UiString.SKILLS_STATUS_WORKING to StatusTone.SUCCESS
-                    CapabilityStatus.PARTIAL -> UiString.SKILLS_STATUS_PARTIAL to StatusTone.ACTIVE
-                    CapabilityStatus.PLANNED -> UiString.SKILLS_STATUS_PLANNED to StatusTone.NEUTRAL
-                    CapabilityStatus.UNSUPPORTED -> UiString.SKILLS_STATUS_UNSUPPORTED to StatusTone.NEUTRAL
+                val tone = when (capability.android.status) {
+                    CapabilityStatus.WORKING -> StatusTone.SUCCESS
+                    CapabilityStatus.PARTIAL -> StatusTone.ACTIVE
+                    CapabilityStatus.PLANNED, CapabilityStatus.UNSUPPORTED -> StatusTone.NEUTRAL
                 }
-                StatusBadge(label = tr(label), tone = tone)
+                StatusBadge(label = tr(StatusLabels.capability(capability.android.status)), tone = tone)
             }
         },
     )

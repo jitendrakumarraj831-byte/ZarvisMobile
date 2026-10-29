@@ -62,6 +62,7 @@ import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.domain.access.AccessGroup
+import com.zarvismobile.domain.presentation.StatusLabels
 import com.zarvismobile.domain.presentation.UiString
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -269,9 +270,5 @@ private fun Detail(label: String, body: String) {
     }
 }
 
-internal fun statusLabel(status: CapabilityStatus): String = when (status) {
-    CapabilityStatus.WORKING -> "Working"
-    CapabilityStatus.PARTIAL -> "Partial"
-    CapabilityStatus.PLANNED -> "Planned"
-    CapabilityStatus.UNSUPPORTED -> "Unsupported"
-}
+/** The Skills tab's words for a status, in English like the rest of this page (see LANGUAGE_SCOPE_BODY). */
+internal fun statusLabel(status: CapabilityStatus): String = StatusLabels.capability(status).en

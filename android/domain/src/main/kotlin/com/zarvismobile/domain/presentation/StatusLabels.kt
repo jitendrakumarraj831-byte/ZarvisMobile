@@ -1,5 +1,7 @@
 package com.zarvismobile.domain.presentation
 
+import com.zarvismobile.domain.entity.CapabilityStatus
+
 /** How a status should look: the colour family a screen paints its badge in. */
 enum class StatusTone { ACTIVE, WAITING, SUCCESS, PROBLEM, NEUTRAL }
 
@@ -74,6 +76,14 @@ object StatusLabels {
         UiString.TASK_WAITING, UiString.TASK_CONFIRMATION, UiString.TASK_BLOCKED -> TaskGroup.NEEDS_YOU
         UiString.TASK_COMPLETED, UiString.TASK_FAILED, UiString.TASK_CANCELLED -> TaskGroup.FINISHED
         else -> TaskGroup.IN_PROGRESS
+    }
+
+    /** How far a capability works, in the same words on the Skills tab, on its own page and in Permissions & Device Access. */
+    fun capability(status: CapabilityStatus): UiString = when (status) {
+        CapabilityStatus.WORKING -> UiString.SKILLS_STATUS_WORKING
+        CapabilityStatus.PARTIAL -> UiString.SKILLS_STATUS_PARTIAL
+        CapabilityStatus.PLANNED -> UiString.SKILLS_STATUS_PLANNED
+        CapabilityStatus.UNSUPPORTED -> UiString.SKILLS_STATUS_UNSUPPORTED
     }
 
     fun risk(level: String): UiString? = RISK[level.uppercase()]

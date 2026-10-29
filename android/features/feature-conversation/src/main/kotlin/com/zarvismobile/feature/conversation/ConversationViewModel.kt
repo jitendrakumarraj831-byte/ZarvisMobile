@@ -36,6 +36,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.time.TimeSource
 import kotlin.time.measureTimedValue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -164,8 +165,10 @@ class ConversationViewModel @Inject constructor(
             // Process-death recovery: offer, never auto-run.
             when (val decision = orchestrator.checkInterruptedAction()) {
                 is RecoveryDecision.OfferResume -> _uiState.update { it.copy(interrupted = decision.action) }
-                is RecoveryDecision.Expired -> _uiState.update {
-                    it.copy(notice = "An earlier request (\"${decision.action.utterance}\") was interrupted before it finished. Nothing was done.")
+                is RecoveryDecision.Expired -> {
+                    val language = runCatching { appLocale() }.getOrDefault("en")
+                    val notice = UiString.CHAT_INTERRUPTED_EXPIRED.format(language, decision.action.utterance)
+                    _uiState.update { it.copy(notice = notice) }
                 }
                 RecoveryDecision.Nothing -> Unit
             }
@@ -487,6 +490,8 @@ class ConversationViewModel @Inject constructor(
                 if (_uiState.value.progress == ChatProgress.Sending) show(ChatProgress.SlowServer)
             }
             var language = "en"
+            // A failed turn is timed too: Usage & metrics never shows it as 0 ms, nor lets it pull the average latency down.
+            val sent = TimeSource.Monotonic.markNow()
             try {
                 language = appLocale()
                 val accountId = sessionRepository.ensureSession()
@@ -564,7 +569,7 @@ class ConversationViewModel @Inject constructor(
                 failTurn(utterance, clientTurnId, UiString.CHAT_FAIL_SESSION.text(language), retryable = false)
             } catch (t: Throwable) {
                 slow.cancel()
-                TurnMetricsStore.record("conversation", durationMs = 0L, success = false)
+                TurnMetricsStore.record("conversation", durationMs = sent.elapsedNow().inWholeMilliseconds, success = false)
                 // Say what really happened: "check your connection" only when the phone never reached the server, and Try again only
                 // where it can help (TurnFailures).
                 when (t) {
