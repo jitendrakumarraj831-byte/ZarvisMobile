@@ -38,13 +38,18 @@ object ZarvisDisplayStyles {
 
 /**
  * Queen Pro's Sora styles that Material's scale has no slot for: the gold section label (12/16, caps, spaced), the app-bar title on a
- * page opened with Back (22/28), the title of a tab's own page (28/34), and a row's title (15/22).
+ * page opened with Back (22/28), the title of a tab's own page (28/34), a row's title (15/22) and the line under it (13/19), a number
+ * on a stat tile (20/28, one line, so "850 ms" fits a third of a 360dp phone), and small print (12/17). Every size is 12sp or more, and the line heights leave room for
+ * Devanagari's marks above and below the line.
  */
 object ZarvisProStyles {
     val sectionLabel = TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 1.sp)
     val barTitle = TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp)
     val pageTitle = TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 34.sp)
     val rowTitle = TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 22.sp)
+    val rowDetail = TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 19.sp)
+    val statValue = TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 28.sp)
+    val caption = TextStyle(fontFamily = ZarvisFontFamily, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 17.sp)
 }
 
 private val Defaults = Typography()

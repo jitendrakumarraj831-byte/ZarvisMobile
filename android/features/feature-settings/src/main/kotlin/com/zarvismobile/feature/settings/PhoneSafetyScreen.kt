@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import com.zarvismobile.core.ui.components.QueenConfirmDialog
+import com.zarvismobile.core.ui.components.QueenInlineError
 import com.zarvismobile.core.ui.components.QueenListCard
 import com.zarvismobile.core.ui.components.QueenNote
 import com.zarvismobile.core.ui.components.QueenRow
@@ -73,7 +74,7 @@ fun PhoneSafetyContent(viewModel: PhoneSafetyViewModel = hiltViewModel()) {
             }
         }
         if (state.saveFailed) {
-            Text(tr(UiString.PHONE_SAFETY_SAVE_FAILED), color = MaterialTheme.colorScheme.error)
+            QueenInlineError(text = tr(UiString.PHONE_SAFETY_SAVE_FAILED))
         }
 
         QueenSection(title = tr(UiString.PHONE_SAFETY_CONFIRM_TITLE)) {
@@ -98,7 +99,7 @@ fun PhoneSafetyContent(viewModel: PhoneSafetyViewModel = hiltViewModel()) {
 
         QueenSection(title = tr(UiString.PHONE_SAFETY_HISTORY_TITLE), hint = tr(UiString.PHONE_SAFETY_HISTORY_BODY)) {
             if (state.historyReadFailed) {
-                Text(tr(UiString.PHONE_SAFETY_HISTORY_READ_FAILED), color = MaterialTheme.colorScheme.error)
+                QueenInlineError(text = tr(UiString.PHONE_SAFETY_HISTORY_READ_FAILED))
             }
             if (state.history.isEmpty()) {
                 QueenListCard { QueenRow(title = tr(UiString.PHONE_SAFETY_HISTORY_EMPTY), icon = ZarvisIcons.Clock) }
@@ -109,7 +110,7 @@ fun PhoneSafetyContent(viewModel: PhoneSafetyViewModel = hiltViewModel()) {
                         HistoryRow(entry, locale)
                     }
                 }
-                ZarvisDestructiveButton(text = tr(UiString.PHONE_SAFETY_HISTORY_CLEAR), onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth())
+                ZarvisDestructiveButton(text = tr(UiString.PHONE_SAFETY_HISTORY_CLEAR), onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth(), icon = ZarvisIcons.Trash)
             }
         }
     }

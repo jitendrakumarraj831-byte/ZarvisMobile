@@ -22,6 +22,7 @@ string has Hindi, and text is at least 4.5:1 on whatever it is drawn on.
 | 3 | Live chat progress from the turn stream; the Queen page header (`QueenPageHeader`) on every inner page; jewel cards on Work, Capabilities and Tasks; Metrics tiles and meters; Plans with the crowned plan card, localized; the chat's welcome with three starters; five equal tabs | Done |
 | 4 | Queen Pro: one quiet page behind every inner screen, solid cards, one page structure (bar, intro, gold sections, rows), tinted status chips, pill buttons, a flat tab bar with five equal tabs, and the new controls listed under *Queen Pro* | Done |
 | 5 | Queen Night: the navy page with violet and blue light, periwinkle primary, violet → indigo → blue action gradient, glass sheen on cards, the lit-glass orb, the calmer night sky, Home's new hierarchy (orb hero, Ask ZARVIS, quick actions) and the Chat refinements listed under *Queen Night* | Done |
+| 6 | Queen Night polish: one set of tokens (spacing, corners, type) and shared rows, cards and states used by every screen; a text-safe blue accent; colour-coded icon tiles; Home's "At a glance" tiles; Chat's input dock, photo button and Copy; the details under *Queen Night polish* | Done |
 | Later | The items under *Not done yet* below | Open |
 
 Phase 1 changed no behaviour. Phase 2 changes one: the Home orb ("Tap to speak") and the composer's mic open Chat already listening,
@@ -50,7 +51,7 @@ actions.
 | Text / secondary text | `#F4F6FF` / `#C5CBEA` | `#1A0B3B` / `#4C3D75` |
 | Primary (selected tab, focus, links, section labels, small actions) | periwinkle `#A5B4FC`, navy ink `#0A0F2E` on it | royal purple `#7E22CE`, white on it |
 | Error / warning / success | `#FDA4AF` / `#FCD34D` / `#86EFAC` | `#B42318` / `#92400E` / `#065F46` |
-| Text accents (`ZarvisAccents`) | cyan `#67E8F9`, violet `#DDD6FE`, pink `#F9A8D4`, gold `#FDE68A`, primary `#A5B4FC` | cyan `#155E75`, violet `#6D28D9`, pink `#9D174D`, gold `#92400E`, primary `#7E22CE` |
+| Text accents (`ZarvisAccents`) | cyan `#67E8F9`, blue `#93C5FD` (phase 6), violet `#DDD6FE`, pink `#F9A8D4`, gold `#FDE68A`, primary `#A5B4FC` | cyan `#155E75`, blue `#1D4ED8` (phase 6), violet `#6D28D9`, pink `#9D174D`, gold `#92400E`, primary `#7E22CE` |
 | Glass card | `#0F1329` with a periwinkle hairline (16%) and a white sheen (5%) over its top half | white with a purple hairline |
 
 **Two jobs, two colours.** The primary marks what you can act on and where you are; gold marks ZARVIS itself: the wordmark, the
@@ -213,3 +214,45 @@ It refines Queen Pro rather than replacing it: the same components, page structu
 * **Tests that hold the shape.** `ConversationLifecycleTest` scrolls Home's lazy list to the "Creative" tile; `SettingsUiTest` opens
   Settings by its content description; `ChatSyncTest` taps the tabs by their words, so nothing on Home is a clickable "Chat" or
   "Home". `PaletteContrastTest` holds the new values.
+
+## Queen Night polish (phase 6)
+
+The same Queen Night and Queen Light, made consistent: every screen is built from the same shared pieces, so a card, a row, a
+choice, a switch, a notice and an error look and behave the same everywhere. Nothing a screen does changed; no feature was added
+that the app could not already do.
+
+* **Tokens.** `ZarvisSpacing` gains a 12dp `gap`, the page gutter, the section gap, the 48dp touch target and the 64dp row height;
+  `ZarvisCorners` names every corner (16dp card, 20dp feature card and quick action, 24dp dialog and hero, 14dp note and field, 12dp
+  tile, pills, and the two chat bubble shapes); `ZarvisProStyles` gains the row detail (13/19), the stat value (20/28) and the
+  caption (12/17). No text is under 12sp.
+* **Colour.** A text-safe blue joins the accents (`ZarvisAccents.blue`; PaletteContrastTest checks it as text and as a chip in both
+  themes). Icon tiles are tinted by what a row is (cyan, blue, violet, pink, the primary, green; gold stays the plan's), on a 12% wash
+  of the same colour, so lists read at a glance while the words still say everything. The action gradient is kept for the one main
+  button and the sent message; the quick actions' icons moved off it to their own tints, so the gradient is not repeated eight times.
+* **Shared pieces (core-ui).** `QueenSection` takes an action on its right (`QueenSectionAction`, "See all"); `QueenErrorCard` has
+  its alert on a tile, a soft rose wash and an optional title; `QueenEmptyState` can show an icon instead of the orb;
+  `QueenNoticeCard` (info, success, problem) replaces four hand-made "message + OK" cards; `QueenInfoCard` is the explaining card on
+  the Settings pages; `QueenChoiceRow` (a filled check or an empty ring) and `QueenSwitchRow` are the one radio row and the one switch
+  row; `QueenStatTile` takes an icon and can open a page; `QueenDialog` is the non-question dialog (Excluded apps); `ZarvisFilterChip`
+  and `ZarvisSegmentedControl` are the selectable pills (Skills filters, Monthly / Yearly); `ZarvisTextField` and
+  `ZarvisSearchField` (with Clear) are the one field style; buttons take an optional icon; `StatusBadge` has a dot before its words.
+* **Home.** A greeting for the phone's time of day over "What should we do?"; the quick actions with tinted icons; "At a glance": the
+  credits left on the plan and whether phone actions are on or paused, each a tile that opens its page (a placeholder while it is
+  read, "Couldn't load" when it could not be); Recent tasks with See all in the section's header; On this phone.
+* **Chat.** The field, the orb and the safety line sit in a raised dock with a hairline. The photo button at the start of the field
+  sends `ChatRequests.DESCRIBE_PHOTO` ("Describe a photo"), the existing `photos.describe_photo` skill: the system picker opens and
+  only the photo chosen there is sent to be described (DeviceCommandRoutingTest routes that exact text). A reply has Copy next to
+  Read aloud (it says Copied for a moment); the list jumps instead of scrolling when motion is off.
+* **Elsewhere.** Skills: each capability wears the catalogue's own icon (`icon` in shared/feature-catalog.json, the website's), and
+  the shared search and filters. Tasks: the risk is a badge, each group says how many it holds, Cancel has an icon. Metrics: the
+  three tiles have icons and one height. Settings: each page has its colour, Language and Voice style are choice rows, the explaining
+  cards have icons, Account's password can be shown, Delete account is edged in rose. Notifications keeps every title as written
+  (the emulator tests find them so) and uses the shared rows. Plans: the chosen billing period is the primary, the disabled Upgrade
+  has a lock. Developer Agent: what the analysis reports is listed before it runs, Go on the keyboard runs it, a skeleton in the
+  result's shape while it runs, and each fact has its icon.
+* **Accessibility.** New buttons, rows and the section action are at least 48dp (chips and segments keep the 44dp chip height);
+  every icon next to words is decoration; the notice cards, the error cards and Copy's "Copied" are polite live regions; choices
+  are radio buttons in a selectable group and the segments are tabs; the tab bar and the segmented control change at once when
+  motion is off; and the "Tap to speak" pill under Home's orb is hidden from TalkBack (the orb already says it).
+* **Copy that was wrong.** Appearance's animation lines still named the gold rays and glitter removed in phase 5; they now describe
+  the night sky and the orb.

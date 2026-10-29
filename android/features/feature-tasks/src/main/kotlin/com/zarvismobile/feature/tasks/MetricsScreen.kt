@@ -26,6 +26,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.zarvismobile.core.common.metrics.TurnMetric
 import com.zarvismobile.core.ui.components.GlassSurface
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.Color
 import com.zarvismobile.core.ui.components.QueenListCard
@@ -86,22 +89,29 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
             }
 
             item {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+                // "—" until a turn has been timed: never a made-up average or a 100% from nothing. The tiles share one height.
+                Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
                     QueenStatTile(
                         value = if (latencyLog.isEmpty()) "—" else formatLatency(avgLatencyMs),
                         label = tr(UiString.METRICS_AVG_LATENCY),
-                        modifier = Modifier.weight(1f),
+                        icon = ZarvisIcons.Clock,
+                        iconTint = ZarvisAccents.cyan,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     QueenStatTile(
                         value = "${latencyLog.size}",
                         label = tr(UiString.METRICS_TURNS),
-                        modifier = Modifier.weight(1f),
+                        icon = ZarvisIcons.Chat,
+                        iconTint = ZarvisAccents.primary,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     QueenStatTile(
                         value = if (latencyLog.isEmpty()) "—" else "$successRatePercent%",
                         label = tr(UiString.METRICS_SUCCESS),
                         valueColor = if (latencyLog.isEmpty()) Color.Unspecified else ZarvisAccents.success,
-                        modifier = Modifier.weight(1f),
+                        icon = ZarvisIcons.Check,
+                        iconTint = ZarvisAccents.success,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
             }
@@ -118,10 +128,10 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
                 }
             }
 
-            item { SectionKicker(text = tr(UiString.METRICS_LIVE_LATENCY), modifier = Modifier.padding(start = ZarvisSpacing.xs, top = ZarvisSpacing.xs)) }
+            item { SectionKicker(text = tr(UiString.METRICS_LIVE_LATENCY), modifier = Modifier.padding(top = ZarvisSpacing.sm)) }
 
             if (latencyLog.isEmpty()) {
-                item { QueenListCard { QueenRow(title = tr(UiString.METRICS_NO_TURNS), icon = ZarvisIcons.Chart, iconTint = ZarvisAccents.primary) } }
+                item { QueenListCard { QueenRow(title = tr(UiString.METRICS_NO_TURNS), icon = ZarvisIcons.Chart, iconTint = ZarvisAccents.cyan) } }
             } else {
                 // Each bar is the turn's time against the slowest one shown, so a slow reply stands out at a glance.
                 val slowest = latencyLog.maxOf { it.durationMs }.coerceAtLeast(1L)
@@ -135,7 +145,7 @@ fun MetricsScreen(onBack: (() -> Unit)? = null, viewModel: MetricsViewModel = hi
                 }
             }
 
-            item { SectionKicker(text = tr(UiString.METRICS_TASK_LOG), modifier = Modifier.padding(start = ZarvisSpacing.xs, top = ZarvisSpacing.xs)) }
+            item { SectionKicker(text = tr(UiString.METRICS_TASK_LOG), modifier = Modifier.padding(top = ZarvisSpacing.sm)) }
 
             if (uiState.isLoading) {
                 item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 2) }

@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.QueenEmptyState
 import com.zarvismobile.core.ui.components.QueenExpandableRow
 import com.zarvismobile.core.ui.components.QueenListCard
 import com.zarvismobile.core.ui.components.QueenPageHeader
@@ -72,14 +73,16 @@ fun FeatureDetailScreen(
             verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.md),
         ) {
             if (feature == null) {
-                QueenPageHeader(title = "ZARVIS", subtitle = "That capability is not available.", onBack = onBack, backLabel = tr(UiString.COMMON_BACK))
+                QueenPageHeader(title = "ZARVIS", subtitle = null, onBack = onBack, backLabel = tr(UiString.COMMON_BACK))
+                QueenEmptyState(title = "That capability is not available.", body = "The Skills tab lists everything ZARVIS can do.", icon = ZarvisIcons.Search)
                 return@Column
             }
             QueenPageHeader(title = feature.title, subtitle = feature.summary, onBack = onBack, backLabel = tr(UiString.COMMON_BACK))
 
             GlassSurface(modifier = Modifier.fillMaxWidth(), contentPadding = 0.dp) {
-                SectionKicker(feature.category, isHeading = false, modifier = Modifier.padding(start = ZarvisSpacing.md, top = 14.dp))
-                feature.statuses.forEach { line ->
+                SectionKicker(feature.category, isHeading = false, modifier = Modifier.padding(start = ZarvisSpacing.md, top = 14.dp, bottom = ZarvisSpacing.xs))
+                feature.statuses.forEachIndexed { index, line ->
+                    if (index > 0) QueenRowDivider()
                     QueenRow(
                         title = line.name,
                         detail = line.state.note,
@@ -88,6 +91,7 @@ fun FeatureDetailScreen(
                     )
                 }
                 if (feature.id == "phone") {
+                    QueenRowDivider()
                     QueenRow(
                         title = tr(UiString.SETTINGS_PAGE_PHONE_SAFETY),
                         detail = tr(UiString.HOME_PHONE_SAFETY_SHORT),
@@ -101,6 +105,11 @@ fun FeatureDetailScreen(
             // Right under its status, so starting it never needs a scroll to the bottom of the page.
             ZarvisPrimaryButton(
                 text = feature.cta,
+                icon = when (feature.action) {
+                    "developer" -> ZarvisIcons.Code
+                    "voice" -> ZarvisIcons.Mic
+                    else -> ZarvisIcons.Chat
+                },
                 onClick = {
                     when (feature.action) {
                         "developer" -> onOpenDeveloper()
@@ -114,7 +123,7 @@ fun FeatureDetailScreen(
             if (feature.examples.isNotEmpty()) {
                 QueenSection(title = "Try saying") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-                        feature.examples.forEach { example -> ZarvisChip(label = example, onClick = { onStartChat(example, false) }) }
+                        feature.examples.forEach { example -> ZarvisChip(label = example, onClick = { onStartChat(example, false) }, icon = ZarvisIcons.Chat) }
                     }
                 }
             }
@@ -127,6 +136,8 @@ fun FeatureDetailScreen(
                             QueenRow(
                                 title = action.title,
                                 detail = "${action.description} Say: “${action.example}”",
+                                icon = ZarvisIcons.Bolt,
+                                iconTint = ZarvisAccents.cyan,
                                 trailing = { action.state.note?.let { StatusBadge(label = it, tone = StatusTone.NEUTRAL) } },
                                 below = {
                                     Text(action.permission, style = MaterialTheme.typography.labelMedium, color = ZarvisAccents.primary)

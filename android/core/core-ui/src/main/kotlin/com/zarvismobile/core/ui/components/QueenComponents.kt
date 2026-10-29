@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
@@ -26,10 +27,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -76,6 +80,7 @@ import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
 import com.zarvismobile.core.ui.theme.ZarvisActionEnd
 import com.zarvismobile.core.ui.theme.ZarvisActionMid
 import com.zarvismobile.core.ui.theme.ZarvisActionStart
+import com.zarvismobile.core.ui.theme.ZarvisCorners
 import com.zarvismobile.core.ui.theme.ZarvisFontFamily
 import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.core.ui.theme.ZarvisGold
@@ -299,7 +304,10 @@ fun SkeletonList(loadingLabel: String, modifier: Modifier = Modifier, rows: Int 
 
 // ---- Empty and error states ---------------------------------------------------------------------
 
-/** An empty list: the still ZARVIS orb, what is missing, and (when there is one) the one thing to do about it. */
+/**
+ * An empty list: the still ZARVIS orb (or, with [icon], that icon on a tile in [iconTint]), what is missing, and (when there is one)
+ * the one thing to do about it.
+ */
 @Composable
 fun QueenEmptyState(
     title: String,
@@ -307,13 +315,15 @@ fun QueenEmptyState(
     modifier: Modifier = Modifier,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    icon: ImageVector? = null,
+    iconTint: Color = ZarvisAccents.primary,
 ) {
     Column(
         modifier = modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.lg, vertical = ZarvisSpacing.xl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
     ) {
-        AiOrb(state = VoiceState.IDLE, onClick = null, size = 88.dp)
+        if (icon != null) QueenIconTile(icon = icon, tint = iconTint, size = 64.dp) else AiOrb(state = VoiceState.IDLE, onClick = null, size = 88.dp)
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
@@ -329,45 +339,95 @@ fun QueenEmptyState(
 }
 
 /**
- * Something failed to load: a card with a rose edge that says what failed in plain words, with Try again right there. A polite live
- * region, so TalkBack reads the failure when the card appears instead of leaving it to be found.
+ * Something failed to load: a card with a rose edge and a soft rose wash, the alert on its own tile, what failed in plain words (with
+ * an optional bold [title] over it), and Try again right there. A polite live region, so TalkBack reads the failure when the card
+ * appears instead of leaving it to be found.
  */
 @Composable
-fun QueenErrorCard(message: String, retryLabel: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(16.dp)
+fun QueenErrorCard(message: String, retryLabel: String, onRetry: () -> Unit, modifier: Modifier = Modifier, title: String? = null) {
+    val shape = ZarvisCorners.card
+    val danger = ZarvisAccents.danger
     Column(
         modifier = modifier
             .fillMaxWidth()
             .semantics { liveRegion = LiveRegionMode.Polite }
             .background(GlassColors.surfaceTint, shape)
-            .border(1.dp, ZarvisAccents.danger.copy(alpha = 0.45f), shape)
+            .background(danger.copy(alpha = 0.06f), shape)
+            .border(1.dp, danger.copy(alpha = 0.45f), shape)
             .padding(ZarvisSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
-            Icon(imageVector = ZarvisIcons.Alert, contentDescription = null, tint = ZarvisAccents.danger, modifier = Modifier.padding(top = 1.dp).size(20.dp))
-            Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap), verticalAlignment = Alignment.Top) {
+            QueenIconTile(icon = ZarvisIcons.Alert, tint = danger, size = 32.dp)
+            Column(modifier = Modifier.weight(1f).padding(top = if (title == null) 6.dp else 0.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (title != null) Text(title, style = ZarvisProStyles.rowTitle, color = MaterialTheme.colorScheme.onSurface)
+                Text(message, style = MaterialTheme.typography.bodyMedium, color = if (title == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         QueenOutlineAction(label = retryLabel, icon = ZarvisIcons.Refresh, onClick = onRetry)
     }
 }
 
-/** A small outlined pill in the theme's primary, with an icon: Try again, Choose apps, Read aloud, Stop. */
+/**
+ * A small outlined pill with an icon, in the theme's primary (or [tint]): Try again, Choose apps, Read aloud, Stop. Off ([enabled]
+ * false), it dims and does nothing.
+ */
 @Composable
-fun QueenOutlineAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
-    val shape = RoundedCornerShape(50)
+fun QueenOutlineAction(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    tint: Color = ZarvisAccents.primary,
+    enabled: Boolean = true,
+) {
+    val shape = ZarvisCorners.pill
+    val ink = if (enabled) tint else tint.copy(alpha = 0.45f)
     Row(
         modifier = modifier
-            .heightIn(min = 48.dp)
+            .heightIn(min = ZarvisSpacing.touchTarget)
             .clip(shape)
-            .border(1.dp, ZarvisAccents.primary.copy(alpha = 0.55f), shape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .border(1.dp, tint.copy(alpha = if (enabled) 0.55f else 0.25f), shape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (icon != null) Icon(imageVector = icon, contentDescription = null, tint = ZarvisAccents.primary, modifier = Modifier.size(16.dp))
-        Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = ZarvisAccents.primary)
+        if (icon != null) Icon(imageVector = icon, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
+        Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = ink)
+    }
+}
+
+/** How a [QueenNoticeCard] reads: a plain note in the primary, something that worked in green, or a problem in rose. */
+enum class QueenNoticeTone { INFO, SUCCESS, PROBLEM }
+
+/**
+ * A message that appeared after something the user did (the chat was deleted; access was allowed; a sample was played), with a
+ * button that puts it away. Edged and iconed in its [tone]; read out once when it appears.
+ */
+@Composable
+fun QueenNoticeCard(text: String, dismissLabel: String, onDismiss: () -> Unit, modifier: Modifier = Modifier, tone: QueenNoticeTone = QueenNoticeTone.INFO) {
+    val accent = when (tone) {
+        QueenNoticeTone.INFO -> ZarvisAccents.primary
+        QueenNoticeTone.SUCCESS -> ZarvisAccents.success
+        QueenNoticeTone.PROBLEM -> ZarvisAccents.danger
+    }
+    val icon = when (tone) {
+        QueenNoticeTone.INFO -> ZarvisIcons.Sparkle
+        QueenNoticeTone.SUCCESS -> ZarvisIcons.Check
+        QueenNoticeTone.PROBLEM -> ZarvisIcons.Alert
+    }
+    GlassSurface(
+        modifier = modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+        shape = ZarvisCorners.card,
+        borderColor = accent.copy(alpha = 0.4f),
+        contentPadding = ZarvisSpacing.gap,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap)) {
+            QueenIconTile(icon = icon, tint = accent, size = 32.dp)
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            ZarvisGhostButton(text = dismissLabel, onClick = onDismiss)
+        }
     }
 }
 
@@ -440,12 +500,27 @@ fun QueenPageHeader(
 // ---- Sections, cards and rows (Queen Pro) --------------------------------------------------------
 
 /**
- * A group on a page: the [title] label (a heading), an optional one-line [hint] under it, then [content] (usually a [QueenListCard]).
+ * A group on a page: the [title] label (a heading) with an optional [action] on its right (See all), an optional one-line [hint]
+ * under it, then [content] (usually a [QueenListCard]).
  */
 @Composable
-fun QueenSection(title: String, modifier: Modifier = Modifier, hint: String? = null, content: @Composable ColumnScope.() -> Unit) {
+fun QueenSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    hint: String? = null,
+    action: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-        SectionKicker(text = title, modifier = Modifier.padding(top = ZarvisSpacing.sm))
+        if (action == null) {
+            SectionKicker(text = title, modifier = Modifier.padding(top = ZarvisSpacing.sm))
+        } else {
+            // The action is a 48dp target; the label stays level with it.
+            Row(modifier = Modifier.fillMaxWidth().padding(top = ZarvisSpacing.xs), verticalAlignment = Alignment.CenterVertically) {
+                SectionKicker(text = title, modifier = Modifier.weight(1f))
+                action()
+            }
+        }
         if (hint != null) {
             Text(text = hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -453,10 +528,27 @@ fun QueenSection(title: String, modifier: Modifier = Modifier, hint: String? = n
     }
 }
 
+/** The small action next to a section's label ("See all"): the theme's primary in bold, with a chevron, as a 48dp button. */
+@Composable
+fun QueenSectionAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .heightIn(min = ZarvisSpacing.touchTarget)
+            .clip(ZarvisCorners.pill)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = ZarvisSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = ZarvisAccents.primary)
+        Icon(imageVector = ZarvisIcons.Right, contentDescription = null, tint = ZarvisAccents.primary, modifier = Modifier.size(16.dp))
+    }
+}
+
 /** One card holding a list of [QueenRow]s, separated by hairlines ([QueenRowDivider]). No inner padding: the rows bring their own. */
 @Composable
 fun QueenListCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = ZarvisCorners.card
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -503,8 +595,8 @@ fun QueenRow(
 ) {
     val tap = if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier
     Row(
-        modifier = modifier.fillMaxWidth().heightIn(min = 64.dp).then(tap).padding(horizontal = ZarvisSpacing.md, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxWidth().heightIn(min = ZarvisSpacing.rowMinHeight).then(tap).padding(horizontal = ZarvisSpacing.md, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) QueenIconTile(icon = icon, tint = iconTint)
@@ -517,7 +609,7 @@ fun QueenRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (detail != null) {
-                Text(text = detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = detail, style = ZarvisProStyles.rowDetail, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (below != null) below()
         }
@@ -531,9 +623,9 @@ fun QueenRow(
 /** A short note in a soft wash of the theme's primary (or [tint]) with an icon: what a setting means, a safety promise. */
 @Composable
 fun QueenNote(text: String, modifier: Modifier = Modifier, icon: ImageVector = ZarvisIcons.Shield, tint: Color = ZarvisAccents.primary, title: String? = null) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = ZarvisCorners.note
     Row(
-        modifier = modifier.fillMaxWidth().background(tint.copy(alpha = 0.08f), shape).padding(12.dp),
+        modifier = modifier.fillMaxWidth().background(tint.copy(alpha = 0.08f), shape).padding(ZarvisSpacing.gap),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -546,13 +638,104 @@ fun QueenNote(text: String, modifier: Modifier = Modifier, icon: ImageVector = Z
 }
 
 /**
+ * A card that only explains (what a setting means, a rule the app keeps): [icon] on a tile in [tint], a bold [title], and [body] under
+ * it. Nothing on it is pressable.
+ */
+@Composable
+fun QueenInfoCard(title: String, body: String, modifier: Modifier = Modifier, icon: ImageVector = ZarvisIcons.Shield, tint: Color = ZarvisAccents.primary) {
+    GlassSurface(modifier = modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap), verticalAlignment = Alignment.Top) {
+            QueenIconTile(icon = icon, tint = tint, size = 36.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
+                Text(title, style = ZarvisProStyles.rowTitle, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/**
+ * One choice of a set (a language, a voice, a notification mode): the whole row is the target (at least 56dp), read by TalkBack as
+ * "title, selected, radio button". The chosen one shows a filled check in the theme's primary; the others an empty ring, so the
+ * state is never carried by colour alone. Inside a padded card, pass a [contentPadding] without the sides.
+ */
+@Composable
+fun QueenChoiceRow(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    detail: String? = null,
+    contentPadding: PaddingValues = PaddingValues(horizontal = ZarvisSpacing.md, vertical = 10.dp),
+) {
+    val accent = ZarvisAccents.primary
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(contentPadding),
+        horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = ZarvisProStyles.rowTitle, color = MaterialTheme.colorScheme.onSurface)
+            if (detail != null) Text(detail, style = ZarvisProStyles.rowDetail, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .then(
+                    if (selected) Modifier.background(accent, CircleShape) else Modifier.border(2.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) Icon(imageVector = ZarvisIcons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+/**
+ * A setting with a switch. The whole row is the switch (one target of at least 64dp that TalkBack reads as "title, on/off, switch"),
+ * not just the small thumb at its end. An optional [icon] tile leads it, like a [QueenRow].
+ */
+@Composable
+fun QueenSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    detail: String? = null,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+    iconTint: Color = ZarvisAccents.primary,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = ZarvisSpacing.rowMinHeight)
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(vertical = ZarvisSpacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) QueenIconTile(icon = icon, tint = iconTint)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = ZarvisProStyles.rowTitle, color = MaterialTheme.colorScheme.onSurface)
+            if (detail != null) Text(detail, style = ZarvisProStyles.rowDetail, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+/**
  * One line that something did not work (an action failed, the microphone could not start), in the theme's danger colour with the
  * alert icon, on a soft rose wash. Not a load failure with Try again (that is [QueenErrorCard]). A polite live region, so TalkBack
  * reads it when it appears.
  */
 @Composable
 fun QueenInlineError(text: String, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = ZarvisCorners.note
     val danger = ZarvisAccents.danger
     Row(
         modifier = modifier
@@ -618,18 +801,31 @@ fun QueenExpandableRow(
 /** Small print under a section (12/17 in the secondary text colour). */
 @Composable
 fun QueenFootnote(text: String, modifier: Modifier = Modifier) {
-    Text(text = text, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
+    Text(text = text, style = ZarvisProStyles.caption, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
 }
 
 // ---- Numbers ------------------------------------------------------------------------------------
 
-/** One number on a card (Queen Pro): the value large (one line, so "1.2 s" never wraps) in [valueColor], and what it counts. */
+/**
+ * One number on a card (Queen Pro): an optional [icon] on a tile in [iconTint], the value large (one line, so "1.2 s" never wraps) in
+ * [valueColor], and what it counts. With [onClick] the whole tile is one button that opens what the number is about; TalkBack reads
+ * the label and the value together.
+ */
 @Composable
-fun QueenStatTile(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = Color.Unspecified) {
-    GlassSurface(modifier = modifier, contentPadding = 12.dp) {
+fun QueenStatTile(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = Color.Unspecified,
+    icon: ImageVector? = null,
+    iconTint: Color = ZarvisAccents.primary,
+    onClick: (() -> Unit)? = null,
+) {
+    GlassSurface(modifier = modifier.semantics(mergeDescendants = true) {}, contentPadding = ZarvisSpacing.gap, onClick = onClick) {
+        if (icon != null) QueenIconTile(icon = icon, tint = iconTint, size = 32.dp, modifier = Modifier.padding(bottom = ZarvisSpacing.sm))
         Text(
             text = value,
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            style = ZarvisProStyles.statValue,
             color = valueColor,
             maxLines = 1,
             softWrap = false,

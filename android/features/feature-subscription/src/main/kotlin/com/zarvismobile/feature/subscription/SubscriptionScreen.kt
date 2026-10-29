@@ -1,23 +1,16 @@
 package com.zarvismobile.feature.subscription
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,14 +22,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.QueenErrorCard
+import com.zarvismobile.core.ui.components.QueenIconTile
 import com.zarvismobile.core.ui.components.QueenNote
 import com.zarvismobile.core.ui.components.QueenPageHeader
 import com.zarvismobile.core.ui.components.SectionKicker
@@ -44,14 +36,14 @@ import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.components.ZarvisSegmentedControl
 import com.zarvismobile.core.ui.i18n.LocalAppLocale
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisAccents
-import com.zarvismobile.core.ui.theme.ZarvisGoldPale
-import com.zarvismobile.core.ui.theme.ZarvisInkOnGold
+import com.zarvismobile.core.ui.theme.ZarvisCorners
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.remote.dto.EntitlementSnapshotResponse
 import com.zarvismobile.domain.presentation.StatusLabels
@@ -147,11 +139,17 @@ private fun CurrentPlanCard(entitlement: EntitlementSnapshotResponse) {
     val locale = LocalAppLocale.current
     GlassSurface(
         modifier = Modifier.fillMaxWidth(),
+        shape = ZarvisCorners.featureCard,
         tint = GlassColors.surfaceTintElevated,
-        borderColor = ZarvisAccents.gold.copy(alpha = 0.30f),
+        borderColor = ZarvisAccents.gold.copy(alpha = 0.35f),
     ) {
         SectionKicker(text = tr(UiString.PLANS_CURRENT))
-        Row(modifier = Modifier.fillMaxWidth().padding(top = ZarvisSpacing.xs), verticalAlignment = Alignment.Bottom) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = ZarvisSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap),
+        ) {
+            QueenIconTile(icon = ZarvisIcons.Plan, tint = ZarvisAccents.gold, size = 44.dp)
             Text(
                 text = StatusLabels.humanize(entitlement.plan),
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
@@ -176,41 +174,14 @@ private fun CurrentPlanCard(entitlement: EntitlementSnapshotResponse) {
     }
 }
 
-/** Monthly / Yearly as two tabs across the page; the chosen one is gold with dark ink (over 8:1). */
+/** Monthly / Yearly as two tabs across the page; the chosen one is filled with the theme's primary. Prices are not shown yet. */
 @Composable
 private fun BillingToggle(yearly: Boolean, onToggle: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(color = GlassColors.surfaceTint, shape = RoundedCornerShape(50))
-            .border(width = 1.dp, color = GlassColors.border, shape = RoundedCornerShape(50))
-            .padding(4.dp)
-            .selectableGroup(),
-    ) {
-        BillingToggleOption(label = tr(UiString.PLANS_MONTHLY), selected = !yearly, onClick = { onToggle(false) }, modifier = Modifier.weight(1f))
-        BillingToggleOption(label = tr(UiString.PLANS_YEARLY), selected = yearly, onClick = { onToggle(true) }, modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun BillingToggleOption(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(50)
-    Box(
-        modifier = modifier
-            .heightIn(min = 44.dp)
-            .clip(shape)
-            .then(if (selected) Modifier.background(ZarvisGoldPale, shape) else Modifier)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 11.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = if (selected) ZarvisInkOnGold else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    ZarvisSegmentedControl(
+        options = listOf(tr(UiString.PLANS_MONTHLY), tr(UiString.PLANS_YEARLY)),
+        selectedIndex = if (yearly) 1 else 0,
+        onSelect = { onToggle(it == 1) },
+    )
 }
 
 /**
@@ -221,6 +192,7 @@ private fun BillingToggleOption(label: String, selected: Boolean, onClick: () ->
 private fun PlanCard(plan: PlanTier, isCurrent: Boolean, billingNote: String? = null) {
     GlassSurface(
         modifier = Modifier.fillMaxWidth(),
+        shape = ZarvisCorners.featureCard,
         borderColor = if (plan.highlighted) ZarvisAccents.gold.copy(alpha = 0.40f) else GlassColors.border,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
@@ -242,11 +214,13 @@ private fun PlanCard(plan: PlanTier, isCurrent: Boolean, billingNote: String? = 
                 Text(text = it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (plan.highlighted) {
+                // Off, with a lock: buying is not connected on this phone yet (the note below says so). It never pretends to work.
                 ZarvisSecondaryButton(
                     text = tr(UiString.PLANS_UPGRADE_BUTTON),
                     onClick = {},
                     enabled = false,
                     modifier = Modifier.fillMaxWidth(),
+                    icon = ZarvisIcons.Lock,
                 )
             }
         }

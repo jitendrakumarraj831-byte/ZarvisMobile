@@ -112,6 +112,7 @@ class ZarvisExtras(
     val glassBorderStrong: Color,
     val glassHighlight: Color,
     val accentCyan: Color,
+    val accentBlue: Color,
     val accentViolet: Color,
     val accentPink: Color,
     val accentGold: Color,
@@ -129,6 +130,7 @@ val LightExtras = ZarvisExtras(
     glassBorderStrong = Color(0x4D7E22CE),
     glassHighlight = Color.Transparent, // the day page's cards are white already: no sheen
     accentCyan = Color(0xFF155E75), // ink shades: 4.5:1 or more on the page, on a glass card and under the page's glows
+    accentBlue = Color(0xFF1D4ED8),
     accentViolet = Color(0xFF6D28D9),
     accentPink = Color(0xFF9D174D),
     accentGold = Color(0xFF92400E),
@@ -146,6 +148,7 @@ val DarkExtras = ZarvisExtras(
     glassBorderStrong = ZarvisPrimaryDark.copy(alpha = 0.32f),
     glassHighlight = Color.White.copy(alpha = 0.05f),
     accentCyan = Color(0xFF67E8F9),
+    accentBlue = Color(0xFF93C5FD),
     accentViolet = Color(0xFFDDD6FE),
     accentPink = Color(0xFFF9A8D4),
     accentGold = ZarvisGoldPale,
@@ -169,6 +172,7 @@ object GlassColors {
 /** Accent colours that are readable as text and icons on the current theme's page and glass cards (>= 4.5:1). */
 object ZarvisAccents {
     val cyan: Color @Composable @ReadOnlyComposable get() = LocalZarvisExtras.current.accentCyan
+    val blue: Color @Composable @ReadOnlyComposable get() = LocalZarvisExtras.current.accentBlue
     val violet: Color @Composable @ReadOnlyComposable get() = LocalZarvisExtras.current.accentViolet
     val pink: Color @Composable @ReadOnlyComposable get() = LocalZarvisExtras.current.accentPink
     val gold: Color @Composable @ReadOnlyComposable get() = LocalZarvisExtras.current.accentGold
@@ -181,7 +185,7 @@ object ZarvisAccents {
 }
 
 /**
- * The text-safe version of one of the bright brand accents ([ZarvisAccentCyan], [ZarvisAccentViolet], [ZarvisAccentPink], [ZarvisGold])
+ * The text-safe version of one of the bright brand accents ([ZarvisAccentCyan], [ZarvisAccentBlue], [ZarvisAccentViolet], [ZarvisAccentPink], [ZarvisGold])
  * for the current theme; any other colour is returned as given. Lets a screen that already passes an accent around keep doing so while
  * its words stay readable on the light page (the bright cyan is 2.4:1 there).
  */
@@ -189,6 +193,7 @@ object ZarvisAccents {
 @ReadOnlyComposable
 fun readableAccent(accent: Color): Color = when (accent) {
     ZarvisAccentCyan -> ZarvisAccents.cyan
+    ZarvisAccentBlue -> ZarvisAccents.blue
     ZarvisAccentViolet -> ZarvisAccents.violet
     ZarvisAccentPink -> ZarvisAccents.pink
     ZarvisGold -> ZarvisAccents.gold

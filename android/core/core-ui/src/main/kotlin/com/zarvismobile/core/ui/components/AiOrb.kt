@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.theme.LocalZarvisExtras
 import com.zarvismobile.core.ui.theme.ZarvisAccentBlue
 import com.zarvismobile.core.ui.theme.ZarvisAccentCyan
 import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
@@ -111,6 +112,8 @@ fun AiOrb(
     }
 
     val colors = orbColors(state)
+    // The HUD ring and the orbit: lavender on the night page, violet on the lavender day page (where lavender would vanish).
+    val ring = if (LocalZarvisExtras.current.isDark) ZarvisNightLavender else ZarvisAccentViolet
     val interactionSource = remember { MutableInteractionSource() }
     // A short squeeze while pressed (layer scale only): the tap is felt at once, before the screen it opens appears.
     val pressed by interactionSource.collectIsPressedAsState()
@@ -169,7 +172,7 @@ fun AiOrb(
 
         // The orbit and its satellite.
         val orbit = radius * 1.22f
-        drawCircle(color = ZarvisNightLavender.copy(alpha = 0.16f), radius = orbit, center = center, style = Stroke(width = radius * 0.012f))
+        drawCircle(color = ring.copy(alpha = 0.2f), radius = orbit, center = center, style = Stroke(width = radius * 0.012f))
         val a = (rotation * 0.75f - 50f) * PI.toFloat() / 180f
         val satellite = Offset(center.x + orbit * cos(a), center.y + orbit * sin(a))
         drawCircle(
@@ -187,7 +190,7 @@ fun AiOrb(
                 val inner = radius * (if (major) 1.04f else 1.06f)
                 val outer = radius * 1.1f
                 drawLine(
-                    color = ZarvisNightLavender.copy(alpha = if (major) 0.55f else 0.22f),
+                    color = ring.copy(alpha = if (major) 0.55f else 0.22f),
                     start = Offset(center.x + inner * cos(angle).toFloat(), center.y + inner * sin(angle).toFloat()),
                     end = Offset(center.x + outer * cos(angle).toFloat(), center.y + outer * sin(angle).toFloat()),
                     strokeWidth = radius * 0.02f,

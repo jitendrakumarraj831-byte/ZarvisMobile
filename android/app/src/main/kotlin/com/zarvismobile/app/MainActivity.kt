@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -19,7 +18,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -29,12 +27,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.app.navigation.ZarvisNavGraph
-import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.QueenInlineError
+import com.zarvismobile.core.ui.components.QueenNoticeCard
+import com.zarvismobile.core.ui.components.QueenNoticeTone
 import com.zarvismobile.core.ui.components.GoldText
 import com.zarvismobile.core.ui.components.AiOrb
 import com.zarvismobile.core.ui.components.VoiceState
@@ -126,12 +127,16 @@ private fun SystemBarsFollowTheme(darkTheme: Boolean) {
     }
 }
 
+/** A permission was turned off in Android Settings while ZARVIS was away: said once, over the top of the page, until OK. */
 @Composable
 private fun RevokedBanner(message: String, onDismiss: () -> Unit) {
-    GlassSurface(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp)) {
-        Text(message, style = MaterialTheme.typography.bodyMedium)
-        TextButton(onClick = onDismiss) { Text(tr(UiString.COMMON_OK)) }
-    }
+    QueenNoticeCard(
+        text = message,
+        dismissLabel = tr(UiString.COMMON_OK),
+        onDismiss = onDismiss,
+        tone = QueenNoticeTone.PROBLEM,
+        modifier = Modifier.statusBarsPadding().padding(12.dp),
+    )
 }
 
 @Composable
@@ -150,7 +155,7 @@ private fun SessionExpiredScreen(
                 "ZARVIS did not create a new account for you.",
             style = MaterialTheme.typography.bodyMedium,
         )
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        state.error?.let { QueenInlineError(text = it) }
         CredentialsForm(
             title = "Sign in",
             action = "Sign in",
@@ -198,7 +203,7 @@ private fun StartupError(message: String, onRetry: () -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // The orb in its error colours: decoration, the message says what went wrong.
                 AiOrb(state = VoiceState.ERROR, onClick = null, size = 104.dp)
-                Text(text = message, style = MaterialTheme.typography.bodyLarge)
+                Text(text = message, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                 ZarvisPrimaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = onRetry)
             }
         }
