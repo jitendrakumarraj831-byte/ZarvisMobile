@@ -281,7 +281,7 @@ private fun HomeTopBar(onOpenSettings: () -> Unit) {
 @Composable
 private fun HomeHero(composerText: String, onComposerChange: (String) -> Unit, onSubmit: () -> Unit, onTalk: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = ZarvisSpacing.sm),
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -298,16 +298,18 @@ private fun HomeHero(composerText: String, onComposerChange: (String) -> Unit, o
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = ZarvisSpacing.xs, start = ZarvisSpacing.sm, end = ZarvisSpacing.sm),
         )
+        // 152dp with 16dp above it: on a 360 × 720dp phone the first row of quick actions still ends above the tab bar (measured on
+        // the emulator's screenshots).
         AiOrb(
             state = VoiceState.IDLE,
             onClick = onTalk,
-            size = 176.dp,
+            size = 152.dp,
             idleMotion = true,
-            modifier = Modifier.padding(top = ZarvisSpacing.lg),
+            modifier = Modifier.padding(top = ZarvisSpacing.md),
         )
         // The orb's own words for TalkBack already say this; the visible line is for sighted people.
         Row(
-            modifier = Modifier.padding(top = ZarvisSpacing.sm),
+            modifier = Modifier.padding(top = ZarvisSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -320,14 +322,15 @@ private fun HomeHero(composerText: String, onComposerChange: (String) -> Unit, o
             onSubmit = onSubmit,
             onMicClick = onTalk,
             placeholder = tr(UiString.CHAT_COMPOSER_HINT),
-            modifier = Modifier.padding(top = ZarvisSpacing.lg),
+            modifier = Modifier.padding(top = ZarvisSpacing.md),
         )
     }
 }
 
 /**
- * The quick actions: four to a row (two, side by side, when the phone is narrow or its text is set large, so no label is cut). A
- * category sends its request to Chat at once ([onAsk]), as its chip always did; All skills opens the Skills tab.
+ * The quick actions: four to a row when every label fits its tile, otherwise two, side by side (a narrow phone, or text set large),
+ * so no label is ever cut inside a word. A category sends its request to Chat at once ([onAsk]), as its chip always did; All skills
+ * opens the Skills tab.
  */
 @Composable
 private fun QuickActions(onAsk: (String) -> Unit, onOpenSkills: () -> Unit) {
@@ -336,7 +339,10 @@ private fun QuickActions(onAsk: (String) -> Unit, onOpenSkills: () -> Unit) {
     } + QuickTile(label = tr(UiString.HOME_ALL_SKILLS), icon = ZarvisIcons.Grid, actionLabel = null, emphasized = false, onClick = onOpenSkills)
     val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val columns = if (maxWidth < 340.dp || fontScale > 1.15f) 2 else 4
+        // Room for a label in a four-to-a-row tile, against the widest label: "Automation" is 68dp in Sora at 11sp (measured from
+        // res/font/sora.ttf), and grows with the phone's font size. A 360dp phone has 72dp, so it gets four; text at 110% gets two.
+        val labelRoom = (maxWidth - ZarvisSpacing.sm * 3) / 4 - TILE_LABEL_PADDING * 2
+        val columns = if (labelRoom >= WIDEST_TILE_LABEL * fontScale) 4 else 2
         Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
             tiles.chunked(columns).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
@@ -347,6 +353,12 @@ private fun QuickActions(onAsk: (String) -> Unit, onOpenSkills: () -> Unit) {
         }
     }
 }
+
+/** The widest quick-action label at 11sp, with a little to spare (see [QuickActions]). */
+private val WIDEST_TILE_LABEL = 70.dp
+
+/** The space each side of a stacked tile's label. */
+private val TILE_LABEL_PADDING = 2.dp
 
 /** What a quick action shows and does. [actionLabel], when given, is the exact request a tap sends (TalkBack reads it as the action). */
 private class QuickTile(val label: String, val icon: ImageVector, val actionLabel: String?, val emphasized: Boolean, val onClick: () -> Unit)
@@ -382,14 +394,14 @@ private fun QuickActionTile(tile: QuickTile, wide: Boolean, modifier: Modifier =
         }
     } else {
         Column(
-            modifier = pressable.heightIn(min = 92.dp).padding(horizontal = 4.dp, vertical = 12.dp),
+            modifier = pressable.heightIn(min = 88.dp).padding(horizontal = TILE_LABEL_PADDING, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             iconBox()
             Text(
                 text = tile.label,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, lineHeight = 14.sp),
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,

@@ -173,12 +173,9 @@ fun ConversationScreen(
                 horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
             ) {
                 if (onBack != null) QueenBackButton(label = tr(UiString.COMMON_BACK), onClick = onBack)
-                // The title shares the row only on the Chat tab (no Back); with Back it sits on its own line below.
-                if (onBack == null) {
-                    ChatTitle(modifier = Modifier.weight(1f))
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
+                // The title has its own line below: beside New chat and Delete a 360dp phone left it about 95dp, and "Chat with ZARVIS"
+                // broke inside the word ZARVIS.
+                Spacer(Modifier.weight(1f))
                 // Always enabled: after a failed restore the screen can look empty while the server still holds the conversation, and the user must be able to leave it.
                 ZarvisChip(label = tr(UiString.CHAT_NEW), onClick = viewModel::startNewConversation, icon = ZarvisIcons.Plus)
                 // Offered only once there is something to delete, and not while a reply is on its way or a delete is already out.
@@ -195,9 +192,9 @@ fun ConversationScreen(
                     }
                 }
             }
-            // With Back the title gets its own line, hidden while typing so the messages keep the room.
-            if (onBack != null && !keyboardOpen) {
-                ChatTitle(modifier = Modifier.padding(horizontal = ZarvisSpacing.md))
+            // The title's own line, hidden while typing so the messages keep the room.
+            if (!keyboardOpen) {
+                ChatTitle(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md))
             }
             uiState.deleteOutcome?.let { outcome ->
                 ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
@@ -326,7 +323,7 @@ fun ConversationScreen(
 private fun ChatTitle(modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         ZarvisAvatar(diameter = 32.dp)
-        Column(modifier = Modifier.semantics(mergeDescendants = true) { heading() }) {
+        Column(modifier = Modifier.weight(1f).semantics(mergeDescendants = true) { heading() }) {
             Text(text = tr(UiString.CHAT_TITLE), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
             Text(text = tr(UiString.CHAT_LANGUAGE_CAPTION), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.GlassColors
@@ -93,7 +94,9 @@ fun ZarvisComposer(
             focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
             unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
-        placeholder = { Text(placeholder) },
+        // One line, a size smaller than what is typed: beside Chat's orb the field has about 180dp for text, and "Ask ZARVIS anything…"
+        // at 16sp needs 182dp, so it wrapped and made the empty field two lines tall.
+        placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         // Chat shows its own orb next to the field as the microphone, so the field drops its mic there ([showMic] false).
         leadingIcon = if (showMic) {
             {
