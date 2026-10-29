@@ -9,14 +9,14 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,6 +25,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,10 +35,23 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.QueenChoiceRow
+import com.zarvismobile.core.ui.components.QueenDialog
+import com.zarvismobile.core.ui.components.QueenIconTile
+import com.zarvismobile.core.ui.components.QueenNote
+import com.zarvismobile.core.ui.components.QueenNoticeCard
+import com.zarvismobile.core.ui.components.QueenOutlineAction
+import com.zarvismobile.core.ui.components.QueenSwitchRow
 import com.zarvismobile.core.ui.components.SkeletonList
+import com.zarvismobile.core.ui.components.ZarvisGhostButton
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisProStyles
+import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.data.local.access.DataStoreNotificationSettings
 import com.zarvismobile.domain.access.AccessCoordinator
 import com.zarvismobile.domain.access.AccessResult
@@ -67,7 +82,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
 
 data class InstalledApp(val packageName: String, val label: String)
 
@@ -155,44 +169,56 @@ fun ColumnScope.NotificationSettingsContent(viewModel: NotificationSettingsViewM
     }
 
     message?.let {
-        GlassSurface(Modifier.fillMaxWidth()) {
-            Text(it, style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
-        }
+        QueenNoticeCard(text = it, dismissLabel = "OK", onDismiss = viewModel::dismissMessage)
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
-        Title("Notification access")
-        Text(
-            when (access) {
-                AccessState.GRANTED -> "On — Android reports ZARVIS can see notifications. It reads them only when you ask, or speaks them if you turn that on below."
-                null -> "Checking…"
-                else -> "Off — ZARVIS can't see other apps' notifications. Only you can turn this on, in Android Settings."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-        )
+    // Each card's title is its own words (the emulator tests find them as written), with an icon tile in the card's colour.
+    SettingCard {
+        Title("Notification access", ZarvisIcons.Bell, ZarvisAccents.pink)
+        val on = access == AccessState.GRANTED
+        Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.Top) {
+            if (access != null) {
+                Icon(
+                    imageVector = if (on) ZarvisIcons.Check else ZarvisIcons.Lock,
+                    contentDescription = null,
+                    tint = if (on) ZarvisAccents.success else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp).size(16.dp),
+                )
+            }
+            Text(
+                when (access) {
+                    AccessState.GRANTED -> "On — Android reports ZARVIS can see notifications. It reads them only when you ask, or speaks them if you turn that on below."
+                    null -> "Checking…"
+                    else -> "Off — ZARVIS can't see other apps' notifications. Only you can turn this on, in Android Settings."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+        }
         if (access != null && access != AccessState.GRANTED) ZarvisPrimaryButton("Turn on notification access", onClick = viewModel::turnOnAccess)
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
-        Title("Notification mode")
+    SettingCard {
+        Title("Notification mode", ZarvisIcons.Eye, ZarvisAccents.primary)
         Text("What ZARVIS may show or say about a notification.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        NotificationMode.entries.forEach { mode ->
-            Choice(mode.label, modeExample(mode), settings.mode == mode) { viewModel.update { it.copy(mode = mode) } }
+        Column(Modifier.selectableGroup()) {
+            NotificationMode.entries.forEach { mode ->
+                Choice(mode.label, modeExample(mode), settings.mode == mode) { viewModel.update { it.copy(mode = mode) } }
+            }
         }
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
+    SettingCard {
         Toggle(
             "Spoken notifications",
             if (settings.speakEnabled) "On — ${NotificationPrivacy.describeSpeakRules(settings)}" else "Off — nothing is spoken",
             settings.speakEnabled,
         ) { on -> viewModel.update { it.copy(speakEnabled = on) } }
-        Text("Speech is generated on this phone; notification content is never sent to ZARVIS servers.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ZarvisSecondaryButton("Play a sample", onClick = viewModel::speakSample)
+        QueenNote(text = "Speech is generated on this phone; notification content is never sent to ZARVIS servers.", icon = ZarvisIcons.Phone, tint = ZarvisAccents.cyan)
+        ZarvisSecondaryButton("Play a sample", onClick = viewModel::speakSample, icon = ZarvisIcons.Wave)
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
+    SettingCard {
         Toggle(
             "Quiet hours",
             if (settings.quietHours.enabled) "Silent ${NotificationPrivacy.formatMinute(settings.quietHours.startMinute)} – ${NotificationPrivacy.formatMinute(settings.quietHours.endMinute)}" else "Off",
@@ -204,20 +230,22 @@ fun ColumnScope.NotificationSettingsContent(viewModel: NotificationSettingsViewM
         }
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
+    SettingCard {
         Toggle("Only with headphones", "Speak only when wired or Bluetooth headphones are connected", settings.headphonesOnly) { on ->
             viewModel.update { it.copy(headphonesOnly = on) }
         }
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
-        Title("While the phone is locked")
-        LockScreenBehavior.entries.forEach { behavior ->
-            Choice(behavior.label, null, settings.lockScreen == behavior) { viewModel.update { it.copy(lockScreen = behavior) } }
+    SettingCard {
+        Title("While the phone is locked", ZarvisIcons.Lock, ZarvisAccents.violet)
+        Column(Modifier.selectableGroup()) {
+            LockScreenBehavior.entries.forEach { behavior ->
+                Choice(behavior.label, null, settings.lockScreen == behavior) { viewModel.update { it.copy(lockScreen = behavior) } }
+            }
         }
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
+    SettingCard(borderColor = if (settings.includeSensitive) ZarvisAccents.warning.copy(alpha = 0.45f) else null) {
         Toggle(
             "Include security & banking alerts",
             if (settings.includeSensitive) "On — OTPs, bank and sign-in alerts can be shown or spoken. Anyone nearby may hear them." else "Off — OTP, banking and authentication alerts are hidden and never spoken",
@@ -225,48 +253,57 @@ fun ColumnScope.NotificationSettingsContent(viewModel: NotificationSettingsViewM
         ) { on -> viewModel.update { it.copy(includeSensitive = on) } }
     }
 
-    GlassSurface(Modifier.fillMaxWidth()) {
-        Title("Excluded apps")
+    SettingCard {
+        Title("Excluded apps", ZarvisIcons.X, ZarvisAccents.blue)
         Text(
             if (settings.excludedPackages.isEmpty()) "None — every app follows the mode above." else "${settings.excludedPackages.size} app(s) are never read or spoken.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = { showApps = true; viewModel.loadApps() }) { Text("Choose apps") }
+        QueenOutlineAction(label = "Choose apps", onClick = { showApps = true; viewModel.loadApps() }, icon = ZarvisIcons.List)
     }
 
     if (showApps) {
-        AlertDialog(
-            onDismissRequest = { showApps = false },
-            title = { Text("Excluded apps") },
-            text = {
-                val installed = apps
-                if (installed == null) {
-                    // Reading the apps can take a moment on a phone with hundreds: until then the list says it is loading, never looks empty.
-                    SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 3)
-                } else {
-                    // Lazy, in its own window: a phone can have hundreds of apps, and composing every row inside the settings page made
-                    // each change there stutter on a low-end phone. One row per app even when it has several launcher entries.
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(installed.distinctBy { it.packageName }, key = { it.packageName }) { app ->
-                            val excluded = app.packageName in settings.excludedPackages
-                            Row(
-                                Modifier.fillMaxWidth().toggleable(value = excluded, role = Role.Checkbox) { on ->
-                                    viewModel.update { current ->
-                                        current.copy(excludedPackages = if (on) current.excludedPackages + app.packageName else current.excludedPackages - app.packageName)
-                                    }
-                                }.padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(checked = excluded, onCheckedChange = null)
-                                Text(app.label, modifier = Modifier.padding(start = 8.dp))
-                            }
+        QueenDialog(
+            title = "Excluded apps",
+            onDismiss = { showApps = false },
+            confirmLabel = "Done",
+            onConfirm = { showApps = false },
+            icon = ZarvisIcons.Bell,
+        ) {
+            val installed = apps
+            if (installed == null) {
+                // Reading the apps can take a moment on a phone with hundreds: until then the list says it is loading, never looks empty.
+                SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 3)
+            } else {
+                // Lazy, in its own window: a phone can have hundreds of apps, and composing every row inside the settings page made
+                // each change there stutter on a low-end phone. One row per app even when it has several launcher entries.
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(installed.distinctBy { it.packageName }, key = { it.packageName }) { app ->
+                        val excluded = app.packageName in settings.excludedPackages
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = ZarvisSpacing.touchTarget).toggleable(value = excluded, role = Role.Checkbox) { on ->
+                                viewModel.update { current ->
+                                    current.copy(excludedPackages = if (on) current.excludedPackages + app.packageName else current.excludedPackages - app.packageName)
+                                }
+                            }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = excluded, onCheckedChange = null)
+                            Text(app.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
                         }
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { showApps = false }) { Text("Done") } },
-        )
+            }
+        }
+    }
+}
+
+/** One group of notification settings: a glass card with its rows spaced evenly. [borderColor] edges a card that needs care. */
+@Composable
+private fun SettingCard(borderColor: Color? = null, content: @Composable ColumnScope.() -> Unit) {
+    GlassSurface(Modifier.fillMaxWidth(), borderColor = borderColor ?: GlassColors.border) {
+        Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), content = content)
     }
 }
 
@@ -278,45 +315,32 @@ private fun modeExample(mode: NotificationMode): String = when (mode) {
     NotificationMode.FULL_CONTENT -> "Everything the notification shows"
 }
 
+/** A card's title (as written, not in capitals) with its icon tile. */
 @Composable
-private fun Title(text: String) = Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-
-@Composable
-private fun Choice(title: String, subtitle: String?, selected: Boolean, onSelect: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().selectable(selected = selected, role = Role.RadioButton, onClick = onSelect).padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Column(Modifier.padding(start = 8.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
+private fun Title(text: String, icon: ImageVector, tint: Color) {
+    Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap), verticalAlignment = Alignment.CenterVertically) {
+        QueenIconTile(icon = icon, tint = tint, size = 32.dp)
+        Text(text, style = ZarvisProStyles.rowTitle, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
+private fun Choice(title: String, subtitle: String?, selected: Boolean, onSelect: () -> Unit) {
+    QueenChoiceRow(title = title, detail = subtitle, selected = selected, onClick = onSelect, contentPadding = PaddingValues(vertical = 8.dp))
+}
+
+@Composable
 private fun Toggle(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onChange).padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = null)
-    }
+    QueenSwitchRow(title = title, detail = subtitle, checked = checked, onCheckedChange = onChange)
 }
 
 @Composable
 private fun Stepper(label: String, minute: Int, onChange: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text("$label ${NotificationPrivacy.formatMinute(minute)}", style = MaterialTheme.typography.bodyLarge)
+        Text("$label ${NotificationPrivacy.formatMinute(minute)}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Row {
-            TextButton(onClick = { onChange(Math.floorMod(minute - 30, QuietHours.MINUTES_PER_DAY)) }) { Text("−30 min") }
-            TextButton(onClick = { onChange(Math.floorMod(minute + 30, QuietHours.MINUTES_PER_DAY)) }) { Text("+30 min") }
+            ZarvisGhostButton(text = "−30 min", onClick = { onChange(Math.floorMod(minute - 30, QuietHours.MINUTES_PER_DAY)) })
+            ZarvisGhostButton(text = "+30 min", onClick = { onChange(Math.floorMod(minute + 30, QuietHours.MINUTES_PER_DAY)) })
         }
     }
 }

@@ -13,12 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,6 +48,7 @@ import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisDestructiveButton
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
+import com.zarvismobile.core.ui.components.ZarvisTextField
 import com.zarvismobile.core.ui.components.QueenErrorCard
 import com.zarvismobile.core.ui.components.QueenInlineError
 import com.zarvismobile.core.ui.components.SkeletonList
@@ -217,28 +216,24 @@ private fun AddMemoryCard(busy: Boolean, added: Boolean, onSave: (String) -> Uni
     val tooLong = length > MemoryViewModel.MAX_MEMORY_CHARS
     GlassSurface(Modifier.fillMaxWidth(), contentPadding = 12.dp) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(
+            ZarvisTextField(
                 value = draft,
                 onValueChange = { draft = it },
                 enabled = !busy,
-                placeholder = { Text(tr(UiString.MEMORY_ADD_HINT)) },
+                placeholder = tr(UiString.MEMORY_ADD_HINT),
                 isError = tooLong,
-                supportingText = {
-                    Text(
-                        if (tooLong) trf(UiString.MEMORY_ADD_TOO_LONG, MemoryViewModel.MAX_MEMORY_CHARS) else trf(UiString.MEMORY_ADD_COUNT, length, MemoryViewModel.MAX_MEMORY_CHARS),
-                    )
-                },
+                supportingText = if (tooLong) trf(UiString.MEMORY_ADD_TOO_LONG, MemoryViewModel.MAX_MEMORY_CHARS) else trf(UiString.MEMORY_ADD_COUNT, length, MemoryViewModel.MAX_MEMORY_CHARS),
+                singleLine = false,
                 minLines = 2,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
             )
             ZarvisPrimaryButton(
                 text = tr(UiString.MEMORY_ADD_SAVE),
                 enabled = !busy && draft.isNotBlank() && !tooLong,
                 onClick = { onSave(draft) },
                 modifier = Modifier.align(Alignment.End),
+                icon = ZarvisIcons.Plus,
             )
-            if (added) Text(tr(UiString.MEMORY_ADDED), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            if (added) QueenNote(text = tr(UiString.MEMORY_ADDED), icon = ZarvisIcons.Check, tint = ZarvisAccents.success)
         }
     }
 }

@@ -2,26 +2,37 @@ package com.zarvismobile.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.VisualTransformation
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.QueenIconTile
+import com.zarvismobile.core.ui.components.QueenInlineError
+import com.zarvismobile.core.ui.components.QueenNote
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
-import com.zarvismobile.data.repository.SessionState
+import com.zarvismobile.core.ui.components.ZarvisTextField
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisProStyles
+import com.zarvismobile.core.ui.theme.ZarvisSpacing
+import com.zarvismobile.data.repository.SessionState
 import com.zarvismobile.domain.presentation.UiString
 
 /**
@@ -37,29 +48,35 @@ fun AccountSection(
     onSignOut: () -> Unit,
 ) {
     GlassSurface(Modifier.fillMaxWidth()) {
-        when (session) {
-            is SessionState.Active -> {
-                Text(
-                    if (session.isGuest) "Guest account on this phone" else "Signed in as ${session.email}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    if (session.isGuest) {
-                        "This account has no sign-in email yet, so it only exists on this phone. Link an email to use the same account on the web or another device."
-                    } else {
-                        "Use this email and password on the web or another phone to continue the same conversations and tasks."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap), verticalAlignment = Alignment.Top) {
+            val guest = session is SessionState.Active && session.isGuest
+            QueenIconTile(icon = ZarvisIcons.User, tint = if (session is SessionState.Active) ZarvisAccents.primary else ZarvisAccents.warning)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
+                when (session) {
+                    is SessionState.Active -> {
+                        Text(
+                            if (guest) "Guest account on this phone" else "Signed in as ${session.email}",
+                            style = ZarvisProStyles.rowTitle,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            if (guest) {
+                                "This account has no sign-in email yet, so it only exists on this phone. Link an email to use the same account on the web or another device."
+                            } else {
+                                "Use this email and password on the web or another phone to continue the same conversations and tasks."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is SessionState.Expired -> Text("Your session ended. Sign in to continue.", style = ZarvisProStyles.rowTitle, fontWeight = FontWeight.Bold)
+                    SessionState.None -> Text("Not signed in", style = ZarvisProStyles.rowTitle, fontWeight = FontWeight.Bold)
+                }
             }
-            is SessionState.Expired -> Text("Your session ended. Sign in to continue.", style = MaterialTheme.typography.titleMedium)
-            SessionState.None -> Text("Not signed in", style = MaterialTheme.typography.titleMedium)
         }
     }
-    form.info?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-    form.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    form.info?.let { QueenNote(text = it, icon = ZarvisIcons.Check, tint = ZarvisAccents.success) }
+    form.error?.let { QueenInlineError(text = it) }
 
     if (session is SessionState.Active && session.isGuest) {
         CredentialsForm(
@@ -77,10 +94,14 @@ fun AccountSection(
         onSubmit = onSignIn,
     )
     if (session is SessionState.Active) {
-        ZarvisSecondaryButton(tr(UiString.SIGN_OUT), onClick = onSignOut)
+        ZarvisSecondaryButton(tr(UiString.SIGN_OUT), onClick = onSignOut, icon = ZarvisIcons.User)
     }
 }
 
+/**
+ * An email and password, and the one button that sends them. The password is hidden unless the eye button (named Show / Hide
+ * password for TalkBack) shows it; the button stays off until the email has an @ and the password its 8 characters.
+ */
 @Composable
 fun CredentialsForm(
     title: String,
@@ -92,26 +113,34 @@ fun CredentialsForm(
 ) {
     var email by rememberSaveable(title) { mutableStateOf(initialEmail) }
     var password by rememberSaveable(title) { mutableStateOf("") }
+    var showPassword by rememberSaveable(title) { mutableStateOf(false) }
     GlassSurface(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Column(verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+            Text(title, style = ZarvisProStyles.rowTitle, fontWeight = FontWeight.Bold)
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            OutlinedTextField(
+            ZarvisTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
-                singleLine = true,
+                label = "Email",
+                leadingIcon = ZarvisIcons.User,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            ZarvisTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password (8+ characters)") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                label = "Password (8+ characters)",
+                leadingIcon = ZarvisIcons.Lock,
+                trailing = {
+                    IconButton(onClick = { showPassword = !showPassword }) {
+                        Icon(
+                            imageVector = ZarvisIcons.Eye,
+                            contentDescription = tr(if (showPassword) UiString.A11Y_HIDE_PASSWORD else UiString.A11Y_SHOW_PASSWORD),
+                            tint = if (showPassword) ZarvisAccents.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
             )
             ZarvisPrimaryButton(
                 text = if (busy) "Please wait…" else action,

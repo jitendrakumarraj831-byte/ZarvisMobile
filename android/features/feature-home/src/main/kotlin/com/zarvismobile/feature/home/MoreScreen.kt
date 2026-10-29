@@ -106,15 +106,15 @@ private fun lookFor(item: WorkItem): Pair<ImageVector, Color> = when (item.id) {
     "memory" -> ZarvisIcons.Memory to ZarvisAccents.pink
     "usage" -> ZarvisIcons.Chart to ZarvisAccents.success
     "plans" -> ZarvisIcons.Plan to ZarvisAccents.gold
-    "developer" -> ZarvisIcons.Code to ZarvisAccents.cyan
+    "developer" -> ZarvisIcons.Code to ZarvisAccents.blue
     "phone" -> ZarvisIcons.Phone to ZarvisAccents.cyan
-    "research" -> ZarvisIcons.Search to ZarvisAccents.violet
-    "creative" -> ZarvisIcons.Pen to ZarvisAccents.violet
-    "business" -> ZarvisIcons.Briefcase to ZarvisAccents.violet
+    "research" -> ZarvisIcons.Search to ZarvisAccents.blue
+    "creative" -> ZarvisIcons.Pen to ZarvisAccents.pink
+    "business" -> ZarvisIcons.Briefcase to ZarvisAccents.success
     "files" -> ZarvisIcons.File to ZarvisAccents.violet
-    "settings" -> ZarvisIcons.Settings to ZarvisAccents.violet
-    "agents" -> ZarvisIcons.Brain to ZarvisAccents.warning
-    else -> ZarvisIcons.Globe to ZarvisAccents.warning
+    "settings" -> ZarvisIcons.Settings to ZarvisAccents.primary
+    "agents" -> ZarvisIcons.Brain to ZarvisAccents.violet
+    else -> ZarvisIcons.Globe to ZarvisAccents.violet
 }
 
 @Composable

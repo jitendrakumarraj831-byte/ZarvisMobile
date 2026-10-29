@@ -28,10 +28,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,12 +52,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -71,7 +71,10 @@ import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.GlowColorsFor
 import com.zarvismobile.core.ui.components.QueenBackButton
 import com.zarvismobile.core.ui.components.QueenConfirmDialog
+import com.zarvismobile.core.ui.components.QueenIconTile
 import com.zarvismobile.core.ui.components.QueenInlineError
+import com.zarvismobile.core.ui.components.QueenNoticeCard
+import com.zarvismobile.core.ui.components.QueenNoticeTone
 import com.zarvismobile.core.ui.components.QueenOutlineAction
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.StatusBadge
@@ -88,12 +91,15 @@ import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
 import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.ZarvisCorners
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.core.ui.theme.zarvisActionBrush
 import com.zarvismobile.core.ui.theme.zarvisReduceMotion
+import com.zarvismobile.domain.presentation.ChatRequests
 import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.entity.ToolResultStatus
+import kotlinx.coroutines.delay
 
 /**
  * The full voice/text conversation surface — MASTER_SPEC.md §11, §23. Reached from
@@ -124,8 +130,12 @@ fun ConversationScreen(
         viewModel.onStartRequest(initialText, submitInitialText, listenOnStart)
     }
 
+    // With animations off (or Lightweight mode) the newest message is jumped to, not scrolled to.
+    val reduceMotion = zarvisReduceMotion()
     LaunchedEffect(uiState.turns.size) {
-        if (uiState.turns.isNotEmpty()) listState.animateScrollToItem(uiState.turns.size - 1)
+        if (uiState.turns.isNotEmpty()) {
+            if (reduceMotion) listState.scrollToItem(uiState.turns.size - 1) else listState.animateScrollToItem(uiState.turns.size - 1)
+        }
     }
 
     // Back while the microphone is open stops listening first, instead of leaving the chat with the mic still on.
@@ -200,23 +210,33 @@ fun ConversationScreen(
                 ChatTitle(modifier = Modifier.padding(horizontal = ZarvisSpacing.md))
             }
             uiState.deleteOutcome?.let { outcome ->
-                ChatNoticeCard(
+                QueenNoticeCard(
                     text = tr(if (outcome == ChatDeleteOutcome.DELETED) UiString.CHAT_DELETED else UiString.CHAT_DELETE_FAILED),
-                    isProblem = outcome == ChatDeleteOutcome.FAILED,
+                    dismissLabel = tr(UiString.COMMON_OK),
                     onDismiss = viewModel::dismissDeleteOutcome,
+                    tone = if (outcome == ChatDeleteOutcome.FAILED) QueenNoticeTone.PROBLEM else QueenNoticeTone.SUCCESS,
+                    modifier = Modifier.padding(horizontal = ZarvisSpacing.pageGutter, vertical = ZarvisSpacing.xs),
                 )
             }
             uiState.interrupted?.let { action ->
                 // Board A22: an edged card in the primary. Nothing was done; Continue runs the request through access and confirmation again.
                 GlassSurface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md),
-                    shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.pageGutter, vertical = ZarvisSpacing.xs).semantics { liveRegion = LiveRegionMode.Polite },
+                    shape = ZarvisCorners.featureCard,
                     borderColor = ZarvisAccents.primary.copy(alpha = 0.6f),
                     tint = GlassColors.surfaceTintElevated,
                 ) {
-                    Text(tr(UiString.CHAT_INTERRUPTED_TITLE), style = MaterialTheme.typography.titleSmall, color = ZarvisAccents.primary)
-                    Text("\"${action.utterance}\"", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = ZarvisSpacing.sm))
-                    Text(tr(UiString.CHAT_INTERRUPTED_BODY), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = ZarvisSpacing.sm))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap)) {
+                        QueenIconTile(icon = ZarvisIcons.Clock, tint = ZarvisAccents.primary, size = 32.dp)
+                        Text(tr(UiString.CHAT_INTERRUPTED_TITLE), style = MaterialTheme.typography.titleSmall, color = ZarvisAccents.primary, modifier = Modifier.weight(1f))
+                    }
+                    Text("\"${action.utterance}\"", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = ZarvisSpacing.gap))
+                    Text(
+                        tr(UiString.CHAT_INTERRUPTED_BODY),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = ZarvisSpacing.xs),
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), modifier = Modifier.padding(top = 14.dp)) {
                         ZarvisPrimaryButton(text = tr(UiString.CHAT_CONTINUE), onClick = viewModel::resumeInterrupted)
                         ZarvisSecondaryButton(text = tr(UiString.CHAT_DISMISS), onClick = viewModel::dismissInterrupted)
@@ -224,7 +244,12 @@ fun ConversationScreen(
                 }
             }
             uiState.notice?.let { notice ->
-                ChatNoticeCard(text = notice, isProblem = false, onDismiss = viewModel::dismissNotice)
+                QueenNoticeCard(
+                    text = notice,
+                    dismissLabel = tr(UiString.COMMON_OK),
+                    onDismiss = viewModel::dismissNotice,
+                    modifier = Modifier.padding(horizontal = ZarvisSpacing.pageGutter, vertical = ZarvisSpacing.xs),
+                )
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().weight(1f),
@@ -269,8 +294,14 @@ fun ConversationScreen(
             // next message can already be typed: sending it ends the voice first (ConversationViewModel.runTurn).
             val turnInFlight = uiState.progress != null ||
                 uiState.voiceState == VoiceState.UNDERSTANDING || uiState.voiceState == VoiceState.PLANNING || uiState.voiceState == VoiceState.EXECUTING
+            // The input dock: a raised strip with a hairline on top, so the field stays apart from the messages scrolling above it.
+            val dockLine = GlassColors.border
             Column(
-                modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.md),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                    .drawBehind { drawRect(dockLine, size = size.copy(height = 1.dp.toPx())) }
+                    .padding(horizontal = ZarvisSpacing.pageGutter, vertical = ZarvisSpacing.gap),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm),
             ) {
@@ -298,6 +329,10 @@ fun ConversationScreen(
                 }
                 // The field and, next to it, the orb: it is the microphone, and it shows what ZARVIS is doing.
                 val toggleMic = { if (uiState.voiceState == VoiceState.LISTENING) viewModel.cancelListening() else viewModel.startListening() }
+                // The photo button sends "Describe a photo": the system photo picker opens, and only the one photo chosen there is sent
+                // to ZARVIS to be described (the photos.describe_photo skill says so in its reply). Off while a request is on its way or
+                // the microphone is on.
+                val canAttach = !turnInFlight && uiState.voiceState != VoiceState.LISTENING
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
                     ZarvisComposer(
                         value = uiState.composerText,
@@ -307,6 +342,11 @@ fun ConversationScreen(
                         placeholder = tr(UiString.CHAT_COMPOSER_HINT),
                         enabled = !turnInFlight,
                         showMic = false,
+                        leading = {
+                            IconButton(onClick = { viewModel.submitInitialText(ChatRequests.DESCRIBE_PHOTO) }, enabled = canAttach) {
+                                Icon(imageVector = ZarvisIcons.Image, contentDescription = tr(UiString.CHAT_ATTACH_PHOTO))
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                     )
                     AiOrb(state = uiState.voiceState, size = 64.dp, onClick = toggleMic)
@@ -340,31 +380,6 @@ private fun ChatTitle(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * A note at the top of the chat (the chat was deleted, or could not be; a message from the app) with OK to put it away. A problem is
- * edged in rose. Read out once when it appears.
- */
-@Composable
-private fun ChatNoticeCard(text: String, isProblem: Boolean, onDismiss: () -> Unit) {
-    GlassSurface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md).semantics { liveRegion = LiveRegionMode.Polite },
-        shape = RoundedCornerShape(18.dp),
-        borderColor = if (isProblem) ZarvisAccents.danger.copy(alpha = 0.45f) else ZarvisAccents.primary.copy(alpha = 0.35f),
-        contentPadding = 12.dp,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-            Icon(
-                imageVector = if (isProblem) ZarvisIcons.Alert else ZarvisIcons.Check,
-                contentDescription = null,
-                tint = if (isProblem) ZarvisAccents.danger else ZarvisAccents.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) { Text(tr(UiString.COMMON_OK), fontWeight = FontWeight.Bold) }
-        }
-    }
-}
-
 /** ZARVIS's avatar: a small sphere on the action gradient, lit from the top left like the orb. Decoration only. */
 @Composable
 private fun ZarvisAvatar(diameter: Dp) {
@@ -386,11 +401,11 @@ private fun ZarvisAvatar(diameter: Dp) {
 private fun ListeningCard(onCancel: () -> Unit) {
     GlassSurface(
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-        shape = RoundedCornerShape(22.dp),
+        shape = ZarvisCorners.featureCard,
         borderColor = ZarvisAccents.cyan.copy(alpha = 0.55f),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-            Icon(imageVector = ZarvisIcons.Mic, contentDescription = null, tint = ZarvisAccents.cyan, modifier = Modifier.size(20.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap)) {
+            QueenIconTile(icon = ZarvisIcons.Mic, tint = ZarvisAccents.cyan, size = 32.dp)
             Text(tr(UiString.VOICE_SPEAK_NOW), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
         Text(
@@ -406,9 +421,9 @@ private fun ListeningCard(onCancel: () -> Unit) {
 /** A reply is being read aloud: say so, with Stop. */
 @Composable
 private fun SpeakingCard(onStop: () -> Unit) {
-    GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), borderColor = ZarvisAccents.primary.copy(alpha = 0.45f)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
-            Icon(imageVector = ZarvisIcons.Wave, contentDescription = null, tint = ZarvisAccents.primary, modifier = Modifier.size(20.dp))
+    GlassSurface(modifier = Modifier.fillMaxWidth(), shape = ZarvisCorners.featureCard, borderColor = ZarvisAccents.primary.copy(alpha = 0.45f), contentPadding = ZarvisSpacing.gap) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.gap)) {
+            QueenIconTile(icon = ZarvisIcons.Wave, tint = ZarvisAccents.primary, size = 32.dp)
             Text(
                 tr(UiString.CHAT_STATE_SPEAKING),
                 style = MaterialTheme.typography.bodyMedium,
@@ -420,6 +435,31 @@ private fun SpeakingCard(onStop: () -> Unit) {
     }
 }
 
+/** Copy, for one reply: puts [text] on this phone's clipboard, and for a moment says Copied (read out once) with a tick. */
+@Composable
+private fun CopyReplyAction(text: String) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember(text) { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(COPIED_FOR_MS)
+            copied = false
+        }
+    }
+    QueenOutlineAction(
+        label = tr(if (copied) UiString.COMMON_COPIED else UiString.COMMON_COPY),
+        onClick = {
+            clipboard.setText(AnnotatedString(text))
+            copied = true
+        },
+        icon = if (copied) ZarvisIcons.Check else ZarvisIcons.Copy,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    )
+}
+
+private const val COPIED_FOR_MS = 1_500L
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TurnBubble(
     turn: ConversationTurn,
@@ -437,8 +477,8 @@ private fun TurnBubble(
                     .align(Alignment.End)
                     .fillMaxWidth(0.88f)
                     .wrapContentWidth(Alignment.End)
-                    .background(zarvisActionBrush(), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomEnd = 6.dp, bottomStart = 22.dp))
-                    .padding(horizontal = 15.dp, vertical = 11.dp),
+                    .background(zarvisActionBrush(), ZarvisCorners.sentBubble)
+                    .padding(horizontal = 16.dp, vertical = 11.dp),
             ) {
                 Text(text = turn.userText, style = MaterialTheme.typography.bodyLarge, color = Color.White)
             }
@@ -457,20 +497,24 @@ private fun TurnBubble(
                 val failed = turn.status == ToolResultStatus.FAILED
                 GlassSurface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(topStart = 6.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 22.dp),
+                    shape = ZarvisCorners.replyBubble,
                     borderColor = if (failed) ZarvisAccents.danger.copy(alpha = 0.5f) else GlassColors.border,
                     contentPadding = 14.dp,
                 ) {
                     MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)
                 }
-                if (onReadAloud != null || onRetry != null) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                // Copy puts the reply's text on the clipboard (with its Markdown marks, as ZARVIS wrote it) and says Copied for a moment.
+                // Only on the user's tap; a failure's text is not offered.
+                val canCopy = !failed && turn.assistantText.isNotBlank()
+                if (onReadAloud != null || onRetry != null || canCopy) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.xs)) {
                         if (onReadAloud != null) {
                             // The visible words, in the app's language, are what TalkBack reads (tr() is composable: read here, not in a
                             // semantics block).
                             val readAloudLabel = tr(if (isReadingReply) UiString.VOICE_STOP else UiString.VOICE_READ_ALOUD)
                             QueenOutlineAction(label = readAloudLabel, onClick = onReadAloud, icon = if (isReadingReply) ZarvisIcons.Stop else ZarvisIcons.Wave)
                         }
+                        if (canCopy) CopyReplyAction(text = turn.assistantText)
                         // Sends the same message again under the same id: a turn the server already finished is shown from its stored result.
                         if (onRetry != null) {
                             val described = trf(UiString.CHAT_RETRY_NAMED, turn.userText.take(60))
@@ -548,7 +592,7 @@ private fun PendingReply(progress: ChatProgress, modifier: Modifier = Modifier) 
         }
         GlassSurface(
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            shape = RoundedCornerShape(topStart = 6.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 22.dp),
+            shape = ZarvisCorners.replyBubble,
             borderColor = ZarvisAccents.primary.copy(alpha = 0.45f),
             contentPadding = 14.dp,
         ) {

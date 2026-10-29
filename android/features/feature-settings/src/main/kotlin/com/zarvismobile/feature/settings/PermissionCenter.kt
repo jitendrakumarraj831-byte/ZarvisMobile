@@ -2,6 +2,7 @@
 
 package com.zarvismobile.feature.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -35,6 +35,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.QueenNoticeCard
 import com.zarvismobile.core.ui.components.RiskBadge
 import com.zarvismobile.core.ui.components.RiskBadgeLevel
 import com.zarvismobile.core.ui.components.ZarvisBackground
@@ -61,7 +62,9 @@ import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.components.ZarvisGhostButton
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.icons.ZarvisIcons
+import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisAccents
+import com.zarvismobile.core.ui.theme.ZarvisCorners
 import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.domain.access.AccessGroup
@@ -194,17 +197,12 @@ fun PermissionCenterScreen(onBack: () -> Unit, viewModel: PermissionCenterViewMo
                 )
             }
             state.message?.let { message ->
-                item {
-                    GlassSurface(Modifier.fillMaxWidth(), borderColor = ZarvisAccents.primary.copy(alpha = 0.35f)) {
-                        Text(message, style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
-                    }
-                }
+                item { QueenNoticeCard(text = message, dismissLabel = "OK", onDismiss = viewModel::dismissMessage) }
             }
             AccessGroup.entries.forEach { group ->
                 val rows = groups[group].orEmpty()
                 if (rows.isNotEmpty()) {
-                    item(key = "group-${group.name}") { SectionKicker(text = group.label, modifier = Modifier.padding(top = ZarvisSpacing.sm)) }
+                    item(key = "group-${group.name}") { SectionKicker(text = "${group.label} · ${rows.size}", modifier = Modifier.padding(top = ZarvisSpacing.sm)) }
                     items(rows, key = { it.definition.id.wireId }) { row ->
                         CapabilityCard(row, onAllow = { viewModel.allow(row.definition.id) }, onOpenSettings = { viewModel.openAndroidSettings(row.definition.id) })
                     }
@@ -218,7 +216,8 @@ fun PermissionCenterScreen(onBack: () -> Unit, viewModel: PermissionCenterViewMo
 private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettings: () -> Unit) {
     val capability = row.definition
     var expanded by rememberSaveable(capability.id.wireId) { mutableStateOf(false) }
-    GlassSurface(Modifier.fillMaxWidth()) {
+    // A capability waiting on the user is edged in amber, so it is found first in a long list (its words say why).
+    GlassSurface(Modifier.fillMaxWidth(), borderColor = if (row.needsAccess) ZarvisAccents.warning.copy(alpha = 0.45f) else GlassColors.border) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
                 Text(capability.name, style = ZarvisProStyles.rowTitle, modifier = Modifier.weight(1f))
@@ -257,7 +256,14 @@ private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettin
                 ZarvisGhostButton(text = if (expanded) "Less" else "Learn more", onClick = { expanded = !expanded })
             }
             if (expanded) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .fillMaxWidth()
+                        .background(ZarvisAccents.primary.copy(alpha = 0.06f), ZarvisCorners.note)
+                        .padding(ZarvisSpacing.gap),
+                ) {
                     Detail("Why", capability.rationale.why)
                     Detail("What data", capability.rationale.data)
                     Detail("What ZARVIS won't do automatically", capability.rationale.notAutomatic)
