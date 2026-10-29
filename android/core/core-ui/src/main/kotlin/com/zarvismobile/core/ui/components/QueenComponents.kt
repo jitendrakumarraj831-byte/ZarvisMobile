@@ -58,6 +58,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.LocalZarvisExtras
@@ -84,6 +86,7 @@ import com.zarvismobile.core.ui.theme.ZarvisRose
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.core.ui.theme.zarvisAuroraBrush
 import com.zarvismobile.core.ui.theme.zarvisReduceMotion
+import com.zarvismobile.domain.presentation.UiString
 
 /*
  * The Queen theme's shared pieces (ANDROID_QUEEN_DESIGN.md): the crown, gold lettering, the small section label, jewel icon
@@ -483,7 +486,8 @@ fun QueenIconTile(icon: ImageVector, tint: Color, modifier: Modifier = Modifier,
 
 /**
  * One row (Queen Pro): an optional icon tile, the [title] and one line of [detail], then [trailing] on the right (a switch, a chip,
- * a button). At least 64dp tall. With [onClick] the whole row is one button and shows a chevron after [trailing].
+ * a button). At least 64dp tall. With [onClick] the whole row is one button and shows a chevron after [trailing]. [titleMaxLines]
+ * clips a title that comes from the user or the server (a task's goal) so one long entry cannot take over a list.
  */
 @Composable
 fun QueenRow(
@@ -494,6 +498,7 @@ fun QueenRow(
     iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    titleMaxLines: Int = Int.MAX_VALUE,
     below: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val tap = if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier
@@ -504,7 +509,13 @@ fun QueenRow(
     ) {
         if (icon != null) QueenIconTile(icon = icon, tint = iconTint)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(text = title, style = ZarvisProStyles.rowTitle, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                text = title,
+                style = ZarvisProStyles.rowTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = titleMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
             if (detail != null) {
                 Text(text = detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -530,6 +541,76 @@ fun QueenNote(text: String, modifier: Modifier = Modifier, icon: ImageVector = Z
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (title != null) Text(text = title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Text(text = text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * One line that something did not work (an action failed, the microphone could not start), in the theme's danger colour with the
+ * alert icon, on a soft rose wash. Not a load failure with Try again (that is [QueenErrorCard]). A polite live region, so TalkBack
+ * reads it when it appears.
+ */
+@Composable
+fun QueenInlineError(text: String, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(14.dp)
+    val danger = ZarvisAccents.danger
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .background(danger.copy(alpha = 0.08f), shape)
+            .border(1.dp, danger.copy(alpha = 0.3f), shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(imageVector = ZarvisIcons.Alert, contentDescription = null, tint = danger, modifier = Modifier.padding(top = 1.dp).size(18.dp))
+        Text(text = text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * A row of a [QueenListCard] that opens in place to show [content] (detail that would crowd the page if it were always shown). The
+ * whole row is the toggle; TalkBack hears whether it is expanded. [expanded] is the caller's, so it survives what the caller saves.
+ */
+@Composable
+fun QueenExpandableRow(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    // Read here, not in the semantics block: tr() is composable.
+    val state = tr(if (expanded) UiString.COMMON_EXPANDED else UiString.COMMON_COLLAPSED)
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .clickable(role = Role.Button, onClick = onToggle)
+                .semantics { stateDescription = state }
+                .padding(horizontal = ZarvisSpacing.md, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null) QueenIconTile(icon = icon, tint = iconTint, size = 32.dp)
+            Text(text = title, style = ZarvisProStyles.rowTitle, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            Icon(
+                imageVector = if (expanded) ZarvisIcons.Up else ZarvisIcons.Down,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(start = ZarvisSpacing.md, end = ZarvisSpacing.md, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                content = content,
+            )
         }
     }
 }

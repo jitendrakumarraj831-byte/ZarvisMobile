@@ -433,7 +433,7 @@ class ConversationReadAloudTest {
         vm.stopSpeaking()
 
         waitFor("the request to be cancelled") { call.cancelled }
-        // Not left on Done: the composer is enabled only once the chat is idle again.
+        // Not left on Done: the chat is idle again.
         waitFor("the chat to be ready") { vm.state.voiceState == VoiceState.IDLE }
         assertNull(vm.state.readingReply)
         assertNull(vm.state.progress)

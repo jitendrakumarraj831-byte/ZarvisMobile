@@ -112,10 +112,19 @@ fun SettingsScreen(
     // Saveable, so turning the phone keeps the page and an open "Delete your account?" question.
     val startPage = if (openPhoneSafety) SettingsPage.PhoneSafety else null
     var page by rememberSaveable { mutableStateOf(startPage) }
+    // A page opened from another page (Notifications › Open Permissions & Device Access): Back returns there, not to the list.
+    var returnTo by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
     var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
 
-    val goBack: () -> Unit = { if (startPage != null && page == startPage) onBack() else page = null }
+    val goBack: () -> Unit = {
+        val previous = returnTo
+        when {
+            previous != null -> { page = previous; returnTo = null }
+            startPage != null && page == startPage -> onBack()
+            else -> page = null
+        }
+    }
     // System Back on a settings page returns to the settings list, like the on-screen back arrow (or out, from the page it opened on).
     BackHandler(enabled = page != null, onBack = goBack)
 
@@ -183,20 +192,20 @@ fun SettingsScreen(
             ReadOnlyCard(tr(UiString.APPEARANCE_MOTION_TITLE), tr(UiString.APPEARANCE_MOTION_BODY), ZarvisAccentCyan)
         }
         SettingsPage.Ai -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("AI orchestration", "The existing AndroidOrchestrator and backend API remain the source of AI behavior. There is no client-side model/provider selector in this build.", ZarvisAccentViolet)
+            ReadOnlyCard("Where answers come from", "ZARVIS's server chooses the AI model for each request. There is no model or provider picker in the app.", ZarvisAccentViolet)
             ReadOnlyCard("Turn state", "The orb shows Listening while the microphone is on, Working while ZARVIS processes a request, and Speaking only while audio is actually playing.", ZarvisAccentCyan)
         }
         SettingsPage.Notifications -> SettingsSubPage(selected, goBack) {
             NotificationSettingsContent()
             ReadOnlyCard("ZARVIS's own reminders", "Reminders post an Android notification at the time you set. Android 13+ asks for notification permission; on Android 8–12 the app's notification switch in Android Settings controls it.", ZarvisAccentPink)
-            ZarvisSecondaryButton("Open Permissions & Device Access", onClick = { page = SettingsPage.Permissions })
+            ZarvisSecondaryButton("Open Permissions & Device Access", onClick = { returnTo = SettingsPage.Notifications; page = SettingsPage.Permissions })
         }
         SettingsPage.Privacy -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Privacy boundary", "Authenticated backend data and task/usage records stay behind the existing API. Provider credentials are not stored in the app.", ZarvisAccentViolet)
+            ReadOnlyCard("What stays private", "Your tasks, usage records and account data stay on ZARVIS's server, behind your sign-in. Keys for AI providers are never stored in the app.", ZarvisAccentViolet)
             AccountDeleteCard(deleteStatus) { showDeleteConfirmation = true }
         }
         SettingsPage.Security -> SettingsSubPage(selected, goBack) {
-            ReadOnlyCard("Secure storage", "Access and refresh tokens use Android Keystore-backed EncryptedSharedPreferences. Refresh tokens rotate on every use; a replayed token ends the session.", ZarvisAccentCyan)
+            ReadOnlyCard("Secure sign-in", "Your sign-in is kept encrypted by Android's secure keystore. It is renewed each time the app uses it, and if an old copy is ever used again, ZARVIS ends the session to protect you.", ZarvisAccentCyan)
             GlassSurface(Modifier.fillMaxWidth()) {
                 Text(tr(UiString.SIGN_OUT), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(tr(UiString.SIGN_OUT_CARD_BODY), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -218,9 +227,9 @@ fun SettingsScreen(
         }
         SettingsPage.Developer -> SettingsSubPage(selected, goBack) {
             GlassSurface(Modifier.fillMaxWidth()) {
-                Text("Developer Agent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Open the existing Developer Agent repository-analysis flow.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ZarvisSecondaryButton("Open Developer Agent", onClick = onDeveloper)
+                Text(tr(UiString.WORK_DEVELOPER_TITLE), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(tr(UiString.DEV_INTRO), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ZarvisSecondaryButton(trf(UiString.COMMON_OPEN_NAMED, tr(UiString.WORK_DEVELOPER_TITLE)), onClick = onDeveloper)
             }
         }
     }

@@ -175,10 +175,13 @@ fun HomeScreen(
                             uiState.tasks.isNotEmpty() -> uiState.tasks.take(3).forEachIndexed { index, task ->
                                 if (index > 0) QueenRowDivider()
                                 val tone = StatusLabels.taskTone(task.status, task.lifecycle)
+                                // Opens Tasks, where the task's controls are; a long goal is cut at two lines here.
                                 QueenRow(
                                     title = task.goal,
                                     icon = ZarvisIcons.Task,
                                     iconTint = toneColor(tone),
+                                    titleMaxLines = 2,
+                                    onClick = onNavigateToTasks,
                                     trailing = { StatusBadge(label = StatusLabels.taskText(task.status, task.lifecycle, locale), tone = tone) },
                                 )
                             }

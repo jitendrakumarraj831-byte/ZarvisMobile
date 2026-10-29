@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,6 +60,7 @@ import com.zarvismobile.core.ui.components.QueenPageHeader
 import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.components.ZarvisGhostButton
 import com.zarvismobile.core.ui.i18n.tr
+import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
@@ -221,13 +224,23 @@ private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettin
                 Text(capability.name, style = ZarvisProStyles.rowTitle, modifier = Modifier.weight(1f))
                 RiskBadge(level = RiskBadgeLevel.valueOf(capability.risk.name))
             }
-            Text(
-                row.accessSummary,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (row.granted) ZarvisAccents.success else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { contentDescription = "${capability.name}: ${row.accessSummary}" },
-            )
+            // The state in words, led by an icon in its tone (allowed, needs you, nothing to allow), so the list reads at a glance.
+            val (stateIcon, stateTint) = when {
+                row.granted -> ZarvisIcons.Check to ZarvisAccents.success
+                row.needsAccess -> ZarvisIcons.Alert to ZarvisAccents.warning
+                row.states.isEmpty() && capability.implementedOnAndroid -> ZarvisIcons.Shield to ZarvisAccents.primary
+                else -> ZarvisIcons.Lock to MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
+                Icon(imageVector = stateIcon, contentDescription = null, tint = stateTint, modifier = Modifier.padding(top = 2.dp).size(16.dp))
+                Text(
+                    row.accessSummary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (row.granted) ZarvisAccents.success else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f).semantics { contentDescription = "${capability.name}: ${row.accessSummary}" },
+                )
+            }
             Text(
                 "Android: ${statusLabel(capability.android.status)} · Web: ${statusLabel(capability.web.status)}",
                 style = MaterialTheme.typography.labelMedium,

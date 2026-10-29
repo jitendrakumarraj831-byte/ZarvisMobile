@@ -71,13 +71,13 @@ import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.GlowColorsFor
 import com.zarvismobile.core.ui.components.QueenBackButton
 import com.zarvismobile.core.ui.components.QueenConfirmDialog
+import com.zarvismobile.core.ui.components.QueenInlineError
 import com.zarvismobile.core.ui.components.QueenOutlineAction
 import com.zarvismobile.core.ui.components.ZarvisChip
 import com.zarvismobile.core.ui.components.StatusBadge
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
 import com.zarvismobile.core.ui.components.MarkdownText
-import com.zarvismobile.core.ui.components.ZarvisCard
 import com.zarvismobile.core.ui.components.ZarvisComposer
 import com.zarvismobile.core.ui.components.StatusPulseBadge
 import com.zarvismobile.core.ui.components.VoiceState
@@ -200,13 +200,11 @@ fun ConversationScreen(
                 ChatTitle(modifier = Modifier.padding(horizontal = ZarvisSpacing.md))
             }
             uiState.deleteOutcome?.let { outcome ->
-                ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
-                    Text(
-                        tr(if (outcome == ChatDeleteOutcome.DELETED) UiString.CHAT_DELETED else UiString.CHAT_DELETE_FAILED),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    TextButton(onClick = viewModel::dismissDeleteOutcome) { Text(tr(UiString.COMMON_OK)) }
-                }
+                ChatNoticeCard(
+                    text = tr(if (outcome == ChatDeleteOutcome.DELETED) UiString.CHAT_DELETED else UiString.CHAT_DELETE_FAILED),
+                    isProblem = outcome == ChatDeleteOutcome.FAILED,
+                    onDismiss = viewModel::dismissDeleteOutcome,
+                )
             }
             uiState.interrupted?.let { action ->
                 // Board A22: an edged card in the primary. Nothing was done; Continue runs the request through access and confirmation again.
@@ -226,10 +224,7 @@ fun ConversationScreen(
                 }
             }
             uiState.notice?.let { notice ->
-                ZarvisCard(modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md)) {
-                    Text(notice, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = viewModel::dismissNotice) { Text(tr(UiString.COMMON_OK)) }
-                }
+                ChatNoticeCard(text = notice, isProblem = false, onDismiss = viewModel::dismissNotice)
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().weight(1f),
@@ -262,6 +257,18 @@ fun ConversationScreen(
                 }
             }
 
+            // A failed reply already says what went wrong in its own bubble (with Try again when that can help): the line above the
+            // field and the "Something went wrong" pill would only say it a second and a third time. Other errors (the microphone, the
+            // voice) have no bubble, so they get the line, and the pill stays quiet while it is shown.
+            val lastTurn = uiState.turns.lastOrNull()
+            val failureInBubble = uiState.error != null && lastTurn?.status == ToolResultStatus.FAILED && lastTurn.assistantText == uiState.error
+            val inlineError = uiState.error.takeUnless { failureInBubble }
+            val showStatusPill = uiState.voiceState != VoiceState.IDLE &&
+                !(uiState.voiceState == VoiceState.ERROR && (failureInBubble || inlineError != null))
+            // Off only while a request is on its way (one turn at a time). During the Done flash and while a reply is read aloud the
+            // next message can already be typed: sending it ends the voice first (ConversationViewModel.runTurn).
+            val turnInFlight = uiState.progress != null ||
+                uiState.voiceState == VoiceState.UNDERSTANDING || uiState.voiceState == VoiceState.PLANNING || uiState.voiceState == VoiceState.EXECUTING
             Column(
                 modifier = Modifier.fillMaxWidth().padding(ZarvisSpacing.md),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -272,14 +279,14 @@ fun ConversationScreen(
                     VoiceState.LISTENING -> ListeningCard(onCancel = viewModel::cancelListening)
                     // Only while audio really plays; Stop ends it and keeps the reply as text.
                     VoiceState.SPEAKING -> SpeakingCard(onStop = viewModel::stopSpeaking)
-                    else -> AnimatedVisibility(visible = uiState.voiceState != VoiceState.IDLE) {
+                    else -> AnimatedVisibility(visible = showStatusPill) {
                         StatusPulseBadge(
                             label = uiState.progress?.let { progressText(it) } ?: statusText(uiState.voiceState),
                             glowColor = GlowColorsFor(uiState.voiceState),
                         )
                     }
                 }
-                uiState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                inlineError?.let { QueenInlineError(text = it) }
                 // Not an error (the microphone heard nothing): said quietly, and read out once.
                 uiState.hint?.let {
                     Text(
@@ -298,7 +305,7 @@ fun ConversationScreen(
                         onSubmit = viewModel::submitComposerText,
                         onMicClick = toggleMic,
                         placeholder = tr(UiString.CHAT_COMPOSER_HINT),
-                        enabled = uiState.voiceState == VoiceState.IDLE || uiState.voiceState == VoiceState.LISTENING || uiState.voiceState == VoiceState.ERROR,
+                        enabled = !turnInFlight,
                         showMic = false,
                         modifier = Modifier.weight(1f),
                     )
@@ -329,6 +336,31 @@ private fun ChatTitle(modifier: Modifier = Modifier) {
         Column(modifier = Modifier.semantics(mergeDescendants = true) { heading() }) {
             Text(text = tr(UiString.CHAT_TITLE), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
             Text(text = tr(UiString.CHAT_LANGUAGE_CAPTION), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * A note at the top of the chat (the chat was deleted, or could not be; a message from the app) with OK to put it away. A problem is
+ * edged in rose. Read out once when it appears.
+ */
+@Composable
+private fun ChatNoticeCard(text: String, isProblem: Boolean, onDismiss: () -> Unit) {
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ZarvisSpacing.md).semantics { liveRegion = LiveRegionMode.Polite },
+        shape = RoundedCornerShape(18.dp),
+        borderColor = if (isProblem) ZarvisAccents.danger.copy(alpha = 0.45f) else ZarvisAccents.primary.copy(alpha = 0.35f),
+        contentPadding = 12.dp,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
+            Icon(
+                imageVector = if (isProblem) ZarvisIcons.Alert else ZarvisIcons.Check,
+                contentDescription = null,
+                tint = if (isProblem) ZarvisAccents.danger else ZarvisAccents.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) { Text(tr(UiString.COMMON_OK), fontWeight = FontWeight.Bold) }
         }
     }
 }
@@ -421,9 +453,12 @@ private fun TurnBubble(
                     turn.status?.let { status -> StatusBadge(label = statusChip(status), tone = statusTone(status)) }
                 }
                 // The reply as the website draws it: headings, lists, links and code are formatted, not shown as raw symbols.
+                // A failure is edged in rose, so it reads as one at a glance (the badge above says it in words).
+                val failed = turn.status == ToolResultStatus.FAILED
                 GlassSurface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(topStart = 6.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 22.dp),
+                    borderColor = if (failed) ZarvisAccents.danger.copy(alpha = 0.5f) else GlassColors.border,
                     contentPadding = 14.dp,
                 ) {
                     MarkdownText(text = turn.assistantText, style = MaterialTheme.typography.bodyLarge)

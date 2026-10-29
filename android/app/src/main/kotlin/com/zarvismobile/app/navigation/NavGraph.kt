@@ -8,9 +8,13 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
@@ -88,17 +92,21 @@ fun ZarvisNavGraph(startAtOnboarding: Boolean) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val navItems = bottomNavItems()
-    // The screens opened from the Work tab keep it highlighted (and the tab bar visible) while they are open.
-    val selectedRoute = when (currentRoute) {
-        Routes.METRICS, Routes.TASKS, Routes.MEMORY -> Routes.MORE
-        else -> currentRoute ?: Routes.HOME
-    }
+    // Every page opened from a tab (Work › Memory, Home › Settings, Skills › a capability, Plans, Developer Agent…) keeps the tab bar,
+    // with the tab it was opened from highlighted, so the bar never comes and goes depending on the way in. The tab is the last tab
+    // that was in front: a page is only ever opened from a tab or from a page opened from one. Saveable, for process death.
+    var originTab by rememberSaveable { mutableStateOf(Routes.HOME) }
+    val onTab = navItems.any { it.route == currentRoute }
+    LaunchedEffect(currentRoute) { if (onTab && currentRoute != null) originTab = currentRoute }
+    val selectedRoute = if (onTab && currentRoute != null) currentRoute else originTab
+    // Full-screen: the welcome pages, and a conversation opened from a page (it has its own Back and the composer at the bottom).
+    val fullScreen = currentRoute == null || currentRoute == Routes.ONBOARDING || currentRoute.startsWith("${Routes.CONVERSATION}?")
     // The tab bar sits behind the keyboard, so while typing it is only dead space between the composer and the keys: hide it.
     // derivedStateOf: the graph recomposes when the keyboard opens or closes, not on every frame of its slide.
     val density = LocalDensity.current
     val imeInsets = WindowInsets.ime
     val keyboardOpen by remember { derivedStateOf { imeInsets.getBottom(density) > 0 } }
-    val showBottomBar = navItems.any { it.route == selectedRoute } && !keyboardOpen
+    val showBottomBar = !fullScreen && !keyboardOpen
 
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,

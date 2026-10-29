@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.QueenEmptyState
 import com.zarvismobile.core.ui.components.QueenErrorCard
+import com.zarvismobile.core.ui.components.QueenInlineError
 import com.zarvismobile.core.ui.components.QueenPageHeader
 import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.components.StatusBadge
@@ -110,7 +111,7 @@ fun TasksScreen(
                 item { QueenErrorCard(message = tr(UiString.TASKS_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh) }
             }
             if (uiState.actionFailed) {
-                item { Text(text = tr(UiString.TASKS_ACTION_ERROR), color = MaterialTheme.colorScheme.error) }
+                item { QueenInlineError(text = tr(UiString.TASKS_ACTION_ERROR)) }
             }
 
             TaskGroup.entries.forEach { group ->

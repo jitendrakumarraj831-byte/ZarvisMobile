@@ -111,7 +111,7 @@ class ShellScreenshotTest {
                         settle()
                         photograph(folder, "$look-$language-$name")
                         taken++
-                        // Settings and Plans hide the tab bar: go back to Work the way a user would.
+                        // Go back to Work the way a user would.
                         Device.ui.pressBack()
                         compose.waitForIdle()
                     }
