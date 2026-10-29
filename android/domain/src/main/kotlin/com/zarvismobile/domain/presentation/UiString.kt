@@ -41,6 +41,9 @@ enum class UiString(val en: String, val hi: String) {
     COMMON_SHOW_LESS("Show less", "कम दिखाएँ"),
     COMMON_EXPANDED("Expanded", "खुला हुआ"),
     COMMON_COLLAPSED("Collapsed", "बंद"),
+    COMMON_CLEAR_SEARCH("Clear search", "खोज साफ़ करें"),
+    COMMON_COPY("Copy", "कॉपी करें"),
+    COMMON_COPIED("Copied", "कॉपी हो गया"),
 
     // ---- Home -----------------------------------------------------------------------------
     HOME_TAGLINE("AI ASSISTANT", "AI असिस्टेंट"),
@@ -57,6 +60,11 @@ enum class UiString(val en: String, val hi: String) {
     HOME_SEE_ALL("See all", "सभी देखें"),
     HOME_PHONE_AGENT("Phone Agent", "फ़ोन एजेंट"),
     HOME_HEADLINE("What should we do?", "आज क्या करें?"),
+    HOME_GREETING_MORNING("Good morning", "सुप्रभात"),
+    HOME_GREETING_AFTERNOON("Good afternoon", "शुभ दोपहर"),
+    HOME_GREETING_EVENING("Good evening", "शुभ संध्या"),
+    HOME_AT_A_GLANCE("At a glance", "एक नज़र में"),
+    HOME_PHONE_ACTIONS("Phone actions", "फ़ोन एक्शन"),
     HOME_PHONE_AGENT_SHORT("Apps, contacts, confirmed calls, reminders", "ऐप, संपर्क, पुष्टि के बाद कॉल, रिमाइंडर"),
     HOME_PHONE_SAFETY_SHORT("Pause all, rules, what ZARVIS did", "रोकें, नियम, ZARVIS ने क्या किया"),
     HOME_PHONE_ACTIONS_ON("On", "चालू"),
@@ -170,6 +178,7 @@ enum class UiString(val en: String, val hi: String) {
     DEV_HAS_TESTS("Has tests", "टेस्ट हैं"),
     DEV_HAS_CI("Has CI", "CI है"),
     DEV_TOP_FOLDERS("Top-level folders", "ऊपरी फ़ोल्डर"),
+    DEV_REPORTS("What the analysis reports", "विश्लेषण क्या बताता है"),
 
     // ---- Usage & metrics ------------------------------------------------------------------
     METRICS_TITLE("Usage & metrics", "उपयोग और मेट्रिक्स"),
@@ -221,6 +230,8 @@ enum class UiString(val en: String, val hi: String) {
     ),
     // The Ask ZARVIS field on Home and in Chat.
     CHAT_COMPOSER_HINT("Ask ZARVIS anything…", "ZARVIS से कुछ भी पूछें…"),
+    // The photo button by the field sends ChatRequests.DESCRIBE_PHOTO; this is its name for TalkBack and its tooltip.
+    CHAT_ATTACH_PHOTO("Describe a photo", "फ़ोटो का वर्णन करें"),
     CHAT_STATE_IDLE("Tap the orb or type to start", "शुरू करने के लिए ऑर्ब दबाएँ या लिखें"),
     CHAT_STATE_LISTENING("Listening…", "सुन रहा है…"),
     CHAT_STATE_WORKING("Working…", "काम हो रहा है…"),
@@ -511,6 +522,8 @@ enum class UiString(val en: String, val hi: String) {
     // ---- Accessibility labels (read aloud by TalkBack) ------------------------------------------
     A11Y_SPEAK("Speak", "बोलें"),
     A11Y_SEND("Send", "भेजें"),
+    A11Y_SHOW_PASSWORD("Show password", "पासवर्ड दिखाएँ"),
+    A11Y_HIDE_PASSWORD("Hide password", "पासवर्ड छिपाएँ"),
     A11Y_ORB_IDLE("Tap to speak", "बोलने के लिए टैप करें"),
     A11Y_ORB_LISTENING("Listening", "सुन रहा है"),
     A11Y_ORB_UNDERSTANDING("Understanding your request", "आपका अनुरोध समझ रहा है"),
@@ -527,12 +540,12 @@ enum class UiString(val en: String, val hi: String) {
     APPEARANCE_DEFAULT_NOTE("Queen Dark is the default appearance.", "क्वीन डार्क डिफ़ॉल्ट दिखावट है।"),
     APPEARANCE_MOTION_TITLE("Animations", "एनिमेशन"),
     APPEARANCE_MOTION_BODY(
-        "On Home, the background's gold rays, glitter and stars move slowly; the other pages keep a still background. The glowing orb moves while ZARVIS is listening, working or speaking. Everything stands still when Lightweight mode or Android's \"Remove animations\" is on.",
-        "होम पर पृष्ठभूमि की सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं; बाकी पेजों की पृष्ठभूमि स्थिर रहती है। चमकता ऑर्ब तब हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो। हल्का मोड या Android में “एनिमेशन हटाएँ” चालू होने पर सब कुछ स्थिर रहता है।",
+        "On Home, the night sky's soft lights drift and its stars twinkle slowly; the other pages keep a still background. The glowing orb moves while ZARVIS is listening, working or speaking. Everything stands still when Lightweight mode or Android's \"Remove animations\" is on.",
+        "होम पर रात के आसमान की हल्की रोशनियाँ धीरे-धीरे तैरती हैं और सितारे टिमटिमाते हैं; बाकी पेजों की पृष्ठभूमि स्थिर रहती है। चमकता ऑर्ब तब हिलता है जब ZARVIS सुन रहा हो, काम कर रहा हो या बोल रहा हो। हल्का मोड या Android में “एनिमेशन हटाएँ” चालू होने पर सब कुछ स्थिर रहता है।",
     ),
     APPEARANCE_LITE_TITLE("Lightweight mode", "हल्का मोड"),
     APPEARANCE_LITE_ON("The background and the orb hold still", "पृष्ठभूमि और ऑर्ब स्थिर रहते हैं"),
-    APPEARANCE_LITE_OFF("On Home, gold rays, glitter and stars move slowly", "होम पर सुनहरी किरणें, चमक और सितारे धीरे-धीरे चलते हैं"),
+    APPEARANCE_LITE_OFF("On Home, the night sky and the orb move slowly", "होम पर रात का आसमान और ऑर्ब धीरे-धीरे चलते हैं"),
 
     // ---- Settings > Voice -----------------------------------------------------------------
     VOICE_INPUT_TITLE("Voice input", "वॉइस इनपुट"),

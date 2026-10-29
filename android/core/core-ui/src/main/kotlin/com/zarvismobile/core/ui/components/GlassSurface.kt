@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,6 +16,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.GlassColors
+import com.zarvismobile.core.ui.theme.ZarvisCorners
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
 /**
@@ -29,7 +29,7 @@ import com.zarvismobile.core.ui.theme.ZarvisSpacing
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(16.dp),
+    shape: Shape = ZarvisCorners.card,
     borderColor: Color = GlassColors.border,
     tint: Color = GlassColors.surfaceTint,
     contentPadding: Dp = ZarvisSpacing.md,

@@ -67,6 +67,7 @@ class PaletteContrastTest {
             "warning" to ZarvisWarningLight,
             "success" to ZarvisSuccessLight,
             "cyan accent" to LightExtras.accentCyan,
+            "blue accent" to LightExtras.accentBlue,
             "violet accent" to LightExtras.accentViolet,
             "pink accent" to LightExtras.accentPink,
             "gold accent" to LightExtras.accentGold,
@@ -84,6 +85,7 @@ class PaletteContrastTest {
             "warning" to ZarvisWarningDark,
             "success" to ZarvisSuccessDark,
             "cyan accent" to DarkExtras.accentCyan,
+            "blue accent" to DarkExtras.accentBlue,
             "violet accent" to DarkExtras.accentViolet,
             "pink accent" to DarkExtras.accentPink,
             "gold accent" to DarkExtras.accentGold,
@@ -115,7 +117,7 @@ class PaletteContrastTest {
     @Test
     fun `the bright brand fills are not text colours on the light page`() {
         // They exist for gradients and glows; readableAccent() swaps them for the ink shades when a screen uses one for words.
-        listOf(ZarvisAccentCyan, ZarvisAccentPink).forEach { assertTrue(ratio(it, ZarvisSurfaceLightElevated) < 4.5f) }
+        listOf(ZarvisAccentCyan, ZarvisAccentPink, ZarvisAccentBlue).forEach { assertTrue(ratio(it, ZarvisSurfaceLightElevated) < 4.5f) }
     }
 
     @Test
@@ -144,7 +146,7 @@ class PaletteContrastTest {
             DarkExtras.glass.compositeOver(ZarvisSpaceBlack),
             mapOf(
                 "active" to DarkExtras.accentCyan, "waiting" to DarkExtras.warning, "done" to DarkExtras.success, "problem" to DarkExtras.danger,
-                "violet" to DarkExtras.accentViolet, "pink" to DarkExtras.accentPink, "neutral" to ZarvisTextSecondaryDark,
+                "violet" to DarkExtras.accentViolet, "pink" to DarkExtras.accentPink, "blue" to DarkExtras.accentBlue, "neutral" to ZarvisTextSecondaryDark,
                 "primary" to DarkExtras.accentPrimary,
             ),
         )
@@ -153,7 +155,7 @@ class PaletteContrastTest {
             LightExtras.glass.compositeOver(ZarvisSurfaceLight),
             mapOf(
                 "active" to LightExtras.accentCyan, "waiting" to LightExtras.warning, "done" to LightExtras.success, "problem" to LightExtras.danger,
-                "violet" to LightExtras.accentViolet, "pink" to LightExtras.accentPink, "neutral" to ZarvisTextSecondaryLight,
+                "violet" to LightExtras.accentViolet, "pink" to LightExtras.accentPink, "blue" to LightExtras.accentBlue, "neutral" to ZarvisTextSecondaryLight,
                 "primary" to LightExtras.accentPrimary,
             ),
         )

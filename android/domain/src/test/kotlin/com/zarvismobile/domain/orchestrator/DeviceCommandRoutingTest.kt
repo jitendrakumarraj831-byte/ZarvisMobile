@@ -109,6 +109,8 @@ class DeviceCommandRoutingTest {
         assertEquals("photos.describe_photo", route("please describe this photo for me"))
         assertEquals("photos.describe_photo", route("what's in this photo"))
         assertEquals("photos.describe_photo", route("photo mein kya hai"))
+        // Chat's photo button sends exactly this, in every app language.
+        assertEquals("photos.describe_photo", route(com.zarvismobile.domain.presentation.ChatRequests.DESCRIBE_PHOTO))
         assertEquals("location.current", route("where am i"))
         assertEquals("location.current", route("meri location batao"))
         assertEquals("personal.reminder", route("remind me to call mom at 8pm"))

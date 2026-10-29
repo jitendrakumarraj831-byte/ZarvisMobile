@@ -2,6 +2,8 @@ package com.zarvismobile.core.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +38,7 @@ import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.LocalZarvisExtras
 import com.zarvismobile.core.ui.theme.ZarvisAccentBlue
 import com.zarvismobile.core.ui.theme.ZarvisAccentViolet
+import com.zarvismobile.core.ui.theme.zarvisReduceMotion
 
 /** One tab. */
 data class ZarvisNavItem(val route: String, val label: String, val icon: ImageVector)
@@ -44,7 +47,8 @@ data class ZarvisNavItem(val route: String, val label: String, val icon: ImageVe
  * The tab bar (Queen Pro): a flat bar across the bottom with five equal tabs and a hairline on top that glows violet and blue in its
  * middle. The current tab's icon sits on a violet → blue pill and its label turns the theme's primary and bolder, so the state is
  * never carried by colour alone; the others use the secondary text colour (4.5:1 or more). Every tab is one 56dp-tall button that
- * announces itself as a selected or unselected tab.
+ * announces itself as a selected or unselected tab. The bar's background runs under the gesture bar (edge to edge); its tabs sit
+ * above it. With animations off the selection changes at once instead of fading.
  */
 @Composable
 fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -54,8 +58,9 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
         listOf(Color.Transparent, ZarvisAccentViolet.copy(alpha = if (dark) 0.7f else 0.45f), ZarvisAccentBlue.copy(alpha = if (dark) 0.7f else 0.45f), Color.Transparent),
     )
     val pillBrush = Brush.horizontalGradient(
-        listOf(ZarvisAccentViolet.copy(alpha = if (dark) 0.34f else 0.16f), ZarvisAccentBlue.copy(alpha = if (dark) 0.30f else 0.14f)),
+        listOf(ZarvisAccentViolet.copy(alpha = if (dark) 0.34f else 0.20f), ZarvisAccentBlue.copy(alpha = if (dark) 0.30f else 0.18f)),
     )
+    val still = zarvisReduceMotion()
     Box(
         modifier
             .fillMaxWidth()
@@ -76,9 +81,10 @@ fun GlassBottomBar(items: List<ZarvisNavItem>, selectedRoute: String, onSelect: 
                 val isSelected = item.route == selectedRoute
                 val tint by animateColorAsState(
                     if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = if (still) snap() else spring(),
                     label = "nav-tint",
                 )
-                val pill by animateFloatAsState(if (isSelected) 1f else 0f, label = "nav-pill")
+                val pill by animateFloatAsState(if (isSelected) 1f else 0f, animationSpec = if (still) snap() else spring(), label = "nav-pill")
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
