@@ -48,19 +48,20 @@ enum class UiString(val en: String, val hi: String) {
     HOME_CAT_CREATIVE("Creative", "क्रिएटिव"),
     HOME_CAT_AUTOMATION("Automation", "ऑटोमेशन"),
     HOME_CAT_RESEARCH("Research", "रिसर्च"),
-    HOME_CAPABILITIES_TITLE("What can you do?", "आप क्या कर सकते हैं?"),
     HOME_PLAN_LINE("Plan: %s · credits left: %d", "प्लान: %s · बचे क्रेडिट: %d"),
     HOME_RECENT_TASKS("Recent Tasks", "हाल के कार्य"),
     HOME_SEE_ALL("See all", "सभी देखें"),
     HOME_PHONE_AGENT("Phone Agent", "फ़ोन एजेंट"),
     HOME_HEADLINE("What should we do?", "आज क्या करें?"),
-    HOME_TRY("Try", "आज़माएँ"),
     HOME_PHONE_AGENT_SHORT("Apps, contacts, confirmed calls, reminders", "ऐप, संपर्क, पुष्टि के बाद कॉल, रिमाइंडर"),
     HOME_PHONE_SAFETY_SHORT("Pause all, rules, what ZARVIS did", "रोकें, नियम, ZARVIS ने क्या किया"),
     HOME_PHONE_ACTIONS_ON("On", "चालू"),
     HOME_NO_TASKS_HINT("Ask ZARVIS to do something to get started.", "शुरू करने के लिए ZARVIS से कुछ करने को कहें।"),
     HOME_PLAN("Plan", "प्लान"),
     HOME_ERROR("Couldn't load your skills, plan and tasks. Check your connection and try again.", "आपकी स्किल, प्लान और कार्य लोड नहीं हो सके। कनेक्शन जाँचें और फिर कोशिश करें।"),
+    HOME_QUICK_ACTIONS("Quick actions", "झटपट काम"),
+    // Opens the Skills tab, so it is named like the tab's page (Capabilities) in Hindi.
+    HOME_ALL_SKILLS("All skills", "सभी क्षमताएँ"),
 
     // ---- Work -----------------------------------------------------------------------------
     WORK_TITLE("Work", "काम"),
@@ -211,7 +212,8 @@ enum class UiString(val en: String, val hi: String) {
         "Reading or tapping is confirmed every time. Banking, payment and password apps, and Android's settings screens, are never read or tapped.",
         "स्क्रीन पढ़ने या टैप करने से पहले हर बार पूछा जाता है। बैंक, पेमेंट और पासवर्ड ऐप, और Android की सेटिंग स्क्रीन कभी नहीं पढ़ी या टैप की जातीं।",
     ),
-    CHAT_COMPOSER_HINT("Type your task", "अपना काम लिखें"),
+    // The Ask ZARVIS field on Home and in Chat.
+    CHAT_COMPOSER_HINT("Ask ZARVIS anything…", "ZARVIS से कुछ भी पूछें…"),
     CHAT_STATE_IDLE("Tap the orb or type to start", "शुरू करने के लिए ऑर्ब दबाएँ या लिखें"),
     CHAT_STATE_LISTENING("Listening…", "सुन रहा है…"),
     CHAT_STATE_WORKING("Working…", "काम हो रहा है…"),

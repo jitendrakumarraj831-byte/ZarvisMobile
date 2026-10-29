@@ -63,7 +63,7 @@ fun PhoneSafetyContent(viewModel: PhoneSafetyViewModel = hiltViewModel()) {
         if (paused == null) {
             if (!state.readFailed) SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 1)
         } else {
-            GlassSurface(Modifier.fillMaxWidth(), borderColor = ZarvisAccents.gold.copy(alpha = 0.30f)) {
+            GlassSurface(Modifier.fillMaxWidth(), borderColor = ZarvisAccents.primary.copy(alpha = 0.30f)) {
                 SettingSwitchRow(
                     title = tr(UiString.PHONE_SAFETY_PAUSE_TITLE),
                     subtitle = tr(if (paused) UiString.PHONE_SAFETY_PAUSE_ON else UiString.PHONE_SAFETY_PAUSE_OFF),

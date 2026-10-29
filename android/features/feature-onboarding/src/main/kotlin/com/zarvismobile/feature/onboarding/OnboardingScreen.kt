@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,19 +23,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.zarvismobile.core.ui.components.AiOrb
+import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisGhostButton
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -48,11 +44,7 @@ import com.zarvismobile.core.ui.components.SectionKicker
 import com.zarvismobile.core.ui.i18n.trf
 import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisAccents
-import com.zarvismobile.core.ui.theme.ZarvisActionBlue
 import com.zarvismobile.core.ui.theme.ZarvisDisplayStyles
-import com.zarvismobile.core.ui.theme.ZarvisGold
-import com.zarvismobile.core.ui.theme.ZarvisGoldPale
-import com.zarvismobile.core.ui.theme.ZarvisMagenta
 import com.zarvismobile.core.ui.theme.ZarvisProStyles
 import com.zarvismobile.domain.presentation.UiString
 
@@ -126,9 +118,9 @@ fun OnboardingScreen(
                 if (uiState.pageIndex == 0) {
                     Column(Modifier.fillMaxWidth().padding(top = ZarvisSpacing.sm), verticalArrangement = Arrangement.spacedBy(ZarvisSpacing.sm)) {
                         QueenListCard {
-                            QueenRow(title = tr(UiString.ONBOARDING_POINT_RISKY), icon = ZarvisIcons.Shield, iconTint = ZarvisAccents.gold)
+                            QueenRow(title = tr(UiString.ONBOARDING_POINT_RISKY), icon = ZarvisIcons.Shield, iconTint = ZarvisAccents.primary)
                             QueenRowDivider()
-                            QueenRow(title = tr(UiString.ONBOARDING_POINT_PERMISSIONS), icon = ZarvisIcons.Lock, iconTint = ZarvisAccents.gold)
+                            QueenRow(title = tr(UiString.ONBOARDING_POINT_PERMISSIONS), icon = ZarvisIcons.Lock, iconTint = ZarvisAccents.primary)
                         }
                     }
                 }
@@ -150,30 +142,13 @@ fun OnboardingScreen(
     }
 }
 
-/** The welcome's orb: gold into magenta and purple with a gold edge. Decoration only (still, no words for TalkBack). */
+/** The welcome's orb: the same lit sphere as Home's, breathing slowly unless motion is off. Decoration only (no words for TalkBack). */
 @Composable
 private fun WelcomeOrb() {
-    Box(
-        modifier = Modifier
-            .padding(top = ZarvisSpacing.md)
-            .size(140.dp)
-            .drawBehind {
-                drawCircle(
-                    Brush.radialGradient(
-                        0f to Color(0xFFFFF7D6),
-                        0.22f to ZarvisGold,
-                        0.58f to ZarvisMagenta,
-                        1f to ZarvisActionBlue,
-                        center = Offset(size.width * 0.35f, size.height * 0.3f),
-                        radius = size.width * 0.75f,
-                    ),
-                )
-            }
-            .border(2.dp, ZarvisGoldPale, CircleShape),
-    )
+    AiOrb(state = VoiceState.IDLE, onClick = null, size = 168.dp, idleMotion = true, modifier = Modifier.padding(top = ZarvisSpacing.md))
 }
 
-/** Where you are among the pages: a gold bar for this one, dots for the others. Read out as "Page 1 of 6". */
+/** Where you are among the pages: a bar in the primary for this one, dots for the others. Read out as "Page 1 of 6". */
 @Composable
 private fun PageIndicator(count: Int, current: Int) {
     val description = trf(UiString.ONBOARDING_PAGE_OF, current + 1, count)

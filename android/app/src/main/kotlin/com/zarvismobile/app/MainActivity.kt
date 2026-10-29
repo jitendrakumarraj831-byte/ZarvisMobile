@@ -36,7 +36,8 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.zarvismobile.app.navigation.ZarvisNavGraph
 import com.zarvismobile.core.ui.components.GlassSurface
 import com.zarvismobile.core.ui.components.GoldText
-import com.zarvismobile.core.ui.components.QueenCrown
+import com.zarvismobile.core.ui.components.AiOrb
+import com.zarvismobile.core.ui.components.VoiceState
 import com.zarvismobile.core.ui.components.ZarvisBackground
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
@@ -170,7 +171,7 @@ private fun SessionExpiredScreen(
     }
 }
 
-/** The launch screen (board A01): the crown over the gold ZARVIS wordmark and a thin gold progress line, on the Queen page. */
+/** The launch screen (board A01): the still orb over the gold ZARVIS wordmark and a thin progress line, on the Queen page. */
 @Composable
 private fun StartupLoading() {
     ZarvisBackground {
@@ -179,12 +180,12 @@ private fun StartupLoading() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically),
         ) {
-            QueenCrown(width = 96.dp)
+            AiOrb(state = VoiceState.IDLE, onClick = null, size = 132.dp)
             GoldText(text = "ZARVIS", style = ZarvisDisplayStyles.brand.copy(fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = 8.sp))
             LinearProgressIndicator(
                 modifier = Modifier.width(120.dp),
-                color = ZarvisAccents.gold,
-                trackColor = ZarvisAccents.gold.copy(alpha = 0.2f),
+                color = ZarvisAccents.primary,
+                trackColor = ZarvisAccents.primary.copy(alpha = 0.2f),
             )
         }
     }
@@ -195,7 +196,8 @@ private fun StartupError(message: String, onRetry: () -> Unit) {
     ZarvisBackground {
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                QueenCrown(width = 72.dp)
+                // The orb in its error colours: decoration, the message says what went wrong.
+                AiOrb(state = VoiceState.ERROR, onClick = null, size = 104.dp)
                 Text(text = message, style = MaterialTheme.typography.bodyLarge)
                 ZarvisPrimaryButton(text = tr(UiString.COMMON_TRY_AGAIN), onClick = onRetry)
             }

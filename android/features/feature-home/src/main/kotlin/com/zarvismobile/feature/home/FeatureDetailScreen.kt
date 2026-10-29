@@ -80,7 +80,7 @@ fun FeatureDetailScreen(
                         title = tr(UiString.SETTINGS_PAGE_PHONE_SAFETY),
                         detail = tr(UiString.HOME_PHONE_SAFETY_SHORT),
                         icon = ZarvisIcons.Shield,
-                        iconTint = ZarvisAccents.gold,
+                        iconTint = ZarvisAccents.primary,
                         onClick = onOpenPhoneSafety,
                     )
                 }
@@ -104,7 +104,7 @@ fun FeatureDetailScreen(
                                 detail = "${action.description} Say: “${action.example}”",
                                 trailing = { action.state.note?.let { StatusBadge(label = it, tone = StatusTone.NEUTRAL) } },
                                 below = {
-                                    Text(action.permission, style = MaterialTheme.typography.labelMedium, color = ZarvisAccents.gold)
+                                    Text(action.permission, style = MaterialTheme.typography.labelMedium, color = ZarvisAccents.primary)
                                 },
                             )
                         }

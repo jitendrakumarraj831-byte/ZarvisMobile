@@ -12,7 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 
-/** The Queen Pro dialog shape: 24dp corners and a hairline in gold (rose for one that deletes). */
+/** The Queen Pro dialog shape: 24dp corners and a hairline in the theme's primary (rose for one that deletes). */
 val QueenDialogShape = RoundedCornerShape(24.dp)
 
 /**
@@ -32,7 +32,7 @@ fun QueenConfirmDialog(
     destructive: Boolean = false,
     icon: ImageVector? = null,
 ) {
-    val accent = if (destructive) ZarvisAccents.danger else ZarvisAccents.gold
+    val accent = if (destructive) ZarvisAccents.danger else ZarvisAccents.primary
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = modifier.border(1.dp, accent.copy(alpha = 0.45f), QueenDialogShape),

@@ -191,7 +191,7 @@ fun PermissionCenterScreen(onBack: () -> Unit, viewModel: PermissionCenterViewMo
             }
             state.message?.let { message ->
                 item {
-                    GlassSurface(Modifier.fillMaxWidth(), borderColor = ZarvisAccents.gold.copy(alpha = 0.35f)) {
+                    GlassSurface(Modifier.fillMaxWidth(), borderColor = ZarvisAccents.primary.copy(alpha = 0.35f)) {
                         Text(message, style = MaterialTheme.typography.bodyMedium)
                         TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
                     }
@@ -264,7 +264,7 @@ private fun CapabilityCard(row: CapabilityRow, onAllow: () -> Unit, onOpenSettin
 @Composable
 private fun Detail(label: String, body: String) {
     Column(Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ZarvisAccents.gold)
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ZarvisAccents.primary)
         Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

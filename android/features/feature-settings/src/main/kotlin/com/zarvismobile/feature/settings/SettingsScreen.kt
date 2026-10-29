@@ -315,7 +315,7 @@ private fun SettingsHub(
                                     title = tr(entry.title),
                                     detail = tr(entry.subtitle),
                                     icon = entry.icon,
-                                    iconTint = if (entry == SettingsPage.PhoneSafety) ZarvisAccents.gold else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    iconTint = if (entry == SettingsPage.PhoneSafety) ZarvisAccents.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     onClick = { onOpen(entry) },
                                 )
                             }

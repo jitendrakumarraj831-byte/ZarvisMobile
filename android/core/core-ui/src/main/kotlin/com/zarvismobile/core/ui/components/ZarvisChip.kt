@@ -1,5 +1,6 @@
 package com.zarvismobile.core.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
@@ -18,14 +19,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.zarvismobile.core.ui.theme.GlassColors
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 
 /**
  * A compact glass-pill category chip — used for the Workspace screen's category rail
  * (MASTER_SPEC.md §22: Web, Documents, Developer, Business, Creative, Automation, Research).
- * 44dp tall (the website's chip height) so it is an easy thumb target, and announced as a button. Queen Pro look: an outlined pill
- * with a gold hairline and a gold icon (the text-safe gold of the theme). Pass `onClick = null` for a chip that only
+ * 44dp tall (the website's chip height) so it is an easy thumb target, and announced as a button. Queen Pro look: a glass pill
+ * with a hairline and an icon in the theme's primary (periwinkle at night, royal purple by day). Pass `onClick = null` for a chip that only
  * shows information (a count, a status): it is then not clickable and not announced as a button.
  */
 @Composable
@@ -41,7 +43,8 @@ fun ZarvisChip(
         modifier = modifier
             .heightIn(min = 44.dp)
             .clip(shape)
-            .border(width = 1.dp, color = ZarvisAccents.gold.copy(alpha = 0.35f), shape = shape)
+            .background(GlassColors.surfaceTint.copy(alpha = 0.6f), shape)
+            .border(width = 1.dp, color = ZarvisAccents.primary.copy(alpha = 0.35f), shape = shape)
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(horizontal = ZarvisSpacing.md, vertical = 8.dp),
     ) {
@@ -49,7 +52,7 @@ fun ZarvisChip(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = ZarvisAccents.gold,
+                tint = ZarvisAccents.primary,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.size(ZarvisSpacing.sm))
