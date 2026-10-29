@@ -143,7 +143,7 @@ fun FeatureDetailScreen(
                 QueenListCard {
                     AboutRow("What it does", ZarvisIcons.Sparkle, startOpen = true) { Body(feature.what) }
                     QueenRowDivider()
-                    AboutRow("Why it is useful", ZarvisIcons.Star) { Body(feature.why) }
+                    AboutRow("Why it is useful", ZarvisIcons.Check) { Body(feature.why) }
                     QueenRowDivider()
                     AboutRow("How it works", ZarvisIcons.List) {
                         feature.how.forEachIndexed { index, step -> Body("${index + 1}. $step") }
