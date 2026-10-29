@@ -52,9 +52,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
@@ -323,13 +325,17 @@ fun QueenEmptyState(
     }
 }
 
-/** Something failed to load: a card with a rose edge that says what failed in plain words, with Try again right there. */
+/**
+ * Something failed to load: a card with a rose edge that says what failed in plain words, with Try again right there. A polite live
+ * region, so TalkBack reads the failure when the card appears instead of leaving it to be found.
+ */
 @Composable
 fun QueenErrorCard(message: String, retryLabel: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite }
             .background(GlassColors.surfaceTint, shape)
             .border(1.dp, ZarvisAccents.danger.copy(alpha = 0.45f), shape)
             .padding(ZarvisSpacing.md),

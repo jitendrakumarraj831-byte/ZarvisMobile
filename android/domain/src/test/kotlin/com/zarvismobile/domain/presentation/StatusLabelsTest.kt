@@ -1,5 +1,6 @@
 package com.zarvismobile.domain.presentation
 
+import com.zarvismobile.domain.entity.CapabilityStatus
 import com.zarvismobile.domain.entity.RiskLevel
 import com.zarvismobile.domain.entity.TaskStatus
 import kotlin.test.Test
@@ -95,5 +96,15 @@ class StatusLabelsTest {
     fun `a task in a state this client does not know is never filed as finished`() {
         assertEquals(TaskGroup.IN_PROGRESS, StatusLabels.taskGroup("SOMETHING_NEW", "ALSO_NEW"))
         for (status in TaskStatus.entries) StatusLabels.taskGroup(status.name) // every status the backend can send has a group
+    }
+
+    @Test
+    fun `a capability status has one wording everywhere, in both languages`() {
+        // The Skills tab, a capability's own page and Permissions & Device Access all read it from here: one page said "Unsupported"
+        // (and only in English) while the Skills tab said "Not supported".
+        assertEquals(CapabilityStatus.entries.size, CapabilityStatus.entries.map { StatusLabels.capability(it) }.toSet().size)
+        assertEquals("Not supported", StatusLabels.capability(CapabilityStatus.UNSUPPORTED).en)
+        assertEquals("Partial", StatusLabels.capability(CapabilityStatus.PARTIAL).text("en"))
+        assertEquals("आंशिक", StatusLabels.capability(CapabilityStatus.PARTIAL).text("hi"))
     }
 }

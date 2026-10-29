@@ -33,8 +33,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewModelScope
 import com.zarvismobile.core.ui.components.GlassSurface
+import com.zarvismobile.core.ui.components.SkeletonList
 import com.zarvismobile.core.ui.components.ZarvisPrimaryButton
 import com.zarvismobile.core.ui.components.ZarvisSecondaryButton
+import com.zarvismobile.core.ui.i18n.tr
 import com.zarvismobile.data.local.access.DataStoreNotificationSettings
 import com.zarvismobile.domain.access.AccessCoordinator
 import com.zarvismobile.domain.access.AccessResult
@@ -49,10 +51,12 @@ import com.zarvismobile.domain.notification.NotificationPrivacy
 import com.zarvismobile.domain.notification.NotificationPrivacySettings
 import com.zarvismobile.domain.notification.NotificationSpeechPreview
 import com.zarvismobile.domain.notification.QuietHours
+import com.zarvismobile.domain.presentation.UiString
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -87,8 +91,10 @@ class NotificationSettingsViewModel @Inject constructor(
     private val _access = MutableStateFlow<AccessState?>(null)
     val access: StateFlow<AccessState?> = _access.asStateFlow()
 
-    private val _apps = MutableStateFlow<List<InstalledApp>>(emptyList())
-    val apps: StateFlow<List<InstalledApp>> = _apps.asStateFlow()
+    /** The phone's launchable apps by name, or `null` until they have been read (the list then says it is loading, not empty). */
+    private val _apps = MutableStateFlow<List<InstalledApp>?>(null)
+    val apps: StateFlow<List<InstalledApp>?> = _apps.asStateFlow()
+    private var appsJob: Job? = null
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -98,8 +104,8 @@ class NotificationSettingsViewModel @Inject constructor(
     }
 
     fun loadApps() {
-        if (_apps.value.isNotEmpty()) return
-        viewModelScope.launch {
+        if (_apps.value != null || appsJob?.isActive == true) return
+        appsJob = viewModelScope.launch {
             _apps.value = withContext(Dispatchers.IO) {
                 val pm = context.packageManager
                 pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
@@ -234,21 +240,27 @@ fun ColumnScope.NotificationSettingsContent(viewModel: NotificationSettingsViewM
             onDismissRequest = { showApps = false },
             title = { Text("Excluded apps") },
             text = {
-                // Lazy, in its own window: a phone can have hundreds of apps, and composing every row inside the settings page made
-                // each change there stutter on a low-end phone. One row per app even when it has several launcher entries.
-                LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                    items(apps.distinctBy { it.packageName }, key = { it.packageName }) { app ->
-                        val excluded = app.packageName in settings.excludedPackages
-                        Row(
-                            Modifier.fillMaxWidth().toggleable(value = excluded, role = Role.Checkbox) { on ->
-                                viewModel.update { current ->
-                                    current.copy(excludedPackages = if (on) current.excludedPackages + app.packageName else current.excludedPackages - app.packageName)
-                                }
-                            }.padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(checked = excluded, onCheckedChange = null)
-                            Text(app.label, modifier = Modifier.padding(start = 8.dp))
+                val installed = apps
+                if (installed == null) {
+                    // Reading the apps can take a moment on a phone with hundreds: until then the list says it is loading, never looks empty.
+                    SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 3)
+                } else {
+                    // Lazy, in its own window: a phone can have hundreds of apps, and composing every row inside the settings page made
+                    // each change there stutter on a low-end phone. One row per app even when it has several launcher entries.
+                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                        items(installed.distinctBy { it.packageName }, key = { it.packageName }) { app ->
+                            val excluded = app.packageName in settings.excludedPackages
+                            Row(
+                                Modifier.fillMaxWidth().toggleable(value = excluded, role = Role.Checkbox) { on ->
+                                    viewModel.update { current ->
+                                        current.copy(excludedPackages = if (on) current.excludedPackages + app.packageName else current.excludedPackages - app.packageName)
+                                    }
+                                }.padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(checked = excluded, onCheckedChange = null)
+                                Text(app.label, modifier = Modifier.padding(start = 8.dp))
+                            }
                         }
                     }
                 }

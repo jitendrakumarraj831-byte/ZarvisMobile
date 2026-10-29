@@ -3,6 +3,7 @@ package com.zarvismobile.feature.conversation
 import androidx.lifecycle.SavedStateHandle
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.zarvismobile.agents.AndroidOrchestrator
+import com.zarvismobile.core.common.metrics.TurnMetricsStore
 import com.zarvismobile.core.common.voice.SpeechRecognitionFailure
 import com.zarvismobile.core.common.voice.SpeechToTextEngine
 import com.zarvismobile.core.common.voice.TextToSpeechEngine
@@ -25,6 +26,7 @@ import com.zarvismobile.domain.presentation.UiString
 import com.zarvismobile.domain.tooling.SkillRegistry
 import com.zarvismobile.domain.tooling.ToolPipeline
 import java.lang.reflect.Proxy
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -209,6 +211,21 @@ class ConversationViewModelFailureTest {
         assertTrue("the id fits the server's rule: ${ids[0]}", ids[0]!!.matches(turnId))
         assertEquals("Try again re-sends the same id", ids[0], ids[1])
         assertEquals(listOf("plan my week", "plan my week"), backend.turns.map { it["utterance"] })
+    }
+
+    @Test
+    fun aFailedTurnIsTimedForUsageAndMetricsNotWrittenDownAsZero() {
+        val vm = screen(
+            MockResponse().setResponseCode(500).setBody("""{"error":"Internal error","code":"internal_error"}""")
+                .setHeadersDelay(300, TimeUnit.MILLISECONDS),
+        )
+        vm.submitInitialText("plan my week")
+        vm.answered("plan my week")
+
+        // The newest entry is this turn's. It used to be recorded as 0 ms, which showed "0 ms" and pulled the average latency down.
+        val metric = TurnMetricsStore.metrics.value.first()
+        assertFalse(metric.success)
+        assertTrue("the failed turn took ${metric.durationMs} ms", metric.durationMs >= 300)
     }
 
     @Test

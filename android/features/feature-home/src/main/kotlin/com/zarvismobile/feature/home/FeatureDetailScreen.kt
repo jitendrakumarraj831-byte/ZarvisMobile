@@ -32,6 +32,7 @@ import com.zarvismobile.core.ui.icons.ZarvisIcons
 import com.zarvismobile.core.ui.theme.ZarvisAccents
 import com.zarvismobile.core.ui.theme.ZarvisSpacing
 import com.zarvismobile.domain.entity.CapabilityStatus
+import com.zarvismobile.domain.presentation.StatusLabels
 import com.zarvismobile.domain.presentation.StatusTone
 import com.zarvismobile.domain.presentation.UiString
 
@@ -72,7 +73,8 @@ fun FeatureDetailScreen(
                     QueenRow(
                         title = line.name,
                         detail = line.state.note,
-                        trailing = { StatusBadge(label = statusLabel(line.state.status), tone = toneOf(line.state.status)) },
+                        // The Skills tab's words for the same status, in the app's language.
+                        trailing = { StatusBadge(label = tr(StatusLabels.capability(line.state.status)), tone = toneOf(line.state.status)) },
                     )
                 }
                 if (feature.id == "phone") {

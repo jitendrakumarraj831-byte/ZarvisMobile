@@ -154,7 +154,7 @@ fun HomeScreen(
                 }
             }
 
-            if (uiState.error != null) {
+            if (uiState.failed) {
                 item {
                     // Next to what failed to load, not at the bottom. Not the raw exception text ("HTTP 500 ...", "Unable to resolve host
                     // ..."): say what failed and offer a retry.
@@ -186,6 +186,12 @@ fun HomeScreen(
                                 SkeletonBlock(Modifier.fillMaxWidth(0.65f).height(16.dp))
                                 SkeletonBlock(Modifier.fillMaxWidth(0.45f).height(16.dp))
                             }
+                            // Not read: never "No tasks yet" (the error card above has Try again).
+                            uiState.tasksFailed -> QueenRow(
+                                title = tr(UiString.HOME_TASKS_UNAVAILABLE),
+                                icon = ZarvisIcons.Alert,
+                                iconTint = ZarvisAccents.danger,
+                            )
                             else -> QueenRow(
                                 title = tr(UiString.TASKS_EMPTY_TITLE),
                                 detail = tr(UiString.HOME_NO_TASKS_HINT),

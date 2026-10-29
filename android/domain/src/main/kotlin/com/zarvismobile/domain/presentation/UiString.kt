@@ -58,7 +58,8 @@ enum class UiString(val en: String, val hi: String) {
     HOME_PHONE_ACTIONS_ON("On", "चालू"),
     HOME_NO_TASKS_HINT("Ask ZARVIS to do something to get started.", "शुरू करने के लिए ZARVIS से कुछ करने को कहें।"),
     HOME_PLAN("Plan", "प्लान"),
-    HOME_ERROR("Couldn't load your skills, plan and tasks. Check your connection and try again.", "आपकी स्किल, प्लान और कार्य लोड नहीं हो सके। कनेक्शन जाँचें और फिर कोशिश करें।"),
+    HOME_ERROR("Couldn't load your recent tasks or plan. Check your connection and try again.", "आपके हाल के कार्य या प्लान लोड नहीं हो सके। कनेक्शन जाँचें और फिर कोशिश करें।"),
+    HOME_TASKS_UNAVAILABLE("Couldn't load your recent tasks", "आपके हाल के कार्य लोड नहीं हो सके"),
     HOME_QUICK_ACTIONS("Quick actions", "झटपट काम"),
     // Opens the Skills tab, so it is named like the tab's page (Capabilities) in Hindi.
     HOME_ALL_SKILLS("All skills", "सभी क्षमताएँ"),
@@ -247,6 +248,11 @@ enum class UiString(val en: String, val hi: String) {
     CHAT_STATUS_FAILED("Failed", "विफल"),
     CHAT_INTERRUPTED_TITLE("ZARVIS was closed before this finished:", "यह पूरा होने से पहले ZARVIS बंद हो गया:"),
     CHAT_INTERRUPTED_BODY("Nothing was done. Continuing asks for access and confirmation again.", "कुछ नहीं हुआ। जारी रखने पर अनुमति और पुष्टि फिर से माँगी जाएगी।"),
+    // Too old to offer Continue (PendingActionRecovery): said once, in the app's language.
+    CHAT_INTERRUPTED_EXPIRED(
+        "An earlier request (\"%s\") was interrupted before it finished. Nothing was done.",
+        "पहले का एक अनुरोध (\"%s\") पूरा होने से पहले रुक गया था। कुछ नहीं हुआ।",
+    ),
     CHAT_CONTINUE("Continue", "जारी रखें"),
     CHAT_DISMISS("Dismiss", "हटाएँ"),
 

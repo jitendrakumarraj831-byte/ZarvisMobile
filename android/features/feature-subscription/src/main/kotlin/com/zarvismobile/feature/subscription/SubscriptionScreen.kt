@@ -114,11 +114,12 @@ fun SubscriptionScreen(onBack: (() -> Unit)? = null, viewModel: SubscriptionView
             }
 
             val entitlement = uiState.entitlement
+            // Also above a plan shown before: the credits under it are the last ones read, not presented as current.
+            if (uiState.failed) {
+                item { QueenErrorCard(message = tr(UiString.PLANS_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh) }
+            }
             when {
                 entitlement != null -> item { CurrentPlanCard(entitlement) }
-                uiState.failed -> item {
-                    QueenErrorCard(message = tr(UiString.PLANS_ERROR), retryLabel = tr(UiString.COMMON_TRY_AGAIN), onRetry = viewModel::refresh)
-                }
                 uiState.isLoading -> item { SkeletonList(loadingLabel = tr(UiString.COMMON_LOADING), rows = 1) }
             }
 

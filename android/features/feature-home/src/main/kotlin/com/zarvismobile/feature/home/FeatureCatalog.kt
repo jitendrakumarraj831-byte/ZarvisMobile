@@ -4,7 +4,6 @@ import com.zarvismobile.domain.capability.CatalogCapability
 import com.zarvismobile.domain.capability.CatalogPage
 import com.zarvismobile.domain.capability.FeatureState
 import com.zarvismobile.domain.capability.SharedFeatureCatalog
-import com.zarvismobile.domain.entity.CapabilityStatus
 
 /** A capability on a detail page with its state in this app, e.g. Voice input, Partial, "The phone's speech recognizer". */
 data class FeatureStatusLine(val name: String, val state: FeatureState)
@@ -49,13 +48,6 @@ object FeatureCatalog {
     }
 
     fun find(id: String): FeaturePage? = pages.find { it.id == id }
-}
-
-internal fun statusLabel(status: CapabilityStatus): String = when (status) {
-    CapabilityStatus.WORKING -> "Working"
-    CapabilityStatus.PARTIAL -> "Partial"
-    CapabilityStatus.PLANNED -> "Planned"
-    CapabilityStatus.UNSUPPORTED -> "Unsupported"
 }
 
 private fun CatalogPage.toFeaturePage(capabilities: List<CatalogCapability>): FeaturePage {
