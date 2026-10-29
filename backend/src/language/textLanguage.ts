@@ -86,3 +86,34 @@ export function detectReplyLanguage(utterance: string, locale?: string): "hi" | 
   if (latinWords(utterance).some((word) => ENGLISH_WORDS.has(word))) return "en";
   return locale?.toLowerCase().startsWith("hi") ? "hi" : "en";
 }
+
+/** At most this many Latin words, and an English message is too short to say the user changed language ("ok thanks"). */
+const SHORT_MESSAGE_WORDS = 2;
+
+/**
+ * The language of `text` when it clearly has one: any Hindi or Hinglish, or English of more than SHORT_MESSAGE_WORDS words
+ * with a common English word in it. Undefined for "ok", "thanks", "why?", "👍", a name or a number.
+ */
+function clearLanguage(text: string): TextLanguage | undefined {
+  const language = detectTextLanguage(text);
+  if (language !== "en") return language;
+  const words = latinWords(text);
+  return words.length > SHORT_MESSAGE_WORDS && words.some((word) => ENGLISH_WORDS.has(word)) ? "en" : undefined;
+}
+
+/**
+ * The language and script ZARVIS replies in, within a conversation. The CURRENT message decides whenever it clearly has a
+ * language (so switching language is always followed). A message too short to tell ("ok", "thanks", "yes please", "?")
+ * keeps the language the user was speaking in their earlier messages of this conversation (`earlierUserMessages`, oldest
+ * first), so a Hinglish chat is not answered in English just because the user typed "ok". With nothing to go on, it is
+ * detectReplyLanguage: an English word means English, otherwise the app language.
+ */
+export function detectConversationLanguage(utterance: string, earlierUserMessages: readonly string[], locale?: string): TextLanguage {
+  const current = clearLanguage(utterance);
+  if (current) return current;
+  for (let i = earlierUserMessages.length - 1; i >= 0; i -= 1) {
+    const earlier = clearLanguage(earlierUserMessages[i]!);
+    if (earlier) return earlier;
+  }
+  return detectReplyLanguage(utterance, locale);
+}

@@ -129,6 +129,33 @@ charged for a failed generation.
   `fallbackReason`, and shares the `modelCallId` of the attempt it replaced. The turn line also
   reports `aiLogicalCalls`, `aiProviders`, `aiFallbackCalls` and `chargedCredits`.
 
+## How ZARVIS talks
+
+The planner's conversational instructions live in `backend/src/agents/conversationStyle.ts`, apart from its tool and
+safety rules, and they change only tone: nothing there loosens a rule about tools, confirmations, permissions or honesty.
+
+- **Natural and brief.** Everyday replies are one to three sentences; longer only when the task needs it, the user asks,
+  or their Answer length preference says so (that preference comes after the style, so it holds). No stock phrases or
+  filler, no offer or question at the end of every reply, at most one emoji, and no claim of human feelings or
+  consciousness. Short, casual or incomplete messages ("aur?", "uska price?", "haan kar do") are read against the
+  conversation; a yes or ok answers the question ZARVIS just asked; nothing the user already said is asked again; a
+  genuinely unclear request gets one short question.
+- **The user's language and script.** `detectConversationLanguage` (`backend/src/language/textLanguage.ts`): the current
+  message decides whenever it clearly has a language; a message too short to tell ("ok", "thanks", "👍") keeps the
+  language of the user's earlier messages in the chat. Hinglish typed in Latin letters is answered in Latin letters,
+  Devanagari in Devanagari.
+- **One greeting per conversation.** A greeting ("hi", "namaste", "good morning") is still answered without a model.
+  The first one in a chat introduces ZARVIS; a later one picks up again without a second introduction and never repeats
+  the previous reply word for word. A time-of-day greeting is answered in kind. The planner is told when a conversation
+  is already under way, so it does not greet or introduce itself again either.
+- **Honest memory.** ZARVIS knows only the conversation and the memory the user saved (and did not pause). It never
+  claims to remember anything else, and since it cannot save memory itself, "remember this" is answered by pointing to
+  Memory in Settings.
+- **Voice.** A turn the microphone heard carries `inputMode: "voice"`: the reply is written to be heard (spoken
+  sentences, no tables, code or URLs), and a garbled transcript is met with a request to say it again. Whether a reply
+  is read aloud is still the user's Speak replies setting.
+- The orchestrator's own fallback replies (no reply, no next action, step limit) are in the user's language.
+
 ## Tasks
 
 No task executor exists yet. Tasks are tracked, can be paused or cancelled, and are never

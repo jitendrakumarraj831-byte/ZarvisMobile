@@ -70,9 +70,41 @@ describe("orchestrator conversational greetings", () => {
 
     expect(second.status).toBe(200);
     expect(second.body.toolCalls).toEqual([]);
-    expect(second.body.message).toBe("Hi! 👋 I'm ZARVIS. How can I help you today?");
+    // ZARVIS already answered in this chat: it picks up again instead of introducing itself a second time.
+    expect(second.body.message).toBe("Hi again! What would you like to do next?");
   });
-  it("greets in the language of the greeting, not only the app's: Hindi or Hinglish gets Hindi even with an English app", async () => {
+
+  it("introduces itself once per conversation and never repeats the same greeting twice in a row", async () => {
+    const token = await signupAndGetToken();
+    const say = async (utterance: string, conversationId?: string) => {
+      const res = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`).send({ utterance, conversationId, locale: "en" });
+      expect(res.status).toBe(200);
+      expect(res.body.toolCalls).toEqual([]);
+      return res.body as { message: string; conversationId: string };
+    };
+
+    const first = await say("Hi");
+    expect(first.message).toBe("Hi! 👋 I'm ZARVIS. How can I help you today?");
+    const replies = [first.message];
+    for (const greeting of ["hello", "hey", "hi"]) replies.push((await say(greeting, first.conversationId)).message);
+
+    expect(replies.slice(1).every((reply) => !reply.includes("I'm ZARVIS"))).toBe(true);
+    for (let i = 1; i < replies.length; i += 1) expect(replies[i]).not.toBe(replies[i - 1]);
+
+    // A new chat is a new conversation: the introduction comes back there.
+    expect((await say("hi")).message).toBe("Hi! 👋 I'm ZARVIS. How can I help you today?");
+  });
+
+  it("answers a time-of-day greeting in kind", async () => {
+    const token = await signupAndGetToken();
+    const res = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`).send({ utterance: "Good morning!", locale: "en" });
+    expect(res.body.message).toBe("Good morning! 👋 I'm ZARVIS. How can I help you today?");
+    const again = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`)
+      .send({ utterance: "good evening", conversationId: res.body.conversationId, locale: "en" });
+    expect(again.body.message).toBe("Good evening! What would you like to do next?");
+  });
+
+  it("greets in the language of the greeting and in the user's script, not only the app's", async () => {
     const token = await signupAndGetToken();
     const greet = async (utterance: string, locale: string) => {
       const res = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`).send({ utterance, locale });
@@ -81,15 +113,27 @@ describe("orchestrator conversational greetings", () => {
       return res.body.message as string;
     };
     const hindi = "नमस्ते! 👋 मैं ZARVIS हूँ। मैं आपकी कैसे मदद कर सकता हूँ?";
+    const hinglish = "Namaste! 👋 Main ZARVIS hoon. Bataiye, main aapki kya madad kar sakta hoon?";
     const english = "Hi! 👋 I'm ZARVIS. How can I help you today?";
 
     expect(await greet("नमस्ते", "en")).toBe(hindi);
-    expect(await greet("Namaste ZARVIS!", "en")).toBe(hindi);
-    expect(await greet("namaskar", "en-US")).toBe(hindi);
+    // Typed in Latin letters, so answered in Latin letters (Hinglish), not in Devanagari.
+    expect(await greet("Namaste ZARVIS!", "en")).toBe(hinglish);
+    expect(await greet("namaskar", "en-US")).toBe(hinglish);
     // A greeting that is no particular language follows the app language, as before.
     expect(await greet("Hi", "en")).toBe(english);
     expect(await greet("hello", "hi")).toBe(hindi);
     expect(await greet("Hey Jarvis", "en")).toBe(english);
+  });
+
+  it("keeps the language of the conversation for a greeting that has none of its own", async () => {
+    const token = await signupAndGetToken();
+    const first = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`).send({ utterance: "namaste", locale: "en" });
+    expect(first.body.message).toMatch(/^Namaste!/);
+    // "hi" says nothing about language; this chat is in Hinglish, so the reply stays Hinglish despite the English app.
+    const second = await request(app).post("/api/v1/orchestrator/turn").set("Authorization", `Bearer ${token}`)
+      .send({ utterance: "hi", conversationId: first.body.conversationId, locale: "en" });
+    expect(second.body.message).toBe("Phir se namaste! Ab kya karna hai?");
   });
 
   it("does not repeat repository analysis for a vague follow-up", async () => {

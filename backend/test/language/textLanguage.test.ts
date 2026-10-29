@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSystemPrompt } from "../../src/agents/orchestrator.js";
-import { detectReplyLanguage, detectTextLanguage } from "../../src/language/textLanguage.js";
+import { detectConversationLanguage, detectReplyLanguage, detectTextLanguage } from "../../src/language/textLanguage.js";
 import { detectSpeechLanguage } from "../../src/tts/voices.js";
 
 /**
@@ -91,5 +91,36 @@ describe("one detector for the reply and the voice", () => {
     expect(detectTextLanguage("Rahul ko message bhejo ki main late hoon")).toBe("hinglish");
     expect(detectTextLanguage("मम्मी को कॉल करो")).toBe("hi");
     expect(detectTextLanguage("Open the router settings and check the model.")).toBe("en");
+  });
+});
+
+describe("the reply language within a conversation", () => {
+  it("follows the current message whenever it clearly has a language, so a switch is always followed", () => {
+    expect(detectConversationLanguage("What is the capital of France?", ["aaj ka mausam kaisa hai"], "en")).toBe("en");
+    expect(detectConversationLanguage("aaj ka mausam kaisa hai", ["What is the capital of France?"], "en")).toBe("hinglish");
+    expect(detectConversationLanguage("मम्मी को कॉल करो", ["Tell me about the moon"], "en")).toBe("hi");
+  });
+
+  it.each(["ok", "ok thanks", "thanks", "yes please", "why?", "👍", "?", "Forbesganj"])(
+    "a message too short to tell keeps the language the user was speaking: %s",
+    (utterance) => {
+      expect(detectConversationLanguage(utterance, ["kal ka weather kaisa rahega"], "en")).toBe("hinglish");
+      expect(detectConversationLanguage(utterance, ["आज मौसम कैसा है"], "en")).toBe("hi");
+      expect(detectConversationLanguage(utterance, ["Tell me about the moon"], "hi")).toBe("en");
+    },
+  );
+
+  it("looks back to the most recent earlier message that has a language", () => {
+    const earlier = ["What is the capital of France?", "mujhe ek poem likh do", "ok", "👍"];
+    expect(detectConversationLanguage("thanks", earlier, "en")).toBe("hinglish");
+  });
+
+  it("is the single-message rule when the conversation says nothing", () => {
+    for (const utterance of ["ok thanks", "Forbesganj", "👍", "kya haal hai", "मेरा नाम याद रखना"]) {
+      const alone = detectConversationLanguage(utterance, [], "en");
+      expect(alone === "en" ? "en" : "hi").toBe(detectReplyLanguage(utterance, "en"));
+      expect(detectConversationLanguage(utterance, ["ok", "1234"], "en")).toBe(alone);
+    }
+    expect(detectConversationLanguage("1234", [], "hi")).toBe("hi");
   });
 });

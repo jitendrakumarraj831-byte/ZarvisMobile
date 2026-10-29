@@ -4305,6 +4305,8 @@
           agentId: state.agentId || undefined,
           // Settings → AI → Answer length; nothing is sent for the default.
           replyLength: Logic.replyLengthForRequest(state.replyLength),
+          // A spoken turn: the reply is written to be heard. Nothing is sent for a typed one (or a Retry, which is always typed).
+          inputMode: isVoice ? "voice" : undefined,
         }),
         signal: controller.signal,
       });

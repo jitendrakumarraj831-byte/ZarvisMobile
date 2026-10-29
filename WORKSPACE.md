@@ -91,7 +91,9 @@ them.
 A turn may carry `projectId` and `agentId`. With an agent, only that agent's skills are offered to the planner; an
 unknown agent is a 400 (`invalid_agent`). With a project, its goal, decisions and project memory are added to the
 planner prompt. An optional `replyLength` (`short`, `balanced` or `detailed`; Settings → AI → Answer length) tells the
-planner how long the user wants replies to be; any other value is the normal length, never an error.
+planner how long the user wants replies to be; any other value is the normal length, never an error. An optional
+`inputMode: "voice"` (sent by Web and Android for a message the microphone heard) tells the planner to write a reply to
+be heard; any other value is a typed message.
 
 Chats can be pinned in Chat history. Pins are kept in this browser only (`zarvis.chatsPinned`, at most 10): pinned chats
 come first in the history panel, the sidebar and the Chat page's recent chats, and a deleted chat loses its pin.
