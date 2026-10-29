@@ -1,5 +1,7 @@
 package com.zarvismobile.app
 
+import android.app.NotificationManager
+import android.content.Context
 import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.provider.Settings
@@ -11,6 +13,7 @@ import com.zarvismobile.app.Device.APP
 import com.zarvismobile.app.Device.entry
 import com.zarvismobile.app.Device.evidence
 import com.zarvismobile.app.Device.eventually
+import com.zarvismobile.app.Device.sdk
 import com.zarvismobile.app.Device.shell
 import com.zarvismobile.app.Device.ui
 import com.zarvismobile.domain.access.RationaleChoice
@@ -239,5 +242,36 @@ class AppAutomationTest {
         evidence("multi-step: \"$utterance\" -> ${steps.joinToString(" | ")}; in front: $front")
         handlers(AlarmClock.ACTION_SHOW_ALARMS).forEach { shell("am force-stop $it") }
         leave(front)
+    }
+
+    /**
+     * A reminder only the Brain takes (the time comes first: "1 minute baad … reminder set karo"). The backend hands personal.reminder back
+     * with a title of its own that has no time in it, as a real model writes one; the phone schedules it at the time the user said, Android
+     * really delivers its notification, and the conversation holds the phone's real result. Before the fix it came back FAILED ("When
+     * should I remind you?") and was recorded on the server as FAILED.
+     */
+    @Test
+    fun i_aReminderTheBrainHandsToThePhoneIsCreatedAndItsNotificationIsDelivered() {
+        if (sdk >= 33) shell("pm grant $APP android.permission.POST_NOTIFICATIONS")
+        // Exact timing on Android 12+ needs "Alarms & reminders" (granted by default only on 12).
+        if (sdk >= 31) shell("appops set $APP SCHEDULE_EXACT_ALARM allow")
+        startAppAndNewChat()
+
+        val utterance = "1 minute baad paani peene ka reminder set karo"
+        val outcome = turn(utterance)
+
+        assertEquals(outcome.message, ToolResultStatus.COMPLETED, outcome.result?.status)
+        assertEquals("personal.reminder", outcome.result?.skillId)
+        assertTrue(outcome.message, outcome.message.startsWith("Reminder set for "))
+        assertEquals("the request and the phone's own result are the conversation", listOf("user" to utterance, "assistant" to outcome.message), history())
+        val manager = Device.app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val delivered = eventually(150_000, stepMs = 2_000) {
+            manager.activeNotifications.any { n ->
+                listOfNotNull(n.notification.extras.getCharSequence("android.title"), n.notification.extras.getCharSequence("android.text"))
+                    .any { it.toString().contains("paani peene", ignoreCase = true) }
+            }
+        }
+        assertTrue("the reminder's notification was posted by Android on API $sdk", delivered)
+        evidence("Brain reminder handoff: \"$utterance\" -> ${outcome.message}; notification delivered on sdk=$sdk")
     }
 }

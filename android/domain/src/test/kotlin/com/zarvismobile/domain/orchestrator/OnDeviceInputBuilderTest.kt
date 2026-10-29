@@ -35,6 +35,15 @@ class OnDeviceInputBuilderTest {
     }
 
     @Test
+    fun `reminder keeps the user's own words apart from the title, for a Brain handoff whose title replaces it`() {
+        val said = "kal subah 8 baje mummy ko call karne ka reminder set kar do"
+        val input = OnDeviceInputBuilder.build(reminderSkill, said)
+        assertEquals(said, input.values["utterance"])
+        // Listing needs no words: only the action.
+        assertEquals(mapOf("action" to "list"), OnDeviceInputBuilder.build(reminderSkill, "show my reminders").values)
+    }
+
+    @Test
     fun `open_app strips the trigger word, leaving the app name`() {
         val input = OnDeviceInputBuilder.build(openAppSkill, "open WhatsApp")
         assertEquals("whatsapp", input.values["appName"])

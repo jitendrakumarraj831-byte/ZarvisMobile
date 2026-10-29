@@ -79,7 +79,7 @@ object ReminderSkillFactory {
         val (dueAt, title) = if (explicit != null) {
             explicit to raw
         } else {
-            when (val parsed = ReminderTimeParser.parse(raw, now)) {
+            when (val parsed = parseDue(raw, values["utterance"] as? String, now)) {
                 is ReminderTimeParser.Result.Parsed -> parsed.dueAt.toInstant() to parsed.title
                 is ReminderTimeParser.Result.InPast -> return SkillResult.Failure(
                     reason = "time_in_past",
@@ -126,6 +126,30 @@ object ReminderSkillFactory {
             SkillResult.Failure("not_found", "I couldn't find that reminder.")
         }
     }
+
+    /**
+     * The due time and the title. [title] says what to be reminded of; [said] is the user's own words, which differ from it when the
+     * Brain handed the reminder over with a title of its own. A time the user said wins: the Brain often leaves the time out of a title
+     * ("Call mom"), and it does not know the phone's clock, so it may rewrite "in 2 hours" as an hour that has already gone. Its title
+     * still names the reminder. When the user's words have no time (it was said earlier in the chat), the title's time is used.
+     */
+    private fun parseDue(title: String, said: String?, now: ZonedDateTime): ReminderTimeParser.Result {
+        val fromTitle = ReminderTimeParser.parse(title, now)
+        val words = said?.trim()?.takeIf { it.isNotEmpty() && it != title } ?: return fromTitle
+        val label = fromTitle.title
+        return when (val fromWords = ReminderTimeParser.parse(words, now)) {
+            is ReminderTimeParser.Result.Parsed -> fromWords.copy(title = label.ifBlank { fromWords.title })
+            is ReminderTimeParser.Result.InPast -> fromWords.copy(title = label.ifBlank { fromWords.title })
+            is ReminderTimeParser.Result.NoTime -> fromTitle
+        }
+    }
+
+    private val ReminderTimeParser.Result.title: String
+        get() = when (this) {
+            is ReminderTimeParser.Result.Parsed -> title
+            is ReminderTimeParser.Result.InPast -> title
+            is ReminderTimeParser.Result.NoTime -> title
+        }
 
     private fun parseInstant(raw: String?): Instant? {
         if (raw.isNullOrBlank()) return null
