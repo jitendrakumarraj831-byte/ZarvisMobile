@@ -355,7 +355,7 @@ class ConversationViewModel @Inject constructor(
                     if (update.isFinal) {
                         sttEngine.stop()
                         _uiState.update { it.copy(composerText = "") }
-                        runTurn(update.text)
+                        runTurn(update.text, spoken = true)
                     }
                 }
                 if (_uiState.value.voiceState == VoiceState.LISTENING) _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
@@ -458,8 +458,12 @@ class ConversationViewModel @Inject constructor(
         runTurn(last.userText, retryOf = id)
     }
 
-    /** [retryOf] is the id of the failed message being sent again: its exchange is replaced instead of the question being asked twice. */
-    private fun runTurn(utterance: String, retryOf: String? = null) {
+    /**
+     * [retryOf] is the id of the failed message being sent again: its exchange is replaced instead of the question being asked twice.
+     * [spoken] is true for what the microphone heard: the Brain then writes a reply to be heard (short spoken sentences, no tables or
+     * links). A retry is sent as typed, as on the web.
+     */
+    private fun runTurn(utterance: String, retryOf: String? = null, spoken: Boolean = false) {
         // One turn at a time: a new request (typed, voice, resume) supersedes the one in flight
         // instead of running beside it and writing its reply into the wrong bubble.
         stopTurnInFlight()
@@ -497,7 +501,7 @@ class ConversationViewModel @Inject constructor(
                 val accountId = sessionRepository.ensureSession()
                 val locale = if (language == "hi") "hi-IN" else "en-US"
                 val timed = measureTimedValue {
-                    orchestrator.handleTurn(utterance, accountId, locale = locale.take(2), clientTurnId = clientTurnId) { progress ->
+                    orchestrator.handleTurn(utterance, accountId, locale = locale.take(2), clientTurnId = clientTurnId, spoken = spoken) { progress ->
                         slow.cancel()
                         show(
                             when (progress) {

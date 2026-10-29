@@ -503,7 +503,8 @@ async function send(page, text) {
     await send(pageC, "Hello");
     await pageC.waitForFunction((n) => document.querySelectorAll(".bubble-retry-btn").length > n, before, { timeout: 10000 });
     await pageC.locator(".bubble-retry-btn").last().click();
-    await pageC.waitForSelector(".bubble.assistant >> text=I'm ZARVIS", { timeout: 10000 });
+    // This chat already has replies (the steps above), so the greeting picks up again rather than introducing ZARVIS.
+    await pageC.waitForSelector(".bubble.assistant >> text=What would you like to do next?", { timeout: 10000 });
     await pageC.waitForFunction(() => !document.querySelector(".bubble.thinking"), null, { timeout: 10000 });
     await pageC.unroute("**/api/v1/orchestrator/turn-stream");
 

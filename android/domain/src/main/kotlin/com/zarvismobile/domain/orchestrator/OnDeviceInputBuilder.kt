@@ -23,8 +23,9 @@ object OnDeviceInputBuilder {
         "personal.reminder" -> if (isReminderListRequest(utterance)) {
             SkillInput(mapOf("action" to "list"))
         } else {
-            // The skill parses the due time out of the text itself (ReminderTimeParser).
-            SkillInput(mapOf("action" to "create", "title" to utterance))
+            // The skill parses the due time out of the text itself (ReminderTimeParser). `utterance` keeps the user's own words when the
+            // Brain hands the reminder over with a title of its own (AndroidOrchestrator.runDeviceAction): the time they said wins.
+            SkillInput(mapOf("action" to "create", "title" to utterance, "utterance" to utterance))
         }
         "device.open_settings" -> SkillInput(mapOf("panel" to settingsPanel(utterance)))
         "alarm.set", "calendar.create_event" -> SkillInput(mapOf("utterance" to utterance))

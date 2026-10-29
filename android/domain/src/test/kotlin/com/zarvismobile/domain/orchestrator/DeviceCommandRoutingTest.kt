@@ -145,6 +145,22 @@ class DeviceCommandRoutingTest {
         assertEquals("phone.open_app", route("open google maps"))
     }
 
+    /**
+     * A reminder request that starts with its time ("kal subah 8 baje … reminder set kar do") is not one the phone's own words take: it
+     * goes to the Brain, which hands personal.reminder back with a title of its own (ReminderBrainHandoffTest covers what happens then).
+     */
+    @Test
+    fun aReminderRequestThatStartsWithItsTimeGoesToTheBrain() {
+        for (text in listOf(
+            "kal subah 8 baje mummy ko call karne ka reminder set kar do",
+            "2 ghante baad dawai lene ka reminder set karo",
+            "1 minute baad paani peene ka reminder set karo",
+            "roz shaam ko paani peene ka reminder set karo",
+        )) {
+            assertNull(route(text), text)
+        }
+    }
+
     /** Regression: these were taken as new reminders, and the user was asked "When should I remind you?". */
     @Test
     fun askingWhichRemindersThereAreListsThem() {

@@ -73,7 +73,13 @@ data class OrchestratorTurnRequest(
      * (backend/src/agents/orchestrator.ts claimTurn). Omitted (null): no protection, as before.
      */
     val clientTurnId: String? = null,
-)
+    /** [INPUT_MODE_VOICE] when the user spoke the message: the server writes the reply to be heard. Omitted (null) for a typed one. */
+    val inputMode: String? = null,
+) {
+    companion object {
+        const val INPUT_MODE_VOICE = "voice"
+    }
+}
 
 @Serializable
 data class OrchestratorTurnResponse(

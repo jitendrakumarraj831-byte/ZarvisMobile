@@ -157,13 +157,15 @@ class AndroidOrchestrator(
     /**
      * [onProgress] hears each stage the turn reaches (on an I/O thread), so a screen can show it while the reply is on its way.
      * [clientTurnId] is the id of this one user message, the same when the user retries it (OrchestratorTurnRequest.clientTurnId); a turn
-     * the Brain cannot answer throws [TurnFailedException].
+     * the Brain cannot answer throws [TurnFailedException]. [spoken] says the user said it (speech recognition), so the Brain writes a
+     * reply to be heard.
      */
     suspend fun handleTurn(
         utterance: String,
         accountId: String,
         locale: String = "en",
         clientTurnId: String? = null,
+        spoken: Boolean = false,
         onProgress: (TurnProgress) -> Unit = {},
     ): TurnOutcome {
         val skill = matcher.matchCommand(utterance)
@@ -171,7 +173,7 @@ class AndroidOrchestrator(
             onProgress(TurnProgress.OnPhone(skill.id))
             handleOnDevice(skill, utterance, accountId, locale)
         } else {
-            handleWithBrain(utterance, accountId, locale, clientTurnId, onProgress)
+            handleWithBrain(utterance, accountId, locale, clientTurnId, spoken, onProgress)
         }
     }
 
@@ -282,6 +284,7 @@ class AndroidOrchestrator(
         accountId: String,
         locale: String,
         clientTurnId: String?,
+        spoken: Boolean,
         onProgress: (TurnProgress) -> Unit,
     ): TurnOutcome {
         // The conversation this turn is sent to. The answer is recorded under it only if the device is still in it when the answer arrives.
@@ -309,6 +312,7 @@ class AndroidOrchestrator(
                     conversationId = sent.id,
                     deviceActions = offeredDeviceActions,
                     clientTurnId = clientTurnId,
+                    inputMode = OrchestratorTurnRequest.INPUT_MODE_VOICE.takeIf { spoken },
                 ),
                 stream,
                 onProgress,

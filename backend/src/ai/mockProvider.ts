@@ -167,6 +167,20 @@ const COMMAND_WORDS = new Set([
   "call", "dial", "phone", "lagao", "laga", "ko", "number", "ka", "ki", "of", "find", "contact", "batao", "dikhao", "a", "to",
 ]);
 
+/** Times and days said in a request ("1 minute baad", "at 8 pm", "kal subah"), for a title written the way a model writes one. */
+const TIME_WORDS = [
+  /\b(?:in|after)\s+\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b/gi,
+  /\b\d{1,3}\s*(?:minutes?|mins?|ghante|ghanta)\s*(?:baad|bad|mein|me)\b/gi,
+  /\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm|baje)\b/gi,
+  /\bat\s+\d{1,2}(?::\d{2})?\b/gi,
+  /\b(?:today|tonight|tomorrow|kal|aaj|subah|shaam|raat)\b/gi,
+];
+
+function withoutTime(utterance: string): string {
+  const title = TIME_WORDS.reduce((text, pattern) => text.replace(pattern, " "), utterance).replace(/\s+/g, " ").trim();
+  return title || "Reminder";
+}
+
 /** Input for a phone action from the utterance, named heuristics like fillInput's (development only). */
 function fillDeviceInput(skillId: string, utterance: string): Record<string, unknown> {
   const lower = utterance.toLowerCase();
@@ -192,7 +206,9 @@ function fillDeviceInput(skillId: string, utterance: string): Record<string, unk
                   : "HOME",
       };
     case "personal.reminder":
-      return /\b(list|show)\b.*\breminders\b/.test(lower) ? { action: "list" } : { action: "create", title: utterance };
+      // A real model names the reminder ("Drink water") and often leaves the time out of its title; so does this stand-in, so a reminder
+      // handed to the phone is scheduled from the user's own words there (android ReminderSkillFactory), as in production.
+      return /\b(list|show)\b.*\breminders\b/.test(lower) ? { action: "list" } : { action: "create", title: withoutTime(utterance) };
     case "screen.tap":
       return { label: utterance.replace(/^.*?\btap\s+(?:on\s+|the\s+)?/i, "").trim() || utterance };
     case "alarm.set":

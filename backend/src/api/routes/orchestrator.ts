@@ -32,6 +32,9 @@ import { continuationNote, DEVICE_RESULT_STATUSES, isDeviceActionId, MAX_PHONE_S
  * An optional `replyLength` (`short`, `balanced` or `detailed`) is the user's answer-length preference; the planner is
  * told it. Any other value is ignored.
  *
+ * An optional `inputMode: "voice"` says the user spoke the message (the client's speech recognition): the planner writes a
+ * reply to be heard, and reads the transcript allowing for misheard words. Any other value is ignored.
+ *
  * An optional `deviceActions` (ids from capabilities/deviceActions.ts) lists the phone actions the client runs itself.
  * The planner may then answer with `deviceAction: { toolCallId, skillId, input }` instead of prose: nothing ran on the
  * server, the client runs it (its own permission and confirmation flow) and reports the outcome to
@@ -248,7 +251,7 @@ function abortOnClientGone(res: Response): { signal: AbortSignal; dispose(): voi
 const CLIENT_TURN_ID = /^[A-Za-z0-9_-]{8,100}$/;
 
 function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { error: string; code: string } } {
-  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId, projectId, agentId, replyLength, deviceActions } = req.body ?? {};
+  const { utterance, locale, userName, isFirstTurn, history, conversationId, clientTurnId, projectId, agentId, replyLength, inputMode, deviceActions } = req.body ?? {};
   if (typeof utterance !== "string" || utterance.trim().length === 0) {
     return { error: { error: "utterance is required", code: "invalid_request" } };
   }
@@ -276,6 +279,8 @@ function parseTurnRequest(req: AuthenticatedRequest): TurnRequest | { error: { e
     conversationId: typeof conversationId === "string" && conversationId.trim() ? conversationId.trim().slice(0, 100) : undefined,
     // A preference: "balanced" (the default) and anything unknown mean the normal length, never an error.
     replyLength: replyLength === "short" || replyLength === "detailed" ? replyLength : undefined,
+    // A hint about the reply's form, like replyLength: anything but "voice" is a typed message, never an error.
+    inputMode: inputMode === "voice" ? "voice" : undefined,
     // Only ids the server knows; an unknown one (an older or newer client) is ignored, never an error.
     deviceActions: Array.isArray(deviceActions) ? [...new Set(deviceActions.filter(isDeviceActionId))] : undefined,
   };

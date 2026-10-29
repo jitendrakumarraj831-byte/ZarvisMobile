@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
@@ -62,6 +63,8 @@ class ConversationReadAloudTest {
     /** Answers the n-th turn with the n-th scripted reply (the last one again once the script runs out). Deleting a chat succeeds. */
     private class Backend(private val replies: List<MockResponse>) : Dispatcher() {
         val turns = mutableListOf<String?>()
+        /** Each turn's `inputMode`, null when the app sent none. */
+        val inputModes = mutableListOf<String?>()
         var deletes = 0
 
         @Synchronized
@@ -69,6 +72,7 @@ class ConversationReadAloudTest {
             if (request.method == "POST" && request.path == "/api/v1/orchestrator/turn-stream") {
                 val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
                 turns += body["utterance"]?.jsonPrimitive?.content
+                inputModes += (body["inputMode"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 return replies[minOf(turns.size, replies.size) - 1]
             }
             if (request.method == "DELETE" && request.path?.startsWith("/api/v1/conversations/") == true) {
@@ -228,6 +232,21 @@ class ConversationReadAloudTest {
     private fun waitForCall(count: Int): ControlledVoice.Call {
         waitFor("voice request #$count") { voice.calls.size >= count }
         return voice.calls[count - 1]
+    }
+
+    @Test
+    fun aSpokenMessageIsSentAsSpokenSoItsReplyIsWrittenToBeHeardAndATypedOneIsNot() {
+        val heard = flowOf(TranscriptUpdate("kal ka mausam", isFinal = false), TranscriptUpdate("kal ka mausam kaisa hai", isFinal = true))
+        val vm = screen(done("Kal halki baarish ho sakti hai."), done("Theek hai."), listening = heard)
+
+        vm.startListening()
+        waitFor("the spoken message's reply") { vm.state.turns.lastOrNull()?.assistantText == "Kal halki baarish ho sakti hai." }
+        waitFor("the screen to settle") { vm.state.progress == null && vm.state.voiceState == VoiceState.IDLE }
+        vm.ask("ok thanks")
+
+        assertEquals(listOf("kal ka mausam kaisa hai", "ok thanks"), backend.turns)
+        assertEquals(listOf("voice", null), backend.inputModes)
+        assertEquals("what was heard is not left in the composer", "", vm.state.composerText)
     }
 
     @Test
