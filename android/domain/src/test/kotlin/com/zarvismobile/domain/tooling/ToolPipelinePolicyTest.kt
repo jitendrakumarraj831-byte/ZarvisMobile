@@ -264,6 +264,37 @@ class ToolPipelinePolicyTest {
     }
 
     @Test
+    fun `a message draft needs approval for its exact recipient and text before opening the messaging app`() = runTest {
+        val preparer = SkillPreparer { _, _ ->
+            PreparedAction.Ready(
+                "Open a WhatsApp draft to Rahul: \"I'm running late.\"",
+                SkillInput(mapOf("text" to "I'm running late.", "to" to "Rahul", "app" to "WhatsApp")),
+            )
+        }
+        val draft = phoneSkill(
+            "message.draft",
+            RiskLevel.MEDIUM,
+            ActionClass.EXTERNAL_COMMUNICATION,
+            preparer = preparer,
+            result = SkillResult.Success(emptyMap(), "Draft opened. Review it and press Send yourself.", userActionRequired = true),
+        )
+        val declined = FakeConfirmationPort(approve = false)
+
+        val refused = pipeline(draft, confirmation = declined).run(draft.id)
+
+        assertIs<ToolExecutionOutcome.ConfirmationDeclined>(refused)
+        assertEquals("Open a WhatsApp draft to Rahul: \"I'm running late.\"", declined.lastRequest?.summary)
+        assertEquals(0, ran, "a declined message must never open the messaging app")
+
+        val approved = FakeConfirmationPort(approve = true)
+        val opened = pipeline(draft, confirmation = approved).run(draft.id)
+
+        assertIs<ToolExecutionOutcome.Success>(opened)
+        assertEquals("Open a WhatsApp draft to Rahul: \"I'm running late.\"", approved.lastRequest?.summary)
+        assertEquals(1, ran)
+    }
+
+    @Test
     fun `the history says how each attempt ended`() = runTest {
         val journal = Journal()
         pipeline(tap("com.example.notes"), journal, confirmation = FakeConfirmationPort(approve = false)).run("screen.tap")
