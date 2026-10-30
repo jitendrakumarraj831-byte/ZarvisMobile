@@ -15,8 +15,8 @@ import com.zarvismobile.domain.entity.UsageCost
 
 /**
  * `message.draft` — opens a message in WhatsApp, the SMS app, an email app or another app, ready for the user to send
- * (blueprint Phase 11 SHARE_FLOW_AVAILABLE). ZARVIS never sends it: the user reads the draft in that app and presses Send, so no
- * confirmation is asked here. A contact's name is resolved to one number first (Contacts permission, explained by the
+ * (blueprint Phase 11 SHARE_FLOW_AVAILABLE). The exact recipient and message are confirmed before the draft opens; ZARVIS never
+ * sends it. The user reviews the draft in that app and presses Send themselves. A contact's name is resolved to one number first (Contacts permission, explained by the
  * orchestrator), and an unknown or ambiguous name opens nothing, so a draft never goes to the wrong person's chat.
  *
  * It has no trigger words: a message is put in words the Brain understands ("Rahul ko WhatsApp pe bolo ki main late hoon"),
@@ -36,10 +36,10 @@ object MessageDraftSkillFactory {
         requiredPermissions = emptyList(),
         requiredEntitlement = EntitlementLevel.FREE,
         usageCost = UsageCost.FREE,
-        riskLevel = RiskLevel.LOW,
-        actionClass = ActionClass.LOW_IMPACT,
+        riskLevel = RiskLevel.MEDIUM,
+        actionClass = ActionClass.EXTERNAL_COMMUNICATION,
         capabilityId = null,
-        requiresConfirmation = false,
+        requiresConfirmation = true,
         executesOnDevice = true,
         inputSchema = JsonSchema(requiredFields = setOf("text")),
         preparer = preparer(contacts),

@@ -8,8 +8,8 @@
   },
   "neverDoes": [
     {
-      "en": "Send a message, email or post for you. A draft opens in the app and you press Send.",
-      "hi": "आपकी जगह message, email या post नहीं भेजता। Draft app में खुलता है और Send आप दबाते हैं।"
+      "en": "Send a message, email or post for you. Before opening a message draft, ZARVIS shows the exact recipient and text for your approval; the draft then opens in the app and you press Send.",
+      "hi": "आपकी जगह message, email या post नहीं भेजता। Draft खोलने से पहले exact recipient और message text की अनुमति लेता है; फिर app में draft खोलता है और Send आप दबाते हैं।"
     },
     {
       "en": "Pay, buy, transfer money or subscribe.",
@@ -43,7 +43,7 @@
   "actions": [
     { "skillId": "phone.open_app", "capabilityId": null, "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
     { "skillId": "app.search", "capabilityId": null, "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
-    { "skillId": "message.draft", "capabilityId": null, "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
+    { "skillId": "message.draft", "capabilityId": null, "risk": "MEDIUM", "actionClass": "EXTERNAL_COMMUNICATION", "confirm": true, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
     { "skillId": "phone.find_contact", "capabilityId": "contacts", "risk": "MEDIUM", "actionClass": "READ_ONLY", "confirm": false, "privateResult": true, "actsInOtherApps": false, "brainHandoff": true },
     { "skillId": "phone.call", "capabilityId": "phone_call", "risk": "HIGH", "actionClass": "EXTERNAL_COMMUNICATION", "confirm": true, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },
     { "skillId": "personal.reminder", "capabilityId": "alarms", "risk": "LOW", "actionClass": "LOW_IMPACT", "confirm": false, "privateResult": false, "actsInOtherApps": false, "brainHandoff": true },

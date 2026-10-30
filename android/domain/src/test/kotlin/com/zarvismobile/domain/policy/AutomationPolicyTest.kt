@@ -101,7 +101,7 @@ class AutomationPolicyTest {
         }
         val confirmed = policy.rules.filter { policy.requiresConfirmation(it) }.map { it.skillId }.toSet()
         assertEquals(
-            setOf("phone.call", "notifications.read_recent", "usage.screen_time", "device.global_action", "screen.read", "screen.tap"),
+            setOf("message.draft", "phone.call", "notifications.read_recent", "usage.screen_time", "device.global_action", "screen.read", "screen.tap"),
             confirmed,
         )
     }

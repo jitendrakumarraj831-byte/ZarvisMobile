@@ -73,7 +73,7 @@ phone ([ZARVIS_PHASE1_DEVICE_CHECKLIST.md](./ZARVIS_PHASE1_DEVICE_CHECKLIST.md))
 
 These promises are shown to the user, in English and Hindi, on Settings › Phone action safety, from the same JSON.
 
-- Send a message, email or post for you. A draft opens in the app and you press Send.
+- Send a message, email or post for you. Before opening a message draft, ZARVIS shows the exact recipient and text for your approval; the draft then opens in the app and you press Send.
 - Pay, buy, transfer money or subscribe.
 - Read or tap inside banking, payment, trading, authenticator or password apps.
 - Act inside Android Settings, permission or install screens, or give itself any access.
@@ -88,7 +88,7 @@ These promises are shown to the user, in English and Hindi, on Settings › Phon
 |---|---|---|---|---|---|---|
 | `phone.open_app` | LOW | LOW_IMPACT | | | | ✓ |
 | `app.search` | LOW | LOW_IMPACT | | | | ✓ |
-| `message.draft` | LOW | LOW_IMPACT | (you press Send) | | | ✓ |
+| `message.draft` | MEDIUM | EXTERNAL_COMMUNICATION | ✓ (exact recipient and text before opening) | | | ✓ |
 | `phone.find_contact` | MEDIUM | READ_ONLY | | ✓ | | ✓ |
 | `phone.call` | HIGH | EXTERNAL_COMMUNICATION | ✓ | | | ✓ |
 | `personal.reminder` | LOW | LOW_IMPACT | | | | ✓ |

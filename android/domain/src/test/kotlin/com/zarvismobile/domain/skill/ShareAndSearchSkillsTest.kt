@@ -1,7 +1,6 @@
 package com.zarvismobile.domain.skill
 
 import com.zarvismobile.domain.FakeContactLookupPort
-import com.zarvismobile.domain.capability.ActionPolicy
 import com.zarvismobile.domain.entity.PreparedAction
 import com.zarvismobile.domain.entity.SkillDefinition
 import com.zarvismobile.domain.entity.SkillExecutionContext
@@ -46,8 +45,8 @@ class ShareAndSearchSkillsTest {
         assertTrue(result.userActionRequired)
         assertTrue(result.summary.contains("Press Send"))
         assertTrue(result.summary.contains("doesn't send"))
-        // Opening a draft sends nothing, so it needs no confirmation of its own.
-        assertFalse(ActionPolicy.requiresConfirmation(skill))
+        // The pipeline must confirm the exact recipient and message before opening this external-communication draft.
+        assertTrue(skill.requiresConfirmation)
     }
 
     @Test
