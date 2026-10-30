@@ -8,7 +8,7 @@
   },
   "neverDoes": [
     {
-      "en": "Send a message, email or post for you. A draft opens in the app and you press Send.",
+      "en": "Send a message, email or post for you. Before opening a message draft, ZARVIS shows the exact recipient and text for your approval; the draft then opens in the app and you press Send.",
       "hi": "आपकी जगह message, email या post नहीं भेजता। Draft app में खुलता है और Send आप दबाते हैं।"
     },
     {
